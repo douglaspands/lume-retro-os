@@ -1,5 +1,5 @@
 #!/bin/sh
-# Frontend RetroArch: configuração do usuário (persistida) + tema Lume por cima.
+# Frontend RetroArch: configuração do usuário (persistida) + configuração fixa da distro.
 # /run/r36os/retroarch-extra.cfg, se existir, entra por último (usado pelo self-test).
 CFGS=/usr/share/r36os/retroarch-lume.cfg
 [ -f /run/r36os/retroarch-extra.cfg ] && CFGS="$CFGS|/run/r36os/retroarch-extra.cfg"

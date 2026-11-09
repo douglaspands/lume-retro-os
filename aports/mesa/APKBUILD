@@ -1,0 +1,132 @@
+# Baseado em main/mesa do Alpine v3.24 (David Heidelberg, team/alpine-desktop).
+# Só para a VM (x86_64): o Mesa do Alpine não compila o driver virgl, e sem ele o
+# RetroArch da VM desenha por software (llvmpipe). Esta variante enxuta tem só os
+# drivers llvmpipe e virgl e os subpacotes que a imagem usa (mesa, -dri-gallium, -egl,
+# -gbm, -gles). Nos consoles fica o Mesa do Alpine (lima e panfrost).
+# pkgrel alto para o repositório local vencer o pacote do Alpine.
+pkgname=mesa
+pkgver=26.1.6
+pkgrel=100
+pkgdesc="Mesa DRI OpenGL library (llvmpipe + virgl, VM do Lume Retro OS)"
+url="https://www.mesa3d.org"
+arch="x86_64"
+license="MIT AND SGI-B-2.0 AND BSL-1.0"
+subpackages="
+	$pkgname-dri-gallium:_gallium
+	$pkgname-egl
+	$pkgname-gles
+	$pkgname-gbm
+	"
+_llvmver=22
+makedepends="
+	libdrm-dev
+	binutils
+	bison
+	elfutils-dev
+	eudev-dev
+	expat-dev
+	findutils
+	flex
+	gettext
+	glslang-dev
+	libdisplay-info-dev
+	libxml2-dev
+	llvm$_llvmver-dev
+	meson
+	py3-mako
+	py3-packaging
+	py3-ply
+	py3-yaml
+	python3
+	zlib-dev
+	zstd-dev
+	"
+source="https://mesa.freedesktop.org/archive/mesa-${pkgver/_/-}.tar.xz
+	23575.patch
+	riscv64-tls.patch
+	llvm22-armhf.patch
+	"
+builddir="$srcdir/mesa-${pkgver/_/-}"
+options="!check"
+
+_dri_driverdir=/usr/lib/dri
+
+build() {
+	export CFLAGS="$CFLAGS -O2 -g1"
+	export CXXFLAGS="$CXXFLAGS -O2 -g1"
+	export CPPFLAGS="$CPPFLAGS -O2 -g1"
+
+	PATH="$PATH:/usr/lib/llvm$_llvmver/bin" \
+	abuild-meson \
+		-Db_ndebug=true \
+		-Db_lto=false \
+		-Dallow-kcmp=enabled \
+		-Dexpat=enabled \
+		-Dshader-cache=enabled \
+		-Dxmlconfig=enabled \
+		-Dzstd=enabled \
+		-Dbackend_max_links=2 \
+		-Dbuild-tests=false \
+		-Ddri-drivers-path=$_dri_driverdir \
+		-Dgallium-drivers=llvmpipe,virgl \
+		-Dvulkan-drivers= \
+		-Dplatforms= \
+		-Dllvm=enabled \
+		-Dshared-llvm=enabled \
+		-Dgbm=enabled \
+		-Dglx=disabled \
+		-Dopengl=true \
+		-Dgles1=disabled \
+		-Dgles2=enabled \
+		-Degl=enabled \
+		-Dgallium-rusticl=false \
+		-Dgallium-va=disabled \
+		-Dvideo-codecs= \
+		. output
+
+	meson configure --no-pager output
+	meson compile -C output
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+	# sem GLX não há libGL útil: a imagem só usa EGL + GLES
+	rm -f "$pkgdir"/usr/lib/libGL.so*
+}
+
+egl() {
+	pkgdesc="Mesa libEGL runtime libraries"
+	depends="mesa=$pkgver-r$pkgrel mesa-gles=$pkgver-r$pkgrel"
+	amove usr/lib/libEGL.so*
+}
+
+gles() {
+	pkgdesc="Mesa libGLESv2 runtime libraries"
+	depends="mesa=$pkgver-r$pkgrel"
+	amove usr/lib/libGLES*.so*
+}
+
+gbm() {
+	pkgdesc="Mesa gbm library"
+	depends="mesa=$pkgver-r$pkgrel"
+	amove usr/lib/libgbm.so.*
+}
+
+# Move os links que apontam para o mesmo arquivo (megadriver) para o subpacote.
+_mv_links() {
+	install -d "$subpkgdir"/$1
+	find -L "$pkgdir"/$1 -samefile "$pkgdir"/$1/$2 -print0 \
+		| xargs -0 -I{} mv {} "$subpkgdir"/$1/
+}
+
+_gallium() {
+	pkgdesc="Mesa gallium DRI drivers (llvmpipe, virgl)"
+	depends="mesa=$pkgver-r$pkgrel"
+	_mv_links $_dri_driverdir swrast_dri.so
+}
+sha512sums="
+6746b73f5b87e8ff3723eee586b4b5f033dbe6d13cd0309d743b7fa484c350268859ec8ff21aadcbca7a04070cdaa7828146dd28dde4b1935bb879891d687f0b  mesa-26.1.6.tar.xz
+91bdda3a4b5906963c8c0053ebb924b952dac3d50e66afee87a7abebf82141426b34dce7e1947fe18c54dedd33537792ec13a94504ff7ad890243507d57fdc88  23575.patch
+ce1887fb7d425b94c375a0547bee40c308809c01f5ce1bcddabcc69a7fcb445efb9d5f5c7bac49b2778ab40687c7bce204d278b0bf028d124c75e59083107fba  riscv64-tls.patch
+689a9f604845e00351e0dc067a0fc2f0c721fb57f3e02431bcb1c338fb31964af74b6725eddea647076e0356161bac403c31cfe09f8dd1ec4fcfd9a06ea097a8  llvm22-armhf.patch
+"

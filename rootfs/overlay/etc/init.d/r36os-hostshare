@@ -1,0 +1,39 @@
+#!/sbin/openrc-run
+# Só na VM: pasta do PC compartilhada por virtio-9p (uv run r36os vm --roms DIR),
+# somente leitura. Se ela tiver as pastas dos sistemas, vira /storage/roms; bios/ vira
+# /storage/bios.
+
+description="Pasta compartilhada do PC (VM)"
+
+depend() {
+	need localmount
+	after r36os-persist
+	before r36os-playlists frontend
+}
+
+start() {
+	[ "$(cat /etc/r36os/board 2>/dev/null)" = vm ] || return 0
+	modprobe 9pnet_virtio 2>/dev/null
+	mkdir -p /mnt/host
+	mount -t 9p -o ro,trans=virtio,version=9p2000.L hostshare /mnt/host 2>/dev/null || return 0
+	ebegin "Pasta do PC montada em /mnt/host"
+	local roms=""
+	if [ -d /mnt/host/roms ]; then
+		roms=/mnt/host/roms
+	else
+		for s in $(jq -r '.systems[].id' /usr/share/r36os/systems.json); do
+			[ -d "/mnt/host/$s" ] && { roms=/mnt/host; break; }
+		done
+	fi
+	if [ -n "$roms" ]; then
+		mount --bind "$roms" /storage/roms && einfo "$roms -> /storage/roms"
+		[ -d "$roms/bios" ] && mount --bind "$roms/bios" /storage/bios \
+			&& einfo "$roms/bios -> /storage/bios"
+	fi
+	eend 0
+}
+
+stop() {
+	umount /storage/bios /storage/roms /mnt/host 2>/dev/null
+	return 0
+}

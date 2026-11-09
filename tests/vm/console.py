@@ -1,13 +1,16 @@
 """Depuração: sobe a imagem vm sem tela, entra como root na serial e roda comandos.
 
     uv run python tests/vm/console.py 'comando 1' 'comando 2' ...
+    CONSOLE_SHARE=~/Jogos uv run python tests/vm/console.py ...   # com pasta do PC
 
 Imprime a saída da serial a partir do login. Não altera out/vm/vm.img (usa uma cópia).
 """
 
+import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from r36os.qmp import QMP
 from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
@@ -18,7 +21,9 @@ log = d / "console-serial.log"
 sock = d / "console.sock"
 for p in (log, sock):
     p.unlink(missing_ok=True)
-cfg = VmConfig(disk=disk, headless=True, qmp=sock, serial_log=log)
+share = os.environ.get("CONSOLE_SHARE")  # pasta do PC, como em `r36os vm --roms`
+cfg = VmConfig(disk=disk, headless=True, qmp=sock, serial_log=log,
+               share_dir=Path(share) if share else None)
 argv = [a for a in podman_argv(cfg) if a != "-t"]
 p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, text=True)
@@ -31,7 +36,7 @@ for line in ["root", *sys.argv[1:]]:
     p.stdin.write(line + "\n")
     p.stdin.flush()
     time.sleep(3)
-time.sleep(float(__import__("os").environ.get("CONSOLE_TAIL", "2")))
+time.sleep(float(os.environ.get("CONSOLE_TAIL", "2")))
 q.cmd("quit")
 p.wait(timeout=30)
 print(log.read_text(errors="replace").split("login:", 1)[-1])

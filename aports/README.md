@@ -26,8 +26,8 @@ Como faltava GLES, há um `aports/retroarch` local (1.22.2-**r100**, para vencer
 pacote do Alpine) com `--enable-kms --enable-egl --enable-opengles --enable-udev
 --enable-alsa --enable-freetype` e `--disable-x11 --disable-wayland --disable-qt
 --disable-sdl2 --disable-pulse --disable-ffmpeg --disable-vulkan`. Depende só de
-`libretro-core-info`: os assets vêm do tema Lume e a autoconfiguração dos
-controles vem da própria distro.
+`libretro-core-info`; `retroarch-assets` e `retroarch-joypad-autoconfig` do Alpine
+entram pela lista de pacotes.
 
 `--features` do pacote local: UDEV, OpenGLES, EGL, KMS, ALSA e FreeType = yes; sem
 X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm`,

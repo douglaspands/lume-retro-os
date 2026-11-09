@@ -12,9 +12,29 @@ KEY_NAME = "r36os"
 REPO_NAME = "r36os"  # abuild grava em $REPODEST/<nome do dir pai>/<arch>
 
 
-def local_aports() -> list[str]:
-    """Pacotes de aports/ (cada subdiretório com APKBUILD), em ordem estável."""
-    return sorted(p.parent.name for p in (REPO_ROOT / "aports").glob("*/APKBUILD"))
+def aport_arches(apkbuild: Path) -> list[str]:
+    """Valor de arch= do APKBUILD (ex.: ['all', '!armv7'])."""
+    for line in apkbuild.read_text().splitlines():
+        if line.startswith("arch="):
+            return line.split("=", 1)[1].strip().strip('"').split()
+    return ["all"]
+
+
+def builds_for(apkbuild: Path, arch: str) -> bool:
+    arches = aport_arches(apkbuild)
+    if f"!{arch}" in arches:
+        return False
+    return any(a in ("all", "noarch", arch) for a in arches)
+
+
+def local_aports(target: Target | None = None) -> list[str]:
+    """Pacotes de aports/ (cada subdiretório com APKBUILD), em ordem estável.
+
+    Com `target`, só os que o arch= do APKBUILD permite (o mesa local é só x86_64).
+    """
+    found = sorted((REPO_ROOT / "aports").glob("*/APKBUILD"))
+    return [p.parent.name for p in found
+            if target is None or builds_for(p, target.alpine_arch)]
 
 
 def keys_dir() -> Path:
@@ -44,9 +64,6 @@ def _container(target: Target, aports: Path) -> Container:
             keys_dir(): "/root/.abuild",
             cache / "distfiles": "/cache/distfiles",
             cache / "ccache" / target.alpine_arch: "/cache/ccache",
-            # entradas do retroarch-theme-lume (gerado no build)
-            REPO_ROOT / "theme/lume": "/theme",
-            REPO_ROOT / "rootfs/overlay/usr/share/r36os": "/catalog",
         },
         env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache"},
     )

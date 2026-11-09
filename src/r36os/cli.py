@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import sys
 
 from r36os.targets import TARGETS, InvalidTargetError, get_target
@@ -23,6 +24,12 @@ def _parser() -> argparse.ArgumentParser:
     v.add_argument("--headless", action="store_true", help="sem janela: serial no terminal")
     v.add_argument("--gamepad", action="append", default=[], metavar="EVDEV",
                    help="repassa um controle do PC (/dev/input/by-id/...-event-joystick)")
+    v.add_argument("--share", type=Path, metavar="DIR",
+                   help="compartilha uma pasta do PC com a VM (montada em /mnt/host)")
+    v.add_argument("--roms", type=Path, metavar="DIR",
+                   help="compartilha pasta de ROMs do PC (vinculada a /storage/roms na VM)")
+    v.add_argument("--no-gamepad", action="store_true",
+                   help="não repassa os controles do host para a VM")
 
     k = sub.add_parser("pkg", help="constrói pacotes de aports/ para um alvo")
     k.add_argument("target", help=f"alvo: {', '.join(TARGETS)}")
@@ -59,7 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "vm":
             from r36os.vm import run_vm
 
-            return run_vm(headless=args.headless, gamepads=args.gamepad)
+            share = args.roms or args.share
+            return run_vm(headless=args.headless, gamepads=args.gamepad, share_dir=share,
+                           no_gamepad=args.no_gamepad)
         if args.command == "test-vm":
             from r36os.selftest import test_vm
 

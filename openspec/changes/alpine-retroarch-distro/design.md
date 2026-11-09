@@ -45,10 +45,9 @@ board/
   ga36/   dts/, kernel.config, uboot.config, extlinux.conf, hw-packages.txt
   vm/     extlinux.conf, hw-packages.txt
 kernel/   patches/ (driver JD9366, driver do controle serial do GA36, painel do R36S)
-aports/   pacotes Alpine locais (cores ausentes, retroarch se preciso, r36os-*)
+aports/   pacotes Alpine locais (cores ausentes, retroarch, mesa só da VM, r36os-*)
 rootfs/   packages.txt (lista comum), overlay/ (arquivos de /etc, serviços)
 initramfs/ init e lista de binários
-theme/lume/ fontes, wallpaper master, gerador de ícones
 src/r36os/ orquestrador do build e da VM (Python, via uv)
 tests/vm/ teste de aceitação
 ```
@@ -67,8 +66,9 @@ O orquestrador é Python porque o repositório já usa `uv` e `.venv`. Os comand
 ```
 
 - **Kernel e U-Boot são compilados em cross**, num container x86_64 com `gcc-aarch64-linux-gnu` e `gcc-arm-linux-gnueabihf`. Compilar o kernel sob emulação levaria horas. Os módulos entram no `SYSTEM` e a imagem do kernel vai para a `BOOT`. Não viram pacotes apk.
-- **Pacotes locais (cores, tema, scripts) usam `abuild`** num container Alpine da arquitetura alvo, com chave de assinatura local e cache (`ccache` e cache de distfiles fora do repositório). Para ARM isso exige `qemu-user` registrado no binfmt do host.
+- **Pacotes locais (cores, retroarch, scripts) usam `abuild`** num container Alpine da arquitetura alvo, com chave de assinatura local e cache (`ccache` e cache de distfiles fora do repositório). Para ARM isso exige `qemu-user` registrado no binfmt do host.
   - *Alternativa descartada:* cross-compilar os cores com o toolchain de bootstrap do Alpine (musl). Isso dá mais trabalho a cada core e diverge do jeito como o Alpine empacota.
+  - Cada pacote local é construído só para os arches do seu `arch=`. O `mesa` local é `x86_64`: o Mesa do Alpine não compila o driver virgl, e sem ele a VM desenharia por software (llvmpipe). Nos consoles fica o Mesa do Alpine (lima e panfrost).
 - **O rootfs é montado com `apk add --root` dentro de um container da arquitetura alvo**, para os scripts de pós-instalação (busybox, OpenRC) rodarem de verdade. A raiz vira o squashfs `SYSTEM` com compressão `zstd`, que descomprime rápido no Cortex-A7 e comprime melhor que `lz4`.
 - **A imagem final** é montada sem root nem loop mount: `mtools` grava a FAT e `dd` grava o bootloader. A assinatura MBR é fixa por alvo, para o `extlinux.conf` usar `root` por PARTUUID.
 
@@ -144,7 +144,7 @@ O RetroArch grava direto nos próprios arquivos de configuração, o que não é
 
 - Cores do Alpine v3.24: fceumm, nestopia, gambatte, mgba e gpsp.
 - Pacotes locais: snes9x2010, snes9x, genesis_plus_gx, picodrive, fbneo, mame2003_plus e pcsx_rearmed. Partem dos APKBUILDs do `testing` quando existem, atualizados para o código atual.
-- O `r36os-playlists` é ash + jq e gera `/storage/system/retroarch/playlists/<Nome no menu>.lpl` no boot, antes do frontend subir. O nome do arquivo é o rótulo no XMB e também o nome do ícone do tema.
+- O `r36os-playlists` é ash + jq e gera `/storage/system/retroarch/playlists/<Nome no menu>.lpl` no boot, antes do frontend subir. O nome do arquivo é o rótulo da lista no menu.
 - Cada entrada da lista fixa o core pelo caminho, então o RetroArch não pergunta qual core usar.
 - BIOS do PS1: `bios/scph5500.bin`, `scph5501.bin`, `scph5502.bin` e `scph1001.bin`. O `pcsx_rearmed` tem BIOS HLE como alternativa, que vai explicada no `LEIA-ME.txt`.
 
@@ -154,7 +154,7 @@ O RetroArch grava direto nos próprios arquivos de configuração, o que não é
 - **R36S:** o `r36os-padmerge` é um daemon pequeno em C que abre os dispositivos `gpio-keys` e `adc-joystick` do DT e publica, via `uinput`, um único controle chamado "R36S Gamepad".
   - O mesmo daemon é testado na VM com dispositivos falsos criados por `uinput`.
   - *Alternativa descartada:* um driver de kernel próprio, que seria mais código fora da árvore mainline.
-- Um arquivo de autoconfiguração do RetroArch por controle: "R36S Gamepad", o controle do GA36 e o teclado da VM.
+- Um arquivo de autoconfiguração do RetroArch por controle: "R36S Gamepad" e o controle do GA36. O teclado da VM é mapeado no `retroarch-lume.cfg`.
 
 ### D10. Sessão do frontend
 
@@ -171,26 +171,27 @@ loop:
 ```
 
 - Para virar mestre do DRM sem root, o caminho preferido é o `seatd` (pacote do Alpine) com libseat. Se o RetroArch do Alpine não usar libseat no KMS, o frontend recebe a capability necessária no wrapper. Ver Riscos.
-- O RetroArch roda com `--appendconfig /usr/share/r36os/retroarch-lume.cfg`. A configuração do usuário continua separada da do tema.
+- O RetroArch roda com `--appendconfig /usr/share/r36os/retroarch-lume.cfg` (o nome é o do sistema, não de um tema). A configuração do usuário continua separada da configuração fixa da distro.
 
-### D11. Tema Lume no XMB
+### D11. Menu padrão do RetroArch (Ozone)
 
-- O pacote `retroarch-theme-lume` instala um diretório próprio de assets, `/usr/share/r36os/retroarch-assets/xmb/custom/`, e `assets_directory` aponta para ele. Isso evita o pacote completo de assets, que tem centenas de MB.
-- Os assets são gerados no build por um script Python (Pillow), a partir de `theme/lume/`:
-  - **Ícones de sistema:** círculo de 128 px com a inicial em Plus Jakarta Sans ExtraBold branca. Cores no estilo do dock do Lume: NES `#B3121C`, SNES `#4B2FA8`, Master System `#145A96`, Mega Drive `#1B3A89`, GB `#157A3E`, GBC `#C2501F`, GBA `#3E4A5C`, Arcade `#C62828`, PlayStation `#2B6CB0`.
-  - **Ícones de interface:** Lucide (ISC) rasterizados em branco: engrenagem, relógio (histórico), estrela (favoritos), seta, check.
-  - **Wallpaper:** Aurora com recorte central 4:3 e redimensionado para 640x480 PNG, mais uma faixa escura sutil no topo.
-  - **Fonte:** `PlusJakartaSans-Medium.ttf` como `xmb_font`, e `OFL.txt` junto.
-- Configurações do `retroarch-lume.cfg`:
-  - visual: `menu_driver = xmb`, `xmb_theme` = custom, `menu_wallpaper`, `xmb_shadows_enable = false`, `menu_shader_pipeline = 0`, `menu_dynamic_wallpaper_enable = false`, miniaturas desligadas, cor da fonte `#F2F5F7`, `xmb_scale_factor` calibrado na VM a 640x480;
-  - menu enxuto: `content_show_*` e `menu_show_*` ocultando os itens listados na spec;
-  - atalhos: `menu_pause_libretro = true`, hotkey = Select, abrir menu = X, sair pelo controle desativado.
+- Sem tema próprio nesta change: o menu é o Ozone, com os assets oficiais do pacote `retroarch-assets` do Alpine em `/usr/share/libretro/assets/`. A autoconfiguração de controles comuns vem do `retroarch-joypad-autoconfig` (`/usr/share/libretro/autoconfig`); os arquivos dos controles dos consoles entram no mesmo diretório. O teclado da VM é mapeado no próprio `retroarch-lume.cfg` (`input_player1_*`).
+  - *Alternativa descartada:* o tema Lume no XMB (ícones, fonte e wallpaper gerados no build). Ficou para uma change futura, junto com o Lume Console.
+- O `retroarch-lume.cfg` contém só o que a distro precisa:
+  - vídeo e entrada: `video_driver = gl`, contexto `kms`, `alsa`, `udev`;
+  - pastas do contrato de jogos;
+  - legibilidade numa tela de 3,5" a 640x480: `menu_driver = ozone`, `menu_scale_factor = 1.5`, `ozone_font_scale_factor_global = 1.2`;
+  - menu completo, sem modo kiosk. A exceção é o Core Updater, oculto porque os cores do buildbot são compilados para glibc e não rodam no Alpine (musl);
+  - atalhos: `menu_pause_libretro = true`; Start + Select abre o menu (`input_menu_toggle_gamepad_combo = 4`); no teclado da VM, Shift direito (Select) + S também abre; nenhuma combinação encerra o RetroArch.
+- O pacote `retroarch` local troca o rótulo "Sair do RetroArch" por "Desligar" (en, pt_BR e es), porque sair desliga o console (D10).
 
 ### D12. VM
 
 - QEMU `x86_64`/KVM rodando dentro de container (podman), com o disco `vm.img` em raw, copiado a cada execução para o original não mudar.
 - **Modo janela:** `virtio-vga-gl` com virgl, `-display gtk,gl=on`, resolução forçada a 640x480 pelo cmdline do kernel (`video=640x480`), áudio pelo PipeWire ou PulseAudio do host e teclado do host.
 - **Modo sem tela (`--headless`):** `egl-headless` com serial no terminal. Capturas de tela pelo QMP `screendump`.
+- **Controles do PC:** os controles em `/dev/input/by-id/*-event-joystick` que o usuário pode capturar são repassados à VM como `virtio-input-host-pci` (detecção automática, `--gamepad EVDEV` explícito ou `--no-gamepad`).
+- **Pasta do PC (`--roms DIR` / `--share DIR`):** a pasta é exportada por virtio-9p, **somente leitura**. Na VM, o serviço `r36os-hostshare` (só com `board = vm`) a monta em `/mnt/host` e, se ela tiver as pastas dos sistemas (ou `roms/`), faz bind em `/storage/roms` e de `bios/` em `/storage/bios`, antes das listas de jogos. Saves e estados continuam na `ROMS` da VM.
 - **Teste de aceitação:** cmdline com `r36os.selftest=1`. O serviço `r36os-selftest` roda as verificações dentro da VM e imprime marcadores (`SELFTEST <nome> PASS|FAIL`) na serial. O teste no host:
   1. faz o primeiro boot e verifica a criação da `ROMS`;
   2. copia ROMs de teste para a `ROMS` com a VM desligada (`mtools` não lê exFAT, então isso é feito pela própria VM, a partir de um segundo disco FAT só de teste);
@@ -230,7 +231,7 @@ Para voltar atrás, basta regravar o cartão com a build anterior. Restaurar a f
 ## Open Questions
 
 - Botões F1-F5 do R36S: a ordem esperada é F1 = Select, F2 = Start, F3 = L3, F4 = R3 e F5 = Fn. Isso só se confirma no aparelho e afeta apenas a autoconfiguração.
-- O valor final de `xmb_scale_factor` sai da calibração na VM.
+- Os valores finais de `menu_scale_factor` e `ozone_font_scale_factor_global` saem da calibração na VM e se confirmam no painel real.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define a sessão do frontend: como ele sobe direto no boot, como pode ser trocado no futuro e o comportamento do frontend inicial (RetroArch com o tema Lume).
+Define a sessão do frontend: como ele sobe direto no boot, como pode ser trocado no futuro e o comportamento do frontend inicial (RetroArch com o menu Ozone padrão).
 
 ## ADDED Requirements
 
@@ -28,7 +28,7 @@ O frontend MUST ser escolhido por uma única configuração do serviço de sess�
 Quando o frontend encerrar normalmente por ação do usuário, o sistema MUST desligar o aparelho.
 
 #### Scenario: Sair pelo menu
-- **WHEN** o usuário escolhe sair no menu do RetroArch
+- **WHEN** o usuário escolhe "Desligar" (o item de sair do RetroArch) no menu
 - **THEN** o sistema grava o que estiver pendente e desliga
 
 ### Requirement: Recuperação de falhas do frontend
@@ -43,40 +43,44 @@ Se o frontend terminar com erro, o sistema MUST reiniciá-lo. Após 3 falhas em 
 - **THEN** ele não é mais reiniciado e a tela mostra o erro e onde está o log
 
 ### Requirement: RetroArch como frontend inicial
-O frontend padrão desta versão MUST ser o RetroArch, com o menu XMB, renderizando direto no vídeo (KMS/DRM) com GLES, com áudio pelo ALSA e controles detectados automaticamente.
+O frontend padrão desta versão MUST ser o RetroArch, com o menu Ozone (driver oficial do RetroArch), renderizando direto no vídeo (KMS/DRM) com GLES, com áudio pelo ALSA e controles detectados automaticamente.
 
 #### Scenario: Controle integrado já mapeado
 - **WHEN** o RetroArch abre pela primeira vez no console
 - **THEN** o controle integrado navega o menu sem nenhuma configuração manual
 
-### Requirement: Tema visual Lume
-O menu do RetroArch MUST usar o tema Lume: fundo Aurora em 640x480, fonte Plus Jakarta Sans, ícone redondo colorido com a inicial de cada sistema e ícones de interface no estilo Lucide. Nenhum logotipo ou marca registrada de fabricante de console MUST aparecer.
+### Requirement: Menu padrão do RetroArch (Ozone)
+O menu do RetroArch MUST usar o driver Ozone com os assets oficiais do pacote `retroarch-assets`, sem tema próprio da distro, com escala de menu e de fonte ajustadas para ficar legível numa tela de 640x480. Nenhum logotipo ou marca registrada de fabricante de console MUST ser adicionado pela distro.
 
 #### Scenario: Aparência do menu
-- **WHEN** o menu principal é exibido
-- **THEN** ele mostra o fundo Aurora, a fonte Plus Jakarta Sans e, para cada sistema com jogos, o ícone redondo com a inicial do sistema
+- **WHEN** o menu principal é exibido a 640x480
+- **THEN** ele mostra a interface Ozone oficial, com ícones e fontes do RetroArch, e nenhum texto do menu fica cortado
 
-### Requirement: Menu enxuto (modo kiosk)
-O menu MUST mostrar só os sistemas com jogos, o histórico, os favoritos e um item de configurações. Atualizadores online, importação de conteúdo, netplay, música, vídeo e imagens MUST ficar ocultos.
+### Requirement: Menu completo (sem modo kiosk)
+O menu MUST exibir as abas e opções padrão do RetroArch (carregar conteúdo, carregar core, importação de conteúdo, atualizador online, abas de mídia e configurações avançadas). O Core Updater MUST ficar oculto, porque os cores do atualizador online são compilados para glibc e não rodam no Alpine (musl).
 
-#### Scenario: Itens ocultos
+#### Scenario: Itens disponíveis no menu completo
 - **WHEN** o usuário percorre o menu principal
-- **THEN** não encontra Online Updater, Core Updater, importação de conteúdo, netplay, música, vídeo nem imagens
+- **THEN** encontra o atualizador online, a importação de conteúdo, o netplay e as configurações de drivers e diretórios
+
+#### Scenario: Sem Core Updater
+- **WHEN** o usuário abre o atualizador online
+- **THEN** não encontra a opção de baixar cores
 
 ### Requirement: Desempenho do menu
-O menu MUST rodar sem efeitos animados de fundo, sem sombras e sem miniaturas nesta versão, com o fundo carregado uma única vez. Abrir o menu durante um jogo MUST pausar o jogo.
+O menu MUST rodar sem miniaturas nesta versão. Abrir o menu durante um jogo MUST pausar o jogo.
 
 #### Scenario: Menu durante o jogo
 - **WHEN** o usuário abre o menu no meio de um jogo
 - **THEN** o jogo fica pausado até o menu ser fechado
 
 ### Requirement: Atalhos de controle padronizados
-O menu MUST abrir em qualquer jogo pela combinação Select + X. O atalho de sair do RetroArch pelo controle MUST ficar desativado, para evitar desligamento acidental.
+O menu MUST abrir em qualquer jogo pela combinação Start + Select. Nenhuma combinação de botões MUST encerrar o RetroArch, para evitar desligamento acidental.
 
 #### Scenario: Abrir o menu no jogo
-- **WHEN** o usuário pressiona Select + X durante um jogo
-- **THEN** o menu do RetroArch abre
+- **WHEN** o usuário pressiona Start + Select durante um jogo
+- **THEN** o menu do RetroArch abre e o jogo fica pausado
 
 #### Scenario: Sem saída acidental
-- **WHEN** o usuário pressiona Select + Start durante um jogo
+- **WHEN** o usuário pressiona Start + Select ou Esc durante um jogo
 - **THEN** o RetroArch não encerra e o console não desliga

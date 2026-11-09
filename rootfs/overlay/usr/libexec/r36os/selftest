@@ -77,6 +77,8 @@ phase_first() {
 	check roms-folders '[ -z "$missing" ] && [ -f /storage/LEIA-ME.txt ]' "$missing"
 	check roms-owner '[ "$(stat -c %u /storage/roms)" = 1000 ] && grep " /storage " /proc/mounts | grep -q noatime'
 	check boot-readonly 'awk "\$2==\"/boot\"{print \$4}" /proc/mounts | grep -q "^ro"'
+	# "Sair do RetroArch" vira "Desligar" (aports/retroarch), porque sair desliga
+	check quit-label-desligar 'grep -q "Desligar" /usr/bin/retroarch && grep -q "Shut Down" /usr/bin/retroarch'
 	check root-overlay 'grep "^overlay / overlay" /proc/mounts | grep -q "lowerdir=/lower,upperdir=/rw/upper" && grep -q "/SYSTEM" /sys/block/loop0/loop/backing_file' "$(cat /sys/block/loop0/loop/backing_file 2>/dev/null)"
 
 	# Resumo de hardware
@@ -150,17 +152,20 @@ phase_second() {
 	# A mensagem é traduzida (user_language); o caminho e o "succeeded" não.
 	check state-survived-reset 'grep -qE "\[State\] .*Teste NES\.state.* succeeded" "$R36OS_RUN/load.log"'
 
-	# Atalhos: Select + X abre o menu e pausa o jogo; Select + Start e Esc não encerram
+	# Atalhos: Start + Select abre o menu e pausa o jogo, sem encerrar; Shift direito + S
+	# (só no teclado) também abre; Esc não encerra
 	ra_run "$R36OS_RUN/keys.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
 	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
 	check game-running-before-menu 'wait_for 5 core_running' "RAM \$0000=$(ram0)"
+	request keys-start-select
+	check combo-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
+	check combo-no-quit frontend_running
+	request keys-start-select
+	check menu-closes-resumes 'wait_for 10 core_running'
 	request keys-menu
 	check hotkey-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
 	request keys-menu
-	check menu-closes-resumes 'wait_for 10 core_running'
-	request keys-quit-combo
-	sleep 4
-	check select-start-no-quit frontend_running
+	check hotkey-menu-closes 'wait_for 10 core_running'
 	request keys-esc
 	sleep 4
 	check esc-no-quit frontend_running

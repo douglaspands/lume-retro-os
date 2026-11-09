@@ -10,7 +10,7 @@ dependencies = []
 r36os = "r36os.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pillow>=11"]
+dev = ["pytest>=8"]
 
 [build-system]
 requires = ["uv_build>=0.8"]

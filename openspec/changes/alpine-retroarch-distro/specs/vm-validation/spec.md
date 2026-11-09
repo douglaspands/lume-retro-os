@@ -7,7 +7,7 @@ Garante que toda build possa ser validada numa VM x86_64 local antes de ir para 
 ## ADDED Requirements
 
 ### Requirement: VM equivalente aos consoles
-A imagem `vm` MUST usar o mesmo layout de partições, o mesmo `extlinux.conf`, o mesmo fluxo de boot (initramfs, `SYSTEM`, camada em RAM, criação da `ROMS`), os mesmos serviços, os mesmos cores e o mesmo tema dos consoles. Só kernel, bootloader e drivers MUST mudar.
+A imagem `vm` MUST usar o mesmo layout de partições, o mesmo `extlinux.conf`, o mesmo fluxo de boot (initramfs, `SYSTEM`, camada em RAM, criação da `ROMS`), os mesmos serviços, os mesmos cores e a mesma configuração do RetroArch dos consoles. Só kernel, bootloader e drivers (incluindo o Mesa com virgl da VM) MUST mudar.
 
 #### Scenario: Diferenças restritas ao hardware
 - **WHEN** os manifestos das imagens `vm` e `r36s` do mesmo build são comparados
@@ -18,11 +18,22 @@ O projeto MUST oferecer um comando que roda a imagem `vm` localmente, em janela 
 
 #### Scenario: Rodar a VM em janela
 - **WHEN** o comando de VM é executado numa sessão gráfica do PC
-- **THEN** abre uma janela de 640x480 mostrando o boot verboso e, ao final, o RetroArch com o tema Lume
+- **THEN** abre uma janela de 640x480 mostrando o boot verboso e, ao final, o menu do RetroArch
 
 #### Scenario: Teclado como controle
 - **WHEN** o usuário usa as setas e as teclas mapeadas na janela da VM
 - **THEN** o RetroArch responde como se fosse o controle integrado do console
+
+#### Scenario: Controle do PC
+- **WHEN** há um controle USB conectado ao PC que o usuário pode capturar
+- **THEN** ele é repassado à VM sem configuração e navega o RetroArch
+
+### Requirement: Jogos do PC na VM
+O comando de VM MUST aceitar uma pasta de jogos do PC e mostrá-la à VM somente leitura, sem copiar os arquivos para o disco da VM.
+
+#### Scenario: Pasta de ROMs do PC
+- **WHEN** a VM é iniciada com uma pasta do PC que contém as pastas dos sistemas
+- **THEN** os jogos aparecem nas listas do RetroArch e nenhum arquivo dessa pasta é alterado pela VM
 
 ### Requirement: Rodar sem tela
 O comando de VM MUST ter um modo sem janela, que mostra o console serial no terminal, para uso em testes automatizados e em máquinas sem sessão gráfica.

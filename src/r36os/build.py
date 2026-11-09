@@ -13,7 +13,8 @@ def build_target(target: Target, rebuild_packages: bool = False) -> None:
     out = rootfs.target_out(target)
     # [2] pacotes locais (só os que faltam no repositório, salvo rebuild)
     ensure_key(target)
-    missing = [n for n in local_aports() if rebuild_packages or not _has_package(target, n)]
+    missing = [n for n in local_aports(target)
+               if rebuild_packages or not _has_package(target, n)]
     if missing:
         build_packages(target, missing)
     # [3] rootfs, manifesto e SYSTEM

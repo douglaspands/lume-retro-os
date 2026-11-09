@@ -18,7 +18,7 @@ from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
 from r36os.rootfs import target_out
 from r36os.targets import TARGETS
 
-VM_IMAGE = "r36os-vm"
+VM_IMAGE = "localhost/r36os-vm"
 CARD_BYTES = 4_000_000_000 // 512 * 512  # cartão de "4 GB"
 
 
@@ -63,6 +63,7 @@ class VmConfig:
     qmp: Path | None = None
     serial_log: Path | None = None
     gamepads: list[str] = field(default_factory=list)
+    share_dir: Path | None = None
     memory_mib: int = 1024
     gl: bool = True  # False: virtio-vga sem virgl (o QMP screendump funciona em qualquer GPU)
 
@@ -96,9 +97,43 @@ def qemu_argv(cfg: VmConfig) -> list[str]:
     a += ["-chardev", chardev, "-serial", "chardev:ser0"]
     if cfg.qmp:
         a += ["-qmp", f"unix:/vm/{cfg.qmp.name},server=on,wait=off"]
-    for i, ev in enumerate(cfg.gamepads):
-        a += ["-object", f"input-linux,id=gp{i},evdev={ev}"]
+    for ev in cfg.gamepads:
+        a += ["-device", f"virtio-input-host-pci,evdev={ev}"]
+    if cfg.share_dir:
+        # somente leitura: as ROMs do PC nunca são alteradas pela VM
+        a += ["-virtfs", "local,path=/share,mount_tag=hostshare,security_model=none,readonly=on"]
     return a
+
+
+EVIOCGRAB = 1074021776  # ioctl _IOW('E', 0x90, int)
+
+
+def _can_grab_evdev(path: str) -> bool:
+    try:
+        import fcntl
+        fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        try:
+            fcntl.ioctl(fd, EVIOCGRAB, 1)
+            fcntl.ioctl(fd, EVIOCGRAB, 0)
+            return True
+        finally:
+            os.close(fd)
+    except OSError:
+        return False
+
+
+def detect_gamepads() -> list[str]:
+    """Detecta controles conectados no PC em /dev/input/by-id/*-event-joystick."""
+    by_id = Path("/dev/input/by-id")
+    if not by_id.exists():
+        return []
+    pads: list[str] = []
+    for p in sorted(by_id.glob("*-event-joystick")):
+        target = p.resolve()
+        target_str = str(target)
+        if os.access(target, os.R_OK | os.W_OK) and _can_grab_evdev(target_str):
+            pads.append(target_str)
+    return pads
 
 
 def gpu_driver() -> str:
@@ -140,14 +175,28 @@ def podman_argv(cfg: VmConfig) -> list[str]:
             a += ["-v", f"{xdg}/pulse/native:/tmp/pulse/native"]
     for ev in cfg.gamepads:
         a += ["--device", ev]
+    if cfg.share_dir:
+        share = cfg.share_dir.expanduser().resolve()
+        if not share.is_dir():
+            raise NotADirectoryError(f"pasta não encontrada: {share}")
+        # sem :z (label=disable já libera o acesso): :z reetiquetaria no SELinux a pasta
+        # inteira do usuário no host
+        a += ["-v", f"{share}:/share:ro"]
     return a + [ensure_vm_image()] + qemu_argv(cfg)
 
 
-def run_vm(headless: bool = False, gamepads: list[str] | None = None) -> int:
+def run_vm(headless: bool = False, gamepads: list[str] | None = None,
+           share_dir: Path | None = None, no_gamepad: bool = False) -> int:
     d = run_dir()
     disk = prepare_disk(d / "run.img")
+    pads = list(gamepads or [])
+    if not pads and not no_gamepad:
+        pads = detect_gamepads()
+        if pads:
+            print(f"Controle(s) detectado(s): {', '.join(pads)}", flush=True)
     cfg = VmConfig(disk=disk, headless=headless, qmp=d / "qmp.sock",
-                   serial_log=d / "serial.log", gamepads=gamepads or [])
+                   serial_log=d / "serial.log", gamepads=pads,
+                   share_dir=share_dir)
     (d / "qmp.sock").unlink(missing_ok=True)
     print(f"VM: disco descartável {disk}; serial também em {d / 'serial.log'}; "
           f"QMP em {d / 'qmp.sock'}. Ctrl+A X não se aplica: feche a janela ou use poweroff.",

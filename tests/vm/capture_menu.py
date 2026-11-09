@@ -1,4 +1,4 @@
-"""Capturas do menu do RetroArch com o tema Lume (7.5), para docs/THEME.md.
+"""Capturas do menu do RetroArch na VM (calibração de legibilidade a 640x480).
 
     uv run python tests/vm/capture_menu.py [saída]
 
@@ -17,7 +17,7 @@ from r36os.paths import REPO_ROOT
 from r36os.qmp import QMP
 from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO_ROOT / "docs/img/theme"
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO_ROOT / "out/vm/capturas"
 OUT.mkdir(parents=True, exist_ok=True)
 d = run_dir()
 disk = prepare_disk(d / "capture.img")

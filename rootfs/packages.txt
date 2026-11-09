@@ -29,7 +29,8 @@ jq
 # Frontend
 retroarch
 libretro-core-info
-retroarch-theme-lume
+retroarch-assets
+retroarch-joypad-autoconfig
 
 # Cores do Alpine v3.24
 libretro-fceumm

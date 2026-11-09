@@ -27,8 +27,8 @@ _REQ = re.compile(r"SELFTEST REQUEST (\S+)")
 _TS = re.compile(r"^\[\s*(\d+\.\d+)\]")
 
 KEYS = {
-    "keys-menu": ("shift_r", "s"),        # Select + X
-    "keys-quit-combo": ("shift_r", "ret"),  # Select + Start
+    "keys-menu": ("shift_r", "s"),           # Select + X (atalho só do teclado)
+    "keys-start-select": ("ret", "shift_r"),  # Start + Select (combinação do menu)
     "keys-esc": ("esc",),
 }
 
@@ -36,13 +36,14 @@ KEYS = {
 def expected_checks() -> list[str]:
     base = [
         "roms-created", "roms-first-boot-msg", "roms-folders", "roms-owner", "boot-readonly",
-        "root-overlay", "hwsummary", "hwsummary-battery-absent", "frontend-up",
+        "quit-label-desligar", "root-overlay", "hwsummary", "hwsummary-battery-absent", "frontend-up",
         "frontend-not-root", "frontend-gles", "frontend-kms", "bootlog-written",
         "bootlog-boot-ro-again", "frontend-stop-no-poweroff", "playlists",
         "persist-sync", "state-saved", "state-synced",
         "var-tmp-gone", "persist-after-reboot", "roms-preserved", "roms-checked-at-boot",
-        "state-survived-reset", "game-running-before-menu", "hotkey-menu-opens",
-        "menu-closes-resumes", "select-start-no-quit", "esc-no-quit",
+        "state-survived-reset", "game-running-before-menu", "combo-menu-opens",
+        "combo-no-quit", "menu-closes-resumes", "hotkey-menu-opens", "hotkey-menu-closes",
+        "esc-no-quit",
         "frontend-fail-loop-stops", "frontend-fail-log", "frontend-fail-no-restart",
         "frontend-swap", "factory-reset", "factory-keeps-games", "timezone", "hostname",
         "bootlog-rotation", "bootlog-newest", "poweroff-on-quit",

@@ -10,11 +10,11 @@ from r36os.paths import REPO_ROOT
 from r36os.targets import Target
 
 ALPINE_VERSION = "3.24"
-CROSS_IMAGE = "r36os-cross"
+CROSS_IMAGE = "localhost/r36os-cross"
 
 
 def builder_image(target: Target) -> str:
-    return f"r36os-builder:{target.alpine_arch}"
+    return f"localhost/r36os-builder:{target.alpine_arch}"
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:

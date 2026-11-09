@@ -6,6 +6,9 @@
 
 # r36os: artefatos de build (o cache fica fora do repositório)
 /out/
+# diretórios de trabalho do abuild (fontes baixadas e pacote montado)
+/aports/*/src/
+/aports/*/pkg/
 __pycache__/
 *.pyc
 .pytest_cache/

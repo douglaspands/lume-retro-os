@@ -2,7 +2,7 @@
 
 ## 1. Fundação do build
 
-- [x] 1.1 Criar a estrutura de diretórios do D1 (`board/`, `kernel/`, `aports/`, `rootfs/`, `initramfs/`, `theme/lume/`, `src/r36os/`, `tests/vm/`) e o pacote Python `r36os` no `pyproject.toml`; verificar que `uv run r36os --help` lista `build`, `vm` e `test-vm`
+- [x] 1.1 Criar a estrutura de diretórios do D1 (`board/`, `kernel/`, `aports/`, `rootfs/`, `initramfs/`, `src/r36os/`, `tests/vm/`) e o pacote Python `r36os` no `pyproject.toml`; verificar que `uv run r36os --help` lista `build`, `vm` e `test-vm`
 - [x] 1.2 Implementar a validação de alvo (`r36s`, `ga36`, `vm`) e o diretório de cache fora do repositório; verificar com teste unitário que um alvo inválido falha antes de criar arquivos e lista os alvos válidos
 - [x] 1.3 Criar os Containerfiles do builder Alpine v3.24 (abuild, mtools, squashfs-tools, syslinux, jq) e do cross-compilador (gcc aarch64/armhf, dtc, bc, flex, bison); verificar que `podman build` dos dois termina sem erro
 - [x] 1.4 Gerar a chave de assinatura local do abuild no cache e configurar o repositório local `out/repo/<arch>`; verificar que um APKBUILD trivial de teste é construído e instalado a partir do repositório local
@@ -43,14 +43,16 @@
 - [x] 6.3 Escrever o `LEIA-ME.txt` (pastas, extensões e BIOS do PS1 com nomes aceitos e a opção HLE) e o documento do esquema do catálogo em `docs/CATALOG.md`; verificar que todo sistema do `systems.json` aparece no `LEIA-ME.txt` (teste)
 - [x] 6.4 Produzir as ROMs de teste livres no build (fontes mínimos com `cc65`, `rgbds` e equivalentes, ou homebrew com licença de redistribuição) num disco FAT só da VM; verificar que o self-test abre um jogo por core instalado com `--max-frames=600` e encontra `core loaded` no log, e que nenhum jogo de teste está nas imagens `r36s`/`ga36`
 
-## 7. Sessão do frontend e tema Lume
+## 7. Sessão do frontend e menu do RetroArch
 
 - [x] 7.1 Criar o serviço OpenRC `frontend`, `/etc/conf.d/frontend` e o `r36os-session` (D10): roda como `game` no `tty1`; saída 0 faz `flush` e `poweroff`; 3 falhas em 60 s param e mostram o erro com o caminho do log; verificar no self-test o desligamento ao sair e com um frontend falso que falha sempre que a terceira falha para o laço
-- [ ] 7.2 Configurar o acesso ao DRM e à entrada sem root (`seatd`/libseat, ou capability no wrapper se o RetroArch não usar libseat); verificar na VM que o processo do RetroArch roda como `game` e renderiza por GLES (`video_driver=gl`, contexto KMS, sem software)
-- [x] 7.3 Criar a autoconfiguração do teclado da VM e o `retroarch-lume.cfg` (XMB, assets próprios, sem fita e sem sombras, sem miniaturas, menu enxuto, pausa no menu, hotkey Select + X, sair pelo controle desativado, diretórios de saves e estados por sistema); verificar no self-test que Select + Start não encerra e que Select + X abre o menu (via QMP `send-key`)
-- [x] 7.4 Criar o gerador do tema em `theme/lume/` (Pillow): ícones redondos com a inicial e as cores do D11, ícones Lucide, wallpaper Aurora 4:3 640x480, fonte Plus Jakarta Sans com `OFL.txt`, licença ISC do Lucide; empacotar como `retroarch-theme-lume` e verificar com teste que existe um ícone para cada sistema do catálogo e para cada ícone de interface usado
-- [x] 7.5 Calibrar o `xmb_scale_factor` e a cor da fonte na VM a 640x480 e registrar capturas (QMP `screendump`) em `docs/THEME.md`; verificar visualmente que nenhum texto do menu fica cortado e que os itens ocultos não aparecem
+- [ ] 7.2 Configurar o acesso ao DRM e à entrada sem root (`seatd`/libseat, ou capability no wrapper se o RetroArch não usar libseat) e, só para `x86_64`, o `aports/mesa` local com llvmpipe e virgl (D2); verificar na VM que o processo do RetroArch roda como `game` e renderiza por GLES no virgl (`video_driver=gl`, contexto KMS, sem llvmpipe), e com teste que o `mesa` local só entra no alvo `vm`
+- [ ] 7.3 Mapear o teclado da VM e escrever o `retroarch-lume.cfg` (D11: Ozone, `retroarch-assets`, menu completo sem kiosk e sem Core Updater, pausa no menu, Start + Select abre o menu, nenhuma combinação encerra, diretórios de saves e estados por sistema); verificar no self-test, via QMP `send-key`, que Start + Select abre o menu sem encerrar, que Shift direito + S abre o menu e que Esc não encerra
+- [x] 7.4 Trocar o tema Lume pelo menu padrão do RetroArch (D11): remover `theme/lume/`, `retroarch-theme-lume` e o código do tema, e instalar `retroarch-assets` e `retroarch-joypad-autoconfig`; verificar com teste que o `retroarch-lume.cfg` usa Ozone e os assets oficiais, sem opções `xmb_`, e que a lista de pacotes não tem pacote de tema
+- [ ] 7.5 Calibrar `menu_scale_factor` e `ozone_font_scale_factor_global` na VM a 640x480 com capturas (`tests/vm/capture_menu.py`, QMP `screendump`, em `out/vm/capturas/`); verificar visualmente que nenhum texto do menu fica cortado
 - [x] 7.6 Documentar em `docs/FRONTEND.md` como trocar de frontend (contrato de pastas, `systems.json` e `/etc/conf.d/frontend`); verificar no self-test, com um frontend falso instalado e configurado, que ele sobe no lugar do RetroArch
+- [ ] 7.7 Trocar no `aports/retroarch` o rótulo e a descrição de "Sair do RetroArch" por "Desligar" (en, pt_BR, es), com falha do `prepare()` se a troca não acontecer; verificar que o pacote compila e que o menu da VM mostra "Desligar"
+- [ ] 7.8 Repassar à VM os controles do PC (`virtio-input-host-pci`, detecção automática, `--gamepad`, `--no-gamepad`) e compartilhar uma pasta do PC somente leitura (`--roms`/`--share`, virtio-9p e o serviço `r36os-hostshare`, só na `vm`); verificar com teste dos argumentos do QEMU/podman e, na VM, que os jogos da pasta aparecem nas listas e que a pasta está montada `ro`
 
 > **Marco: VM validada.** Os grupos 1 a 7 entregam a imagem `vm` completa, com `uv run r36os vm` e `uv run r36os test-vm` passando. Parar aqui para o usuário testar a VM antes de seguir para os consoles. Nada até este ponto precisa de emulação de ARM no host.
 

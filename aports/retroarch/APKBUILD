@@ -1,11 +1,11 @@
 # Baseado em community/retroarch do Alpine v3.24 (Bart Ribbers, David Demelier).
 # Variante do Lume Retro OS: só KMS/DRM + EGL + GLES 2, udev e ALSA.
-# Sem X11, Wayland, Qt, SDL2, PulseAudio, FFmpeg e Vulkan, e sem depender do
-# retroarch-assets completo (o tema Lume traz os próprios assets).
+# Sem X11, Wayland, Qt, SDL2, PulseAudio, FFmpeg e Vulkan. Assets e autoconfiguração
+# de controles entram como pacotes separados em rootfs/packages.txt.
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=100
+pkgrel=101
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -19,6 +19,24 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
 options="!check" # No tests
+
+# Sair do RetroArch desliga o console (r36os-session): o item "Sair" vira "Desligar".
+# Idiomas cuidados: inglês (us), português do Brasil (pt_br) e espanhol (es, o único
+# espanhol do RetroArch; "Apagar" vale para a América Latina e a Espanha).
+_set_msg() {  # arquivo enum texto
+	sed -i "/^   $2,\$/{n;s|.*|   \"$3\"|}" "$1"
+	grep -A1 "^   $2,\$" "$1" | grep -qF "\"$3\"" || die "$1: $2 não foi trocado"
+}
+
+prepare() {
+	default_prepare
+	_set_msg intl/msg_hash_us.h MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH "Shut Down"
+	_set_msg intl/msg_hash_us.h MENU_ENUM_SUBLABEL_QUIT_RETROARCH "Save pending data and turn off the console."
+	_set_msg intl/msg_hash_pt_br.h MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH "Desligar"
+	_set_msg intl/msg_hash_pt_br.h MENU_ENUM_SUBLABEL_QUIT_RETROARCH "Grava o que estiver pendente e desliga o console."
+	_set_msg intl/msg_hash_es.h MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH "Apagar"
+	_set_msg intl/msg_hash_es.h MENU_ENUM_SUBLABEL_QUIT_RETROARCH "Guarda lo pendiente y apaga la consola."
+}
 
 build() {
 	./configure \

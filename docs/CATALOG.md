@@ -22,7 +22,7 @@ Cada `<sistema>` tem exatamente estes campos:
 | Campo | Tipo | Significado |
 |---|---|---|
 | `id` | texto `[a-z0-9]+` | pasta em `ROMS/roms/<id>/` e chave estável do sistema |
-| `name` | texto, sem `/` | nome no menu; também o nome da lista `<name>.lpl` e do ícone do tema |
+| `name` | texto, sem `/` | nome no menu; também o nome da lista `<name>.lpl` |
 | `extensions` | lista de textos | extensões aceitas, minúsculas e sem ponto; o resto é ignorado |
 | `core` | nome de core | core padrão |
 | `core_by_arch` | objeto `{arch: core}` | core padrão numa arquitetura (`x86_64`, `aarch64`, `armv7`) |
