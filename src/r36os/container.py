@@ -45,7 +45,9 @@ def ensure_builder(target: Target) -> str:
 def ensure_cross() -> str:
     if not image_exists(CROSS_IMAGE):
         run([
-            "podman", "build", "-t", CROSS_IMAGE,
+            # --platform fixo: com qemu-user no binfmt, a tag da imagem base pode
+            # apontar para uma variante ARM puxada por outro build
+            "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
             "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
             str(REPO_ROOT / "containers"),
         ])

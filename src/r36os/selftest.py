@@ -22,6 +22,17 @@ from r36os.targets import TARGETS
 from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
 TIMEOUT_S = 1200
+CONTAINER = "r36os-test-vm"
+
+
+def _container_exists(name: str) -> bool:
+    return subprocess.run(["podman", "container", "exists", name]).returncode == 0
+
+
+def _remove_container(name: str) -> None:
+    """Remove o container da VM de teste (o kill do `podman run` não derruba a VM)."""
+    subprocess.run(["podman", "rm", "-f", "-t", "5", name],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 _MARK = re.compile(r"SELFTEST (\S+) (PASS|FAIL)(?: (.*))?$")
 _REQ = re.compile(r"SELFTEST REQUEST (\S+)")
 _TS = re.compile(r"^\[\s*(\d+\.\d+)\]")
@@ -78,6 +89,10 @@ def _copy_results(td: Path, dest: Path) -> None:
 
 
 def test_vm(keep: bool = False) -> int:
+    if _container_exists(CONTAINER):
+        # antes de tocar no disco: outra execução (ou uma VM órfã) ainda usa test.img
+        raise RuntimeError(f"já existe o container {CONTAINER}: outro test-vm está rodando "
+                           f"ou ficou órfão (remova com `podman rm -f {CONTAINER}`)")
     out = target_out(TARGETS["vm"]) / "test-vm"
     shutil.rmtree(out, ignore_errors=True)
     ensure_dir(out)
@@ -88,7 +103,8 @@ def test_vm(keep: bool = False) -> int:
     sock = d / "test.sock"
     for p in (serial, sock):
         p.unlink(missing_ok=True)
-    cfg = VmConfig(disk=disk, headless=True, extra_disks=[td], qmp=sock, serial_log=serial)
+    cfg = VmConfig(disk=disk, headless=True, extra_disks=[td], qmp=sock, serial_log=serial,
+                   name=CONTAINER)
     argv = [a for a in podman_argv(cfg) if a != "-t"]
 
     t0 = time.monotonic()
@@ -139,6 +155,7 @@ def test_vm(keep: bool = False) -> int:
         if proc.poll() is None:
             proc.kill()
         proc.wait(timeout=30)
+        _remove_container(CONTAINER)
 
     powered_off = proc.returncode == 0 and expect_poweroff and quit_seen
     results["poweroff-on-quit"] = ("PASS" if powered_off else "FAIL",

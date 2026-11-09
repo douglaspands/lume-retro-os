@@ -24,7 +24,8 @@ CARD_BYTES = 4_000_000_000 // 512 * 512  # cartão de "4 GB"
 
 def ensure_vm_image() -> str:
     if not image_exists(VM_IMAGE):
-        run(["podman", "build", "-t", VM_IMAGE,
+        # --platform fixo: a tag da base pode apontar para uma variante ARM (binfmt)
+        run(["podman", "build", "-t", VM_IMAGE, "--platform", "linux/amd64",
              "-f", str(REPO_ROOT / "containers/vm.Containerfile"), str(REPO_ROOT / "containers")])
     return VM_IMAGE
 
@@ -65,6 +66,8 @@ class VmConfig:
     gamepads: list[str] = field(default_factory=list)
     share_dir: Path | None = None
     memory_mib: int = 1024
+    # nome do container: impede duas execuções sobre o mesmo disco e permite removê-lo
+    name: str | None = None
     gl: bool = True  # False: virtio-vga sem virgl (o QMP screendump funciona em qualquer GPU)
 
     @property
@@ -152,6 +155,8 @@ def podman_argv(cfg: VmConfig) -> list[str]:
     a = ["podman", "run", "--rm", "-i", "--userns=keep-id", "--group-add=keep-groups",
          "--security-opt", "label=disable", "--device", "/dev/kvm", "--device", "/dev/dri",
          "-e", "HOME=/tmp", "-v", f"{cfg.disk.parent}:/vm"]
+    if cfg.name:
+        a += ["--name", cfg.name]
     if nvidia_cdi():
         # driver proprietário: as bibliotecas GL/EGL do host entram por CDI
         a += ["--device", "nvidia.com/gpu=all"]

@@ -65,7 +65,9 @@ def _container(target: Target, aports: Path) -> Container:
             cache / "distfiles": "/cache/distfiles",
             cache / "ccache" / target.alpine_arch: "/cache/ccache",
         },
-        env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache"},
+        # USE_CCACHE=1: sem ele o abuild não põe /usr/lib/ccache/bin no PATH, e sob
+        # emulação (ARM) cada recompilação custaria horas
+        env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1"},
     )
 
 

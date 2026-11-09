@@ -43,6 +43,18 @@ def test_share_is_read_only(tmp_path):
     assert f"{roms}:/share:ro" in podman_argv(cfg)
 
 
+def test_container_name(tmp_path):
+    assert "--name" not in podman_argv(_cfg(tmp_path))
+    p = podman_argv(_cfg(tmp_path, name="r36os-test-vm"))
+    assert p[p.index("--name") + 1] == "r36os-test-vm"
+
+
+def test_test_vm_uses_fixed_container_name():
+    from r36os import selftest
+
+    assert selftest.CONTAINER == "r36os-test-vm"
+
+
 def test_share_missing_dir_fails(tmp_path):
     with pytest.raises(NotADirectoryError):
         podman_argv(_cfg(tmp_path, share_dir=tmp_path / "nao-existe"))

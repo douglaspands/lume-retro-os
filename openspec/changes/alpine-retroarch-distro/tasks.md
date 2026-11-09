@@ -60,7 +60,7 @@
 
 > **Ordem de execução:** o único console disponível é o GA36. Depois da 8.1, as tarefas 8.2 e 8.3 são feitas primeiro para `armv7`, seguidas do grupo 9 até um cartão testável no GA36. `aarch64` e o grupo 10 vêm depois. As tarefas 8.2 e 8.3 só são marcadas quando os dois arches estiverem feitos.
 
-- [ ] 8.1 Pedir confirmação ao usuário e registrar `qemu-user` no binfmt do host; verificar que `podman run --rm --arch arm64 alpine:3.24 uname -m` imprime `aarch64` e que `--arch arm/v7` imprime `armv7l`
+- [x] 8.1 Pedir confirmação ao usuário e registrar `qemu-user` no binfmt do host; verificar que `podman run --rm --arch arm64 alpine:3.24 uname -m` imprime `aarch64` e que `--arch arm/v7` imprime `armv7l`
 - [ ] 8.2 Compilar os pacotes locais para aarch64 e armv7 sob emulação, com `ccache` no cache; verificar que os três repositórios locais têm o mesmo conjunto de pacotes e versões
 - [ ] 8.3 Gerar o rootfs e o `SYSTEM` de aarch64 e armv7 com os estágios do grupo 3; verificar com teste que os manifestos de userland coincidem com o da `vm`, exceto a arquitetura
 
