@@ -25,11 +25,11 @@ A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, r
 - **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT`, começa no setor 32768 (16 MiB) e tem 1 GiB
 
 ### Requirement: Conteúdo da partição BOOT
-A partição `BOOT` MUST conter o kernel do alvo, o initramfs, a configuração de boot no formato extlinux (`extlinux/extlinux.conf`), os DTBs do alvo (só nos consoles), o arquivo de sistema `SYSTEM` e a pasta `logs/`.
+A partição `BOOT` MUST conter o kernel do alvo, o initramfs, a configuração de boot no formato extlinux (`extlinux/extlinux.conf`), os DTBs do alvo (só nos consoles) e o arquivo de sistema `SYSTEM`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
 
 #### Scenario: Arquivos presentes na BOOT
 - **WHEN** a partição `BOOT` de uma imagem gerada é listada
-- **THEN** existem o kernel, o `initramfs`, `extlinux/extlinux.conf`, `SYSTEM` e `logs/`, e nos alvos `r36s` e `ga36` também `dtbs/` com os DTBs do console
+- **THEN** existem o kernel, o `initramfs`, `extlinux/extlinux.conf` e `SYSTEM`, sem pasta `logs/`, e nos alvos `r36s` e `ga36` também `dtbs/` com os DTBs do console
 
 ### Requirement: Sistema como arquivo squashfs
 O sistema de arquivos raiz MUST ser entregue como um único arquivo squashfs chamado `SYSTEM` dentro da `BOOT`, com no máximo 768 MiB, para sobrar espaço na `BOOT` para uma atualização.

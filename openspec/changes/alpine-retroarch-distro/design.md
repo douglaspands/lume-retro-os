@@ -69,6 +69,7 @@ O orquestrador é Python porque o repositório já usa `uv` e `.venv`. Os comand
 - **Pacotes locais (cores, retroarch, scripts) usam `abuild`** num container Alpine da arquitetura alvo, com chave de assinatura local e cache (`ccache` e cache de distfiles fora do repositório). Para ARM isso exige `qemu-user` registrado no binfmt do host.
   - *Alternativa descartada:* cross-compilar os cores com o toolchain de bootstrap do Alpine (musl). Isso dá mais trabalho a cada core e diverge do jeito como o Alpine empacota.
   - Cada pacote local é construído só para os arches do seu `arch=`. O `mesa` local é `x86_64`: o Mesa do Alpine não compila o driver virgl, e sem ele a VM desenharia por software (llvmpipe). Nos consoles fica o Mesa do Alpine (lima e panfrost).
+  - Os pacotes locais usam as flags padrão do Alpine. A única exceção é o `libretro-pcsx-rearmed` no armv7, que leva `-marm -mfpu=neon`: o dynarec dele não compila em Thumb-2 (o padrão do Alpine armv7) e a GPU NEON precisa de NEON, que o padrão `vfpv3-d16` não liga. O ajuste fino para o Cortex-A7 fica para a change de otimização.
 - **O rootfs é montado com `apk add --root` dentro de um container da arquitetura alvo**, para os scripts de pós-instalação (busybox, OpenRC) rodarem de verdade. A raiz vira o squashfs `SYSTEM` com compressão `zstd`, que descomprime rápido no Cortex-A7 e comprime melhor que `lz4`.
 - **A imagem final** é montada sem root nem loop mount: `mtools` grava a FAT e `dd` grava o bootloader. A assinatura MBR é fixa por alvo, para o `extlinux.conf` usar `root` por PARTUUID.
 
@@ -203,6 +204,34 @@ loop:
   6. pede a saída do frontend pelo QMP e confere o desligamento.
 - **ROMs de teste:** compiladas no build a partir de fontes livres (programas mínimos para cada sistema, montados com `cc65` para NES, `rgbds` para GB/GBC e similares) ou homebrew com licença que permita redistribuir. Ficam só no segundo disco da VM.
 
+### D14. Logs de diagnóstico (base para decisões futuras)
+
+O objetivo é medir o comportamento real do sistema e do hardware, como clock, temperatura, memória, bateria e falhas, antes de otimizar. As medições do projeto anterior (`docs/referencia/ga36-emuelec/`) vinham de um kernel antigo; estas passam a ser a base da change de otimização.
+
+- **Destino único:** todos os logs do sistema ficam em `ROMS/logs/`, legível no PC, incluindo o log de boot e o do frontend, que antes iam para `BOOT/logs/`. Apagar a pasta inteira é a forma de limpar. É seguro: ela é recriada no boot seguinte e a numeração dos boots recomeça. A `BOOT` fica somente leitura o tempo todo.
+  - **Exceção, só sem `ROMS`** (partição 2 ausente ou não exFAT): o log de boot vai para `BOOT/logs/`, mantendo 10, porque é justamente o caso que precisa de diagnóstico. Os demais logs ficam só na RAM.
+- **Numeração:** um contador `<n>` por boot, guardado em `ROMS/logs/.boot`, é o mesmo em todas as pastas, para cruzar os arquivos de um boot. Cada arquivo também traz a data e o `boot_id` do kernel.
+- **Escrita em lote:** cada coletor escreve em `/run/r36os/logs/` (RAM). O serviço `r36os-logd` descarrega no cartão a cada 60 s e no desligamento, com append, `fsync` e temporário com `rename` nos arquivos inteiros. Um corte de energia perde no máximo o último intervalo. O desligamento limpo grava um marcador; se o boot seguinte não o encontrar, registra "desligamento abrupto".
+- **Conteúdo** (`<n>` é o contador de boot):
+
+| Arquivo (em `ROMS/logs/`) | Quando | O que tem |
+|---|---|---|
+| `boot/boot-<n>.log` | uma vez por boot, no fim do runlevel default | mensagens do kernel (`dmesg`), log do OpenRC e resumo de hardware (era `BOOT/logs/boot-<n>.log`) |
+| `hw/boot-<n>.txt` | uma vez por boot, depois do frontend subir | versão do sistema, kernel e cmdline, modelo do DT; CPU (núcleos, governor, frequências mín./máx./disponíveis); memória e swap; zonas térmicas e trip points; reguladores (nome, tensão, estado); bateria (todos os campos de `power_supply`); cartão e partições (tamanho, uso da ROMS, resultado do `fsck`); vídeo (modo DRM, driver da GPU); placas de áudio; dispositivos de entrada; tempo até o frontend; se o desligamento anterior foi limpo |
+| `metricas/boot-<n>.csv` | a cada 5 s | data, uptime, temperatura de cada zona, frequência atual de cada política, ocupação de cada núcleo, memória disponível, swap usado, bateria (%, tensão, corrente, estado) e estado do frontend (menu ou jogo, core, conteúdo) |
+| `eventos.log` | quando acontece | uma linha por evento, `data boot categoria OK/FALHA detalhe`: boot concluído e tempo até o frontend; serviço com falha; frontend iniciado ou encerrado (código de saída, falhas seguidas); jogo aberto ou fechado (core, conteúdo, duração); ROMS criada ou reparada; temperatura acima do trip passivo; bateria abaixo de 10%; desligamento limpo ou abrupto; erros do kernel no boot (`dmesg` nível err ou pior, resumidos) |
+| `frontend/boot-<n>.log` | no fim da sessão e na descarga | log do frontend (o RetroArch com `--verbose`). Também é o log indicado na tela quando o frontend falha 3 vezes (era `BOOT/logs/frontend-erro.log`) |
+
+- **Estado do frontend:** lido pelo comando de rede local do RetroArch (`GET_STATUS` na porta 55355, só em `127.0.0.1`; os consoles não têm rede). A mudança menu→jogo gera os eventos de jogo aberto e fechado.
+- **Rotação:**
+  - `boot/`, `hw/` e `frontend/`: os 30 boots mais recentes (`keep_boots` no `logs.conf`);
+  - `metricas/`: os 30 boots mais recentes, e cada arquivo para de crescer em 4 MiB (cerca de 30 h a 5 s);
+  - `eventos.log`: vira `eventos.1.log` em 1 MiB, mantendo 3;
+  - acima de 64 MiB no total, apaga primeiro as métricas mais antigas, depois os logs do frontend.
+- **Custo:** coletores em ash + awk lendo `/proc` e `/sys`, sem processos novos por campo além do necessário. A meta é menos de 1% de CPU no A33, medida na primeira subida.
+- **Configuração:** `ROMS/system/etc/logs.conf`, criado com os padrões no primeiro boot e editável no PC: `enable=1`, `interval=5`, `flush=60`, `keep_boots=30`, `max_mb=64`. Com `enable=0` não rodam o amostrador nem o retrato do hardware, e ficam só o log de boot e os eventos.
+- O formato está documentado em `docs/LOGS.md` (colunas do CSV e categorias de evento), para análise no PC.
+
 ### D13. Usuário e permissões
 
 Usuário `game` (uid 1000) sem senha e sem login interativo. `root` sem senha só na serial de debug, nesta fase de validação. Sem SSH nesta versão.
@@ -284,7 +313,7 @@ Fonte: DTB `rk3326-r35s-linux.dtb` (SHA-256 `205c7ef6…ab`), dArkOSRE-R36.
 
 Fontes: goodluckOS (GPL-2.0) e o firmware de fábrica (FEX, `lcd.ko`, `udt_joystick.ko`).
 
-**SoC e memória:** A33 (4x Cortex-A7), Mali-400 MP2, 512 MiB em `0x40000000`. PMIC AXP223 em RSB, endereço `0x3a3`, com `x-powers,system-power-controller`.
+**SoC e memória:** A33 (4x Cortex-A7), Mali-400 MP2, DRAM em `0x40000000`. O tamanho diverge entre as fontes: 512 MiB no FEX, no goodluckOS e no handhelds.wiki ("Ram 512mb + ~480 swap"), e 1 GiB segundo o dono do aparelho de teste. Por isso o DTS não tem nó `memory`: o U-Boot detecta a DRAM e preenche o tamanho, e a serial do U-Boot (`DRAM: ...`) confirma na primeira subida. O handhelds.wiki também registra placas V1.0 e V1.1 e variantes A23 (2 núcleos), fora desta versão. PMIC AXP223 em RSB, endereço `0x3a3`, com `x-powers,system-power-controller`.
 
 **DRAM (U-Boot):** clock 552 MHz, tipo DDR3, ZQ 15291, ODT habilitado, para1 284295680, mr0 6208, mr1 64, mr2 8, tpr0 4759954, tpr1 28422541, tpr2 483410, tpr12 168, tpr13 67840.
 
@@ -302,7 +331,7 @@ Fontes: goodluckOS (GPL-2.0) e o firmware de fábrica (FEX, `lcd.ko`, `udt_joyst
 
 Tensões lidas no boot do firmware de fábrica: dcdc1 3000, dcdc2 1100, dcdc3 1200, dcdc4 1100, dcdc5 1500 (DDR3), aldo1 3000, aldo2 2500, aldo3 3000, dldo3 3000 e dc5ldo 1100 mV. Trip points térmicos de fábrica: 75 e 90 °C ativos, 110 °C crítico. No uso, o clock cai de 1200 para 1104 MHz por volta de 56 °C. Medições e scripts do aparelho em `docs/referencia/ga36-emuelec/`.
 
-**OPPs da CPU:** 648 MHz @ 1,04 V; 816 @ 1,10; 1008 @ 1,20; 1200 @ 1,32. Máximo padrão de 1,2 GHz; os níveis de 1344 e 1536 MHz ficam fora desta versão.
+**OPPs da CPU:** nesta versão vale a tabela do `sun8i-a33.dtsi` mainline sem alteração: de 120 MHz a **1008 MHz @ 1,20 V** (648 @ 1,04 V; 816 @ 1,10; 912 e 1008 @ 1,20). O firmware de fábrica (FEX) vai até 1200 MHz @ 1,32 V. Os níveis 1104 e 1200 MHz, e os de 1344 e 1536 MHz, ficam para a change de otimização.
 
 **Painel:** controlador JD9366, 640x480, DSI 2 lanes, 71x53 mm, reset `PH7` ativo baixo, alimentação dc1sw. Timing nativo do FEX: clock 30 MHz, htotal 1040, hbp 120, hsync 40, vtotal 518, vbp 12, vsync 6. Na convenção Allwinner o `hbp` inclui o sync; converter ao escrever o modo DRM. Sequências: Apêndice C (painel 1) e `jd9366_panel_2_init_sequence` do goodluckOS (painel 2).
 

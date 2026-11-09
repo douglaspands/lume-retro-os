@@ -67,12 +67,49 @@ Nesta versão, o boot MUST mostrar na tela as mensagens do kernel e de cada serv
 - **WHEN** o console ou a VM é ligado
 - **THEN** a tela mostra as mensagens do kernel e a lista de serviços com o resultado de cada um, até o frontend assumir a tela
 
-### Requirement: Log de cada boot na BOOT
-Ao final de cada boot, o sistema MUST gravar em `BOOT/logs/` um arquivo com as mensagens do kernel e dos serviços daquele boot, mantendo só os 10 mais recentes.
+### Requirement: Logs centralizados em ROMS/logs
+Todos os logs do sistema MUST ficar numa única pasta, `ROMS/logs/`, com uma subpasta por tipo, de modo que apagá-la limpe todos os logs sem afetar jogos, saves e configurações. A pasta MUST ser recriada no boot seguinte. A `BOOT` MUST permanecer somente leitura e só recebe o log de boot quando não há `ROMS`.
+
+#### Scenario: Limpar os logs pelo PC
+- **WHEN** o usuário apaga `ROMS/logs/` no PC e liga o console
+- **THEN** o console sobe normalmente, recria `ROMS/logs/` com os logs desse boot e não toca em `roms/`, `bios/`, `saves/`, `states/` e `system/`
+
+#### Scenario: Sem ROMS
+- **WHEN** o console sobe com uma partição 2 que não é exFAT
+- **THEN** o log desse boot é gravado em `BOOT/logs/`, mantendo os 10 mais recentes
+
+### Requirement: Log de cada boot
+Ao final de cada boot, o sistema MUST gravar em `ROMS/logs/boot/` um arquivo com as mensagens do kernel, dos serviços e o resumo de hardware daquele boot, com rotação pelo número de boots configurado.
 
 #### Scenario: Log gravado e rotacionado
-- **WHEN** o console completa o 11º boot
-- **THEN** `BOOT/logs/` contém exatamente 10 logs, e o mais recente tem as mensagens do kernel e dos serviços desse boot
+- **WHEN** o console completa um boot além do limite de boots guardados
+- **THEN** `ROMS/logs/boot/` contém exatamente o limite configurado de logs, e o mais recente tem as mensagens do kernel e dos serviços desse boot
+
+### Requirement: Logs de diagnóstico do sistema e do hardware
+O sistema MUST registrar em `ROMS/logs/`, legível no PC, um retrato do hardware a cada boot, métricas periódicas do hardware e do frontend durante o uso, e eventos com sucesso ou falha.
+
+#### Scenario: Retrato do hardware por boot
+- **WHEN** o console termina um boot
+- **THEN** existe `ROMS/logs/hw/boot-<n>.txt` com CPU, frequências, memória, zonas térmicas, bateria e armazenamento desse boot
+
+#### Scenario: Métricas e eventos durante o uso
+- **WHEN** um jogo é aberto, jogado por alguns minutos e fechado
+- **THEN** `ROMS/logs/metricas/boot-<n>.csv` tem amostras com temperatura, frequência e ocupação durante o jogo, e `ROMS/logs/eventos.log` tem a abertura e o fechamento do jogo com o core e a duração
+
+#### Scenario: Desligamento abrupto registrado
+- **WHEN** a energia é cortada sem desligar e o console é ligado de novo
+- **THEN** `ROMS/logs/eventos.log` registra que o desligamento anterior foi abrupto, e as métricas até o último lote gravado continuam lá
+
+### Requirement: Gravação dos logs sem desgaste nem perda de desempenho
+Os logs de diagnóstico MUST ser gravados em lote a partir da RAM e MUST ter rotação por tipo com um teto total configurável pelo PC, para não encher o cartão nem afetar o desempenho dos jogos.
+
+#### Scenario: Rotação limita o espaço
+- **WHEN** os logs passariam do teto configurado
+- **THEN** os mais antigos são apagados primeiro e `ROMS/logs/` fica dentro do teto
+
+#### Scenario: Logs desligados pelo PC
+- **WHEN** o usuário põe `enable=0` em `ROMS/system/etc/logs.conf` e liga o console
+- **THEN** nenhum coletor roda e só o log de boot da `BOOT` é gravado
 
 ### Requirement: Resumo de hardware antes do frontend
 Antes de iniciar o frontend, o boot MUST imprimir um resumo com o estado de vídeo (driver de GPU), áudio, controle, bateria e partição de jogos, marcando cada item como ok ou falha.

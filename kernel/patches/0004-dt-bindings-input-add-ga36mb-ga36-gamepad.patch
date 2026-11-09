@@ -1,0 +1,60 @@
+From: Douglas Panhota <douglaspands@gmail.com>
+Subject: [PATCH] dt-bindings: input: add GA36-MB gamepad
+
+GPIO buttons plus the analog sticks microcontroller on a UART, as one
+input device.
+---
+diff --git a/Documentation/devicetree/bindings/input/ga36mb,ga36-gamepad.yaml b/Documentation/devicetree/bindings/input/ga36mb,ga36-gamepad.yaml
+new file mode 100644
+--- /dev/null
++++ b/Documentation/devicetree/bindings/input/ga36mb,ga36-gamepad.yaml
+@@ -0,0 +1,47 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/input/ga36mb,ga36-gamepad.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: GA36-MB built-in gamepad
++
++maintainers:
++  - Douglas Panhota <douglaspands@gmail.com>
++
++description: |
++  Built-in controls of the GA36-MB V1.2 handheld, exposed as a single input
++  device. The buttons are wired to GPIOs (active low). The two analog sticks
++  are read by a microcontroller on a UART (9600 baud), which only streams axis
++  packets after a challenge/response handshake with the host.
++
++allOf:
++  - $ref: /schemas/serial/serial-peripheral-props.yaml#
++
++properties:
++  compatible:
++    const: ga36mb,ga36-gamepad
++
++patternProperties:
++  "^(dpad-(up|down|left|right)|btn-(a|b|x|y|lb|lt|rb|rt|thumbl|thumbr|start|select|fn))-gpios$":
++    maxItems: 1
++
++required:
++  - compatible
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    serial {
++        mcu {
++            compatible = "ga36mb,ga36-gamepad";
++            dpad-up-gpios = <&pio 4 9 GPIO_ACTIVE_LOW>;
++            btn-a-gpios = <&pio 4 13 GPIO_ACTIVE_LOW>;
++            btn-b-gpios = <&pio 4 12 GPIO_ACTIVE_LOW>;
++        };
++    };
++
++...
+-- 
+2.0

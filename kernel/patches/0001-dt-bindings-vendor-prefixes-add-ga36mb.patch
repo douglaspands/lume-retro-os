@@ -1,0 +1,19 @@
+From: Douglas Panhota <douglaspands@gmail.com>
+Subject: [PATCH] dt-bindings: vendor-prefixes: add ga36mb
+
+Prefix for the GA36-MB handheld mainboard (unbranded R36S clone).
+---
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -596,6 +596,8 @@
+     description: Fujitsu Ltd.
+   "^fxtec,.*":
+     description: FX Technology Ltd.
++  "^ga36mb,.*":
++    description: GA36-MB handheld mainboard (unbranded R36S clone)
+   "^galaxycore,.*":
+     description: GalaxyCore Inc.
+   "^gameforce,.*":
+-- 
+2.0

@@ -21,7 +21,9 @@ from r36os.rootfs import target_out
 from r36os.targets import TARGETS
 from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
-TIMEOUT_S = 1200
+# Teto, não duração: sozinha a VM termina em cerca de 20 min, mas com o host ocupado
+# (ex.: build ARM sob emulação em paralelo) passa disso
+TIMEOUT_S = 1800
 CONTAINER = "r36os-test-vm"
 
 
