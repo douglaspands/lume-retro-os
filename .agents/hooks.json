@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "command": "scripts/venv-python scripts/guardrail.py"
+      }
+    ]
+  }
+}

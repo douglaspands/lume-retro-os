@@ -1,0 +1,5 @@
+
+# agent-harness-hub (ctx): índice local, cache de binários e overrides locais do harness
+.venv/
+.ctx/
+.claude/settings.local.json
