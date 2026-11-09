@@ -1,0 +1,125 @@
+boot_id: 55b36dd0-180a-4f42-84ff-8c53c4b27b35
+date: 2025-05-13 00:34:10
+== CPU ==
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors: interactive conservative ondemand userspace powersave performance
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies: (ausente)
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor: ondemand
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq: 600000
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq: 1200000
+/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq: 1200000
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq: 120000
+/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq: 1344000
+/sys/devices/system/cpu/online: 0-3
+== ondemand ==
+/sys/devices/system/cpu/cpufreq/ondemand/up_threshold: 30
+/sys/devices/system/cpu/cpufreq/ondemand/sampling_down_factor: 10
+/sys/devices/system/cpu/cpufreq/ondemand/sampling_rate: 2000000
+/sys/devices/system/cpu/cpufreq/ondemand/sampling_rate_min: 40000
+/sys/devices/system/cpu/cpufreq/ondemand/ignore_nice_load: 0
+/sys/devices/system/cpu/cpufreq/ondemand/io_is_busy: 0
+/sys/devices/system/cpu/cpufreq/ondemand/powersave_bias: 0
+== DRAM ==
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/available_governors: (ausente)
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/governor: dsm
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/available_frequencies: (ausente)
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/cur_freq: 552000
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/min_freq: 168000
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/max_freq: 552000
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/enable: 1
+/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/scene: 1
+== térmico ==
+/sys/class/thermal/thermal_zone0/type: sunxi-therm
+/sys/class/thermal/thermal_zone0/temp: 32
+/sys/class/thermal/thermal_zone0/policy: step_wise
+/sys/class/thermal/thermal_zone0/trip_point_0_temp: 75
+/sys/class/thermal/thermal_zone0/trip_point_0_type: active
+/sys/class/thermal/thermal_zone0/trip_point_1_temp: 90
+/sys/class/thermal/thermal_zone0/trip_point_1_type: active
+/sys/class/thermal/thermal_zone0/trip_point_2_temp: 110
+/sys/class/thermal/thermal_zone0/trip_point_2_type: critical
+/sys/class/thermal/cooling_device0/type: thermal-budget-0
+/sys/class/thermal/cooling_device0/cur_state: 0
+/sys/class/thermal/cooling_device0/max_state: 3
+== bateria ==
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_NAME=ac
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_MODEL_NAME=ac
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_PRESENT=0
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_ONLINE=0
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_VOLTAGE_NOW=0
+/sys/class/power_supply/ac/uevent: POWER_SUPPLY_CURRENT_NOW=0
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_NAME=battery
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_MODEL_NAME=battery
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_STATUS=Discharging
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_PRESENT=1
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_ONLINE=0
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_HEALTH=Good
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_TECHNOLOGY=LiFe
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_VOLTAGE_MAX_DESIGN=4200000
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_VOLTAGE_MIN_DESIGN=3300
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_VOLTAGE_NOW=3768000
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_CURRENT_NOW=473000
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_ENERGY_FULL_DESIGN=3000
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_CAPACITY=5
+/sys/class/power_supply/battery/uevent: POWER_SUPPLY_TEMP=300
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_NAME=usb
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_MODEL_NAME=usb
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_PRESENT=0
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_ONLINE=0
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_VOLTAGE_NOW=0
+/sys/class/power_supply/usb/uevent: POWER_SUPPLY_CURRENT_NOW=0
+/sys/class/power_supply/battery/status: Discharging
+/sys/class/power_supply/battery/capacity: 5
+/sys/class/power_supply/battery/voltage_now: 3768000
+/sys/class/power_supply/battery/current_now: 473000
+/sys/class/power_supply/battery/charge_now: (ausente)
+/sys/class/power_supply/battery/charge_full: (ausente)
+/sys/class/power_supply/battery/charge_full_design: (ausente)
+/sys/class/power_supply/battery/capacity_level: (ausente)
+dmesg: [    0.245147] axp_pinctrl_probe enter...
+dmesg: [    0.245314] gpiochip_add: registered GPIOs 1024 to 1029 on device: axp-pinctrl
+dmesg: [    0.246261] axp pinctrl driver probe ok
+dmesg: [    0.520029] axp22_board axp22_board: AXP (CHIP ID: 0x06) detected
+dmesg: [    0.522059] axp22_dcdc1: 1600 <--> 3400 mV at 3000 mV 
+dmesg: [    0.522059] axp22_dcdc2: 600 <--> 1540 mV at 1100 mV 
+dmesg: [    0.522059] axp22_dcdc3: 600 <--> 1860 mV at 1200 mV 
+dmesg: [    0.522059] axp22_dcdc4: 600 <--> 1540 mV at 1100 mV 
+dmesg: [    0.522059] axp22_dcdc5: 1000 <--> 2550 mV at 1500 mV 
+dmesg: [    0.522059] axp22_rtc: 3000 mV 
+dmesg: [    0.522059] axp22_aldo1: 700 <--> 3300 mV at 3000 mV 
+dmesg: [    0.522059] axp22_aldo2: 700 <--> 3300 mV at 2500 mV 
+dmesg: [    0.522059] axp22_aldo3: 700 <--> 3300 mV at 3000 mV 
+dmesg: [    0.522059] axp22_dldo1: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_dldo2: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_dldo3: 700 <--> 3300 mV at 3000 mV 
+dmesg: [    0.522059] axp22_dldo4: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_eldo1: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_eldo1: supplied by axp22_dcdc1
+dmesg: [    0.522059] axp22_eldo2: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_eldo2: supplied by axp22_dcdc1
+dmesg: [    0.522059] axp22_eldo3: 700 <--> 3300 mV at 700 mV 
+dmesg: [    0.522059] axp22_eldo3: supplied by axp22_dcdc1
+dmesg: [    0.522059] axp22_dc5ldo: 700 <--> 1400 mV at 1100 mV 
+dmesg: [    0.522059] axp22_ldoio0: 700 <--> 3300 mV at 3800 mV 
+dmesg: [    0.522059] axp22_ldoio1: 700 <--> 3300 mV at 3800 mV 
+dmesg: [    0.522059] axp22_dc1sw: at 700 mV 
+dmesg: [    0.522059] axp22_dc1sw: supplied by axp22_dcdc1
+dmesg: [    0.522059] input: axp22-supplyer as /devices/platform/axp22_board/axp22-supplyer.20/input/input0
+dmesg: [    0.530577] wake_lock_init name=axp_wakeup_lock
+dmesg: [    0.565609] no usbc(0) det_vbus gpio and try to axp det_pin
+dmesg: [    0.997291] axp_gpio_set_data....gpio4:0
+dmesg: [    0.997479] axp_pmx_set....gpio4:1
+dmesg: [    0.999040] axp_gpio_set_data....gpio4:0
+dmesg: [    0.999184] axp_gpio_set_data....gpio4:0
+dmesg: [    1.005962] axp22_dcdc1: Failed to create debugfs directory
+dmesg: [    1.008291] axp22_dcdc3: Failed to create debugfs directory
+dmesg: [    1.010988] [mmc]: get mmc0's power supply 'axp22_dcdc1' ok
+dmesg: [    1.015746] axp22_dcdc1: Failed to create debugfs directory
+dmesg: [    1.032252] axp22_dc1sw: incomplete constraints, leaving on
+dmesg: [    1.032398] axp22_dc5ldo: incomplete constraints, leaving on
+dmesg: [    1.032623] axp22_dldo3: incomplete constraints, leaving on
+dmesg: [    1.032762] axp22_aldo3: incomplete constraints, leaving on
+dmesg: [    1.032815] axp22_aldo2: incomplete constraints, leaving on
+dmesg: [    1.032868] axp22_aldo1: incomplete constraints, leaving on
+dmesg: [    1.032966] axp22_dcdc5: incomplete constraints, leaving on
+dmesg: [    1.033062] axp22_dcdc3: incomplete constraints, leaving on
+dmesg: [    1.033115] axp22_dcdc2: incomplete constraints, leaving on

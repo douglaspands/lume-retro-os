@@ -1,0 +1,306 @@
+#!/bin/sh
+# Percentual de bateria do R36S (feature 48-bateria-percentual). O capacity do kernel
+# (driver axp22) fica parado em 100% e em 5% por mais de uma hora e erra em média 16
+# pontos; este script calcula o percentual pela tensão e pela corrente e o publica
+# em /sys/class/power_supply/battery/capacity por mount --bind, para o ES, o RetroArch e
+# o udt_battery.sh (LED e desligamento) lerem o mesmo valor, sem tocar no kernel.
+#
+# Cálculo, a cada ciclo (awk):
+#  1. vc = tensão (mV) + R * corrente (mA) / 1000: devolve a queda interna da célula.
+#  2. filtro: f = f + (vc - f) / filtro (a primeira amostra do boot usa vc cru).
+#  3. interpolação linear na curva (pontos mV,%) de bateria-curva.conf.
+#  4. piso sobre a tensão lida: <= v_zero força 0 (o udt_battery.sh só desliga com
+#     capacity 0 e 3400 mV), >= v_um força pelo menos 1.
+#  5. em descarga só cai: pub = min(pub anterior, calculado).
+#  6. Charging/Full: publica o capacity do kernel (uevent) e esquece o histórico.
+# A tensão, a corrente e o status vêm do uevent da bateria, que o bind não sobrepõe.
+#
+# Uso: bateria-percentual publica   um ciclo e o bind (ExecStartPre)
+#      bateria-percentual laco      um ciclo a cada 5 s (ExecStart)
+#      bateria-percentual desmonta  desfaz o bind (ExecStopPost)
+#      bateria-percentual --once    um ciclo, sem bind; imprime o valor
+#      bateria-percentual valida <arquivo>   confere um arquivo de curva
+# O ES lê o valor antes da p1 existir: o laço só procura r36-bateria-original e
+# r36-bateria-curva.conf na raiz da p1 quando /storage/roms monta, e o log do boot
+# (r36-bateria.log) é gravado ali também, mas só se existir o arquivo vazio
+# r36-diagnostico na raiz da p1 (o log em /run e o logger não dependem dele).
+# R36_ROOT fica vazio no aparelho.
+
+ROOT="${R36_ROOT:-}"
+SYS="${R36_SYS:-$ROOT/sys}"
+PROC="${R36_PROC:-$ROOT/proc}"
+RUN="${R36_RUN:-$ROOT/run/r36-bateria}"
+ROMS="${R36_ROMS:-$ROOT/storage/roms}"
+CURVA="${R36_CURVA:-$(dirname "$0")/bateria-curva.conf}"
+INTERVALO="${R36_INTERVALO:-5}"
+CICLOS="${R36_CICLOS:-}"
+TAG=r36-bateria
+VALOR="$RUN/capacity"
+ESTADO="$RUN/estado"
+LOG="$RUN/log"
+ROMS_OK=
+LOGA=
+
+# Primeira linha de um arquivo; vazio se não existir ou falhar.
+rd() {
+    v=
+    [ -r "$1" ] && read -r v < "$1" 2>/dev/null
+    printf '%s' "$v"
+}
+
+# Registra no logger e no log do boot (e na p1, depois que ela monta).
+registra() {
+    up=$(rd "$PROC/uptime")
+    printf '[%5ss] %s\n' "${up%%.*}" "$1" >> "$LOG" 2>/dev/null
+    logger -t "$TAG" "$1" 2>/dev/null
+    grava_p1
+}
+
+grava_p1() {
+    [ -n "$ROMS_OK" ] && [ -n "$LOGA" ] && cat "$LOG" > "$ROMS/r36-bateria.log" 2>/dev/null
+    return 0
+}
+
+# Primeira power_supply do tipo Battery.
+acha_bateria() {
+    BAT=
+    for b in "$SYS"/class/power_supply/*; do
+        [ "$(rd "$b/type")" = Battery ] && { BAT=$b; return 0; }
+    done
+    return 1
+}
+
+# Valor de POWER_SUPPLY_<chave> do uevent da bateria.
+uev() {
+    sed -n "s/^POWER_SUPPLY_$1=//p" "$BAT/uevent" 2>/dev/null | head -n 1
+}
+
+# Programa awk. O modo "valida" confere o arquivo de curva ("ok ..." ou "erro ...") e o
+# modo "calcula" devolve "<publicado> <filtro>".
+# Atenção ao busybox 1.32.1: um nome seguido de parêntese vira chamada de função.
+AWKPROG='
+function carrega(arq,    l, n, k, v, a, m) {
+    R = 150; FIL = 4; VZ = 3450; VU = 3500; NP = 0
+    m = 0
+    while ((getline l < arq) > 0) {
+        sub(/#.*/, "", l)
+        gsub(/[ \t\r]/, "", l)
+        if (l == "") continue
+        n = index(l, "=")
+        if (n == 0) return "linha sem =: " l
+        k = substr(l, 1, n - 1)
+        v = substr(l, n + 1)
+        if (k == "ponto") {
+            split(v, a, ",")
+            if (a[1] !~ /^[0-9]+$/ || a[2] !~ /^[0-9]+$/) return "ponto invalido: " v
+            if (a[2] + 0 > 100) return "percentual acima de 100: " v
+            if (NP > 0 && a[1] + 0 <= X[NP]) return "pontos fora de ordem em mV: " v
+            if (NP > 0 && a[2] + 0 < Y[NP]) return "pontos fora de ordem em %: " v
+            NP++
+            X[NP] = a[1] + 0
+            Y[NP] = a[2] + 0
+        } else if (k == "r_mohm" || k == "filtro" || k == "v_zero" || k == "v_um") {
+            if (v !~ /^[0-9]+$/) return "valor invalido em " k ": " v
+            if (k == "r_mohm") R = v + 0
+            if (k == "filtro") FIL = v + 0
+            if (k == "v_zero") VZ = v + 0
+            if (k == "v_um") VU = v + 0
+        } else {
+            return "chave desconhecida: " k
+        }
+    }
+    close(arq)
+    if (NP < 2) return "menos de 2 pontos"
+    if (FIL < 1) return "filtro menor que 1"
+    if (VZ >= VU) return "v_zero nao e menor que v_um"
+    return ""
+}
+function curva(x,    i, p) {
+    if (x <= X[1]) return Y[1]
+    if (x >= X[NP]) return Y[NP]
+    for (i = 2; i <= NP; i++) {
+        if (x <= X[i]) {
+            p = Y[i - 1] + (x - X[i - 1]) * (Y[i] - Y[i - 1]) / (X[i] - X[i - 1])
+            return p
+        }
+    }
+    return Y[NP]
+}
+BEGIN {
+    erro = carrega(conf)
+    if (erro != "") { print "erro " erro; exit 1 }
+    if (modo == "valida") { print "ok " NP " pontos, R=" R " mohm, filtro=" FIL; exit 0 }
+    ma = (ma + 0 > 0) ? ma + 0 : 0
+    vc = mv + R * ma / 1000
+    if (f == "") f = vc; else f = f + (vc - f) / FIL
+    p = int(curva(f) + 0.5)
+    if (p < 0) p = 0
+    if (p > 100) p = 100
+    if (pub != "" && pub + 0 < p) p = pub + 0
+    if (mv <= VZ) p = 0
+    if (mv >= VU && p < 1) p = 1
+    printf "%d %.1f\n", p, f
+}'
+
+# Valida um arquivo de curva; imprime o resultado do awk.
+valida_curva() {
+    awk -v modo=valida -v conf="$1" "$AWKPROG" 2>&1
+}
+
+# Um ciclo: lê a bateria, calcula e escreve o valor no mesmo arquivo (sem mv: o bind
+# prende o inode). Devolve o valor em $PUB.
+ciclo() {
+    PUB=
+    acha_bateria || { registra "sem power_supply do tipo Battery"; return 1; }
+    mkdir -p "$RUN" 2>/dev/null
+    st=$(uev STATUS)
+    [ -n "$st" ] || st=$(rd "$BAT/status")
+    kernel=$(uev CAPACITY)
+    uv=$(uev VOLTAGE_NOW)
+    [ -n "$uv" ] || uv=$(rd "$BAT/voltage_now")
+    ua=$(uev CURRENT_NOW)
+    [ -n "$ua" ] || ua=$(rd "$BAT/current_now")
+    case $kernel in ''|*[!0-9]*) kernel= ;; esac
+    case $uv in ''|*[!0-9]*) uv= ;; esac
+    case $ua in ''|*[!0-9]*) ua= ;; esac
+
+    case $st in
+        Charging|Full)
+            # com o carregador, o valor do kernel; a descarga recomeça da curva
+            : > "$ESTADO" 2>/dev/null
+            PUB=$kernel
+            ;;
+        *)
+            if [ -z "$uv" ]; then
+                PUB=$kernel
+            else
+                f=; pub=
+                [ -s "$ESTADO" ] && read -r f pub < "$ESTADO" 2>/dev/null
+                saida=$(awk -v modo=calcula -v conf="${CURVA_USO:-$CURVA}" -v mv="$((uv / 1000))" \
+                    -v ma="$(( ${ua:-0} / 1000 ))" -v f="$f" -v pub="$pub" "$AWKPROG" 2>&1) || {
+                    registra "calculo falhou (${saida}): fica o valor do kernel"
+                    saida=
+                }
+                if [ -n "$saida" ]; then
+                    set -- $saida
+                    PUB=$1
+                    printf '%s %s\n' "$2" "$1" > "$ESTADO" 2>/dev/null
+                else
+                    PUB=$kernel
+                fi
+            fi
+            ;;
+    esac
+    [ -n "$PUB" ] || return 1
+    printf '%s\n' "$PUB" > "$VALOR" 2>/dev/null
+}
+
+# Caminho real do capacity (o /sys/class/power_supply/battery é um link, e o bind precisa do
+# caminho que aparece em /proc/mounts). Sem readlink -f, resolve o diretório com pwd -P.
+alvo_capacity() {
+    r=$(readlink -f "$BAT/capacity" 2>/dev/null)
+    [ -n "$r" ] || { r=$(cd "$BAT" 2>/dev/null && pwd -P); [ -n "$r" ] && r=$r/capacity; }
+    printf '%s' "$r"
+}
+
+montado() {
+    grep -qF " $1 " "$PROC/mounts" 2>/dev/null
+}
+
+# Desfaz todos os binds sobre o capacity (mais de um só se um serviço anterior morreu).
+desmonta() {
+    acha_bateria || return 0
+    alvo=$(alvo_capacity)
+    [ -n "$alvo" ] || return 0
+    i=0
+    while montado "$alvo" && [ "$i" -lt 4 ]; do
+        umount "$alvo" 2>/dev/null || break
+        i=$((i + 1))
+    done
+    return 0
+}
+
+# Um ciclo e o bind. Falhando, o capacity fica com o valor do kernel.
+publica() {
+    mkdir -p "$RUN" 2>/dev/null
+    [ -e "$VALOR" ] || : > "$VALOR" 2>/dev/null
+    acha_bateria || { registra "sem power_supply do tipo Battery: nada publicado"; return 0; }
+    desmonta
+    info=$(valida_curva "$CURVA")
+    case $info in
+        ok*) registra "curva do system: $CURVA ($info)" ;;
+        *) registra "curva do system recusada ($info): nada publicado"; return 0 ;;
+    esac
+    ciclo || { registra "sem leitura da bateria: nada publicado"; return 0; }
+    alvo=$(alvo_capacity)
+    if [ -z "$alvo" ] || [ ! -e "$alvo" ]; then
+        registra "capacity nao encontrado ($BAT/capacity): nada publicado"
+        return 0
+    fi
+    erro=$(mount -o bind "$VALOR" "$alvo" 2>&1) || {
+        registra "mount --bind recusado em $alvo: $erro"
+        return 0
+    }
+    lido=$(rd "$alvo")
+    if [ "$lido" != "$PUB" ]; then
+        umount "$alvo" 2>/dev/null
+        registra "bind sem efeito em $alvo (lido '$lido', esperado '$PUB'): desfeito, fica o valor do kernel"
+        return 0
+    fi
+    registra "bind ok em $alvo: capacity=$PUB (kernel=$kernel, ${uv:-?} uV, ${ua:-?} uA, $st)"
+    return 0
+}
+
+# Na primeira vez que a p1 monta: a chave r36-bateria-original desfaz tudo; um
+# r36-bateria-curva.conf válido troca a curva. Devolve 1 quando o laço deve encerrar.
+pos_montagem() {
+    ROMS_OK=sim
+    [ -e "$ROMS/r36-diagnostico" ] && LOGA=sim
+    if [ -e "$ROMS/r36-bateria-original" ]; then
+        registra "r36-bateria-original na p1: correcao desligada, capacity volta a ser o do kernel"
+        desmonta
+        return 1
+    fi
+    if [ -e "$ROMS/r36-bateria-curva.conf" ]; then
+        info=$(valida_curva "$ROMS/r36-bateria-curva.conf")
+        case $info in
+            ok*)
+                CURVA_USO="$ROMS/r36-bateria-curva.conf"
+                registra "curva do cartao: $CURVA_USO ($info)"
+                ;;
+            *) registra "r36-bateria-curva.conf ignorado ($info): fica a curva do system" ;;
+        esac
+    else
+        registra "sem r36-bateria-curva.conf na p1: fica a curva do system"
+    fi
+    grava_p1
+    return 0
+}
+
+laco() {
+    mkdir -p "$RUN" 2>/dev/null
+    registra "laco iniciado (a cada ${INTERVALO}s)"
+    n=0
+    while :; do
+        if [ -z "$ROMS_OK" ] && mountpoint -q "$ROMS" 2>/dev/null; then
+            pos_montagem || return 0
+        fi
+        ciclo
+        n=$((n + 1))
+        [ -n "$CICLOS" ] && [ "$n" -ge "$CICLOS" ] && return 0
+        sleep "$INTERVALO"
+    done
+}
+
+case $1 in
+    publica) publica ;;
+    laco) laco ;;
+    desmonta) desmonta ;;
+    --once) ciclo && printf '%s\n' "$PUB" ;;
+    valida)
+        info=$(valida_curva "$2")
+        echo "$info"
+        case $info in ok*) ;; *) exit 1 ;; esac
+        ;;
+    *) echo "uso: bateria-percentual publica|laco|desmonta|--once|valida <arquivo>" >&2; exit 2 ;;
+esac

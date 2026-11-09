@@ -19,7 +19,7 @@ Não existe hoje uma distro leve, com kernel mainline, que sirva ao mesmo tempo 
 - **Frontend inicial = RetroArch**, num serviço de sessão genérico que sobe direto, sem login. Usa o menu padrão do RetroArch (**Ozone**) com os assets oficiais (`retroarch-assets`), menu completo (sem modo kiosk) e escala legível a 640x480. Sair do RetroArch desliga o console, e o item "Sair" do menu passa a se chamar "Desligar".
 - **Validação contínua por VM:** a imagem `x86_64` usa o mesmo layout e o mesmo fluxo de boot. Um teste automatizado de aceitação na VM é condição para liberar as imagens dos consoles.
 
-**Fora do escopo** (próximas changes): splash de boot, tema visual próprio (Lume), Lume Console (frontend próprio), atualização A/B, Wi-Fi e Bluetooth, overclock, segundo slot de cartão do R36S, outras revisões do R36S, GA36 com A23, miniaturas e wallpaper por sistema.
+**Fora do escopo** (próximas changes): splash de boot, tema visual próprio (Lume), Lume Console (frontend próprio), atualização A/B, Wi-Fi e Bluetooth, overclock, otimizações específicas do A33 (flags Cortex-A7 nos pacotes, `snes9x2005_plus` no armv7, governor, zram, latência de áudio e curva de bateria medidas; nesta change os padrões são avaliados primeiro), segundo slot de cartão do R36S, outras revisões do R36S, GA36 com A23, miniaturas e wallpaper por sistema.
 
 ## Capabilities
 

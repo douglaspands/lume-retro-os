@@ -1,0 +1,16 @@
+#!/bin/sh
+# Compilador do A33 para o make do core (CC=a33-cc).
+# Chama o cross-gcc com as flags da variante ($A33_FLAGS) por último, para que o
+# -O/-mcpu delas vença os do Makefile do upstream; na ligação (sem -c) acrescenta
+# também $A33_LDFLAGS. Cada linha efetiva vai para $A33_LOG, quando definido.
+set -eu
+cc=arm-linux-gnueabihf-gcc
+ld_extra=${A33_LDFLAGS:-}
+for a in "$@"; do
+    [ "$a" = "-c" ] && ld_extra="" && break
+done
+if [ -n "${A33_LOG:-}" ]; then
+    printf '%s\n' "$cc $* ${A33_FLAGS:-} $ld_extra" >> "$A33_LOG"
+fi
+# shellcheck disable=SC2086  # as flags são palavras separadas de propósito
+exec "$cc" "$@" ${A33_FLAGS:-} $ld_extra

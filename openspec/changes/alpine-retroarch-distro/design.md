@@ -298,6 +298,8 @@ Fontes: goodluckOS (GPL-2.0) e o firmware de fábrica (FEX, `lcd.ko`, `udt_joyst
 | dldo3 | DSI / D-PHY | 3,0 V |
 | aldo1, aldo2, aldo3, dc5ldo | — | sempre ligados |
 
+Tensões lidas no boot do firmware de fábrica: dcdc1 3000, dcdc2 1100, dcdc3 1200, dcdc4 1100, dcdc5 1500 (DDR3), aldo1 3000, aldo2 2500, aldo3 3000, dldo3 3000 e dc5ldo 1100 mV. Trip points térmicos de fábrica: 75 e 90 °C ativos, 110 °C crítico. No uso, o clock cai de 1200 para 1104 MHz por volta de 56 °C. Medições e scripts do aparelho em `docs/referencia/ga36-emuelec/`.
+
 **OPPs da CPU:** 648 MHz @ 1,04 V; 816 @ 1,10; 1008 @ 1,20; 1200 @ 1,32. Máximo padrão de 1,2 GHz; os níveis de 1344 e 1536 MHz ficam fora desta versão.
 
 **Painel:** controlador JD9366, 640x480, DSI 2 lanes, 71x53 mm, reset `PH7` ativo baixo, alimentação dc1sw. Timing nativo do FEX: clock 30 MHz, htotal 1040, hbp 120, hsync 40, vtotal 518, vbp 12, vsync 6. Na convenção Allwinner o `hbp` inclui o sync; converter ao escrever o modo DRM. Sequências: Apêndice C (painel 1) e `jd9366_panel_2_init_sequence` do goodluckOS (painel 2).

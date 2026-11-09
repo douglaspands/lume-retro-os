@@ -1,0 +1,52 @@
+# Receita do snes9x2010 recompilado para o A33. Veja ./cores.sh --help.
+# A compilação usa só o que está aqui: fonte, variáveis do make e flags.
+
+[core]
+nome = "snes9x2010"
+# Arquivo que o make gera e .info da base de onde saem os .info das variantes.
+saida = "snes9x2010_libretro.so"
+info = "snes9x2010_libretro.info"
+
+[fonte]
+# O mesmo fonte da base: o PKG_VERSION do EmuELEC v4.7. Como no snes9x2005_plus,
+# o "d4e2b9a" da versão do .so da base é o commit da árvore de build do fork.
+# Até 2026-03-31 o upstream só mudou CI e Makefile depois deste commit.
+repo = "https://github.com/libretro/snes9x2010"
+commit = "d8b10c4cd7606ed58f9c562864c986bc960faaaf"
+url = "https://github.com/libretro/snes9x2010/archive/d8b10c4cd7606ed58f9c562864c986bc960faaaf.tar.gz"
+sha256 = "7faf4243226cfed3a2926ef78d7db74905947ecda8770575a81b1792b2345302"
+
+[make]
+# O mesmo da base: o EmuELEC roda "make -f Makefile.libretro" sem platform, que
+# no Linux cai no ramo unix (-O2 e -flto já no Makefile). CC, LD e GIT_VERSION
+# vêm do cores.sh.
+args = ["-f", "Makefile.libretro", "platform=unix"]
+# GIT_VERSION do Makefile: o libretro.c mostra "1.52.4" seguido disto.
+# {variante} vira o nome da variante com "-" no lugar de "_".
+versao = " d8b10c4 a33-{variante}"
+
+[flags]
+# Em toda chamada do compilador, depois das flags do Makefile.
+comuns = [
+    "-marm", "-mcpu=cortex-a7", "-mfpu=neon-vfpv4", "-mfloat-abi=hard",
+    "-DNDEBUG", "-flto=auto", "-fuse-linker-plugin",
+    "-ffunction-sections", "-fdata-sections",
+]
+# Só na ligação.
+ligacao = ["-Wl,--gc-sections", "-Wl,-O1", "-s"]
+
+[variantes.o2]
+nome = "snes9x2010_a33_o2"
+flags = ["-O2"]
+
+[variantes.o3]
+nome = "snes9x2010_a33_o3"
+flags = ["-O3"]
+
+[[descartadas]]
+flags = "-Ofast, -ffast-math"
+motivo = "mesmo motivo do snes9x2005_plus: ganho perto de zero num core quase todo inteiro e risco no áudio"
+
+[[descartadas]]
+flags = "PGO"
+motivo = "fica para depois de comparar o o2 e o o3 com o original e com o snes9x2005_plus"
