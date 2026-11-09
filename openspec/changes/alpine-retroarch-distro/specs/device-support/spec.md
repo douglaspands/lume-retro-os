@@ -71,6 +71,17 @@ Cada console MUST informar o nível de bateria pela interface padrão de fonte d
 - **WHEN** o nível de bateria é consultado em uso
 - **THEN** o sistema informa uma porcentagem entre 0 e 100
 
+### Requirement: Frequência da CPU e proteção térmica
+Cada console MUST variar a frequência da CPU conforme a carga, com a tabela de frequências e tensões e as temperaturas-limite do device tree mainline do SoC, sem valores próprios, e com o governor padrão do kernel. Acima do limite térmico, o clock MUST ser reduzido.
+
+#### Scenario: Frequência acompanha a carga
+- **WHEN** um jogo está rodando e depois o console volta ao menu parado
+- **THEN** a frequência da CPU sobe durante o jogo e desce no menu, dentro da tabela do device tree
+
+#### Scenario: Proteção térmica ativa
+- **WHEN** as zonas térmicas são consultadas no console
+- **THEN** existe uma zona da CPU com limite passivo ligado à CPU como dispositivo de resfriamento e um limite crítico
+
 ### Requirement: Serial de debug
 Cada console MUST mandar as mensagens do bootloader e do kernel para sua serial de debug, numa única velocidade do início ao fim: 115200 baud no GA36 e 1500000 baud no R36S (padrão da Rockchip).
 

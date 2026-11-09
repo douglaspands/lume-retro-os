@@ -80,6 +80,8 @@ O orquestrador é Python porque o repositório já usa `uv` e `.venv`. Os comand
 | GA36 | o mesmo LTS, `multi_v7` reduzido, mais os patches de `kernel/patches/` | painel JD9366 e controle serial não são mainline |
 | VM | `linux-virt` do Alpine | já traz virtio, virtio-gpu e `fbcon` |
 
+Frequência da CPU e temperatura ficam nos padrões do mainline: OPPs e zonas térmicas do `.dtsi` do SoC sem alteração, `cpufreq-dt` e o governor padrão do kernel. Os ajustes medidos no GA36 (`docs/referencia/ga36-emuelec/`) vêm de um kernel sunxi antigo e serão refeitos numa change de otimização.
+
 Ficam embutidos (não como módulo) nos consoles: `vfat`, `exfat`, `squashfs`, `loop`, `overlay`, o MMC do SoC, o DRM do painel e o `fbcon`. Assim o boot verboso aparece no painel cedo e o initramfs fica mínimo. Na VM, o initramfs carrega esses módulos.
 
 - *Alternativa descartada:* usar o `linux-lts` do Alpine nos consoles. Ele não tem os drivers do GA36 nem os DTBs próprios, e embutir o `fbcon` e os drivers exigiria trocar a config de qualquer jeito.
