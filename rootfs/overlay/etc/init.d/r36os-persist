@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# Persistência seletiva da configuração do RetroArch em ROMS/system (D7).
+
+description="Persistência da configuração em ROMS/system"
+command=/usr/libexec/r36os/persist
+command_args="watch"
+command_background=yes
+pidfile=/run/r36os-persist.pid
+
+depend() {
+	need localmount
+	after bootmisc
+	before frontend r36os-playlists
+}
+
+start_pre() {
+	/usr/libexec/r36os/persist restore
+}
+
+stop_post() {
+	/usr/libexec/r36os/persist flush
+}

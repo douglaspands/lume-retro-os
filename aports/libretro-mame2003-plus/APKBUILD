@@ -1,0 +1,35 @@
+# Pacote local do Lume Retro OS (não existe no Alpine).
+pkgname=libretro-mame2003-plus
+pkgver=0_git20261109
+pkgrel=2
+_commit="4f6b3b46a36fa486c4887b0d172bca8c34e670e7"
+pkgdesc="MAME 0.78 com melhorias, core arcade leve para libretro"
+url="https://github.com/libretro/mame2003-plus-libretro"
+arch="all"
+license="custom:MAME"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/mame2003-plus-libretro/archive/$_commit.tar.gz"
+builddir="$srcdir/mame2003-plus-libretro-$_commit"
+options="!check" # No tests
+
+prepare() {
+	default_prepare
+	# O vídeo do ST-V força TLS initial-exec, que o musl recusa num .so carregado
+	# por dlopen ("initial-exec TLS resolves to dynamic definition"). Sem o
+	# atributo, o compilador usa o modelo dinâmico, que funciona no musl.
+	sed -i 's/__thread __attribute__((tls_model("initial-exec")))/__thread/' \
+		src/vidhrdw/stvvid.c
+	grep -q 'tls_model("initial-exec")' src/vidhrdw/stvvid.c && return 1
+	return 0
+}
+
+build() {
+	make -f Makefile
+}
+
+package() {
+	install -Dm644 mame2003_plus_libretro.so "$pkgdir"/usr/lib/libretro/mame2003_plus_libretro.so
+}
+sha512sums="
+b26e58817c27a627604fb19506ae55beac93b83798fe22fb719535f579ec95da5f124dd0f2ab4a3d842ab8277bb63102caf25c334e4c3cf8dd161fe5b629b16f  libretro-mame2003-plus-4f6b3b46a36fa486c4887b0d172bca8c34e670e7.tar.gz
+"

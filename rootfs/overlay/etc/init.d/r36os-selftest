@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+# Self-test de aceitação da VM: só age com r36os.selftest=1 no cmdline do kernel.
+
+description="Self-test de aceitação (VM)"
+
+depend() {
+	need localmount
+	after r36os-persist r36os-playlists r36os-savesync
+	before frontend
+}
+
+start() {
+	grep -qw "r36os.selftest=1" /proc/cmdline || return 0
+	ebegin "Self-test: montando o disco TESTDATA"
+	local dev
+	dev=$(findfs LABEL=TESTDATA 2>/dev/null)
+	mkdir -p /run/r36os/testdata
+	if [ -z "$dev" ] || ! mount -t vfat -o rw,sync "$dev" /run/r36os/testdata; then
+		eend 1 "disco TESTDATA ausente"
+		return 1
+	fi
+	# Comandos de rede (GET_STATUS, SAVE_STATE, QUIT) só no self-test
+	printf 'network_cmd_enable = "true"\nnetwork_cmd_port = "55355"\n' > /run/r36os/retroarch-extra.cfg
+	chmod 644 /run/r36os/retroarch-extra.cfg
+	start-stop-daemon --start --background --make-pidfile --pidfile /run/r36os-selftest.pid \
+		--exec /usr/libexec/r36os/selftest -- run
+	eend $?
+}

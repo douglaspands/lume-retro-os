@@ -1,0 +1,20 @@
+[project]
+name = "r36os"
+version = "0.1.0"
+description = "Orquestrador de build e da VM da distro Alpine + RetroArch para R36S e GA36"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+r36os = "r36os.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pillow>=11"]
+
+[build-system]
+requires = ["uv_build>=0.8"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]

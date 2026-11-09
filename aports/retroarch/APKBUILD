@@ -1,0 +1,62 @@
+# Baseado em community/retroarch do Alpine v3.24 (Bart Ribbers, David Demelier).
+# Variante do Lume Retro OS: só KMS/DRM + EGL + GLES 2, udev e ALSA.
+# Sem X11, Wayland, Qt, SDL2, PulseAudio, FFmpeg e Vulkan, e sem depender do
+# retroarch-assets completo (o tema Lume traz os próprios assets).
+# pkgrel alto para o repositório local vencer o pacote do Alpine.
+pkgname=retroarch
+pkgver=1.22.2
+pkgrel=100
+arch="all"
+url="https://retroarch.com"
+pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
+license="GPL-2.0-only"
+depends="libretro-core-info"
+makedepends="linux-headers mesa-dev libdrm-dev zlib-dev alsa-lib-dev eudev-dev
+	freetype-dev"
+source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v$pkgver.tar.gz
+	config.patch
+	"
+subpackages="$pkgname-doc"
+builddir="$srcdir/RetroArch-$pkgver"
+options="!check" # No tests
+
+build() {
+	./configure \
+		--prefix=/usr \
+		--disable-builtinzlib \
+		--disable-discord \
+		--disable-vg \
+		--disable-videocore \
+		--disable-x11 \
+		--disable-wayland \
+		--disable-qt \
+		--disable-sdl \
+		--disable-sdl2 \
+		--disable-pulse \
+		--disable-jack \
+		--disable-oss \
+		--disable-ffmpeg \
+		--disable-vulkan \
+		--disable-opengl1 \
+		--disable-ssl \
+		--disable-bluetooth \
+		--disable-wifi \
+		--enable-builtinflac \
+		--enable-dynamic \
+		--enable-udev \
+		--enable-alsa \
+		--enable-freetype \
+		--enable-egl \
+		--enable-kms \
+		--enable-opengles
+	make
+}
+
+package() {
+	DESTDIR="$pkgdir" make install
+}
+
+sha512sums="
+59057d3fff3bec3bcb01143a270c3b9e74d148a2f1caa413d52f3533af94564576d2fce6f6273b5c79d11904ef670a6bf7c2c328fe3534a05d160e8a49b9daa1  retroarch-1.22.2.tar.gz
+723e64620e5239b09aff0725a4c25655b4c3b8b3f0fe130998099d84373c3e6a20766cfe8052c4cdeebb7969007c8a9c970982522be11dd12f525ad7df236f3e  config.patch
+"

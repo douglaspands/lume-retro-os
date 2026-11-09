@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Sessão do frontend (D10): sobe direto no tty1, sem login. O frontend é escolhido
+# em /etc/conf.d/frontend. O laço de reinício fica no r36os-session (sem supervise-daemon).
+
+description="Sessão do frontend (${FRONTEND:-retroarch})"
+command=/usr/libexec/r36os/session
+command_background=yes
+pidfile=/run/frontend.pid
+
+depend() {
+	need localmount r36os-persist
+	use seatd alsa udev
+	after udev-settle r36os-hwsummary r36os-playlists r36os-savesync
+}

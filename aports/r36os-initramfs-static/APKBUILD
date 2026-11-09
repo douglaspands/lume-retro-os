@@ -1,0 +1,46 @@
+# Ferramenta de build (não vai para o SYSTEM): binários estáticos do initramfs (D6).
+pkgname=r36os-initramfs-static
+pkgver=1.0
+pkgrel=0
+_utilver=2.42.3
+_exfatver=1.4.1
+pkgdesc="sfdisk, mkfs.exfat e fsck.exfat estáticos para o initramfs do Lume Retro OS"
+url="https://github.com/util-linux/util-linux"
+arch="all"
+license="GPL-2.0-or-later"
+# ncurses: cores do terminal (libtcolors) no link estático; util-linux: libblkid do exfatprogs
+makedepends="linux-headers ncurses-dev ncurses-static util-linux-dev util-linux-static"
+options="!check"
+source="https://www.kernel.org/pub/linux/utils/util-linux/v${_utilver%.*}/util-linux-$_utilver.tar.xz
+	https://github.com/exfatprogs/exfatprogs/releases/download/$_exfatver/exfatprogs-$_exfatver.tar.xz
+	"
+
+build() {
+	cd "$srcdir"/util-linux-$_utilver
+	./configure \
+		--disable-all-programs \
+		--enable-libuuid --enable-libblkid --enable-libfdisk --enable-libsmartcols \
+		--enable-fdisks \
+		--enable-static-programs=sfdisk \
+		--disable-shared --enable-static \
+		--without-python --without-systemd --without-udev \
+		--without-readline \
+		--without-libmagic --without-econf --disable-nls --disable-liblastlog2
+	make sfdisk.static
+
+	cd "$srcdir"/exfatprogs-$_exfatver
+	./configure --disable-shared
+	# libtool ignora -static; -all-static gera o binário estático de verdade
+	make LDFLAGS="$LDFLAGS -all-static"
+}
+
+package() {
+	local d="$pkgdir"/usr/lib/r36os/initramfs/bin
+	install -Dm755 "$srcdir"/util-linux-$_utilver/sfdisk.static "$d"/sfdisk
+	install -Dm755 "$srcdir"/exfatprogs-$_exfatver/mkfs/mkfs.exfat "$d"/mkfs.exfat
+	install -Dm755 "$srcdir"/exfatprogs-$_exfatver/fsck/fsck.exfat "$d"/fsck.exfat
+}
+sha512sums="
+2a307943d4fbb34ac02131e10ff7260f181dd706b21e68a891d25d6eb30476a612bcc19b674bb2256283c9c716146e0d79909f37324efc9aa9d45a44e0d58988  util-linux-2.42.3.tar.xz
+38ae2afcce7d8a8a593f0932051c386bcae64f539031ddebacd584b4df5bcb8178166996e6db04b64efb9664c1d4e7a1f762e4ebb1a47b8cf13bd8f6dbd02104  exfatprogs-1.4.1.tar.xz
+"

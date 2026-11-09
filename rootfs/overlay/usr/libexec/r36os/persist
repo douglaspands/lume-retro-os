@@ -1,0 +1,81 @@
+#!/bin/sh
+# r36os-persist (D7): persistência seletiva da configuração do RetroArch.
+#
+#   persist restore   no boot: semente de fábrica, cartão -> RAM, fuso e hostname
+#   persist watch     daemon: inotifyd + debounce de 2 s, RAM -> cartão (atômico)
+#   persist flush     sincroniza tudo agora (antes de desligar)
+#
+# O RetroArch grava em ~game/.config/retroarch, na camada em RAM. Só esta pasta,
+# system/etc/timezone e system/etc/hostname persistem em ROMS/system/.
+. /usr/libexec/r36os/lib.sh
+
+RAM=/home/game/.config/retroarch
+SYS=/storage/system
+CARD=$SYS/retroarch
+FACTORY=/usr/share/r36os/factory/retroarch
+DIRTY=$R36OS_RUN/persist.dirty
+DEBOUNCE=2
+
+storage_ok() { mountpoint -q /storage; }
+
+restore() {
+	mkdir -p "$RAM"
+	if storage_ok; then
+		if [ ! -d "$CARD" ]; then
+			log "configuração de fábrica do RetroArch (ROMS/system/ ausente)"
+			mirror "$FACTORY" "$CARD"
+			mkdir -p "$SYS/etc"
+			sync
+		fi
+		cp -a "$CARD/." "$RAM/"
+	else
+		log "sem ROMS: configuração de fábrica só em RAM"
+		cp -a "$FACTORY/." "$RAM/"
+	fi
+	chown -R game:game /home/game/.config
+
+	local tz host
+	tz=$(head -n1 "$SYS/etc/timezone" 2>/dev/null | tr -cd 'A-Za-z0-9/_+-')
+	if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
+		ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+		echo "$tz" > /etc/timezone
+		log "fuso horário: $tz"
+	elif [ -n "$tz" ]; then
+		log "fuso horário desconhecido em system/etc/timezone: $tz"
+	fi
+	host=$(head -n1 "$SYS/etc/hostname" 2>/dev/null | tr -cd 'A-Za-z0-9-')
+	if [ -n "$host" ]; then
+		hostname "$host"
+		echo "$host" > /etc/hostname
+		log "hostname: $host"
+	fi
+}
+
+flush() {
+	storage_ok || return 0
+	rm -f "$DIRTY"
+	mirror "$RAM" "$CARD"
+	sync
+}
+
+# Chamado a cada segundo pelo watch_tree: sincroniza 2 s depois da última mudança.
+tick() {
+	[ -e "$DIRTY" ] || return 0
+	local now last
+	now=$(date +%s)
+	last=$(stat -c %Y "$DIRTY" 2>/dev/null) || return 0
+	[ $((now - last)) -ge $DEBOUNCE ] && flush
+	return 0
+}
+
+case "$1" in
+restore) restore ;;
+flush) flush ;;
+watch)
+	storage_ok || exit 0
+	WATCH_TICK=tick
+	WATCH_NAME=persist
+	watch_tree /usr/libexec/r36os/persist-event wymnd "$RAM"
+	;;
+*) echo "uso: $0 restore|watch|flush" >&2; exit 2 ;;
+esac

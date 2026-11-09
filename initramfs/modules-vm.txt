@@ -1,0 +1,12 @@
+# Módulos do initramfs da VM (linux-virt). As dependências são resolvidas pelo
+# modules.dep; módulos embutidos no kernel são ignorados.
+virtio_pci
+virtio_blk
+loop
+squashfs
+overlay
+vfat
+nls_cp437
+nls_iso8859_1
+nls_utf8
+exfat

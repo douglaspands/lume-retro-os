@@ -1,0 +1,41 @@
+#!/bin/sh
+# Grava o log deste boot em BOOT/logs/boot-<n>.log (kernel + serviços + resumo de
+# hardware) e mantém só os 10 mais recentes. A BOOT fica gravável só durante a escrita.
+# Roda pelo inittab (::once:) depois do runlevel default, quando o rc.log está completo.
+. /usr/libexec/r36os/lib.sh
+KEEP=10
+DIR=/boot/logs
+
+mountpoint -q /boot || exit 0
+mount -o remount,rw /boot || { log "ERRO: não foi possível gravar o log de boot"; exit 1; }
+mkdir -p "$DIR"
+
+nums() { ls "$DIR" 2>/dev/null | sed -n 's/^boot-\([0-9][0-9]*\)\.log$/\1/p' | sort -n; }
+last=$(nums | tail -n 1)
+n=$(( ${last:-0} + 1 ))
+tmp="$DIR/.boot-$n.tmp"
+{
+	echo "== Lume Retro OS: boot $n ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
+	echo "== cmdline: $(cat /proc/cmdline)"
+	echo
+	echo "== kernel (dmesg)"
+	dmesg
+	echo
+	echo "== serviços (OpenRC)"
+	cat /var/log/rc.log 2>/dev/null
+	echo
+	echo "== resumo de hardware"
+	cat "$R36OS_RUN/hwsummary" 2>/dev/null
+} > "$tmp"
+fsync "$tmp" 2>/dev/null
+mv -f "$tmp" "$DIR/boot-$n.log"
+
+set -- $(nums)
+while [ $# -gt $KEEP ]; do
+	rm -f "$DIR/boot-$1.log"
+	shift
+done
+sync
+mount -o remount,ro /boot
+echo "$DIR/boot-$n.log" > "$R36OS_RUN/bootlog"
+log "log de boot: BOOT/logs/boot-$n.log"

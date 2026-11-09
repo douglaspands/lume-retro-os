@@ -1,0 +1,11 @@
+#!/bin/sh
+# Handler do inotifyd do savesync: <evento> <diretório> <arquivo>
+. /usr/libexec/r36os/lib.sh
+note_new_dir "$1" "$2" "$3"
+case "$1" in
+w|y)
+	[ -f "$2/$3" ] || exit 0
+	sync -f "$2/$3"
+	echo "$(date +%s) $2/$3" >> "$R36OS_RUN/savesync.log"
+	;;
+esac

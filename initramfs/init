@@ -1,0 +1,100 @@
+#!/bin/busybox sh
+# init do initramfs do Lume Retro OS (D6).
+# BOOT (FAT32, ro) -> SYSTEM (squashfs, loop, ro) + tmpfs 32 MiB -> overlay -> switch_root.
+# Cria a partição ROMS no primeiro boot; nunca formata uma partição 2 existente.
+
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin
+
+mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+# O cpio não tem /dev/console: liga a saída ao console só agora.
+exec 0</dev/console 1>/dev/console 2>&1
+
+. /lib/storage.sh
+
+rescue() {
+	log "ERRO: $*"
+	log "abrindo shell de emergência no console"
+	exec setsid cttyhack sh
+}
+
+# Módulos (só na VM; nos consoles os drivers de boot são embutidos no kernel).
+if [ -f /etc/modules ]; then
+	while read -r m; do
+		[ -n "$m" ] && insmod "/lib/modules/$m" 2>/dev/null
+	done < /etc/modules
+fi
+
+# root=PARTUUID=<assinatura MBR>-01, vindo do extlinux.conf.
+SIG=""
+for arg in $(cat /proc/cmdline); do
+	case "$arg" in root=PARTUUID=*) SIG=${arg#root=PARTUUID=}; SIG=${SIG%-*} ;; esac
+done
+[ -n "$SIG" ] || rescue "cmdline sem root=PARTUUID="
+
+# Espera o cartão pela assinatura do MBR (timeout de 10 s).
+find_disk() {
+	local d sig
+	for d in /sys/block/*; do
+		d=${d##*/}
+		case "$d" in loop*|ram*|zram*) continue ;; esac
+		[ -b "/dev/$d" ] || continue
+		sig=$(dd if="/dev/$d" bs=1 skip=440 count=4 2>/dev/null | hexdump -e '1/4 "%08x"')
+		[ "$sig" = "$SIG" ] && { echo "/dev/$d"; return 0; }
+	done
+	return 1
+}
+log "procurando o cartão (PARTUUID=$SIG-01)..."
+i=0
+until DISK=$(find_disk); do
+	i=$((i + 1))
+	[ $i -ge 100 ] && rescue "cartão não encontrado em 10 s"
+	sleep 0.1
+done
+BOOT=$(part_node "$DISK" 1)
+wait_node "$BOOT" || rescue "partição BOOT ausente em $DISK"
+log "cartão em $DISK"
+
+# Partição de jogos: antes de qualquer montagem do cartão (o kernel não relê
+# a tabela de um disco com partição montada).
+ROMS_OK=$(setup_storage "$DISK")
+
+mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "falha ao montar a BOOT"
+[ -f /boot/SYSTEM ] || rescue "BOOT sem o arquivo SYSTEM"
+mount -t squashfs -o ro,loop /boot/SYSTEM /lower || rescue "falha ao montar o SYSTEM"
+mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
+mkdir -p /rw/upper /rw/work
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
+	|| rescue "falha ao montar o overlay"
+log "raiz: SYSTEM (somente leitura) + camada em RAM de 32 MiB"
+
+if [ "$ROMS_OK" = ok ]; then
+	if mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
+		"$(part_node "$DISK" 2)" /newroot/storage; then
+		CATALOG=/newroot/usr/share/r36os/systems.json
+		if [ -f "$CATALOG" ]; then
+			# caminho absoluto: o PATH do initramfs não tem /usr/bin
+			IDS=$(chroot /newroot /usr/bin/jq -r '.systems[].id' /usr/share/r36os/systems.json) \
+				|| log "ERRO: não foi possível ler o catálogo"
+			make_folders /newroot/storage $IDS
+		else
+			log "ERRO: catálogo $CATALOG ausente"
+			make_folders /newroot/storage
+		fi
+		README=/newroot/usr/share/r36os/LEIA-ME.txt
+		if [ -f "$README" ] && ! cmp -s "$README" /newroot/storage/LEIA-ME.txt; then
+			cp "$README" /newroot/storage/LEIA-ME.txt
+		fi
+		log "ROMS montada em /storage"
+	else
+		log "ERRO: falha ao montar a ROMS; seguindo sem partição de jogos"
+	fi
+fi
+
+mount --move /boot /newroot/boot
+mount --move /dev /newroot/dev
+umount /proc /sys
+exec switch_root /newroot /sbin/init

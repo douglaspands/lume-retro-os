@@ -1,0 +1,4 @@
+Lume Retro OS - console de debug (root).
+Sistema somente leitura: alterações fora de /storage somem no próximo boot.
+Logs de boot: /boot/logs/   Resumo de hardware: /run/r36os/hwsummary
+

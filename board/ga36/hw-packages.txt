@@ -1,0 +1,4 @@
+# Camada de hardware do GA36-MB V1.2 (armv7).
+# Kernel, DTBs e U-Boot vêm do estágio 1 (cross-compile) e não são pacotes apk:
+# a imagem do kernel vai para a BOOT e os módulos entram direto no SYSTEM.
+# O controle serial é driver de kernel (kernel/patches/), sem daemon em userland.

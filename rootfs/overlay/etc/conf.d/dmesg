@@ -1,0 +1,3 @@
+# Boot verboso: mantém no console as mensagens do kernel até "info" (como loglevel=6
+# no cmdline). O padrão do Alpine (1) esconderia tudo depois do sysinit.
+dmesg_level="6"

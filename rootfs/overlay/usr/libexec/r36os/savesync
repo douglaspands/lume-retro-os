@@ -1,0 +1,9 @@
+#!/bin/sh
+# Garante que saves e save states concluídos estão no cartão (D7): a cada arquivo
+# fechado após escrita (ou movido para dentro) em /storage/saves ou /storage/states,
+# roda `sync -f` nele.
+. /usr/libexec/r36os/lib.sh
+mountpoint -q /storage || exit 0
+mkdir -p /storage/saves /storage/states
+WATCH_NAME=savesync
+watch_tree /usr/libexec/r36os/savesync-event wyn /storage/saves /storage/states

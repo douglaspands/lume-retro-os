@@ -1,0 +1,3 @@
+# Frontend da sessão: nome de um executável em /usr/libexec/r36os/frontends/.
+# Para trocar, instale o pacote do novo frontend e mude este valor (docs/FRONTEND.md).
+FRONTEND="retroarch"

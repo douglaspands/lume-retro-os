@@ -1,0 +1,3 @@
+# Camada de hardware da VM (x86_64): kernel do Alpine com virtio e virtio-gpu.
+# Os módulos de boot (virtio_blk, squashfs, loop, overlay, exfat) vão para o initramfs.
+linux-virt

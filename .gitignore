@@ -3,3 +3,9 @@
 .venv/
 .ctx/
 .claude/settings.local.json
+
+# r36os: artefatos de build (o cache fica fora do repositório)
+/out/
+__pycache__/
+*.pyc
+.pytest_cache/

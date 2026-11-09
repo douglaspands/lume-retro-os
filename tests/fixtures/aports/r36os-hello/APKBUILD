@@ -1,0 +1,15 @@
+# Pacote trivial usado só para testar o repositório local (tarefa 1.4).
+pkgname=r36os-hello
+pkgver=1.0
+pkgrel=0
+pkgdesc="Teste do repositório local do Lume Retro OS"
+url="https://example.invalid"
+arch="noarch"
+license="MIT"
+options="!check"
+source=""
+
+package() {
+	install -d "$pkgdir"/usr/share/r36os
+	echo "hello" > "$pkgdir"/usr/share/r36os/hello
+}

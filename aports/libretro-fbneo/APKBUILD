@@ -1,0 +1,25 @@
+# Baseado em testing/libretro-fbneo do Alpine edge (David Demelier),
+# atualizado para o master atual (zlib embutido do próprio FBNeo).
+pkgname=libretro-fbneo
+pkgver=0_git20261108
+pkgrel=0
+_commit="77016b4dff6c76beba08d24ea1c61ed2750bc0a7"
+pkgdesc="FinalBurn Neo, an Emulator for Arcade Games & Select Consoles"
+url="https://github.com/libretro/FBNeo"
+arch="all"
+license="custom"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/FBNeo/archive/$_commit.tar.gz"
+builddir="$srcdir/FBNeo-$_commit"
+options="!check" # No tests
+
+build() {
+	make -C src/burner/libretro
+}
+
+package() {
+	install -Dm644 src/burner/libretro/fbneo_libretro.so "$pkgdir"/usr/lib/libretro/fbneo_libretro.so
+}
+sha512sums="
+616e5b9d094565cf02e2bc9a3dedcde5c7c33279ef5b01ab7b63b844183399db6b8903cc739d1482369ffe9e43e42dc3fe23f1ccfc10a7ae3505f6c34a0e90cf  libretro-fbneo-77016b4dff6c76beba08d24ea1c61ed2750bc0a7.tar.gz
+"

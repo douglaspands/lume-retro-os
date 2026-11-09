@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# sync -f em cada save e save state concluído em /storage/saves e /storage/states.
+
+description="Grava saves e states no cartão assim que concluídos"
+command=/usr/libexec/r36os/savesync
+command_background=yes
+pidfile=/run/r36os-savesync.pid
+
+depend() {
+	need localmount
+	before frontend
+}

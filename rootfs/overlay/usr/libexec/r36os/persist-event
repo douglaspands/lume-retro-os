@@ -1,0 +1,6 @@
+#!/bin/sh
+# Handler do inotifyd do r36os-persist: <evento> <diretório> <arquivo>
+. /usr/libexec/r36os/lib.sh
+case "$3" in *.tmp.*) exit 0 ;; esac
+note_new_dir "$1" "$2" "$3"
+: > "$R36OS_RUN/persist.dirty"

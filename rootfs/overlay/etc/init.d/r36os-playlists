@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+# Listas de jogos do RetroArch geradas de roms/ e do catálogo, a cada boot.
+
+description="Listas de jogos"
+
+depend() {
+	need localmount
+	after r36os-persist
+	before frontend
+}
+
+start() {
+	ebegin "Gerando as listas de jogos"
+	if mountpoint -q /storage; then
+		/usr/bin/r36os-playlists
+		chown -R game:game /home/game/.config/retroarch/playlists
+	fi
+	eend 0
+}

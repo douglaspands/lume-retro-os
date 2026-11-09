@@ -1,0 +1,48 @@
+# Lista comum de userland do Lume Retro OS: igual nos três alvos (r36s, ga36, vm).
+# Pacotes da camada de hardware (kernel, firmware, bootloader, daemons de um
+# console só) ficam em board/<alvo>/hw-packages.txt.
+
+# Base
+alpine-base
+openrc
+busybox-openrc
+eudev
+eudev-openrc
+tzdata
+
+# Vídeo (KMS/DRM + GLES)
+mesa-dri-gallium
+mesa-egl
+mesa-gles
+mesa-gbm
+seatd
+seatd-openrc
+
+# Áudio
+alsa-utils
+alsa-utils-openrc
+
+# Partição de jogos e scripts
+exfatprogs
+jq
+
+# Frontend
+retroarch
+libretro-core-info
+retroarch-theme-lume
+
+# Cores do Alpine v3.24
+libretro-fceumm
+libretro-nestopia
+libretro-gambatte
+libretro-mgba
+libretro-gpsp
+
+# Cores locais (aports/)
+libretro-snes9x2010
+libretro-snes9x
+libretro-genesis-plus-gx
+libretro-picodrive
+libretro-fbneo
+libretro-mame2003-plus
+libretro-pcsx-rearmed

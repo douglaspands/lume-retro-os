@@ -1,0 +1,30 @@
+# Baseado em testing/libretro-pcsx-rearmed do Alpine edge (David Demelier),
+# atualizado para o master atual, que também compila em armv7 (dynarec ARM).
+pkgname=libretro-pcsx-rearmed
+pkgver=0_git20261029
+pkgrel=0
+_commit="7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e"
+pkgdesc="ARM optimized PCSX fork for libretro"
+url="https://github.com/libretro/pcsx_rearmed"
+arch="all !loongarch64"
+license="GPL-2.0-only"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/pcsx_rearmed/archive/$_commit.tar.gz"
+builddir="$srcdir/pcsx_rearmed-$_commit"
+options="!check" # No tests
+
+case "$CARCH" in
+aarch64) _make_opts="DYNAREC=ari64" ;;
+armv7) _make_opts="DYNAREC=ari64 HAVE_NEON=1 BUILTIN_GPU=neon ARCH=arm" ;;
+esac
+
+build() {
+	make -f Makefile.libretro $_make_opts
+}
+
+package() {
+	install -Dm644 pcsx_rearmed_libretro.so "$pkgdir"/usr/lib/libretro/pcsx_rearmed_libretro.so
+}
+sha512sums="
+b6c8ab654cd29124a5976778ac8eaaf8bc34e498f06138e4d2e74fdd4149947eeb9182d1b7aab5b711ebc1891b89aad95b05afdd5e1ad1984642f089f73c4b5c  libretro-pcsx-rearmed-7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e.tar.gz
+"

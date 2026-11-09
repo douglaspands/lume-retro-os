@@ -1,0 +1,9 @@
+#!/bin/sh
+# Roda "openrc <runlevel>" mostrando a saída no /dev/console (tela) e também
+# na serial de debug, para o boot verboso aparecer nos dois.
+SERIAL=$(cat /etc/r36os/serial-tty 2>/dev/null)
+if [ -n "$SERIAL" ] && [ -c "/dev/$SERIAL" ]; then
+	/sbin/openrc "$@" 2>&1 | tee "/dev/$SERIAL"
+else
+	exec /sbin/openrc "$@"
+fi

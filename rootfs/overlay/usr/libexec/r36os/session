@@ -1,0 +1,92 @@
+#!/bin/sh
+# r36os-session (D10): roda o frontend configurado no tty1 como o usuário game.
+#
+#   saída 0           -> grava o pendente (persist flush) e desliga
+#   saída != 0        -> recomeça; na 3ª falha em 60 s para e mostra o erro e o log
+#   SIGTERM (serviço) -> encerra o frontend sem desligar
+. /usr/libexec/r36os/lib.sh
+[ -f /etc/conf.d/frontend ] && . /etc/conf.d/frontend
+FRONTEND=${FRONTEND:-retroarch}
+EXE=/usr/libexec/r36os/frontends/$FRONTEND
+TTY=/dev/tty1
+LOG=/var/log/frontend.log
+WINDOW=60
+MAX_FAILS=3
+
+# dmesg (log de boot) + serial de debug + syslog
+SERIAL=/dev/$(cat /etc/r36os/serial-tty 2>/dev/null)
+kmsg() {
+	echo "<5>lume: $*" > /dev/kmsg
+	[ -c "$SERIAL" ] && echo "lume: $*" > "$SERIAL"
+	logger -t lume "$*" 2>/dev/null
+	return 0
+}
+
+stopping=""
+child=""
+trap 'stopping=1; [ -n "$child" ] && kill "$child" 2>/dev/null' TERM INT
+
+keep_log() {  # cópia do log do frontend na BOOT, legível no PC
+	mount -o remount,rw /boot 2>/dev/null || return 0
+	mkdir -p /boot/logs
+	cp "$LOG" /boot/logs/frontend-erro.log 2>/dev/null
+	sync
+	mount -o remount,ro /boot
+}
+
+give_up() {
+	keep_log
+	chvt 1
+	{
+		printf '\033[2J\033[H'
+		echo "Lume Retro OS"
+		echo
+		echo "O frontend '$FRONTEND' falhou $MAX_FAILS vezes em $WINDOW segundos e não"
+		echo "será reiniciado. $1"
+		echo
+		echo "Log: BOOT/logs/frontend-erro.log (no cartão, pelo PC)"
+		echo "     $LOG (no console serial)"
+		echo
+		echo "Desligue o aparelho pelo botão de energia."
+	} > "$TTY"
+	kmsg "frontend parado após $MAX_FAILS falhas em ${WINDOW}s; log em BOOT/logs/frontend-erro.log"
+	exit 1
+}
+
+mkdir -p /run/user/1000
+chown game:game /run/user/1000
+chmod 700 /run/user/1000
+chown game:game "$TTY"
+chvt 1
+: > "$LOG"
+chown game:game "$LOG"
+
+fail_times=""
+while :; do
+	[ -x "$EXE" ] || give_up "Frontend não instalado: $EXE"
+	kmsg "frontend iniciado: $FRONTEND"
+	XDG_RUNTIME_DIR=/run/user/1000 su -s /bin/sh -c "exec $EXE" game < "$TTY" >> "$LOG" 2>&1 &
+	child=$!
+	wait "$child"
+	rc=$?
+	child=""
+	if [ -n "$stopping" ]; then
+		kmsg "sessão encerrada pelo serviço"
+		exit 0
+	fi
+	if [ "$rc" -eq 0 ]; then
+		kmsg "frontend encerrado pelo usuário: gravando e desligando"
+		/usr/libexec/r36os/persist flush
+		sync
+		poweroff
+		exit 0
+	fi
+	now=$(date +%s)
+	recent=""
+	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
+	fail_times="$recent $now"
+	n=$(echo $fail_times | wc -w)
+	kmsg "frontend terminou com erro (código $rc): falha $n de $MAX_FAILS em ${WINDOW}s"
+	[ "$n" -ge $MAX_FAILS ] && give_up "Último código de saída: $rc."
+	sleep 1
+done

@@ -1,0 +1,50 @@
+# Baseado em testing/libretro-picodrive do Alpine edge (David Demelier),
+# atualizado para o master atual com os submódulos usados pelo build libretro.
+pkgname=libretro-picodrive
+pkgver=0_git20260926
+pkgrel=0
+_commit="1890c2932234c9d30f4cd3851d02228baae8f09e"
+_commit_dr_libs="dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb"
+_commit_libchdr="e62ac5995b1c7ef65ece35293914843b8ee57d49"
+_commit_emu2413="a2dfc20ff507e4fd075cd325620bcea655e2c1f7"
+_commit_cyclone="3ac7cf1bdeecb60e2414980e8dc72ff092f69769"
+_commit_libpicofe="9ed5822606dd7ff20a782a882e8fd611cb53ba88"
+pkgdesc="fast MegaDrive/MegaCD/32X/Master System emulator"
+url="https://github.com/libretro/picodrive"
+arch="all !ppc64le !s390x !riscv64"
+license="custom"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/picodrive/archive/$_commit.tar.gz
+	$pkgname-dr_libs-$_commit_dr_libs.tar.gz::https://github.com/mackron/dr_libs/archive/$_commit_dr_libs.tar.gz
+	$pkgname-libchdr-$_commit_libchdr.tar.gz::https://github.com/irixxxx/libchdr/archive/$_commit_libchdr.tar.gz
+	$pkgname-emu2413-$_commit_emu2413.tar.gz::https://github.com/digital-sound-antiques/emu2413/archive/$_commit_emu2413.tar.gz
+	$pkgname-cyclone-$_commit_cyclone.tar.gz::https://github.com/irixxxx/cyclone68000/archive/$_commit_cyclone.tar.gz
+	$pkgname-libpicofe-$_commit_libpicofe.tar.gz::https://github.com/irixxxx/libpicofe/archive/$_commit_libpicofe.tar.gz
+	"
+builddir="$srcdir/picodrive-$_commit"
+options="!check" # No tests
+
+prepare() {
+	default_prepare
+	rm -rf platform/common/dr_libs && mv "$srcdir/dr_libs-$_commit_dr_libs" platform/common/dr_libs
+	rm -rf pico/cd/libchdr && mv "$srcdir/libchdr-$_commit_libchdr" pico/cd/libchdr
+	rm -rf pico/sound/emu2413 && mv "$srcdir/emu2413-$_commit_emu2413" pico/sound/emu2413
+	rm -rf cpu/cyclone && mv "$srcdir/cyclone68000-$_commit_cyclone" cpu/cyclone
+	rm -rf platform/libpicofe && mv "$srcdir/libpicofe-$_commit_libpicofe" platform/libpicofe
+}
+
+build() {
+	make -f Makefile.libretro
+}
+
+package() {
+	install -Dm644 picodrive_libretro.so "$pkgdir"/usr/lib/libretro/picodrive_libretro.so
+}
+sha512sums="
+52bb88284073e9ead581d3f1d5fe72cae50a5af1cd133dca2f9e709a29bffe17fcc7080ede1726ff6e25408328e05deb37252e3b2b2678be393f48c40ee69d3f  libretro-picodrive-1890c2932234c9d30f4cd3851d02228baae8f09e.tar.gz
+4ec10ea1d9622879b5bdb61a11768e36b56a558d32aac6f8c8a52168ab401f9d53db0eeba074fe56de39f3809fb0bd73e2e6c5ef4ea8fd158abeb45e18285f08  libretro-picodrive-dr_libs-dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb.tar.gz
+19f1f0eab4ea1fc2692c316468c66a9f8168f4c5c7f59c79101070dbd7316ee72ce7182d149c57e24d589cca6b4b8925c302f41075a19412611d9f41dcde0e32  libretro-picodrive-libchdr-e62ac5995b1c7ef65ece35293914843b8ee57d49.tar.gz
+61011a8596bde05f87ac9c438cac7d19808e99e22bbf40ce2f16961194293e03aac9828fed416975e9de26efff17976be1e4f8d94fea23cd3d1381378902eae6  libretro-picodrive-emu2413-a2dfc20ff507e4fd075cd325620bcea655e2c1f7.tar.gz
+8ef0a9064a6d3e1356e3c5a0b83f5de6250adee10c1b9100fc7ef96aac7aba89f20495d7918af24aa91bd4d7e79ebef81dbe2e0b33caa1218116a5460d147b0e  libretro-picodrive-cyclone-3ac7cf1bdeecb60e2414980e8dc72ff092f69769.tar.gz
+2c5d76429baf0052130e141ed4a539e055aed52bb19a57f02e7adbe8badddc2ca14450ec3eac5105620e043ab446d1f6b0eb9d0ed5802dc696d1cc5ff8c67f21  libretro-picodrive-libpicofe-9ed5822606dd7ff20a782a882e8fd611cb53ba88.tar.gz
+"

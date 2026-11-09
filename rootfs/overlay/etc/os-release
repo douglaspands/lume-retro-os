@@ -1,0 +1,5 @@
+NAME="Lume Retro OS"
+ID=lumeretro
+ID_LIKE=alpine
+VERSION_ID=0.1.0
+PRETTY_NAME="Lume Retro OS 0.1.0"

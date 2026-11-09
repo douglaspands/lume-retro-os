@@ -1,0 +1,252 @@
+#!/bin/sh
+# Self-test de aceitação da VM (ativado por r36os.selftest=1 no cmdline).
+#
+# Cada boot roda uma fase, guardada em TESTDATA/state. Os resultados saem na serial
+# como "SELFTEST <nome> PASS|FAIL [detalhe]" e em TESTDATA/results.txt. Ações que só
+# o host pode fazer (reset abrupto, teclas) são pedidas com "SELFTEST REQUEST <ação>".
+. /usr/libexec/r36os/lib.sh
+T=$R36OS_RUN/testdata
+SERIAL=/dev/$(cat /etc/r36os/serial-tty)
+RA_CFG=/home/game/.config/retroarch/retroarch.cfg
+LUME=/usr/share/r36os/retroarch-lume.cfg
+EXTRA=$R36OS_RUN/retroarch-extra.cfg
+STATE_ROM="/storage/roms/nes/Teste NES.nes"
+TOTAL_BOOTS=11
+
+say() { echo "SELFTEST $*" > "$SERIAL"; }
+mark() {  # nome PASS|FAIL [detalhe]
+	local name="$1" res="$2"; shift 2
+	say "$name $res${*:+ $*}"
+	echo "$name $res $*" >> "$T/results.txt"
+	fsync "$T/results.txt" 2>/dev/null
+}
+check() {  # nome "condição" [detalhe]
+	if eval "$2"; then mark "$1" PASS "${3:-}"; else mark "$1" FAIL "${3:-}"; fi
+}
+request() { say "REQUEST $1"; }
+next() { echo "$1" > "$T/state"; sync -f "$T/state"; }
+wait_for() {  # segundos "condição"
+	local i=0
+	while [ $i -lt $(($1 * 2)) ]; do eval "$2" && return 0; sleep 0.5; i=$((i + 1)); done
+	return 1
+}
+ra_pid() { pidof retroarch | awk '{print $1}'; }
+ra_cmd() { printf '%s' "$1" | nc -u -w1 127.0.0.1 55355 2>/dev/null; }
+frontend_running() { [ -n "$(ra_pid)" ]; }
+# O jogo de NES de teste incrementa a RAM $0000 sem parar: se o byte não muda em
+# meio segundo, o core está pausado (menu aberto com menu_pause_libretro).
+ram0() { ra_cmd "READ_CORE_RAM 0 1" | awk '{print $3}'; }
+core_running() { local a; a=$(ram0); sleep 0.5; [ -n "$a" ] && [ "$a" != "$(ram0)" ]; }
+core_paused() { local a; a=$(ram0); sleep 0.5; [ -n "$a" ] && [ "$a" = "$(ram0)" ]; }
+
+# RetroArch avulso como game (KMS/GLES), com comandos de rede: ra_run <log> <args...>
+# O log também vai para TESTDATA/results/ (lido pelo host depois do teste).
+ra_run() {
+	local log="$1" rc=0; shift
+	su -s /bin/sh game -c "XDG_RUNTIME_DIR=/run/user/1000 exec retroarch \
+		--config $RA_CFG --appendconfig '$LUME|$EXTRA' --verbose $*" \
+		< /dev/tty1 > "$log" 2>&1 || rc=$?
+	cp "$log" "$T/results/" 2>/dev/null
+	return $rc
+}
+
+stop_frontend() {
+	rc-service frontend stop >/dev/null 2>&1
+	wait_for 10 '! frontend_running'
+	sleep 1  # o DRM é liberado quando o processo termina de sair
+}
+
+start_frontend() {
+	rc-service frontend start >/dev/null 2>&1
+	wait_for 30 frontend_running
+}
+
+phase_first() {
+	# Partição de jogos criada no primeiro boot
+	local dev label
+	dev=$(awk '$2 == "/storage" {print $1}' /proc/mounts)
+	# exfatlabel recusa o dispositivo montado ("Resource busy"); o blkid lê o rótulo
+	label=$(blkid "$dev" | sed -n 's/.*LABEL="\([^"]*\)".*/\1/p')
+	check roms-created 'grep -q " /storage exfat " /proc/mounts && [ "$label" = ROMS ]' "$dev $label"
+	check roms-first-boot-msg 'dmesg | grep -q "partição ROMS criada"'
+	local missing=""
+	for d in $(jq -r '.systems[].id' /usr/share/r36os/systems.json); do
+		[ -d "/storage/roms/$d" ] || missing="$missing roms/$d"
+	done
+	for d in bios saves states screenshots system; do [ -d "/storage/$d" ] || missing="$missing $d"; done
+	check roms-folders '[ -z "$missing" ] && [ -f /storage/LEIA-ME.txt ]' "$missing"
+	check roms-owner '[ "$(stat -c %u /storage/roms)" = 1000 ] && grep " /storage " /proc/mounts | grep -q noatime'
+	check boot-readonly 'awk "\$2==\"/boot\"{print \$4}" /proc/mounts | grep -q "^ro"'
+	check root-overlay 'grep "^overlay / overlay" /proc/mounts | grep -q "lowerdir=/lower,upperdir=/rw/upper" && grep -q "/SYSTEM" /sys/block/loop0/loop/backing_file' "$(cat /sys/block/loop0/loop/backing_file 2>/dev/null)"
+
+	# Resumo de hardware
+	local hw=$R36OS_RUN/hwsummary
+	check hwsummary '[ -f "$hw" ] && grep -q "vídeo *ok" "$hw" && grep -q "controle *ok" "$hw" && grep -q "ROMS *ok" "$hw"' "$(tr -s ' ' < "$hw" 2>/dev/null | tr '\n' ';')"
+	check hwsummary-battery-absent 'grep -q "bateria *ausente" "$hw"'
+
+	# Frontend como game, por KMS/GLES
+	wait_for 60 frontend_running
+	check frontend-up frontend_running
+	check frontend-not-root '[ "$(awk "/^Uid:/{print \$2}" /proc/$(ra_pid)/status)" = 1000 ]'
+	wait_for 20 'grep -q "\[GL\]" /var/log/frontend.log'
+	local gl
+	# "[GL] Vendor: Mesa, Renderer: llvmpipe ..." e "[GL] Version: OpenGL ES 3.2 ..."
+	gl=$(grep -E "\[GL\] (Vendor|Version)" /var/log/frontend.log | sed 's/.*\[GL\] //' | tr '\n' ';')
+	check frontend-gles 'echo "$gl" | grep -q "OpenGL ES" && ! echo "$gl" | grep -qiE "llvmpipe|softpipe|swrast"' "${gl:-sem linhas [GL] no log}"
+	cp /var/log/frontend.log "$T/results/frontend-first.log" 2>/dev/null
+	check frontend-kms 'grep -qiE "\[KMS\]|kms" /var/log/frontend.log'
+
+	# Log de boot na BOOT
+	wait_for 30 '[ -f "$R36OS_RUN/bootlog" ]'
+	local bl
+	bl=$(cat "$R36OS_RUN/bootlog" 2>/dev/null)
+	check bootlog-written '[ -f "$bl" ] && grep -q "== kernel" "$bl" && grep -q "seatd" "$bl"' "$bl"
+	check bootlog-boot-ro-again 'awk "\$2==\"/boot\"{print \$4}" /proc/mounts | grep -q "^ro"'
+
+	# Parar o serviço não desliga
+	stop_frontend
+	check frontend-stop-no-poweroff '! frontend_running'
+
+	# Jogos de teste e listas
+	cp -r "$T/roms/." /storage/roms/
+	/usr/bin/r36os-playlists > /dev/null
+	local pl=/home/game/.config/retroarch/playlists
+	check playlists '[ -f "$pl/NES.lpl" ] && [ -f "$pl/Super Nintendo.lpl" ] && [ -f "$pl/Arcade.lpl" ] && [ "$(jq -r ".items[0].core_path" "$pl/Arcade.lpl")" = /usr/lib/libretro/fbneo_libretro.so ]' "$(ls "$pl" | tr '\n' ';')"
+
+	# Um jogo por core, 600 quadros
+	while IFS="$(printf '\t')" read -r core file sys rom; do
+		[ -n "$core" ] || continue
+		local log="$R36OS_RUN/core-$core.log"
+		ra_run "$log" -L "/usr/lib/libretro/$file" --max-frames=600 "\"/storage/$rom\""
+		check "core-loaded-$core" 'grep -q "\[Core\] Geometry:" "$log" && grep -q "Content ran for a total of" "$log"' "$sys"
+	done < "$T/cores.tsv"
+
+	# Persistência: muda uma opção e espera a sincronização (debounce de 2 s)
+	sed -i '/^audio_volume = /d' "$RA_CFG"
+	echo 'audio_volume = "-3.000000"' >> "$RA_CFG"
+	check persist-sync 'wait_for 10 "grep -q \"^audio_volume = \\\"-3.000000\\\"\" /storage/system/retroarch/retroarch.cfg"'
+
+	# Save state seguido de reset abrupto
+	ra_run "$R36OS_RUN/state.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
+	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	ra_cmd SAVE_STATE >/dev/null
+	check state-saved 'wait_for 10 "ls /storage/states/nes/*.state >/dev/null 2>&1"'
+	check state-synced 'wait_for 5 "grep -q /storage/states/nes/ $R36OS_RUN/savesync.log"'
+
+	echo teste > /var/tmp/lume-teste
+	next second
+	request reset-in-5
+}
+
+phase_second() {
+	check var-tmp-gone '[ ! -e /var/tmp/lume-teste ]'
+	check persist-after-reboot 'grep -q "^audio_volume = \"-3.000000\"" "$RA_CFG"'
+	check roms-preserved '[ -f "$STATE_ROM" ]'
+	check roms-checked-at-boot 'dmesg | grep -q "ROMS verificada"' "$(dmesg | sed -n 's/.*lume: ROMS verificada: //p')"
+
+	wait_for 60 frontend_running
+	stop_frontend
+	ra_run "$R36OS_RUN/load.log" -L /usr/lib/libretro/fceumm_libretro.so --entryslot=0 --max-frames=120 "\"$STATE_ROM\""
+	# A mensagem é traduzida (user_language); o caminho e o "succeeded" não.
+	check state-survived-reset 'grep -qE "\[State\] .*Teste NES\.state.* succeeded" "$R36OS_RUN/load.log"'
+
+	# Atalhos: Select + X abre o menu e pausa o jogo; Select + Start e Esc não encerram
+	ra_run "$R36OS_RUN/keys.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
+	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	check game-running-before-menu 'wait_for 5 core_running' "RAM \$0000=$(ram0)"
+	request keys-menu
+	check hotkey-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
+	request keys-menu
+	check menu-closes-resumes 'wait_for 10 core_running'
+	request keys-quit-combo
+	sleep 4
+	check select-start-no-quit frontend_running
+	request keys-esc
+	sleep 4
+	check esc-no-quit frontend_running
+	kill "$(ra_pid)" 2>/dev/null
+	wait_for 10 '! frontend_running'
+
+	# Frontend falso que sempre falha: o laço para na 3ª falha em 60 s
+	printf '#!/bin/sh\nexit 1\n' > /usr/libexec/r36os/frontends/falha
+	chmod 755 /usr/libexec/r36os/frontends/falha
+	sed -i 's/^FRONTEND=.*/FRONTEND="falha"/' /etc/conf.d/frontend
+	rc-service frontend start >/dev/null 2>&1
+	check frontend-fail-loop-stops 'wait_for 20 "dmesg | grep -q \"frontend parado após 3 falhas\""'
+	check frontend-fail-log '[ -f /boot/logs/frontend-erro.log ]'
+	check frontend-fail-no-restart 'sleep 3; [ "$(dmesg | grep -c "frontend iniciado: falha")" = 3 ]'
+	rc-service frontend stop >/dev/null 2>&1
+
+	# Troca de frontend: outro executável sobe no lugar do RetroArch
+	# o frontend roda como game: grava num lugar onde game pode escrever
+	printf '#!/bin/sh\nid -u > /tmp/fake-frontend\nexec sleep 3600\n' > /usr/libexec/r36os/frontends/teste
+	chmod 755 /usr/libexec/r36os/frontends/teste
+	sed -i 's/^FRONTEND=.*/FRONTEND="teste"/' /etc/conf.d/frontend
+	rm -f /tmp/fake-frontend
+	rc-service frontend start >/dev/null 2>&1
+	check frontend-swap 'wait_for 15 "[ \"\$(cat /tmp/fake-frontend 2>/dev/null)\" = 1000 ]" && ! frontend_running'
+	rc-service frontend stop >/dev/null 2>&1
+	sed -i 's/^FRONTEND=.*/FRONTEND="retroarch"/' /etc/conf.d/frontend
+
+	# Restaurar fábrica: apagar system/ com o aparelho "desligado" (reset abrupto)
+	rm -rf /storage/system
+	sync -f /storage/roms
+	next third
+	request reset
+}
+
+phase_third() {
+	check factory-reset 'cmp -s /storage/system/retroarch/retroarch.cfg /usr/share/r36os/factory/retroarch/retroarch.cfg'
+	check factory-keeps-games '[ -f "$STATE_ROM" ] && ls /storage/states/nes/*.state >/dev/null 2>&1'
+	mkdir -p /storage/system/etc
+	echo "America/Sao_Paulo" > /storage/system/etc/timezone
+	echo "lume-teste" > /storage/system/etc/hostname
+	sync
+	echo 4 > "$T/boots"
+	next boots
+	reboot
+}
+
+phase_boots() {
+	local n
+	n=$(cat "$T/boots")
+	if [ "$n" = 4 ]; then
+		check timezone '[ "$(readlink /etc/localtime)" = /usr/share/zoneinfo/America/Sao_Paulo ]'
+		check hostname '[ "$(hostname)" = lume-teste ]'
+	fi
+	wait_for 30 '[ -f "$R36OS_RUN/bootlog" ]'
+	if [ "$n" -lt $TOTAL_BOOTS ]; then
+		echo $((n + 1)) > "$T/boots"
+		sync -f "$T/boots"
+		reboot
+		return
+	fi
+	local count newest
+	count=$(ls /boot/logs/boot-*.log 2>/dev/null | wc -l)
+	newest=$(cat "$R36OS_RUN/bootlog")
+	check bootlog-rotation '[ "$count" = 10 ]' "$count logs após $n boots"
+	check bootlog-newest '[ -f "$newest" ] && grep -q "Linux version" "$newest" && grep -q "frontend\|r36os" "$newest"' "$newest"
+
+	# Sair do RetroArch desliga: pede QUIT ao frontend em execução
+	wait_for 60 frontend_running
+	next done
+	say "ALL-CHECKS-DONE"
+	request expect-poweroff
+	sleep 2
+	ra_cmd QUIT >/dev/null
+}
+
+case "$1" in
+run)
+	phase=$(cat "$T/state" 2>/dev/null)
+	say "PHASE ${phase:-?}"
+	case "$phase" in
+	first) phase_first ;;
+	second) phase_second ;;
+	third) phase_third ;;
+	boots) phase_boots ;;
+	*) say "PHASE-UNKNOWN $phase" ;;
+	esac
+	;;
+*) echo "uso: $0 run" >&2; exit 2 ;;
+esac

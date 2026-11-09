@@ -1,0 +1,60 @@
+#!/bin/sh
+# Resumo de hardware antes do frontend: vídeo, áudio, controle, bateria e ROMS.
+# Cada item sai como "ok" ou "falha"; na VM a bateria aparece "ausente" sem falhar.
+. /usr/libexec/r36os/lib.sh
+OUT=$R36OS_RUN/hwsummary
+FAILS=0
+: > "$OUT.tmp"
+
+item() {  # nome estado detalhe
+	[ "$2" = falha ] && FAILS=$((FAILS + 1))
+	printf '  %-9s %-7s %s\n' "$1" "$2" "$3" | tee -a "$OUT.tmp"
+}
+
+# Vídeo: driver DRM do card0 (GPU)
+drv=""
+[ -e /sys/class/drm/card0/device/driver ] && drv=$(basename "$(readlink /sys/class/drm/card0/device/driver)")
+if [ -c /dev/dri/card0 ] && [ -n "$drv" ]; then
+	item vídeo ok "$drv ($(cat /sys/class/drm/card0-*/modes 2>/dev/null | head -n1))"
+else
+	item vídeo falha "sem /dev/dri/card0"
+fi
+
+# Áudio: primeira placa ALSA
+card=$(sed -n 's/^ *0 \[[^]]*\]: *//p' /proc/asound/cards 2>/dev/null)
+if [ -n "$card" ]; then item áudio ok "$card"; else item áudio falha "nenhuma placa ALSA"; fi
+
+# Controle: joystick, ou teclado (VM)
+pad=$(awk '/^N: Name=/{n=$0; sub(/^N: Name="/,"",n); sub(/"$/,"",n)} /^H: Handlers=.*js[0-9]/{print n; exit}' /proc/bus/input/devices)
+kbd=$(awk '/^N: Name=/{n=$0; sub(/^N: Name="/,"",n); sub(/"$/,"",n)} /^H: Handlers=.*kbd/ && /event/{print n; exit}' /proc/bus/input/devices)
+if [ -n "$pad" ]; then
+	item controle ok "$pad"
+elif [ "$(board)" = vm ] && [ -n "$kbd" ]; then
+	item controle ok "teclado: $kbd"
+else
+	item controle falha "nenhum controle de jogo"
+fi
+
+# Bateria
+bat=""
+for ps in /sys/class/power_supply/*; do
+	[ "$(cat "$ps/type" 2>/dev/null)" = Battery ] && { bat=$ps; break; }
+done
+if [ -n "$bat" ]; then
+	item bateria ok "$(cat "$bat/capacity" 2>/dev/null)% ($(cat "$bat/status" 2>/dev/null))"
+elif [ "$(board)" = vm ]; then
+	item bateria ausente "VM sem bateria"
+else
+	item bateria falha "sem fonte de energia do tipo Battery"
+fi
+
+# Partição de jogos
+if mountpoint -q /storage; then
+	item ROMS ok "$(df -h /storage | awk 'NR==2{print $4 " livres de " $2}')"
+else
+	item ROMS falha "partição de jogos não montada"
+fi
+
+mv "$OUT.tmp" "$OUT"
+[ $FAILS -eq 0 ] && log "resumo de hardware: tudo ok" || log "resumo de hardware: $FAILS item(ns) com falha"
+exit 0

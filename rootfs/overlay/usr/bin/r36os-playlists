@@ -1,0 +1,70 @@
+#!/bin/sh
+# Gera as listas de jogos do RetroArch (<Nome>.lpl) a partir de roms/ e do catálogo.
+#
+#   r36os-playlists [-r roms] [-o saída] [-a arch] [-c systems.json]
+#
+# Uma lista por sistema com jogos; sistemas vazios não têm lista (a antiga é removida).
+# Cada item fixa o core pelo caminho, usando o core padrão da arquitetura.
+set -u
+ROMS=/storage/roms
+OUT=/home/game/.config/retroarch/playlists
+CATALOG=/usr/share/r36os/systems.json
+CORES=/usr/lib/libretro
+INFO=/usr/share/libretro/info
+ARCH=$(uname -m)
+while getopts r:o:a:c:l:i: opt; do
+	case $opt in
+	r) ROMS=$OPTARG ;; o) OUT=$OPTARG ;; a) ARCH=$OPTARG ;; c) CATALOG=$OPTARG ;;
+	l) CORES=$OPTARG ;; i) INFO=$OPTARG ;;
+	*) exit 2 ;;
+	esac
+done
+case "$ARCH" in armv7*|armhf) ARCH=armv7 ;; arm64) ARCH=aarch64 ;; esac
+mkdir -p "$OUT"
+
+core_label() {  # nome de exibição do core (arquivo .info), senão o id
+	local n
+	n=$(sed -n 's/^corename *= *"\(.*\)"/\1/p' "$INFO/${1}_libretro.info" 2>/dev/null | head -n1)
+	echo "${n:-$1}"
+}
+
+total=0
+jq -r --arg arch "$ARCH" '
+	.cores as $cores
+	| .systems[]
+	| (.core_by_arch[$arch] // .core) as $core
+	| [.id, .name, $core, $cores[$core].file, (.extensions | join(" "))]
+	| @tsv' "$CATALOG" |
+while IFS="$(printf '\t')" read -r id name core file exts; do
+	lpl="$OUT/$name.lpl"
+	list=$(mktemp)
+	if [ -d "$ROMS/$id" ]; then
+		find "$ROMS/$id" -type f ! -name '.*' | while read -r path; do
+			ext=$(echo "${path##*.}" | tr 'A-Z' 'a-z')
+			case " $exts " in *" $ext "*) ;; *) continue ;; esac
+			base=${path##*/}
+			printf '%s\t%s\n' "$path" "${base%.*}"
+		done | sort -t "$(printf '\t')" -k2,2f > "$list"
+	fi
+	if [ ! -s "$list" ]; then
+		rm -f "$list" "$lpl"
+		continue
+	fi
+	jq -R -n --arg core_path "$CORES/$file" --arg core_name "$(core_label "$core")" \
+		--arg db "$name.lpl" '
+		{
+			version: "1.5",
+			default_core_path: $core_path,
+			default_core_name: $core_name,
+			label_display_mode: 0,
+			right_thumbnail_mode: 0,
+			left_thumbnail_mode: 0,
+			sort_mode: 0,
+			items: [inputs | split("\t") | {
+				path: .[0], label: .[1], core_path: $core_path, core_name: $core_name,
+				crc32: "DETECT", db_name: $db
+			}]
+		}' < "$list" > "$lpl.tmp" && mv -f "$lpl.tmp" "$lpl"
+	echo "lume: lista $name: $(wc -l < "$list") jogo(s), core $core"
+	rm -f "$list"
+done

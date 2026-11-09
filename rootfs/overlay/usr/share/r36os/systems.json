@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "systems": [
+    {
+      "id": "nes",
+      "name": "NES",
+      "extensions": ["nes", "fds", "unf", "zip", "7z"],
+      "core": "fceumm",
+      "core_by_arch": {},
+      "alt_cores": ["nestopia"],
+      "bios": []
+    },
+    {
+      "id": "snes",
+      "name": "Super Nintendo",
+      "extensions": ["sfc", "smc", "fig", "swc", "zip", "7z"],
+      "core": "snes9x2010",
+      "core_by_arch": {},
+      "alt_cores": ["snes9x"],
+      "bios": []
+    },
+    {
+      "id": "mastersystem",
+      "name": "Master System",
+      "extensions": ["sms", "zip", "7z"],
+      "core": "genesis_plus_gx",
+      "core_by_arch": {"armv7": "picodrive"},
+      "alt_cores": [],
+      "bios": []
+    },
+    {
+      "id": "megadrive",
+      "name": "Mega Drive",
+      "extensions": ["md", "gen", "bin", "smd", "zip", "7z"],
+      "core": "genesis_plus_gx",
+      "core_by_arch": {"armv7": "picodrive"},
+      "alt_cores": [],
+      "bios": []
+    },
+    {
+      "id": "gb",
+      "name": "Game Boy",
+      "extensions": ["gb", "zip", "7z"],
+      "core": "gambatte",
+      "core_by_arch": {},
+      "alt_cores": ["mgba"],
+      "bios": []
+    },
+    {
+      "id": "gbc",
+      "name": "Game Boy Color",
+      "extensions": ["gbc", "zip", "7z"],
+      "core": "gambatte",
+      "core_by_arch": {},
+      "alt_cores": ["mgba"],
+      "bios": []
+    },
+    {
+      "id": "gba",
+      "name": "Game Boy Advance",
+      "extensions": ["gba", "zip", "7z"],
+      "core": "mgba",
+      "core_by_arch": {"armv7": "gpsp"},
+      "alt_cores": [],
+      "bios": []
+    },
+    {
+      "id": "arcade",
+      "name": "Arcade",
+      "extensions": ["zip", "7z"],
+      "core": "fbneo",
+      "core_by_arch": {"armv7": "mame2003_plus"},
+      "alt_cores": ["mame2003_plus"],
+      "bios": []
+    },
+    {
+      "id": "psx",
+      "name": "PlayStation",
+      "extensions": ["cue", "chd", "pbp", "m3u"],
+      "core": "pcsx_rearmed",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "bios": [
+        {"files": ["scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"],
+         "required": false,
+         "note": "Opcional: sem BIOS o pcsx_rearmed usa a BIOS HLE embutida."}
+      ]
+    }
+  ],
+  "cores": {
+    "fceumm": {"package": "libretro-fceumm", "file": "fceumm_libretro.so"},
+    "nestopia": {"package": "libretro-nestopia", "file": "nestopia_libretro.so"},
+    "snes9x2010": {"package": "libretro-snes9x2010", "file": "snes9x2010_libretro.so"},
+    "snes9x": {"package": "libretro-snes9x", "file": "snes9x_libretro.so"},
+    "genesis_plus_gx": {"package": "libretro-genesis-plus-gx", "file": "genesis_plus_gx_libretro.so"},
+    "picodrive": {"package": "libretro-picodrive", "file": "picodrive_libretro.so"},
+    "gambatte": {"package": "libretro-gambatte", "file": "gambatte_libretro.so"},
+    "mgba": {"package": "libretro-mgba", "file": "mgba_libretro.so"},
+    "gpsp": {"package": "libretro-gpsp", "file": "gpsp_libretro.so"},
+    "fbneo": {"package": "libretro-fbneo", "file": "fbneo_libretro.so"},
+    "mame2003_plus": {"package": "libretro-mame2003-plus", "file": "mame2003_plus_libretro.so"},
+    "pcsx_rearmed": {"package": "libretro-pcsx-rearmed", "file": "pcsx_rearmed_libretro.so"}
+  }
+}
