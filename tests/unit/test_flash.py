@@ -74,3 +74,50 @@ def test_find_image(tmp_path, monkeypatch):
     (d / "ga36-20261109-214233.img.zst").write_bytes(b"x")
     (tmp_path / "images/ga36/latest").symlink_to("20261109-214233")
     assert flash.find_image(get_target("ga36")).name == "ga36-20261109-214233.img.zst"
+
+
+def test_cli_parser_eject_flag():
+    from r36os.cli import _parser
+
+    p = _parser()
+    args = p.parse_args(["flash", "ga36", "/dev/sdc", "--eject", "--update"])
+    assert args.eject is True
+    assert args.update is True
+
+    args_no_eject = p.parse_args(["flash", "ga36", "/dev/sdc"])
+    assert args_no_eject.eject is False
+
+
+def test_eject_calls_udisksctl_power_off(monkeypatch):
+    commands = []
+
+    def mock_run(cmd, *args, **kwargs):
+        commands.append(cmd)
+        class Ret:
+            returncode = 0
+        return Ret()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    flash._eject("/dev/sdc")
+    assert any("udisksctl" in c and "power-off" in c and "/dev/sdc" in c for c in commands)
+
+
+def test_wipe_disk_and_rereadpt(monkeypatch):
+    commands = []
+
+    def mock_run(cmd, *args, **kwargs):
+        commands.append(cmd)
+        class Ret:
+            returncode = 0
+        return Ret()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    flash._wipe_disk("/dev/sdc", 1_000_000)
+    assert any("wipefs" in c and "-a" in c and "/dev/sdc" in c for c in commands)
+    assert any("dd" in c and "if=/dev/zero" in c and "of=/dev/sdc" in c for c in commands)
+
+    commands.clear()
+    flash._rereadpt("/dev/sdc")
+    assert any("blockdev" in c and "--rereadpt" in c and "/dev/sdc" in c for c in commands)
+
+

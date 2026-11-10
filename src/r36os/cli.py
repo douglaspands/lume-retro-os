@@ -31,6 +31,9 @@ def _parser() -> argparse.ArgumentParser:
     f.add_argument("--build", default="latest", metavar="TIMESTAMP",
                    help="build from out/images/<target>/ (default: latest)")
     f.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    f.add_argument("--eject", action="store_true",
+                   help="safely unmount and power off / eject the device after writing")
+
 
     v = sub.add_parser("vm", help="run the vm image in QEMU/KVM")
     v.add_argument("--headless", action="store_true", help="no window: serial on the terminal")
@@ -74,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.flash import main_flash
 
             return main_flash(get_target(args.target), args.device, args.update,
-                              args.build, args.yes)
+                              args.build, args.yes, args.eject)
         if args.command == "pkg":
             target = get_target(args.target)
             from r36os.packages import build_packages
