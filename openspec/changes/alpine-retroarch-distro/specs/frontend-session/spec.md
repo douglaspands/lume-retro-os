@@ -28,8 +28,12 @@ O frontend MUST ser escolhido por uma única configuração do serviço de sess�
 Quando o frontend encerrar normalmente por ação do usuário, o sistema MUST desligar o aparelho.
 
 #### Scenario: Sair pelo menu
-- **WHEN** o usuário escolhe "Desligar" (o item de sair do RetroArch) no menu
+- **WHEN** o usuário escolhe "Desligar" (o item de sair do RetroArch) no menu e o escolhe de novo em até 3 segundos, confirmando
 - **THEN** o sistema grava o que estiver pendente e desliga
+
+#### Scenario: Desligar pede confirmação por padrão
+- **WHEN** o usuário escolhe "Desligar" no menu uma única vez
+- **THEN** o menu só mostra "Pressione novamente para desligar..." e o aparelho continua ligado
 
 ### Requirement: Recuperação de falhas do frontend
 Se o frontend terminar com erro, o sistema MUST reiniciá-lo. Após 3 falhas em 60 segundos, MUST parar de reiniciar e deixar na tela a mensagem de erro e o caminho do log.

@@ -35,5 +35,18 @@ def test_no_quit_combo_and_menu_pauses():
     assert 'input_quit_gamepad_combo = "0"' in CFG
     assert 'input_exit_emulator = "nul"' in CFG
     assert 'menu_pause_libretro = "true"' in CFG
-    # without this a QUIT only shows "press again" and the console does not power off
-    assert 'quit_press_twice = "false"' in CFG
+    # shutting down asks for confirmation by default (patch 0002: the menu item has to be
+    # selected twice); the self-test turns it off for itself because it quits with QUIT
+    assert 'quit_press_twice = "true"' in CFG
+    selftest_init = (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-selftest").read_text()
+    assert 'quit_press_twice = \\"false\\"' in selftest_init or 'quit_press_twice = "false"' in selftest_init
+
+
+def test_menu_has_no_transparency():
+    # simple hardware: no blending of the menu over the game. In the fixed config (not the
+    # user one) so that it reaches cards that already have a saved config.
+    for key in ("menu_framebuffer_opacity", "menu_wallpaper_opacity", "menu_header_opacity",
+                "menu_footer_opacity", "video_msg_bgcolor_opacity"):
+        assert f'{key} = "1.000000"' in CFG, key
+    assert 'menu_rgui_transparency = "false"' in CFG
+    assert "opacity" not in FACTORY

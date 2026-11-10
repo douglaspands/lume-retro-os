@@ -188,7 +188,8 @@ loop:
   - menu: `menu_driver = ozone`. O idioma de fábrica (`user_language`, do `--lang` do build) e a legibilidade numa tela de 3,5" a 640x480 (`menu_scale_factor = 1.5`, `ozone_font_scale_factor_global = 1.2`) ficam na configuração de fábrica do usuário (`factory/retroarch/retroarch.cfg`), porque no `--appendconfig` venceriam o ajuste feito no menu;
   - menu completo, sem modo kiosk. A exceção é o Core Updater, oculto porque os cores do buildbot são compilados para glibc e não rodam no Alpine (musl);
   - atalhos: `menu_pause_libretro = true`; Start + Select abre o menu (`input_menu_toggle_gamepad_combo = 4`); no teclado da VM, Shift direito (Select) + S também abre; nenhuma combinação encerra o RetroArch.
-- O pacote `retroarch` local troca o rótulo "Sair do RetroArch" por "Desligar" (en, pt_BR e es), porque sair desliga o console (D10).
+- O pacote `retroarch` local troca o rótulo "Sair do RetroArch" por "Desligar" (en, pt_BR e es), porque sair desliga o console (D10). O patch `0002-shut-down-asks-confirmation.patch` faz o item pedir confirmação por segurança: é preciso selecioná-lo duas vezes em até 3 s, e a primeira só mostra "Pressione novamente para desligar...". Segue o `quit_press_twice` (ligado no `retroarch-lume.cfg`); o atalho e o comando de rede `QUIT` não mudam, e o self-test desliga a confirmação só para si.
+- Sem transparência no menu (hardware simples, Mali-400): `menu_framebuffer_opacity`, `menu_wallpaper_opacity`, `menu_header_opacity`, `menu_footer_opacity` e `video_msg_bgcolor_opacity` em 1.0 e `menu_rgui_transparency` desligado, no `retroarch-lume.cfg` (fixos, para valerem também em cartões que já têm configuração salva).
 
 ### D12. VM
 

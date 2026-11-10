@@ -1,0 +1,89 @@
+From: Lume Retro OS
+Subject: [PATCH] menu: "Shut Down" asks for confirmation (press twice)
+
+On Lume Retro OS the menu item that quits RetroArch powers the console off
+(see 0001), so selecting it by accident is costly. The item now has to be
+selected twice within 3 seconds; the first time it only shows the message
+"Press again to shut down...". It follows the existing quit_press_twice
+setting (on by default upstream), so it can be turned off in the menu. Only the
+menu item changes: the hotkey, the network command QUIT and every other way to
+quit keep their behaviour. The message is reworded for en, pt_BR and es.
+
+--- a/menu/cbs/menu_cbs_ok.c
++++ b/menu/cbs/menu_cbs_ok.c
+@@ -22,6 +22,7 @@
+ #include <string/stdstring.h>
+ #include <streams/file_stream.h>
+ #include <lists/string_list.h>
++#include <features/features_cpu.h>
+
+ #ifdef HAVE_NETWORKING
+ #include <net/net_http.h>
+@@ -5780,7 +5781,33 @@
+ }
+
+ STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_cheat_apply_changes,      CMD_EVENT_CHEATS_APPLY)
+-STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_quit,                     CMD_EVENT_QUIT)
++/* Lume Retro OS: "Shut Down" asks for confirmation. With quit_press_twice
++ * (on by default) the item has to be selected twice within 3 seconds; the
++ * first time only shows "Press again...". Other ways to quit are untouched. */
++#define LUME_QUIT_CONFIRM_USEC (3 * 1000000)
++static int action_ok_quit(const char *path,
++      const char *label, unsigned type, size_t idx, size_t entry_idx)
++{
++   static retro_time_t quit_time = 0;
++   settings_t *settings          = config_get_ptr();
++
++   if (settings->bools.quit_press_twice)
++   {
++      retro_time_t now = cpu_features_get_time_usec();
++      bool confirmed   = (now - quit_time < LUME_QUIT_CONFIRM_USEC);
++
++      quit_time        = now;
++      if (!confirmed)
++      {
++         const char *_msg = msg_hash_to_str(MSG_PRESS_AGAIN_TO_QUIT);
++         runloop_msg_queue_push(_msg, strlen(_msg), 1, 180, true, NULL,
++               MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_WARNING);
++         return 0;
++      }
++   }
++
++   return generic_action_ok_command(CMD_EVENT_QUIT);
++}
+ STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_save_new_config,          CMD_EVENT_MENU_SAVE_CONFIG)
+ STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_save_main_config,         CMD_EVENT_MENU_SAVE_MAIN_CONFIG)
+ STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_resume_content,           CMD_EVENT_RESUME)
+--- a/intl/msg_hash_us.h
++++ b/intl/msg_hash_us.h
+@@ -15460,7 +15460,7 @@
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_QUIT,
+-   "Press again to quit..."
++   "Press again to shut down..."
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_CLOSE_CONTENT,
+--- a/intl/msg_hash_pt_br.h
++++ b/intl/msg_hash_pt_br.h
+@@ -14556,7 +14556,7 @@
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_QUIT,
+-   "Pressione novamente para sair..."
++   "Pressione novamente para desligar..."
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_CLOSE_CONTENT,
+--- a/intl/msg_hash_es.h
++++ b/intl/msg_hash_es.h
+@@ -14664,7 +14664,7 @@
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_QUIT,
+-   "Vuelve a pulsar la tecla para cerrar RetroArch..."
++   "Vuelve a pulsar para apagar..."
+    )
+ MSG_HASH(
+    MSG_PRESS_AGAIN_TO_CLOSE_CONTENT,

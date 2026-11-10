@@ -21,7 +21,9 @@ start() {
 	fi
 	# Comandos de rede (GET_STATUS, SAVE_STATE, QUIT): já ligados no retroarch-lume.cfg
 	# (logs de diagnóstico); repetidos aqui para o self-test não depender disso
-	printf 'network_cmd_enable = "true"\nnetwork_cmd_port = "55355"\n' > /run/r36os/retroarch-extra.cfg
+	# quit_press_twice off: the test quits with the QUIT command, which would otherwise
+	# need two presses (the console default asks for confirmation to shut down)
+	printf 'network_cmd_enable = "true"\nnetwork_cmd_port = "55355"\nquit_press_twice = "false"\n' > /run/r36os/retroarch-extra.cfg
 	chmod 644 /run/r36os/retroarch-extra.cfg
 	start-stop-daemon --start --background --make-pidfile --pidfile /run/r36os-selftest.pid \
 		--exec /usr/libexec/r36os/selftest -- run

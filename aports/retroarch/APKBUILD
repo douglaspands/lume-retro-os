@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=102
+pkgrel=103
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -16,6 +16,7 @@ makedepends="linux-headers mesa-dev libdrm-dev zlib-dev alsa-lib-dev eudev-dev
 source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v$pkgver.tar.gz
 	config.patch
 	0001-quit-shuts-down.patch
+	0002-shut-down-asks-confirmation.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -25,6 +26,9 @@ options="!check" # No tests
 # "Desligar" em inglês (us), português do Brasil (pt_br) e espanhol (es, o único espanhol
 # do RetroArch; "Apagar" vale para a América Latina e a Espanha). Se o upstream mudar
 # esse texto, o patch deixa de aplicar e o build para.
+# 0002: o item "Desligar" do menu pede confirmação (selecionar duas vezes em até 3 s),
+# seguindo o quit_press_twice, e a mensagem "Pressione novamente..." passa a dizer desligar.
+# Só o item do menu muda: o atalho e o comando de rede QUIT (self-test) não mudam.
 
 build() {
 	./configure \
@@ -66,4 +70,5 @@ sha512sums="
 59057d3fff3bec3bcb01143a270c3b9e74d148a2f1caa413d52f3533af94564576d2fce6f6273b5c79d11904ef670a6bf7c2c328fe3534a05d160e8a49b9daa1  retroarch-1.22.2.tar.gz
 723e64620e5239b09aff0725a4c25655b4c3b8b3f0fe130998099d84373c3e6a20766cfe8052c4cdeebb7969007c8a9c970982522be11dd12f525ad7df236f3e  config.patch
 28ca3218b39d03bc82fc7d31ef354a9f3087c7466a136b217797d5a5e2390e4ec96dcc1ec62ccf0e0d5e8e5e5ceb479b5541d05172a0840dc65f2b91767ab708  0001-quit-shuts-down.patch
+e58fe7de31cac03f049ae95b3f8792d2b1d94c87d44f170955e0e2708a7e159b535b7534d62ec95ad30fcb3561501bdd030c8f9e30a6330e5f152873c9f7b7c2  0002-shut-down-asks-confirmation.patch
 "
