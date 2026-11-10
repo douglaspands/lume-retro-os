@@ -107,6 +107,8 @@ phase_first() {
 	# "Sair do RetroArch" vira "Desligar" (aports/retroarch), porque sair desliga
 	check quit-label-desligar 'grep -q "Desligar" /usr/bin/retroarch && grep -q "Shut Down" /usr/bin/retroarch'
 	check root-overlay 'grep "^overlay / overlay" /proc/mounts | grep -q "lowerdir=/lower,upperdir=/rw/upper" && grep -q "/SYSTEM" /sys/block/loop0/loop/backing_file' "$(cat /sys/block/loop0/loop/backing_file 2>/dev/null)"
+	check zram-swap 'grep -E "^/dev/zram0[[:space:]]" /proc/swaps | grep -q "32767" && [ "$(cat /proc/sys/vm/swappiness 2>/dev/null)" = 100 ] && [ "$(cat /proc/sys/vm/page-cluster 2>/dev/null)" = 0 ]' "$(cat /proc/swaps 2>/dev/null | tr '\n' ';')"
+
 
 	# Resumo de hardware
 	local hw=$R36OS_RUN/hwsummary

@@ -23,7 +23,8 @@ def test_fragment_enables_own_drivers_builtin():
     opts = _options(FRAGMENT)
     for o in ("CONFIG_DRM_PANEL_GA36MB_JD9366", "CONFIG_JOYSTICK_GA36MB", "CONFIG_DRM_SUN6I_DSI",
               "CONFIG_PHY_SUN6I_MIPI_DPHY", "CONFIG_FRAMEBUFFER_CONSOLE", "CONFIG_SQUASHFS_ZSTD",
-              "CONFIG_OVERLAY_FS", "CONFIG_EXFAT_FS", "CONFIG_BLK_DEV_LOOP"):
+              "CONFIG_OVERLAY_FS", "CONFIG_EXFAT_FS", "CONFIG_BLK_DEV_LOOP",
+              "CONFIG_ZSMALLOC", "CONFIG_ZRAM", "CONFIG_ZRAM_BACKEND_LZ4", "CONFIG_ZRAM_DEF_COMP_LZ4"):
         assert opts.get(o) == "y", o  # built in (D3), not modules
 
 

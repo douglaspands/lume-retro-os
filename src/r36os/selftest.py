@@ -51,7 +51,7 @@ KEYS = {
 def expected_checks() -> list[str]:
     base = [
         "roms-created", "roms-first-boot-msg", "roms-folders", "roms-owner", "boot-readonly",
-        "quit-label-desligar", "root-overlay", "hwsummary", "hwsummary-battery-absent", "frontend-up",
+        "quit-label-desligar", "root-overlay", "zram-swap", "hwsummary", "hwsummary-battery-absent", "frontend-up",
         "frontend-not-root", "frontend-gles", "frontend-kms", "bootlog-written",
         "bootlog-boot-ro-again", "frontend-stop-no-poweroff", "playlists",
         "persist-sync", "state-saved", "state-synced",

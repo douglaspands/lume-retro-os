@@ -1,0 +1,23 @@
+#!/sbin/openrc-run
+# Compressed swap in ZRAM at boot runlevel
+
+description="Compressed swap in ZRAM"
+
+depend() {
+	after modules
+	before bootmisc
+}
+
+start() {
+	ebegin "Starting ZRAM swap"
+	/usr/libexec/r36os/zram
+	eend 0
+}
+
+stop() {
+	ebegin "Stopping ZRAM swap"
+	if [ -b /dev/zram0 ] && grep -q '^/dev/zram0 ' /proc/swaps 2>/dev/null; then
+		swapoff /dev/zram0 2>/dev/null || true
+	fi
+	eend 0
+}

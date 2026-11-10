@@ -56,6 +56,15 @@ Veja `proposal.md` para a motivação. Na branch atual (`alpine-retroarch-distro
 - **Racional de `vm.swappiness = 100`:** no Linux 6.18, `100` atribui peso igual à compressão de páginas anônimas/`tmpfs` em RAM (`zram0`) e ao descarte de cache de arquivos (que no Lume Retro OS exige reler o cartão SD `mmc0` e descomprimir blocos `zstd` do `SYSTEM`). Assim, páginas frias de serviços de boot, da camada `/rw` (`tmpfs` 32 MiB) e de `/run` vão para o ZRAM, preservando o código executável do RetroArch e do core na RAM.
 - **Racional de `vm.page-cluster = 0`:** desativa o read-ahead de swap (padrão `3` = 8 páginas = 32 KiB, projetado para discos mecânicos), descomprimindo apenas a página de 4 KiB efetivamente requisitada no page fault.
 
+### D4. Ejeção segura opcional pós-gravação (`r36os flash --eject`)
+
+- Adicionada flag `--eject` em `src/r36os/cli.py` e função `_eject()` em `src/r36os/flash.py`.
+- Após a conclusão da escrita e validação SHA256 em `flash()`, se `eject=True`:
+  1. Desmonta quaisquer partições do disco eventualmente remontadas pelo desktop environment (`_unmount()`).
+  2. Executa `udisksctl power-off -b <device>` para cortar a energia do leitor USB / desacoplar a mídia de forma limpa.
+  3. Caso `udisksctl` falhe ou não esteja disponível, executa `eject <device>` como fallback.
+- Garante que cartões SD gravados com ou sem `--update` possam ser removidos imediatamente sem risco de dados em cache pendentes ou corrupção de sistema de arquivos.
+
 ## Risks / Trade-offs
 
 - **[Consumo de RAM física pelo próprio ZRAM]** → Com `disksize` em 50% de `MemTotal` (256 MiB no GA36) e taxa de compressão média de ~2,5:1, o ZRAM cheio consome ~100 MiB de RAM física para armazenar 256 MiB de páginas frias, gerando ganho líquido de ~156 MiB de memória utilizável sem comprometer o espaço do core ativo.
