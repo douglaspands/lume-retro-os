@@ -45,7 +45,11 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | libretro-mame2003-plus | novo | `4f6b3b46` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
 
-Os cores `fceumm`, `nestopia`, `gambatte`, `mgba` e `gpsp` vêm do Alpine v3.24.
+Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba` não entra
+nesta versão: o GBA usa o `gpsp` em todos os alvos.
+
+O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
+do catálogo nesta versão (pendência 12.1 do `tasks.md`).
 
 Ajustes para o musl:
 

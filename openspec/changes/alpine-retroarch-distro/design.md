@@ -78,7 +78,7 @@ O orquestrador é Python porque o repositório já usa `uv` e `.venv`. Os comand
 | Alvo | Kernel | Motivo |
 |---|---|---|
 | R36S | Linux mainline LTS (6.18.y) com config própria | DSI, panfrost, RK817 (codec e carregador) e SARADC já são mainline |
-| GA36 | o mesmo LTS, `multi_v7` reduzido, mais os patches de `kernel/patches/` | painel JD9366 e controle serial não são mainline |
+| GA36 | o mesmo LTS, `sunxi_defconfig` (o `multi_v7` reduzido aos Allwinner) mais o fragmento `board/ga36/kernel.config` e os patches de `kernel/patches/` | painel JD9366 (`0005`) e controle serial (`0006`) não são mainline; os dois drivers são port do goodluckOS |
 | VM | `linux-virt` do Alpine | já traz virtio, virtio-gpu e `fbcon` |
 
 Frequência da CPU e temperatura ficam nos padrões do mainline: OPPs e zonas térmicas do `.dtsi` do SoC sem alteração, `cpufreq-dt` e o governor padrão do kernel. Os ajustes medidos no GA36 (`docs/referencia/ga36-emuelec/`) vêm de um kernel sunxi antigo e serão refeitos numa change de otimização.
@@ -97,7 +97,8 @@ Ficam embutidos (não como módulo) nos consoles: `vfat`, `exfat`, `squashfs`, `
 ### D5. Bootloaders
 
 - **R36S:** U-Boot mainline baseado no `odroid-go2_defconfig` (mesmo SoC). O `idbloader` é TPL+SPL. Se o TPL aberto do PX30/RK3326 não inicializar a DDR deste aparelho, usamos o blob de DDR do `rkbin` da Rockchip, que é redistribuível. Esse é o único binário fechado admitido.
-- **GA36:** U-Boot mainline sunxi para A33, com os parâmetros de DRAM do Apêndice B (`CONFIG_DRAM_CLK=552`, `CONFIG_DRAM_ZQ=15291`, `CONFIG_DRAM_ODT_EN=y`) e a PMIC AXP223 via RSB.
+- **GA36: bootloader do fabricante** (boot0 e U-Boot 2017 da Allwinner), a mesma cadeia do firmware de fábrica e do goodluckOS, a única comprovada neste aparelho. Os primeiros 128 MiB do cartão são a área de boot de fábrica (boot0 no setor 16, U-Boot, tabela `softw411` no setor 40960, FAT "bootloader", env no setor 139264), lida da imagem de fábrica (`R36OS_GA36_FACTORY`) e conferida por SHA256, fora do git por ser binário fechado. No setor 172032 (a partição "boot" da tabela da Allwinner) vai a nossa imagem de boot Android: `zImage` com o DTB anexado (`ARM_APPENDED_DTB`), o initramfs embutido no kernel e a linha de comando fixa no kernel (`CMDLINE_FORCE`); a memória real chega por ATAG (`ARM_ATAG_DTB_COMPAT`), com 512 MiB no DTS como reserva. A `BOOT` começa no setor 262144 (128 MiB). O painel 1 é o padrão, e a imagem de boot do painel 2 fica em `BOOT/android-boot/`. Esta é a segunda exceção a binários fechados, depois do blob de DRAM do R36S.
+  - *Tentativa registrada:* U-Boot mainline v2025.10 (`Sinlinx_SinA33_defconfig` + `board/ga36/u-boot.config`, DRAM do Apêndice B, DTS da placa via `OF_UPSTREAM`). Compila, mas o aparelho não deu sinal de vida e, sem serial, não há como ver onde parou. Voltar a ele é a pendência 12.2 (FEL pela USB-C ou marcadores no LED).
 - **VM:** SYSLINUX no MBR e na `BOOT`. Ele lê `extlinux/extlinux.conf` com a mesma sintaxe usada pelo U-Boot nos consoles.
 - Os três usam `console=` com a serial e `tty1`, e nenhum `quiet`. Velocidade da serial: GA36 `ttyS1` a 115200 e R36S `ttyS2` a 1500000, igual à do TPL e do blob de DDR, para não trocar de velocidade no meio do boot.
 
@@ -139,13 +140,14 @@ O RetroArch grava direto nos próprios arquivos de configuração, o que não é
 | snes | Super Nintendo | sfc, smc, fig, swc, zip, 7z | snes9x2010 | — | snes9x |
 | mastersystem | Master System | sms, zip, 7z | genesis_plus_gx | picodrive | — |
 | megadrive | Mega Drive | md, gen, bin, smd, zip, 7z | genesis_plus_gx | picodrive | — |
-| gb | Game Boy | gb, zip, 7z | gambatte | — | mgba |
-| gbc | Game Boy Color | gbc, zip, 7z | gambatte | — | mgba |
-| gba | Game Boy Advance | gba, zip, 7z | mgba | gpsp | — |
+| gb | Game Boy | gb, zip, 7z | gambatte | — | — |
+| gbc | Game Boy Color | gbc, zip, 7z | gambatte | — | — |
+| gba | Game Boy Advance | gba, zip, 7z | gpsp | — | — |
 | arcade | Arcade | zip, 7z | fbneo | mame2003_plus | mame2003_plus |
 | psx | PlayStation | cue, chd, pbp, m3u | pcsx_rearmed | — | — |
 
-- Cores do Alpine v3.24: fceumm, nestopia, gambatte, mgba e gpsp.
+- Cores do Alpine v3.24: fceumm, nestopia, gambatte e gpsp. O `mgba` ficou fora desta versão: o GBA usa o `gpsp` em todos os alvos.
+- PSP: fora desta versão. O `aports/libretro-ppsspp` existe, mas está desativado (`arch=""`) e é pendência (tarefa 12.1).
 - Pacotes locais: snes9x2010, snes9x, genesis_plus_gx, picodrive, fbneo, mame2003_plus e pcsx_rearmed. Partem dos APKBUILDs do `testing` quando existem, atualizados para o código atual.
 - O `r36os-playlists` é ash + jq e gera `/storage/system/retroarch/playlists/<Nome no menu>.lpl` no boot, antes do frontend subir. O nome do arquivo é o rótulo da lista no menu.
 - Cada entrada da lista fixa o core pelo caminho, então o RetroArch não pergunta qual core usar.
@@ -211,26 +213,31 @@ O objetivo é medir o comportamento real do sistema e do hardware, como clock, t
 - **Destino único:** todos os logs do sistema ficam em `ROMS/logs/`, legível no PC, incluindo o log de boot e o do frontend, que antes iam para `BOOT/logs/`. Apagar a pasta inteira é a forma de limpar. É seguro: ela é recriada no boot seguinte e a numeração dos boots recomeça. A `BOOT` fica somente leitura o tempo todo.
   - **Exceção, só sem `ROMS`** (partição 2 ausente ou não exFAT): o log de boot vai para `BOOT/logs/`, mantendo 10, porque é justamente o caso que precisa de diagnóstico. Os demais logs ficam só na RAM.
 - **Numeração:** um contador `<n>` por boot, guardado em `ROMS/logs/.boot`, é o mesmo em todas as pastas, para cruzar os arquivos de um boot. Cada arquivo também traz a data e o `boot_id` do kernel.
-- **Escrita em lote:** cada coletor escreve em `/run/r36os/logs/` (RAM). O serviço `r36os-logd` descarrega no cartão a cada 60 s e no desligamento, com append, `fsync` e temporário com `rename` nos arquivos inteiros. Um corte de energia perde no máximo o último intervalo. O desligamento limpo grava um marcador; se o boot seguinte não o encontrar, registra "desligamento abrupto".
+- **Idioma:** os logs são sempre em inglês: conteúdo, nomes de arquivos e pastas, categorias de evento (`OK`/`FAIL`), colunas do CSV e as mensagens do kernel, do initramfs e dos serviços. Assim um log é comparável entre aparelhos e serve para pedir ajuda fora do Brasil. Só as mensagens para o usuário seguem o idioma escolhido no menu do RetroArch (`user_language`, persistido pelo D7): a tela de falha do frontend tem texto em inglês, português e espanhol (os idiomas do rótulo "Desligar" da 7.7), e os outros idiomas caem no inglês.
+- **Escrita em lote:** cada coletor escreve em `/run/r36os/logs/` (RAM). O serviço `r36os-logd` descarrega no cartão a cada 60 s e no desligamento, com append, `fsync` e temporário com `rename` nos arquivos inteiros. Um corte de energia perde no máximo o último intervalo. O desligamento limpo grava o marcador `.clean`; se o boot seguinte não o encontrar, registra `shutdown FAIL previous abrupt`.
 - **Conteúdo** (`<n>` é o contador de boot):
 
 | Arquivo (em `ROMS/logs/`) | Quando | O que tem |
 |---|---|---|
 | `boot/boot-<n>.log` | uma vez por boot, no fim do runlevel default | mensagens do kernel (`dmesg`), log do OpenRC e resumo de hardware (era `BOOT/logs/boot-<n>.log`) |
 | `hw/boot-<n>.txt` | uma vez por boot, depois do frontend subir | versão do sistema, kernel e cmdline, modelo do DT; CPU (núcleos, governor, frequências mín./máx./disponíveis); memória e swap; zonas térmicas e trip points; reguladores (nome, tensão, estado); bateria (todos os campos de `power_supply`); cartão e partições (tamanho, uso da ROMS, resultado do `fsck`); vídeo (modo DRM, driver da GPU); placas de áudio; dispositivos de entrada; tempo até o frontend; se o desligamento anterior foi limpo |
-| `metricas/boot-<n>.csv` | a cada 5 s | data, uptime, temperatura de cada zona, frequência atual de cada política, ocupação de cada núcleo, memória disponível, swap usado, bateria (%, tensão, corrente, estado) e estado do frontend (menu ou jogo, core, conteúdo) |
-| `eventos.log` | quando acontece | uma linha por evento, `data boot categoria OK/FALHA detalhe`: boot concluído e tempo até o frontend; serviço com falha; frontend iniciado ou encerrado (código de saída, falhas seguidas); jogo aberto ou fechado (core, conteúdo, duração); ROMS criada ou reparada; temperatura acima do trip passivo; bateria abaixo de 10%; desligamento limpo ou abrupto; erros do kernel no boot (`dmesg` nível err ou pior, resumidos) |
-| `frontend/boot-<n>.log` | no fim da sessão e na descarga | log do frontend (o RetroArch com `--verbose`). Também é o log indicado na tela quando o frontend falha 3 vezes (era `BOOT/logs/frontend-erro.log`) |
+| `metrics/boot-<n>.csv` | a cada 5 s | data, uptime, temperatura de cada zona, frequência atual de cada política, ocupação de cada núcleo, memória disponível, swap usado, bateria (%, tensão, corrente, estado) e estado do frontend (menu ou jogo, core, conteúdo) |
+| `events.log` | quando acontece | uma linha por evento, `time boot category OK/FAIL detail`: boot concluído e tempo até o frontend; serviço com falha; frontend iniciado ou encerrado (código de saída, falhas seguidas); jogo aberto ou fechado (core, conteúdo, duração); ROMS criada ou reparada; temperatura acima do trip passivo; bateria abaixo de 10%; desligamento limpo ou abrupto; erros do kernel no boot (`dmesg` nível err ou pior, resumidos) |
+| `frontend/boot-<n>.log` | no fim da sessão e na descarga | log do frontend (o RetroArch com `--verbose`). Também é o log indicado na tela quando o frontend falha 3 vezes (era `BOOT/logs/frontend-erro.log`; sem `ROMS`, `BOOT/logs/frontend-error.log`) |
 
-- **Estado do frontend:** lido pelo comando de rede local do RetroArch (`GET_STATUS` na porta 55355, só em `127.0.0.1`; os consoles não têm rede). A mudança menu→jogo gera os eventos de jogo aberto e fechado.
+- **Estado do frontend:** lido pelo comando de rede do RetroArch (`GET_STATUS` em UDP 55355, consultado em `127.0.0.1`), ligado no `retroarch-lume.cfg`. Os consoles não têm rede nesta versão; se uma change futura trouxer Wi-Fi, isso precisa ser revisto. A mudança menu→jogo gera os eventos de jogo aberto e fechado.
 - **Rotação:**
   - `boot/`, `hw/` e `frontend/`: os 30 boots mais recentes (`keep_boots` no `logs.conf`);
-  - `metricas/`: os 30 boots mais recentes, e cada arquivo para de crescer em 4 MiB (cerca de 30 h a 5 s);
-  - `eventos.log`: vira `eventos.1.log` em 1 MiB, mantendo 3;
+  - `metrics/`: os 30 boots mais recentes, e cada arquivo para de crescer em 4 MiB (cerca de 30 h a 5 s);
+  - `events.log`: vira `events.1.log` em 1 MiB, mantendo 3;
   - acima de 64 MiB no total, apaga primeiro as métricas mais antigas, depois os logs do frontend.
 - **Custo:** coletores em ash + awk lendo `/proc` e `/sys`, sem processos novos por campo além do necessário. A meta é menos de 1% de CPU no A33, medida na primeira subida.
 - **Configuração:** `ROMS/system/etc/logs.conf`, criado com os padrões no primeiro boot e editável no PC: `enable=1`, `interval=5`, `flush=60`, `keep_boots=30`, `max_mb=64`. Com `enable=0` não rodam o amostrador nem o retrato do hardware, e ficam só o log de boot e os eventos.
 - O formato está documentado em `docs/LOGS.md` (colunas do CSV e categorias de evento), para análise no PC.
+
+### D15. Versão das imagens
+
+Cada build recebe um identificador, o timestamp `AAAAMMDD-HHMMSS`. O mesmo valor vai para `/etc/os-release` (`BUILD_ID`, e portanto para o retrato do hardware nos logs), para `BOOT/VERSION` (legível no PC, para saber qual build está no cartão) e para o arquivo da imagem. Cada build fica guardado em `out/images/<alvo>/<timestamp>/`: a imagem comprimida (`.img.zst`), o `manifest.txt`, o `build.json` (commit do repositório, se havia alterações não commitadas, kernel e patches, U-Boot, Alpine e tamanhos) e o `SHA256SUMS`. `out/images/<alvo>/latest` aponta para o mais recente. As imagens não vão para o git; o `out/` continua ignorado.
 
 ### D13. Usuário e permissões
 
@@ -313,7 +320,7 @@ Fonte: DTB `rk3326-r35s-linux.dtb` (SHA-256 `205c7ef6…ab`), dArkOSRE-R36.
 
 Fontes: goodluckOS (GPL-2.0) e o firmware de fábrica (FEX, `lcd.ko`, `udt_joystick.ko`).
 
-**SoC e memória:** A33 (4x Cortex-A7), Mali-400 MP2, DRAM em `0x40000000`. O tamanho diverge entre as fontes: 512 MiB no FEX, no goodluckOS e no handhelds.wiki ("Ram 512mb + ~480 swap"), e 1 GiB segundo o dono do aparelho de teste. Por isso o DTS não tem nó `memory`: o U-Boot detecta a DRAM e preenche o tamanho, e a serial do U-Boot (`DRAM: ...`) confirma na primeira subida. O handhelds.wiki também registra placas V1.0 e V1.1 e variantes A23 (2 núcleos), fora desta versão. PMIC AXP223 em RSB, endereço `0x3a3`, com `x-powers,system-power-controller`.
+**SoC e memória:** A33 (4x Cortex-A7), Mali-400 MP2, DRAM em `0x40000000`. O tamanho diverge entre as fontes: 512 MiB no FEX, no goodluckOS e no handhelds.wiki ("Ram 512mb + ~480 swap"), e 1 GiB segundo o dono do aparelho de teste. Por isso o DTS não tem nó `memory`: o U-Boot detecta a DRAM e preenche o tamanho, e a serial do U-Boot (`DRAM: ...`) confirma na primeira subida. O handhelds.wiki também registra placas V1.0 e V1.1 e variantes A23 (2 núcleos), fora desta versão. PMIC AXP223 em RSB, endereço `0x3a3`. No Linux 6.18 o driver `axp20x` corta a energia no poweroff sem precisar de `system-power-controller`, que o binding nem aceita para a AXP223. O goodluckOS usava `x-powers,system-power-controller` num kernel anterior.
 
 **DRAM (U-Boot):** clock 552 MHz, tipo DDR3, ZQ 15291, ODT habilitado, para1 284295680, mr0 6208, mr1 64, mr2 8, tpr0 4759954, tpr1 28422541, tpr2 483410, tpr12 168, tpr13 67840.
 

@@ -1,0 +1,59 @@
+# Pacote local do Lume Retro OS: core PPSSPP (PSP) para o libretro.
+# Release do upstream sem alterações, com os patches 000N-*.patch por cima.
+pkgname=libretro-ppsspp
+pkgver=1.18.1
+pkgrel=1
+pkgdesc="Sony PlayStation Portable core for libretro (PPSSPP)"
+url="https://www.ppsspp.org/"
+# Desativado (convenção do Alpine: arch vazio): o PSP está fora desta versão e fica como
+# pendência (tasks.md, 12.1). Para reativar: arch="x86_64 aarch64 armv7".
+arch=""
+license="GPL-2.0-or-later"
+# ffmpeg6: o PPSSPP 1.18 usa a API do FFmpeg 6 (decodificação de áudio e vídeo do PSP)
+makedepends="cmake samurai linux-headers mesa-dev libzip-dev zlib-dev snappy-dev python3 ffmpeg6-dev"
+source="ppsspp-$pkgver.tar.xz::https://github.com/hrydgard/ppsspp/releases/download/v$pkgver/ppsspp-$pkgver.tar.xz
+	0001-ffmpeg-optional-components.patch
+	0002-glslang-cstdint.patch
+	"
+builddir="$srcdir/ppsspp-$pkgver"
+options="!check" # sem testes no alvo libretro
+
+# Padrões do Alpine mais o -O2 do build Release do upstream (a otimização por CPU fica
+# para uma change futura). Única exceção:
+# no armv7, -marm, porque o JIT ARM do PPSSPP chama funções C com BL/BLX em modo ARM e o
+# gcc do Alpine armv7 gera Thumb-2 por padrão (o Makefile libretro do upstream também usa
+# -marm). O CMake do PPSSPP detecta o ARMv7 sozinho e acrescenta -mfpu=neon.
+case "$CARCH" in
+armv7) _cflags="-marm" ;;
+esac
+
+build() {
+	CFLAGS="$CFLAGS $_cflags" \
+	CXXFLAGS="$CXXFLAGS $_cflags" \
+	cmake -B build -G Ninja \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DLIBRETRO=ON \
+		-DUSING_GLES2=ON \
+		-DUSE_FFMPEG=ON \
+		-DUSE_SYSTEM_FFMPEG=ON \
+		-DUSE_SYSTEM_LIBZIP=ON \
+		-DUSE_SYSTEM_SNAPPY=ON \
+		-DUSE_DISCORD=OFF \
+		-DUSE_MINIUPNPC=OFF \
+		-DUSE_WAYLAND_WSI=OFF \
+		-DUSING_X11_VULKAN=OFF \
+		-DENABLE_TESTS=OFF
+	cmake --build build
+}
+
+package() {
+	install -Dm644 build/lib/ppsspp_libretro.so "$pkgdir"/usr/lib/libretro/ppsspp_libretro.so
+}
+
+sha512sums="
+00531109d67a35fe252b1af7d41a41ec85950f5d7c818bcdfb713d74b2b94f81f5af12e3e68d49ab0f7c7d29ccc42ca3ae7956f438964a205004293bb7e07510  ppsspp-1.18.1.tar.xz
+10dca485c6a1f4e7544191c1f3c0c534d38a4b56a8359645850fd91c8ebc4d63ff7cd7c14e4ee2a242df4ada10fc40988ccc1a02717ae82d123373d6e006f46e  0001-ffmpeg-optional-components.patch
+0f42ed6bb12dd339a99b7cbd4535c7db95f13043b98866118047f9bc9110f1769031c0c64e616ba2bbe97431c9268e1d605f1cf6746b03ba6493629b2adf42e5  0002-glslang-cstdint.patch
+"

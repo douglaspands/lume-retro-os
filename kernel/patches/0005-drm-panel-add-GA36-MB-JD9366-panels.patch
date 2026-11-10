@@ -1,0 +1,502 @@
+From acb89e31be139835a1fb5370ebf742dda35fafd8 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Mon, 9 Nov 2026 21:10:16 -0300
+Subject: [PATCH 5/6] drm/panel: add GA36-MB JD9366 panels
+
+Driver for the two 640x480 MIPI-DSI panel variants (Jadard JD9366) of the GA36-MB V1.2. The compatible selects the initialization sequence: panel 1 is the vendor lcd.ko table, panel 2 the goodluckOS sequence. Port of the goodluckOS driver (GPL-2.0, commit 8d676e2327a6).
+---
+ drivers/gpu/drm/panel/Kconfig               |  10 +
+ drivers/gpu/drm/panel/Makefile              |   1 +
+ drivers/gpu/drm/panel/panel-ga36mb-jd9366.c | 450 ++++++++++++++++++++
+ 3 files changed, 461 insertions(+)
+ create mode 100644 drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 967265e..17bc5a0 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -145,6 +145,16 @@ config DRM_PANEL_FEIYANG_FY07024DI26A30D
+ 	  Say Y if you want to enable support for panels based on the
+ 	  Feiyang FY07024DI26A30-D MIPI-DSI interface.
+ 
++config DRM_PANEL_GA36MB_JD9366
++	tristate "GA36-MB JD9366 640x480 MIPI-DSI panels"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y if you want to enable support for the two 640x480 MIPI-DSI
++	  panel variants (Jadard JD9366 controller) of the GA36-MB V1.2
++	  handheld.
++
+ config DRM_PANEL_DSI_CM
+ 	tristate "Generic DSI command mode panels"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 3615a76..40ab48d 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -17,6 +17,7 @@ obj-$(CONFIG_DRM_PANEL_EBBG_FT8719) += panel-ebbg-ft8719.o
+ obj-$(CONFIG_DRM_PANEL_ELIDA_KD35T133) += panel-elida-kd35t133.o
+ obj-$(CONFIG_DRM_PANEL_FEIXIN_K101_IM2BA02) += panel-feixin-k101-im2ba02.o
+ obj-$(CONFIG_DRM_PANEL_FEIYANG_FY07024DI26A30D) += panel-feiyang-fy07024di26a30d.o
++obj-$(CONFIG_DRM_PANEL_GA36MB_JD9366) += panel-ga36mb-jd9366.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX8279) += panel-himax-hx8279.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83102) += panel-himax-hx83102.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83112A) += panel-himax-hx83112a.o
+diff --git a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+new file mode 100644
+index 0000000..65a25aa
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+@@ -0,0 +1,450 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * JD9366 640x480 MIPI-DSI panels of the GA36-MB V1.2 handheld (Allwinner A33).
++ *
++ * Copyright (C) STMicroelectronics SA 2017
++ *
++ * Authors: Philippe Cornu <philippe.cornu@st.com>
++ *          Yannick Fertre <yannick.fertre@st.com>
++ *          Henson Li <lidongsheng111@gmail.com>
++ *
++ * GA36-MB adaptation by Jeremy Clark (goodluckOS, https://github.com/CodeZombie/goodluckOS,
++ * kernel/drivers/jd9366-ga36mbv1-2.c, commit 8d676e2327a6, GPL-2.0), itself derived from the
++ * CutiePi panel-jd9366.c.
++ *
++ * Lume Retro OS changes: one compatible per panel variant (ga36mb,jd9366-panel1/-panel2)
++ * selects the initialization sequence; panel 1 is the vendor table of lcd.ko (150 steps,
++ * without the extra "E0 00" of goodluckOS), panel 2 is jd9366_panel_2_init_sequence of
++ * goodluckOS; the probe stops retrying at the first answer of the panel.
++ */
++
++#include <linux/backlight.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++#include <video/mipi_display.h>
++
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++#include <drm/drm_probe_helper.h>
++
++struct jd9366_step {
++	u8 cmd;
++	u8 len;			/* 0 or 1 parameter */
++	u8 param;
++	u16 delay_ms;		/* not zero: sleep instead of sending */
++};
++
++#define JD9366_CMD(c, p)	{ .cmd = (c), .len = 1, .param = (p) }
++#define JD9366_CMD0(c)		{ .cmd = (c) }
++#define JD9366_DELAY(ms)	{ .delay_ms = (ms) }
++/* Register page select: FF 30 52 <page>, sent as three 1-parameter writes like the vendor */
++#define JD9366_PAGE(p)		JD9366_CMD(0xff, 0x30), JD9366_CMD(0xff, 0x52), JD9366_CMD(0xff, (p))
++
++struct jd9366_variant {
++	const struct jd9366_step *steps;
++	size_t count;
++};
++
++struct jd9366 {
++	struct device *dev;
++	struct drm_panel panel;
++	const struct jd9366_variant *variant;
++	struct gpio_desc *reset_gpio;
++	struct regulator *supply;
++	struct backlight_device *backlight;
++	bool supply_on;
++	bool prepared;
++	bool enabled;
++};
++
++/* Panel 1: vendor lcd.ko table (design, appendix C) */
++static const struct jd9366_step jd9366_panel1[] = {
++	JD9366_PAGE(0x01),
++	JD9366_CMD(0xe3, 0x00), JD9366_CMD(0x20, 0x90), JD9366_CMD(0x25, 0x10),
++	JD9366_CMD(0x28, 0x6f), JD9366_CMD(0x29, 0x01), JD9366_CMD(0x2a, 0xdf),
++	JD9366_CMD(0x30, 0x58), JD9366_CMD(0x37, 0x9c), JD9366_CMD(0x38, 0xa7),
++	JD9366_CMD(0x39, 0x53), JD9366_CMD(0x44, 0x00), JD9366_CMD(0x49, 0x3c),
++	JD9366_CMD(0x59, 0xfe), JD9366_CMD(0x5c, 0x00), JD9366_CMD(0x60, 0x8f),
++	JD9366_CMD(0x80, 0x20), JD9366_CMD(0x91, 0x77), JD9366_CMD(0x92, 0x77),
++	JD9366_CMD(0xa0, 0x55), JD9366_CMD(0xa1, 0x50), JD9366_CMD(0xa3, 0x58),
++	JD9366_CMD(0xa4, 0x9c), JD9366_CMD(0xa7, 0x02), JD9366_CMD(0xa8, 0x01),
++	JD9366_CMD(0xa9, 0x21), JD9366_CMD(0xaa, 0xfc), JD9366_CMD(0xab, 0x28),
++	JD9366_CMD(0xac, 0x06), JD9366_CMD(0xad, 0x06), JD9366_CMD(0xae, 0x06),
++	JD9366_CMD(0xaf, 0x03), JD9366_CMD(0xb0, 0x08), JD9366_CMD(0xb1, 0x26),
++	JD9366_CMD(0xb2, 0x28), JD9366_CMD(0xb3, 0x28), JD9366_CMD(0xb4, 0x03),
++	JD9366_CMD(0xb5, 0x08), JD9366_CMD(0xb6, 0x26), JD9366_CMD(0xb7, 0x08),
++	JD9366_CMD(0xb8, 0x26),
++	JD9366_PAGE(0x02),
++	JD9366_CMD(0xb0, 0x0b), JD9366_CMD(0xb1, 0x16), JD9366_CMD(0xb2, 0x17),
++	JD9366_CMD(0xb3, 0x2c), JD9366_CMD(0xb4, 0x32), JD9366_CMD(0xb5, 0x3b),
++	JD9366_CMD(0xb6, 0x29), JD9366_CMD(0xb7, 0x40), JD9366_CMD(0xb8, 0x0d),
++	JD9366_CMD(0xb9, 0x05), JD9366_CMD(0xba, 0x12), JD9366_CMD(0xbb, 0x10),
++	JD9366_CMD(0xbc, 0x12), JD9366_CMD(0xbd, 0x15), JD9366_CMD(0xbe, 0x19),
++	JD9366_CMD(0xbf, 0x0e), JD9366_CMD(0xc0, 0x16), JD9366_CMD(0xc1, 0x0a),
++	JD9366_CMD(0xd0, 0x0c), JD9366_CMD(0xd1, 0x17), JD9366_CMD(0xd2, 0x14),
++	JD9366_CMD(0xd3, 0x2e), JD9366_CMD(0xd4, 0x32), JD9366_CMD(0xd5, 0x3c),
++	JD9366_CMD(0xd6, 0x22), JD9366_CMD(0xd7, 0x3d), JD9366_CMD(0xd8, 0x0d),
++	JD9366_CMD(0xd9, 0x07), JD9366_CMD(0xda, 0x13), JD9366_CMD(0xdb, 0x13),
++	JD9366_CMD(0xdc, 0x11), JD9366_CMD(0xdd, 0x15), JD9366_CMD(0xde, 0x19),
++	JD9366_CMD(0xdf, 0x10), JD9366_CMD(0xe0, 0x17), JD9366_CMD(0xe1, 0x0a),
++	JD9366_PAGE(0x03),
++	JD9366_CMD(0x00, 0x00), JD9366_CMD(0x01, 0x00), JD9366_CMD(0x02, 0x00),
++	JD9366_CMD(0x03, 0x00), JD9366_CMD(0x04, 0x61), JD9366_CMD(0x05, 0x80),
++	JD9366_CMD(0x06, 0xc7), JD9366_CMD(0x07, 0x01), JD9366_CMD(0x08, 0x82),
++	JD9366_CMD(0x09, 0x83), JD9366_CMD(0x30, 0x00), JD9366_CMD(0x31, 0x00),
++	JD9366_CMD(0x32, 0x00), JD9366_CMD(0x33, 0x00), JD9366_CMD(0x34, 0x61),
++	JD9366_CMD(0x35, 0xc5), JD9366_CMD(0x36, 0x80), JD9366_CMD(0x37, 0x23),
++	JD9366_CMD(0x40, 0x82), JD9366_CMD(0x41, 0x83), JD9366_CMD(0x42, 0x80),
++	JD9366_CMD(0x43, 0x81), JD9366_CMD(0x44, 0x11), JD9366_CMD(0x45, 0xe2),
++	JD9366_CMD(0x46, 0xe1), JD9366_CMD(0x47, 0x11), JD9366_CMD(0x48, 0xe4),
++	JD9366_CMD(0x49, 0xe3), JD9366_CMD(0x50, 0x02), JD9366_CMD(0x51, 0x01),
++	JD9366_CMD(0x52, 0x04), JD9366_CMD(0x53, 0x03), JD9366_CMD(0x54, 0x11),
++	JD9366_CMD(0x55, 0xe6), JD9366_CMD(0x56, 0xe5), JD9366_CMD(0x57, 0x11),
++	JD9366_CMD(0x58, 0xe8), JD9366_CMD(0x59, 0xe7), JD9366_CMD(0x7e, 0x08),
++	JD9366_CMD(0x81, 0x0f), JD9366_CMD(0x84, 0x0c), JD9366_CMD(0x85, 0x0d),
++	JD9366_CMD(0x86, 0x07), JD9366_CMD(0x87, 0x04), JD9366_CMD(0x88, 0x05),
++	JD9366_CMD(0x89, 0x06), JD9366_CMD(0x8a, 0x00), JD9366_CMD(0x97, 0x0f),
++	JD9366_CMD(0x9a, 0x0c), JD9366_CMD(0x9b, 0x0d), JD9366_CMD(0x9c, 0x07),
++	JD9366_CMD(0x9d, 0x04), JD9366_CMD(0x9e, 0x05), JD9366_CMD(0x9f, 0x06),
++	JD9366_CMD(0xa0, 0x00), JD9366_CMD(0xe0, 0x02), JD9366_CMD(0xe1, 0x52),
++	JD9366_PAGE(0x00),
++	JD9366_CMD(0x36, 0x02),
++	JD9366_CMD0(MIPI_DCS_EXIT_SLEEP_MODE), JD9366_DELAY(120),
++	JD9366_CMD0(MIPI_DCS_SET_DISPLAY_ON), JD9366_DELAY(20),
++};
++
++/* Panel 2: jd9366_panel_2_init_sequence of goodluckOS (not checked against a vendor firmware) */
++static const struct jd9366_step jd9366_panel2[] = {
++	JD9366_CMD(0xe0, 0x00),
++	JD9366_PAGE(0x01),
++	JD9366_CMD(0xe3, 0x00), JD9366_CMD(0x20, 0x90), JD9366_CMD(0x25, 0x10),
++	JD9366_CMD(0x28, 0x6f), JD9366_CMD(0x29, 0x01), JD9366_CMD(0x2a, 0xdf),
++	JD9366_CMD(0x2c, 0x26), JD9366_CMD(0x30, 0x58), JD9366_CMD(0x37, 0x9c),
++	JD9366_CMD(0x38, 0xa7), JD9366_CMD(0x39, 0x41), JD9366_CMD(0x44, 0x00),
++	JD9366_CMD(0x49, 0x03), JD9366_CMD(0x59, 0xfe), JD9366_CMD(0x5c, 0x00),
++	JD9366_CMD(0x60, 0x8f), JD9366_CMD(0xa0, 0x55), JD9366_CMD(0xa1, 0x50),
++	JD9366_CMD(0xa3, 0x58), JD9366_CMD(0xa4, 0x9c), JD9366_CMD(0xa7, 0x02),
++	JD9366_CMD(0xa8, 0x01), JD9366_CMD(0xa9, 0x21), JD9366_CMD(0xaa, 0xfc),
++	JD9366_CMD(0xab, 0x28), JD9366_CMD(0xac, 0x06), JD9366_CMD(0xad, 0x06),
++	JD9366_CMD(0xae, 0x06), JD9366_CMD(0xaf, 0x03), JD9366_CMD(0xb0, 0x08),
++	JD9366_CMD(0xb1, 0x26), JD9366_CMD(0xb2, 0x28), JD9366_CMD(0xb3, 0x28),
++	JD9366_CMD(0xb4, 0x03), JD9366_CMD(0xb5, 0x08), JD9366_CMD(0xb6, 0x26),
++	JD9366_CMD(0xb7, 0x08), JD9366_CMD(0xb8, 0x26), JD9366_CMD(0xc0, 0x00),
++	JD9366_CMD(0xc1, 0x00), JD9366_CMD(0xc2, 0x00), JD9366_CMD(0xc3, 0x0f),
++	JD9366_PAGE(0x02),
++	JD9366_CMD(0xb0, 0x02), JD9366_CMD(0xb1, 0x0f), JD9366_CMD(0xb2, 0x11),
++	JD9366_CMD(0xb3, 0x32), JD9366_CMD(0xb4, 0x36), JD9366_CMD(0xb5, 0x3c),
++	JD9366_CMD(0xb6, 0x20), JD9366_CMD(0xb7, 0x3e), JD9366_CMD(0xb8, 0x0e),
++	JD9366_CMD(0xb9, 0x05), JD9366_CMD(0xba, 0x11), JD9366_CMD(0xbb, 0x11),
++	JD9366_CMD(0xbc, 0x13), JD9366_CMD(0xbd, 0x14), JD9366_CMD(0xbe, 0x16),
++	JD9366_CMD(0xbf, 0x0e), JD9366_CMD(0xc0, 0x17), JD9366_CMD(0xc1, 0x07),
++	JD9366_CMD(0xd0, 0x02), JD9366_CMD(0xd1, 0x10), JD9366_CMD(0xd2, 0x12),
++	JD9366_CMD(0xd3, 0x33), JD9366_CMD(0xd4, 0x36), JD9366_CMD(0xd5, 0x3c),
++	JD9366_CMD(0xd6, 0x20), JD9366_CMD(0xd7, 0x3e), JD9366_CMD(0xd8, 0x0d),
++	JD9366_CMD(0xd9, 0x05), JD9366_CMD(0xda, 0x12), JD9366_CMD(0xdb, 0x11),
++	JD9366_CMD(0xdc, 0x14), JD9366_CMD(0xdd, 0x14), JD9366_CMD(0xde, 0x18),
++	JD9366_CMD(0xdf, 0x0f), JD9366_CMD(0xe0, 0x17), JD9366_CMD(0xe1, 0x08),
++	JD9366_PAGE(0x03),
++	JD9366_CMD(0x08, 0x8a), JD9366_CMD(0x09, 0x8b), JD9366_CMD(0x30, 0x00),
++	JD9366_CMD(0x31, 0x00), JD9366_CMD(0x32, 0x00), JD9366_CMD(0x33, 0x00),
++	JD9366_CMD(0x34, 0x61), JD9366_CMD(0x35, 0xd4), JD9366_CMD(0x36, 0x24),
++	JD9366_CMD(0x37, 0x03), JD9366_CMD(0x40, 0x86), JD9366_CMD(0x41, 0x87),
++	JD9366_CMD(0x42, 0x84), JD9366_CMD(0x43, 0x85), JD9366_CMD(0x44, 0x11),
++	JD9366_CMD(0x45, 0xde), JD9366_CMD(0x46, 0xdd), JD9366_CMD(0x47, 0x11),
++	JD9366_CMD(0x48, 0xe0), JD9366_CMD(0x49, 0xdf), JD9366_CMD(0x50, 0x82),
++	JD9366_CMD(0x51, 0x83), JD9366_CMD(0x52, 0x80), JD9366_CMD(0x53, 0x81),
++	JD9366_CMD(0x54, 0x11), JD9366_CMD(0x55, 0xe2), JD9366_CMD(0x56, 0xe1),
++	JD9366_CMD(0x57, 0x11), JD9366_CMD(0x58, 0xe4), JD9366_CMD(0x59, 0xe3),
++	JD9366_CMD(0x82, 0x0f), JD9366_CMD(0x83, 0x0f), JD9366_CMD(0x84, 0x00),
++	JD9366_CMD(0x85, 0x0f), JD9366_CMD(0x86, 0x0f), JD9366_CMD(0x87, 0x0e),
++	JD9366_CMD(0x88, 0x0e), JD9366_CMD(0x89, 0x06), JD9366_CMD(0x8a, 0x06),
++	JD9366_CMD(0x8b, 0x07), JD9366_CMD(0x8c, 0x07), JD9366_CMD(0x8d, 0x04),
++	JD9366_CMD(0x8e, 0x04), JD9366_CMD(0x8f, 0x05), JD9366_CMD(0x90, 0x05),
++	JD9366_CMD(0x98, 0x0f), JD9366_CMD(0x99, 0x0f), JD9366_CMD(0x9a, 0x00),
++	JD9366_CMD(0x9b, 0x0f), JD9366_CMD(0x9c, 0x0f), JD9366_CMD(0x9d, 0x0e),
++	JD9366_CMD(0x9e, 0x0e), JD9366_CMD(0x9f, 0x06), JD9366_CMD(0xa0, 0x06),
++	JD9366_CMD(0xa1, 0x07), JD9366_CMD(0xa2, 0x07), JD9366_CMD(0xa3, 0x04),
++	JD9366_CMD(0xa4, 0x04), JD9366_CMD(0xa5, 0x05), JD9366_CMD(0xa6, 0x05),
++	JD9366_CMD(0xe0, 0x02), JD9366_CMD(0xe1, 0x52),
++	JD9366_PAGE(0x00),
++	JD9366_CMD(0x36, 0x02),
++	JD9366_CMD0(MIPI_DCS_EXIT_SLEEP_MODE), JD9366_DELAY(120),
++	JD9366_CMD0(MIPI_DCS_SET_DISPLAY_ON), JD9366_DELAY(20),
++};
++
++static const struct jd9366_variant jd9366_variant1 = {
++	.steps = jd9366_panel1, .count = ARRAY_SIZE(jd9366_panel1),
++};
++
++static const struct jd9366_variant jd9366_variant2 = {
++	.steps = jd9366_panel2, .count = ARRAY_SIZE(jd9366_panel2),
++};
++
++/*
++ * Vendor FEX timing: 30 MHz, htotal 1040, hbp 120 and hsync 40, vtotal 518, vbp 12 and
++ * vsync 6. In the Allwinner counting hbp/vbp include the sync, so the back porch is
++ * hbp - hsync and the front porch is the rest.
++ */
++static const struct drm_display_mode jd9366_mode = {
++	.clock = 30000,
++	.hdisplay = 640,
++	.hsync_start = 640 + 280,
++	.hsync_end = 640 + 280 + 40,
++	.htotal = 1040,
++	.vdisplay = 480,
++	.vsync_start = 480 + 26,
++	.vsync_end = 480 + 26 + 6,
++	.vtotal = 518,
++	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
++	.width_mm = 71,
++	.height_mm = 53,
++};
++
++static inline struct jd9366 *panel_to_jd9366(struct drm_panel *panel)
++{
++	return container_of(panel, struct jd9366, panel);
++}
++
++static int jd9366_send_init(struct jd9366 *ctx)
++{
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	size_t i;
++	int ret;
++
++	for (i = 0; i < ctx->variant->count; i++) {
++		const struct jd9366_step *step = &ctx->variant->steps[i];
++		u8 buf[2] = { step->cmd, step->param };
++
++		if (step->delay_ms) {
++			msleep(step->delay_ms);
++			continue;
++		}
++		ret = mipi_dsi_dcs_write_buffer(dsi, buf, step->len + 1);
++		if (ret < 0) {
++			dev_err(ctx->dev, "DCS write of 0x%02x failed: %d\n", step->cmd, ret);
++			return ret;
++		}
++	}
++	return 0;
++}
++
++static void jd9366_power_off(struct jd9366 *ctx)
++{
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	if (ctx->supply_on) {
++		regulator_disable(ctx->supply);
++		ctx->supply_on = false;
++	}
++}
++
++/* Supply on and a reset pulse: the panel is ready for commands afterwards */
++static int jd9366_power_on(struct jd9366 *ctx, unsigned int settle_ms)
++{
++	int ret;
++
++	ret = regulator_enable(ctx->supply);
++	if (ret < 0)
++		return ret;
++	ctx->supply_on = true;
++	msleep(settle_ms);
++
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	usleep_range(10000, 15000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	msleep(settle_ms);
++	return 0;
++}
++
++static int jd9366_prepare(struct drm_panel *panel)
++{
++	struct jd9366 *ctx = panel_to_jd9366(panel);
++	int ret;
++
++	if (ctx->prepared)
++		return 0;
++
++	/*
++	 * Start from a cold panel: the bootloader may have left it lit, and the probe leaves
++	 * the supply on after its test read.
++	 */
++	if (ctx->supply_on) {
++		jd9366_power_off(ctx);
++		msleep(50);
++	}
++
++	ret = jd9366_power_on(ctx, 120);
++	if (ret < 0)
++		return ret;
++
++	ret = jd9366_send_init(ctx);
++	if (ret < 0) {
++		jd9366_power_off(ctx);
++		return ret;
++	}
++
++	ctx->prepared = true;
++	return 0;
++}
++
++static int jd9366_enable(struct drm_panel *panel)
++{
++	struct jd9366 *ctx = panel_to_jd9366(panel);
++
++	if (ctx->enabled)
++		return 0;
++	backlight_enable(ctx->backlight);
++	ctx->enabled = true;
++	return 0;
++}
++
++static int jd9366_disable(struct drm_panel *panel)
++{
++	struct jd9366 *ctx = panel_to_jd9366(panel);
++
++	if (!ctx->enabled)
++		return 0;
++	backlight_disable(ctx->backlight);
++	ctx->enabled = false;
++	return 0;
++}
++
++static int jd9366_unprepare(struct drm_panel *panel)
++{
++	struct jd9366 *ctx = panel_to_jd9366(panel);
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++
++	if (!ctx->prepared)
++		return 0;
++
++	mipi_dsi_dcs_set_display_off(dsi);
++	mipi_dsi_dcs_enter_sleep_mode(dsi);
++	msleep(120);
++	jd9366_power_off(ctx);
++	ctx->prepared = false;
++	return 0;
++}
++
++static int jd9366_get_modes(struct drm_panel *panel, struct drm_connector *connector)
++{
++	return drm_connector_helper_get_modes_fixed(connector, &jd9366_mode);
++}
++
++static const struct drm_panel_funcs jd9366_funcs = {
++	.prepare = jd9366_prepare,
++	.enable = jd9366_enable,
++	.disable = jd9366_disable,
++	.unprepare = jd9366_unprepare,
++	.get_modes = jd9366_get_modes,
++};
++
++/*
++ * Ask the panel for its power mode before registering it. A panel that never answers
++ * would otherwise be registered and every DCS write would time out, delaying the boot
++ * by minutes (goodluckOS). Retries with a fresh power cycle, as goodluckOS does.
++ */
++static int jd9366_check_bus(struct jd9366 *ctx, struct mipi_dsi_device *dsi)
++{
++	u8 mode;
++	int ret, i;
++
++	for (i = 0; i < 5; i++) {
++		ret = jd9366_power_on(ctx, 20);
++		if (ret < 0)
++			return ret;
++		ret = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_POWER_MODE, &mode, 1);
++		if (ret >= 0)
++			return 0;
++		jd9366_power_off(ctx);
++		msleep(20);
++	}
++	return ret;
++}
++
++static int jd9366_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct jd9366 *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct jd9366, panel, &jd9366_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ctx->dev = dev;
++	ctx->variant = of_device_get_match_data(dev);
++
++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio), "cannot get the reset GPIO\n");
++
++	ctx->supply = devm_regulator_get(dev, "power");
++	if (IS_ERR(ctx->supply))
++		return dev_err_probe(dev, PTR_ERR(ctx->supply), "cannot get the power supply\n");
++
++	ctx->backlight = devm_of_find_backlight(dev);
++	if (IS_ERR(ctx->backlight))
++		return dev_err_probe(dev, PTR_ERR(ctx->backlight), "cannot get the backlight\n");
++
++	mipi_dsi_set_drvdata(dsi, ctx);
++	dsi->lanes = 2;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
++			  MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
++	ctx->panel.prepare_prev_first = true;
++
++	ret = jd9366_check_bus(ctx, dsi);
++	if (ret < 0) {
++		dev_err(dev, "the panel does not answer on the DSI bus: %d\n", ret);
++		return -ENODEV;
++	}
++
++	drm_panel_add(&ctx->panel);
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		dev_err(dev, "mipi_dsi_attach() failed: %d\n", ret);
++		drm_panel_remove(&ctx->panel);
++		jd9366_power_off(ctx);
++		return ret;
++	}
++	return 0;
++}
++
++static void jd9366_remove(struct mipi_dsi_device *dsi)
++{
++	struct jd9366 *ctx = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(dsi);
++	drm_panel_remove(&ctx->panel);
++	jd9366_power_off(ctx);
++}
++
++static const struct of_device_id jd9366_of_match[] = {
++	{ .compatible = "ga36mb,jd9366-panel1", .data = &jd9366_variant1 },
++	{ .compatible = "ga36mb,jd9366-panel2", .data = &jd9366_variant2 },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, jd9366_of_match);
++
++static struct mipi_dsi_driver jd9366_driver = {
++	.probe = jd9366_probe,
++	.remove = jd9366_remove,
++	.driver = {
++		.name = "panel-ga36mb-jd9366",
++		.of_match_table = jd9366_of_match,
++	},
++};
++module_mipi_dsi_driver(jd9366_driver);
++
++MODULE_AUTHOR("Philippe Cornu <philippe.cornu@st.com>");
++MODULE_AUTHOR("Yannick Fertre <yannick.fertre@st.com>");
++MODULE_AUTHOR("Henson Li <lidongsheng111@gmail.com>");
++MODULE_AUTHOR("Jeremy Clark <jeremyclark@live.ca>");
++MODULE_DESCRIPTION("JD9366 MIPI-DSI panels of the GA36-MB");
++MODULE_LICENSE("GPL");

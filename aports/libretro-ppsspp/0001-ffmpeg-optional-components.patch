@@ -1,0 +1,19 @@
+From: Lume Retro OS
+Subject: [PATCH] cmake: don't require every FFmpeg component in pkg-config
+
+FindFFmpeg.cmake probes every known component (avdevice, avfilter, postproc...)
+and its pkg-config fallback is REQUIRED, so a missing optional component
+aborts configure even though only avcodec, avformat, avutil, swresample and
+swscale are needed. Those stay required by find_package_handle_standard_args.
+
+--- a/cmake/Modules/FindFFmpeg.cmake
++++ b/cmake/Modules/FindFFmpeg.cmake
+@@ -106,7 +106,7 @@
+     OR FFmpeg_INCLUDE_${LIBNAME} STREQUAL FFmpeg_INCLUDE_${LIBNAME}-NOTFOUND))
+     # Didn't find it in the usual paths, try pkg-config
+     find_package(PkgConfig QUIET)
+-    pkg_check_modules(FFmpeg_PKGCONFIG_${LIBNAME} REQUIRED QUIET lib${LIBNAME})
++    pkg_check_modules(FFmpeg_PKGCONFIG_${LIBNAME} QUIET lib${LIBNAME})
+
+     find_path(FFmpeg_INCLUDE_${LIBNAME} lib${LIBNAME}/${_FFmpeg_HEADER_${LIBNAME}}.h
+       ${FFmpeg_PKGCONFIG_${LIBNAME}_INCLUDE_DIRS}

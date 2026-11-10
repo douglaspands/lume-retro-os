@@ -1,7 +1,7 @@
-"""DTS do GA36-MB V1.2 contra o Apêndice B do design (tarefa 9.3).
+"""GA36-MB V1.2 DTS against appendix B of the design (task 9.3).
 
-Lê o fonte (board/ga36/dts/) sem compilar: o dtc e o dt-validate rodam no build
-(r36os.kernel.build_dtbs). Os valores esperados são os do Apêndice B.
+Reads the source (board/ga36/dts/) without compiling: dtc and dt-validate run in the build
+(r36os.kernel.build_dtbs). The expected values are those of appendix B.
 """
 
 import re
@@ -18,7 +18,7 @@ VARIANTS = {
 }
 ALL_SOURCES = [DTSI] + [(DTS_DIR / n).read_text() for n in VARIANTS]
 
-# Apêndice B: botão -> pino
+# Appendix B: button -> pin
 GAMEPAD = {
     "dpad-up": "PE9", "dpad-down": "PE8", "dpad-left": "PE7", "dpad-right": "PE6",
     "btn-a": "PE13", "btn-b": "PE12", "btn-x": "PE11", "btn-y": "PE10",
@@ -29,7 +29,7 @@ GAMEPAD = {
 
 
 def _code(text: str) -> str:
-    """Remove comentários (/* */ e //) para checar só o que o dtc compila."""
+    """Strip comments (/* */ and //) to check only what dtc compiles."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     return re.sub(r"//[^\n]*", "", text)
 
@@ -44,13 +44,13 @@ def _pin(ctrl: str, bank: int, num: int) -> str:
 def _gpio(prop: str) -> tuple[str, str]:
     m = re.search(rf"\b{re.escape(prop)}\s*=\s*<&(pio|r_pio) (\d+) (\d+) (GPIO_ACTIVE_\w+)>",
                   _code(DTSI))
-    assert m, f"{prop} não encontrado"
+    assert m, f"{prop} not found"
     return _pin(m.group(1), int(m.group(2)), int(m.group(3))), m.group(4)
 
 
 def _node(label: str) -> str:
     m = re.search(rf"^&{re.escape(label)} \{{(.*?)^\}};", _code(DTSI), flags=re.S | re.M)
-    assert m, f"&{label} não encontrado"
+    assert m, f"&{label} not found"
     return m.group(1)
 
 
@@ -60,7 +60,7 @@ def test_gamepad_pins_match_appendix_b(button, pin):
 
 
 def test_a_and_b_are_not_swapped():
-    # o goodluckOS tem PE12/PE13 invertidos; o Apêndice B corrige
+    # goodluckOS has PE12/PE13 swapped; appendix B fixes it
     assert _gpio("btn-a-gpios")[0] == "PE13"
     assert _gpio("btn-b-gpios")[0] == "PE12"
 
@@ -72,13 +72,13 @@ def test_gamepad_on_uart1_as_mcu():
 
 
 def test_board_pins():
-    assert _gpio("reset-gpios") == ("PH7", "GPIO_ACTIVE_LOW")       # painel
-    assert _gpio("enable-gpios") == ("PH9", "GPIO_ACTIVE_HIGH")     # amplificador
+    assert _gpio("reset-gpios") == ("PH7", "GPIO_ACTIVE_LOW")       # panel
+    assert _gpio("enable-gpios") == ("PH9", "GPIO_ACTIVE_HIGH")     # amplifier
     assert _gpio("usb0_id_det-gpios") == ("PH8", "GPIO_ACTIVE_HIGH")
     leds = re.findall(r"gpios = <&(pio|r_pio) (\d+) (\d+) GPIO_ACTIVE_HIGH>",
                       re.search(r"leds \{(.*?)\n\t\};", _code(DTSI), re.S).group(1))
-    assert [_pin(c, int(b), int(n)) for c, b, n in leds] == ["PL4", "PG13"]  # azul, vermelho
-    assert '"PB0", "PB1"' in DTSI and 'function = "uart2"' in DTSI       # serial de debug
+    assert [_pin(c, int(b), int(n)) for c, b, n in leds] == ["PL4", "PG13"]  # blue, red
+    assert '"PB0", "PB1"' in DTSI and 'function = "uart2"' in DTSI       # debug serial
     assert 'stdout-path = "serial1:115200n8"' in DTSI
 
 
@@ -126,10 +126,18 @@ def test_variants(name, compatible):
 
 @pytest.mark.parametrize("forbidden", [
     "opp-", "opp_table", "operating-points", "thermal-zones", "trips", "cooling-maps",
-    "polling-delay", "#cooling-cells", "&ths", "memory@", "device_type",
+    "polling-delay", "#cooling-cells", "&ths",
 ])
-def test_mainline_cpu_thermal_and_memory_untouched(forbidden):
-    # OPPs e zonas térmicas vêm do sun8i-a33.dtsi sem alteração (até 1008 MHz) e o
-    # tamanho da DRAM vem do U-Boot
+def test_mainline_cpu_thermal_untouched(forbidden):
+    # OPPs and thermal zones come from sun8i-a33.dtsi unchanged (up to 1008 MHz)
     for src in ALL_SOURCES:
         assert forbidden not in _code(src)
+
+
+def test_memory_is_512mib_fallback():
+    # Fallback like goodluckOS: the vendor U-Boot passes the real DRAM size by ATAG and the
+    # kernel (ARM_ATAG_DTB_COMPAT) writes it over this; one node only, in the common dtsi
+    nodes = [m for src in ALL_SOURCES for m in re.findall(r"memory@\w+ \{[^}]*\}", _code(src))]
+    assert len(nodes) == 1
+    assert 'device_type = "memory";' in nodes[0]
+    assert "reg = <0x40000000 0x20000000>;" in nodes[0]

@@ -22,14 +22,14 @@ restore() {
 	mkdir -p "$RAM"
 	if storage_ok; then
 		if [ ! -d "$CARD" ]; then
-			log "configuração de fábrica do RetroArch (ROMS/system/ ausente)"
+			log "factory RetroArch configuration (ROMS/system/ missing)"
 			mirror "$FACTORY" "$CARD"
 			mkdir -p "$SYS/etc"
 			sync
 		fi
 		cp -a "$CARD/." "$RAM/"
 	else
-		log "sem ROMS: configuração de fábrica só em RAM"
+		log "no ROMS: factory configuration in RAM only"
 		cp -a "$FACTORY/." "$RAM/"
 	fi
 	chown -R game:game /home/game/.config
@@ -39,9 +39,9 @@ restore() {
 	if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
 		ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
 		echo "$tz" > /etc/timezone
-		log "fuso horário: $tz"
+		log "timezone: $tz"
 	elif [ -n "$tz" ]; then
-		log "fuso horário desconhecido em system/etc/timezone: $tz"
+		log "unknown timezone in system/etc/timezone: $tz"
 	fi
 	host=$(head -n1 "$SYS/etc/hostname" 2>/dev/null | tr -cd 'A-Za-z0-9-')
 	if [ -n "$host" ]; then
@@ -77,5 +77,5 @@ watch)
 	WATCH_NAME=persist
 	watch_tree /usr/libexec/r36os/persist-event wymnd "$RAM"
 	;;
-*) echo "uso: $0 restore|watch|flush" >&2; exit 2 ;;
+*) echo "usage: $0 restore|watch|flush" >&2; exit 2 ;;
 esac

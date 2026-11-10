@@ -3,7 +3,7 @@ name = "r36os"
 version = "0.1.0"
 description = "Orquestrador de build e da VM da distro Alpine + RetroArch para R36S e GA36"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"  # compression.zstd (imagens arquivadas e initramfs)
 dependencies = []
 
 [project.scripts]

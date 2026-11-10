@@ -1,8 +1,8 @@
-"""`r36os test-vm`: teste de aceitação da imagem vm (D12).
+"""`r36os test-vm`: acceptance test of the vm image (D12).
 
-Sobe a VM sem tela com r36os.selftest=1 e o disco TESTDATA, segue a serial, atende os
-pedidos do self-test do convidado (reset abrupto, teclas via QMP) e confere o
-desligamento ao sair. Guarda o log serial completo em out/vm/test-vm/.
+Boots the VM headless with r36os.selftest=1 and the TESTDATA disk, follows the serial,
+serves the guest self-test requests (abrupt reset, keys over QMP) and checks the power off
+on quit. Keeps the full serial log in out/vm/test-vm/.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from r36os.rootfs import target_out
 from r36os.targets import TARGETS
 from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
-# Teto, não duração: sozinha a VM termina em cerca de 20 min, mas com o host ocupado
-# (ex.: build ARM sob emulação em paralelo) passa disso
+# A ceiling, not a duration: alone the VM finishes in about 20 min, but with a busy host
+# (e.g. an ARM build under emulation in parallel) it takes longer
 TIMEOUT_S = 1800
 CONTAINER = "r36os-test-vm"
 
@@ -32,16 +32,18 @@ def _container_exists(name: str) -> bool:
 
 
 def _remove_container(name: str) -> None:
-    """Remove o container da VM de teste (o kill do `podman run` não derruba a VM)."""
+    """Remove the test VM container (killing `podman run` does not stop the VM)."""
     subprocess.run(["podman", "rm", "-f", "-t", "5", name],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 _MARK = re.compile(r"SELFTEST (\S+) (PASS|FAIL)(?: (.*))?$")
 _REQ = re.compile(r"SELFTEST REQUEST (\S+)")
 _TS = re.compile(r"^\[\s*(\d+\.\d+)\]")
 
 KEYS = {
-    "keys-menu": ("shift_r", "s"),           # Select + X (atalho só do teclado)
-    "keys-start-select": ("ret", "shift_r"),  # Start + Select (combinação do menu)
+    "keys-menu": ("shift_r", "s"),           # Select + X (keyboard-only shortcut)
+    "keys-start-select": ("ret", "shift_r"),  # Start + Select (menu combo)
     "keys-esc": ("esc",),
 }
 
@@ -60,6 +62,10 @@ def expected_checks() -> list[str]:
         "frontend-fail-loop-stops", "frontend-fail-log", "frontend-fail-no-restart",
         "frontend-swap", "factory-reset", "factory-keeps-games", "timezone", "hostname",
         "bootlog-rotation", "bootlog-newest", "poweroff-on-quit",
+        # diagnostic logs centralized in ROMS/logs/ (D14, tasks 5.1 and 5.5-5.8)
+        "boot-no-logs-dir", "logs-dirs", "logs-hw", "logs-game-events", "logs-metrics-game",
+        "logs-cost", "logs-abrupt", "logs-metrics-last-batch", "logs-frontend-fail-event",
+        "logs-recreated", "logs-service-fail", "logs-clean", "logs-disabled",
     ]
     cores = [f"core-loaded-{c}" for c in sorted(testdata.core_tests(catalog.load()))]
     return base + cores
@@ -92,9 +98,9 @@ def _copy_results(td: Path, dest: Path) -> None:
 
 def test_vm(keep: bool = False) -> int:
     if _container_exists(CONTAINER):
-        # antes de tocar no disco: outra execução (ou uma VM órfã) ainda usa test.img
-        raise RuntimeError(f"já existe o container {CONTAINER}: outro test-vm está rodando "
-                           f"ou ficou órfão (remova com `podman rm -f {CONTAINER}`)")
+        # before touching the disk: another run (or an orphan VM) still uses test.img
+        raise RuntimeError(f"container {CONTAINER} already exists: another test-vm is running "
+                           f"or was orphaned (remove it with `podman rm -f {CONTAINER}`)")
     out = target_out(TARGETS["vm"]) / "test-vm"
     shutil.rmtree(out, ignore_errors=True)
     ensure_dir(out)
@@ -141,14 +147,14 @@ def test_vm(keep: bool = False) -> int:
                     elif req == "expect-poweroff":
                         expect_poweroff = True
                 elif "SELFTEST PHASE" in line:
-                    print(f"- fase {line.split('SELFTEST PHASE', 1)[1].strip()}", flush=True)
+                    print(f"- phase {line.split('SELFTEST PHASE', 1)[1].strip()}", flush=True)
                 elif "SELFTEST ALL-CHECKS-DONE" in line:
                     all_done = True
-                elif "lume: frontend iniciado" in line:
+                elif "lume: frontend started" in line:
                     frontend_wall_s.append(time.monotonic() - t0)
                     if ts := _TS.search(line):
                         frontend_kernel_s.append(float(ts.group(1)))
-                elif "frontend encerrado pelo usuário" in line:
+                elif "frontend closed by user" in line:
                     quit_seen = True
             time.sleep(0.2)
     finally:
@@ -163,22 +169,22 @@ def test_vm(keep: bool = False) -> int:
     results["poweroff-on-quit"] = ("PASS" if powered_off else "FAIL",
                                    f"rc={proc.returncode} quit={quit_seen}")
     if not all_done:
-        results.setdefault("all-checks-done", ("FAIL", "o self-test não chegou ao fim"))
+        results.setdefault("all-checks-done", ("FAIL", "the self-test did not reach the end"))
     for name in expected_checks():
-        results.setdefault(name, ("FAIL", "não executada"))
+        results.setdefault(name, ("FAIL", "not run"))
 
     shutil.copy(serial, out / "serial.log")
     _copy_results(td, out)
     failed = {k: v for k, v in results.items() if v[0] != "PASS"}
     elapsed = time.monotonic() - t0
     print()
-    print(f"test-vm: {len(results) - len(failed)}/{len(results)} verificações ok em {elapsed:.0f} s")
+    print(f"test-vm: {len(results) - len(failed)}/{len(results)} checks ok in {elapsed:.0f} s")
     if frontend_kernel_s:
-        print(f"tempo até o frontend (1º boot): {frontend_kernel_s[0]:.1f} s desde o kernel, "
-              f"{frontend_wall_s[0]:.1f} s desde o início da VM")
-    print(f"log serial: {out / 'serial.log'}")
+        print(f"time to frontend (1st boot): {frontend_kernel_s[0]:.1f} s from the kernel, "
+              f"{frontend_wall_s[0]:.1f} s from the VM start")
+    print(f"serial log: {out / 'serial.log'}")
     for name, (_, detail) in sorted(failed.items()):
-        print(f"FALHOU: {name}" + (f" ({detail})" if detail else ""))
+        print(f"FAILED: {name}" + (f" ({detail})" if detail else ""))
     (out / "summary.txt").write_text(
         "".join(f"{v[0]} {k} {v[1]}\n" for k, v in sorted(results.items()))
         + (f"frontend_kernel_s {frontend_kernel_s[0]:.1f}\n" if frontend_kernel_s else ""))

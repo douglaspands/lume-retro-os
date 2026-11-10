@@ -1,4 +1,4 @@
-"""Caminhos do repositório, da saída e do cache (fora do repositório)."""
+"""Repository, output and cache paths (the cache lives outside the repository)."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def out_dir() -> Path:
-    """Diretório de artefatos do build (`out/`, ignorado pelo git)."""
+    """Build artifacts directory (`out/`, ignored by git)."""
     return Path(os.environ.get("R36OS_OUT", REPO_ROOT / "out"))
 
 
 def cache_dir() -> Path:
-    """Cache persistente fora do repositório (chaves do abuild, distfiles, ccache, apk).
+    """Persistent cache outside the repository (abuild keys, distfiles, ccache, apk).
 
-    Ordem: `$R36OS_CACHE`, `$XDG_CACHE_HOME/r36os`, `~/.cache/r36os`.
+    Order: `$R36OS_CACHE`, `$XDG_CACHE_HOME/r36os`, `~/.cache/r36os`.
     """
     env = os.environ.get("R36OS_CACHE")
     if env:
@@ -26,7 +26,7 @@ def cache_dir() -> Path:
         path = Path(base) / "r36os"
     path = path.resolve()
     if path == REPO_ROOT or REPO_ROOT in path.parents:
-        raise ValueError(f"o cache precisa ficar fora do repositório: {path}")
+        raise ValueError(f"the cache must be outside the repository: {path}")
     return path
 
 

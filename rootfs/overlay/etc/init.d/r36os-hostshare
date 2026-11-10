@@ -3,7 +3,7 @@
 # somente leitura. Se ela tiver as pastas dos sistemas, vira /storage/roms; bios/ vira
 # /storage/bios.
 
-description="Pasta compartilhada do PC (VM)"
+description="Host shared folder (VM)"
 
 depend() {
 	need localmount
@@ -16,7 +16,7 @@ start() {
 	modprobe 9pnet_virtio 2>/dev/null
 	mkdir -p /mnt/host
 	mount -t 9p -o ro,trans=virtio,version=9p2000.L hostshare /mnt/host 2>/dev/null || return 0
-	ebegin "Pasta do PC montada em /mnt/host"
+	ebegin "Mounting host shared folder at /mnt/host"
 	local roms=""
 	if [ -d /mnt/host/roms ]; then
 		roms=/mnt/host/roms

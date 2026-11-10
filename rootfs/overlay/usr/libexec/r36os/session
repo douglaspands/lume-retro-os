@@ -5,6 +5,7 @@
 #   saída != 0        -> recomeça; na 3ª falha em 60 s para e mostra o erro e o log
 #   SIGTERM (serviço) -> encerra o frontend sem desligar
 . /usr/libexec/r36os/lib.sh
+. /usr/libexec/r36os/logs.sh
 [ -f /etc/conf.d/frontend ] && . /etc/conf.d/frontend
 FRONTEND=${FRONTEND:-retroarch}
 EXE=/usr/libexec/r36os/frontends/$FRONTEND
@@ -26,30 +27,75 @@ stopping=""
 child=""
 trap 'stopping=1; [ -n "$child" ] && kill "$child" 2>/dev/null' TERM INT
 
-keep_log() {  # cópia do log do frontend na BOOT, legível no PC
+# Cópia do log do frontend, legível no PC: ROMS/logs/frontend/boot-<n>.log (descarga
+# imediata dos logs); só sem ROMS vai para BOOT/logs/frontend-error.log.
+# Define LOG_PC com o caminho mostrado na tela.
+keep_log() {
+	if logs_on_disk; then
+		logs_conf
+		logs_flush
+		LOG_PC="ROMS/logs/frontend/boot-$(boot_n).log"
+		return 0
+	fi
+	LOG_PC="BOOT/logs/frontend-error.log"
 	mount -o remount,rw /boot 2>/dev/null || return 0
 	mkdir -p /boot/logs
-	cp "$LOG" /boot/logs/frontend-erro.log 2>/dev/null
+	cp "$LOG" /boot/logs/frontend-error.log 2>/dev/null
 	sync
 	mount -o remount,ro /boot
 }
 
-give_up() {
+# Tela de erro no idioma da interface (ui_lang). $1: missing (frontend não instalado)
+# ou o último código de saída.
+fail_screen() {
+	local why="$1"
+	case "$(ui_lang)" in
+	pt)
+		echo "O frontend '$FRONTEND' falhou $MAX_FAILS vezes em $WINDOW segundos e não"
+		echo "será reiniciado."
+		[ "$why" = missing ] && echo "Frontend não instalado: $EXE" || echo "Último código de saída: $why."
+		echo
+		echo "Log: $LOG_PC (no cartão, pelo PC)"
+		echo "     $LOG (no console serial)"
+		echo
+		echo "Desligue o aparelho pelo botão de energia."
+		;;
+	es)
+		echo "El frontend '$FRONTEND' falló $MAX_FAILS veces en $WINDOW segundos y no"
+		echo "se reiniciará."
+		[ "$why" = missing ] && echo "Frontend no instalado: $EXE" || echo "Último código de salida: $why."
+		echo
+		echo "Log: $LOG_PC (en la tarjeta, desde el PC)"
+		echo "     $LOG (en la consola serie)"
+		echo
+		echo "Apague el equipo con el botón de encendido."
+		;;
+	*)
+		echo "The frontend '$FRONTEND' failed $MAX_FAILS times in $WINDOW seconds and will"
+		echo "not be restarted."
+		[ "$why" = missing ] && echo "Frontend not installed: $EXE" || echo "Last exit code: $why."
+		echo
+		echo "Log: $LOG_PC (on the card, from a PC)"
+		echo "     $LOG (on the serial console)"
+		echo
+		echo "Turn the device off with the power button."
+		;;
+	esac
+}
+
+give_up() {  # missing | <último código de saída>
+	local detail="last exit code: $1"
+	[ "$1" = missing ] && detail="not installed: $EXE"
+	event frontend FAIL "$FRONTEND stopped after $MAX_FAILS failures in ${WINDOW}s; $detail"
 	keep_log
 	chvt 1
 	{
 		printf '\033[2J\033[H'
 		echo "Lume Retro OS"
 		echo
-		echo "O frontend '$FRONTEND' falhou $MAX_FAILS vezes em $WINDOW segundos e não"
-		echo "será reiniciado. $1"
-		echo
-		echo "Log: BOOT/logs/frontend-erro.log (no cartão, pelo PC)"
-		echo "     $LOG (no console serial)"
-		echo
-		echo "Desligue o aparelho pelo botão de energia."
+		fail_screen "$1"
 	} > "$TTY"
-	kmsg "frontend parado após $MAX_FAILS falhas em ${WINDOW}s; log em BOOT/logs/frontend-erro.log"
+	kmsg "frontend stopped after $MAX_FAILS failures in ${WINDOW}s ($detail); log at $LOG_PC"
 	exit 1
 }
 
@@ -63,19 +109,22 @@ chown game:game "$LOG"
 
 fail_times=""
 while :; do
-	[ -x "$EXE" ] || give_up "Frontend não instalado: $EXE"
-	kmsg "frontend iniciado: $FRONTEND"
+	[ -x "$EXE" ] || give_up missing
+	kmsg "frontend started: $FRONTEND"
+	event frontend OK "started: $FRONTEND"
 	XDG_RUNTIME_DIR=/run/user/1000 su -s /bin/sh -c "exec $EXE" game < "$TTY" >> "$LOG" 2>&1 &
 	child=$!
 	wait "$child"
 	rc=$?
 	child=""
 	if [ -n "$stopping" ]; then
-		kmsg "sessão encerrada pelo serviço"
+		kmsg "session terminated by service"
+		event frontend OK "$FRONTEND closed by service (code $rc)"
 		exit 0
 	fi
 	if [ "$rc" -eq 0 ]; then
-		kmsg "frontend encerrado pelo usuário: gravando e desligando"
+		kmsg "frontend closed by user: saving and powering off"
+		event frontend OK "$FRONTEND closed by user: shutting down"
 		/usr/libexec/r36os/persist flush
 		sync
 		poweroff
@@ -86,7 +135,10 @@ while :; do
 	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
 	fail_times="$recent $now"
 	n=$(echo $fail_times | wc -w)
-	kmsg "frontend terminou com erro (código $rc): falha $n de $MAX_FAILS em ${WINDOW}s"
-	[ "$n" -ge $MAX_FAILS ] && give_up "Último código de saída: $rc."
+	kmsg "frontend terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	event frontend FAIL "$FRONTEND terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	# também no log do frontend: um frontend que falha calado deixa o log vazio
+	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
+	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
 	sleep 1
 done

@@ -1,4 +1,8 @@
-"""Gera o LEIA-ME.txt da partição ROMS a partir do catálogo de sistemas."""
+"""Renders LEIA-ME.txt for the ROMS partition from the system catalog.
+
+The text itself is user-facing Portuguese content (one of the translated texts); the
+code around it is English like the rest of the project.
+"""
 
 from __future__ import annotations
 

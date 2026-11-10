@@ -1,4 +1,5 @@
-Lume Retro OS - console de debug (root).
-Sistema somente leitura: alterações fora de /storage somem no próximo boot.
-Logs de boot: /boot/logs/   Resumo de hardware: /run/r36os/hwsummary
+Lume Retro OS - debug console (root).
+Read-only system: changes outside /storage are lost on the next boot.
+Logs: /storage/logs/ (ROMS/logs/ on a PC)   Still in RAM: /run/r36os/logs/
+Write now: /usr/libexec/r36os/logd flush   Hardware summary: /run/r36os/hwsummary
 

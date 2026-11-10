@@ -2,7 +2,7 @@
 # Sessão do frontend (D10): sobe direto no tty1, sem login. O frontend é escolhido
 # em /etc/conf.d/frontend. O laço de reinício fica no r36os-session (sem supervise-daemon).
 
-description="Sessão do frontend (${FRONTEND:-retroarch})"
+description="Frontend session (${FRONTEND:-retroarch})"
 command=/usr/libexec/r36os/session
 command_background=yes
 pidfile=/run/frontend.pid

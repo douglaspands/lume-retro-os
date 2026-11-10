@@ -43,7 +43,7 @@
       "extensions": ["gb", "zip", "7z"],
       "core": "gambatte",
       "core_by_arch": {},
-      "alt_cores": ["mgba"],
+      "alt_cores": [],
       "bios": []
     },
     {
@@ -52,15 +52,15 @@
       "extensions": ["gbc", "zip", "7z"],
       "core": "gambatte",
       "core_by_arch": {},
-      "alt_cores": ["mgba"],
+      "alt_cores": [],
       "bios": []
     },
     {
       "id": "gba",
       "name": "Game Boy Advance",
       "extensions": ["gba", "zip", "7z"],
-      "core": "mgba",
-      "core_by_arch": {"armv7": "gpsp"},
+      "core": "gpsp",
+      "core_by_arch": {},
       "alt_cores": [],
       "bios": []
     },
@@ -95,7 +95,6 @@
     "genesis_plus_gx": {"package": "libretro-genesis-plus-gx", "file": "genesis_plus_gx_libretro.so"},
     "picodrive": {"package": "libretro-picodrive", "file": "picodrive_libretro.so"},
     "gambatte": {"package": "libretro-gambatte", "file": "gambatte_libretro.so"},
-    "mgba": {"package": "libretro-mgba", "file": "mgba_libretro.so"},
     "gpsp": {"package": "libretro-gpsp", "file": "gpsp_libretro.so"},
     "fbneo": {"package": "libretro-fbneo", "file": "fbneo_libretro.so"},
     "mame2003_plus": {"package": "libretro-mame2003-plus", "file": "mame2003_plus_libretro.so"},

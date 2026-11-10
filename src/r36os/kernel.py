@@ -1,8 +1,8 @@
-"""Fonte do kernel mainline LTS dos consoles (D3): download fixado, patches e DTBs.
+"""Mainline LTS kernel source for the consoles (D3): pinned download, patches and DTBs.
 
-O tarball oficial é baixado uma vez para o cache e conferido pelo sha256. A árvore
-usada no build é uma cópia extraída com os patches de `kernel/patches/` aplicados em
-ordem; ela é refeita quando a lista ou o conteúdo dos patches muda.
+The official tarball is downloaded once into the cache and checked against its sha256.
+The tree used by the build is an extracted copy with the patches from `kernel/patches/`
+applied in order; it is rebuilt when the list or the contents of the patches change.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
 
 KERNEL_VERSION = "6.18.62"
 KERNEL_URL = f"https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-{KERNEL_VERSION}.tar.xz"
-# sha256sums.asc de cdn.kernel.org/pub/linux/kernel/v6.x/
+# sha256sums.asc from cdn.kernel.org/pub/linux/kernel/v6.x/
 KERNEL_SHA256 = "490a7aedf1b355c565d3a6c05333ccccb5da82064eca46b590448a7099d7d651"
 
 PATCHES_DIR = REPO_ROOT / "kernel/patches"
 
 
 def patches() -> list[Path]:
-    """Patches de `kernel/patches/`, na ordem do nome (0001-..., 0002-...)."""
+    """Patches in `kernel/patches/`, in name order (0001-..., 0002-...)."""
     return sorted(PATCHES_DIR.glob("*.patch"))
 
 
@@ -36,11 +36,11 @@ def patches_digest() -> str:
 
 
 def tarball() -> Path:
-    """O tarball do kernel no cache, baixado e conferido se preciso."""
+    """The kernel tarball in the cache, downloaded and checked if needed."""
     dest = ensure_dir(cache_dir() / "distfiles") / f"linux-{KERNEL_VERSION}.tar.xz"
     if not dest.exists():
         tmp = dest.with_suffix(".part")
-        print(f"baixando {KERNEL_URL}", flush=True)
+        print(f"downloading {KERNEL_URL}", flush=True)
         with urllib.request.urlopen(KERNEL_URL, timeout=120) as r, tmp.open("wb") as f:
             shutil.copyfileobj(r, f)
         tmp.replace(dest)
@@ -54,7 +54,7 @@ def tarball() -> Path:
 
 
 def source_tree() -> Path:
-    """Árvore do kernel com os patches aplicados (refeita quando os patches mudam)."""
+    """Kernel tree with the patches applied (rebuilt when the patches change)."""
     import subprocess
 
     base = ensure_dir(cache_dir() / "src")
@@ -67,19 +67,19 @@ def source_tree() -> Path:
         shutil.rmtree(old, ignore_errors=True)
     tmp = base / f"linux-{KERNEL_VERSION}.extract"
     shutil.rmtree(tmp, ignore_errors=True)
-    print(f"extraindo linux-{KERNEL_VERSION}", flush=True)
+    print(f"extracting linux-{KERNEL_VERSION}", flush=True)
     with tarfile.open(tarball()) as t:
         t.extractall(tmp, filter="data")
     (tmp / f"linux-{KERNEL_VERSION}").rename(tree)
     tmp.rmdir()
     for p in patches():
-        print(f"aplicando {p.name}", flush=True)
+        print(f"applying {p.name}", flush=True)
         subprocess.run(["git", "apply", "--whitespace=nowarn", str(p)], cwd=tree, check=True)
     stamp.write_text(patches_digest() + "\n")
     return tree
 
 
-# Flags do scripts/Makefile.dtbs do kernel (W=0), mais -@ para overlays
+# Flags from the kernel scripts/Makefile.dtbs (W=0), plus -@ for overlays
 _DTC_FLAGS = ("-Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size -Wno-alias_paths "
               "-Wno-graph_child_address -Wno-interrupt_map -Wno-simple_bus_reg "
               "-Wno-unique_unit_address -Wunique_unit_address_if_enabled -@")
@@ -101,16 +101,76 @@ for d in /out/*.dtb; do
   out=$(dt-validate -s /tmp/schema.json -m "$d" 2>&1) || fail=1
   if [ -n "$out" ]; then echo "$out"; fail=1; fi
 done
-[ $fail = 0 ] && echo "dt-validate: sem erros"
+[ $fail = 0 ] && echo "dt-validate: no errors"
 exit $fail
 """
 
 
-def build_dtbs(board: str, arch: str, vendor: str, out: Path) -> None:
-    """Compila `board/<board>/dts/*.dts` contra a árvore com patches e valida os DTBs.
+_KERNEL_SCRIPT = """
+set -eu
+export ARCH={arch} CROSS_COMPILE="ccache {cross}"
+B=/build
+cd /linux
+make -s O=$B {defconfig}
+scripts/kconfig/merge_config.sh -m -O $B $B/.config /board/kernel.config >/dev/null
+make -s O=$B olddefconfig
+# every option of the fragment must keep the requested value (a missing dependency drops it silently)
+fail=0
+grep -E '^CONFIG_' /board/kernel.config | while IFS= read -r want; do
+  grep -qxF "$want" $B/.config || {{ echo "kernel.config: $want did not end up in .config"; exit 1; }}
+done || fail=1
+[ $fail = 0 ] || exit 1
+make O=$B -j$(nproc) {image} modules 2> /out/build-warnings.log
+rm -rf /tmp/mods
+make -s O=$B INSTALL_MOD_PATH=/tmp/mods INSTALL_MOD_STRIP=1 modules_install
+tar -C /tmp/mods --numeric-owner --sort=name -cf /out/modules.tar lib
+cp $B/arch/{arch}/boot/{image} /out/{image}
+cp $B/.config /out/config
+make -s O=$B kernelrelease > /out/release
+# no warnings accepted in our own drivers (kernel/patches/)
+if grep -E '{own_files}' /out/build-warnings.log; then exit 1; fi
+"""
 
-    Falha se o dtc avisar algo além das exceções do kernel ou se o dt-validate
-    reportar qualquer coisa.
+# Our own drivers: any warning in them fails the build (9.1, 9.2)
+OWN_DRIVER_FILES = ("panel-ga36mb-jd9366.c", "ga36mb-gamepad.c")
+
+# target -> (ARCH, cross prefix, starting defconfig, image)
+KERNEL_TARGETS = {
+    "ga36": ("arm", "arm-linux-gnueabihf-", "sunxi_defconfig", "zImage"),
+}
+
+
+def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Path:
+    """Cross-compile the console kernel (D3): image, modules.tar, config and release.
+
+    Starts from the target defconfig plus `board/<board>/kernel.config`. The build
+    directory lives in the cache (incremental) and so does ccache. `initramfs_dir` (with
+    initramfs.cpio) is mounted at /initramfs for CONFIG_INITRAMFS_SOURCE.
+    """
+    from r36os.container import Container, ensure_cross
+
+    arch, cross, defconfig, image = KERNEL_TARGETS[board]
+    tree = source_tree()
+    build = ensure_dir(cache_dir() / "kbuild" / f"{board}-{patches_digest()}")
+    ccache = ensure_dir(cache_dir() / "ccache" / f"kernel-{board}")
+    ensure_dir(out)
+    volumes = {tree: "/linux", build: "/build", out: "/out", ccache: "/cache/ccache",
+               REPO_ROOT / "board" / board: "/board"}
+    if initramfs_dir is not None:
+        volumes[initramfs_dir] = "/initramfs"
+    Container(
+        image=ensure_cross(),
+        volumes=volumes,
+    ).sh(_KERNEL_SCRIPT.format(arch=arch, cross=cross, defconfig=defconfig, image=image,
+                               own_files="|".join(OWN_DRIVER_FILES)))
+    return out / image
+
+
+def build_dtbs(board: str, arch: str, vendor: str, out: Path) -> None:
+    """Compile `board/<board>/dts/*.dts` against the patched tree and validate the DTBs.
+
+    Fails if dtc warns about anything beyond the kernel exceptions or if dt-validate
+    reports anything.
     """
     from r36os.container import Container, ensure_cross
 

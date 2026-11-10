@@ -36,7 +36,6 @@ retroarch-joypad-autoconfig
 libretro-fceumm
 libretro-nestopia
 libretro-gambatte
-libretro-mgba
 libretro-gpsp
 
 # Cores locais (aports/)

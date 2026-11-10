@@ -12,7 +12,8 @@
  *    sem alteração (CPU até 1008 MHz nesta versão);
  *  - o painel é escolhido pelo compatible, um por variante, sem "panel-id";
  *  - brilho padrão 80 (nível 8), como no firmware de fábrica;
- *  - sem nó memory (o goodluckOS fixava 512 MiB): o U-Boot preenche o tamanho real;
+ *  - nó memory de 512 MiB como no goodluckOS, só como reserva: o U-Boot do fabricante
+ *    passa a memória real por ATAG, e o ARM_ATAG_DTB_COMPAT do kernel a escreve aqui;
  *  - mmc1 (PG) desligado; mmc0 é o cartão de boot;
  *  - uart1_pg_pins vem do sun8i-a23-a33.dtsi e não é redefinido;
  *  - nomes e propriedades aceitos pelos bindings do 6.18: o nó do controle se
@@ -39,9 +40,14 @@
 	};
 
 	/*
-	 * Sem nó memory: como nas placas A33 mainline, o U-Boot detecta a DRAM e o
-	 * preenche (há relatos de 512 MiB e de 1 GiB nesta placa).
+	 * Reserva de 512 MiB (há relatos de 512 MiB e de 1 GiB nesta placa). O U-Boot do
+	 * fabricante passa a DRAM real por ATAG_MEM, e o kernel (ARM_ATAG_DTB_COMPAT)
+	 * substitui este valor; sem ATAG, o kernel ainda sobe com 512 MiB.
 	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x40000000 0x20000000>;
+	};
 
 	backlight: backlight {
 		compatible = "pwm-backlight";

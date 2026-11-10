@@ -1,4 +1,4 @@
-"""Estágio 2: pacotes Alpine locais (abuild) e repositório local `out/repo/<arch>`."""
+"""Stage 2: local Alpine packages (abuild) and the local repository `out/repo/<arch>`."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from r36os.paths import REPO_ROOT, cache_dir, ensure_dir, out_dir
 from r36os.targets import Target
 
 KEY_NAME = "r36os"
-REPO_NAME = "r36os"  # abuild grava em $REPODEST/<nome do dir pai>/<arch>
+REPO_NAME = "r36os"  # abuild writes to $REPODEST/<parent dir name>/<arch>
 
 
 def aport_arches(apkbuild: Path) -> list[str]:
-    """Valor de arch= do APKBUILD (ex.: ['all', '!armv7'])."""
+    """The arch= value of the APKBUILD (e.g. ['all', '!armv7'])."""
     for line in apkbuild.read_text().splitlines():
         if line.startswith("arch="):
             return line.split("=", 1)[1].strip().strip('"').split()
@@ -28,9 +28,9 @@ def builds_for(apkbuild: Path, arch: str) -> bool:
 
 
 def local_aports(target: Target | None = None) -> list[str]:
-    """Pacotes de aports/ (cada subdiretório com APKBUILD), em ordem estável.
+    """Packages in aports/ (each subdirectory with an APKBUILD), in a stable order.
 
-    Com `target`, só os que o arch= do APKBUILD permite (o mesa local é só x86_64).
+    With `target`, only those allowed by the APKBUILD arch= (the local mesa is x86_64 only).
     """
     found = sorted((REPO_ROOT / "aports").glob("*/APKBUILD"))
     return [p.parent.name for p in found
@@ -65,8 +65,8 @@ def _container(target: Target, aports: Path) -> Container:
             cache / "distfiles": "/cache/distfiles",
             cache / "ccache" / target.alpine_arch: "/cache/ccache",
         },
-        # USE_CCACHE=1: sem ele o abuild não põe /usr/lib/ccache/bin no PATH, e sob
-        # emulação (ARM) cada recompilação custaria horas
+        # USE_CCACHE=1: without it abuild does not put /usr/lib/ccache/bin in PATH, and
+        # under emulation (ARM) each rebuild would take hours
         env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1"},
     )
 
@@ -83,7 +83,7 @@ apk update -q
 
 
 def ensure_key(target: Target) -> Path:
-    """Gera a chave de assinatura do abuild no cache (uma vez, compartilhada pelos arches)."""
+    """Generate the abuild signing key in the cache (once, shared by all arches)."""
     _container(target, REPO_ROOT / "aports").sh(_SETUP_KEY)
     return public_key()
 
@@ -91,13 +91,13 @@ def ensure_key(target: Target) -> Path:
 def build_packages(
     target: Target, names: list[str], aports: Path | None = None, checksum: bool = False
 ) -> None:
-    """Constrói os pacotes `aports/<nome>` para a arquitetura do alvo.
+    """Build the `aports/<name>` packages for the target architecture.
 
-    Com `checksum=True`, só atualiza os sha512sums dos APKBUILDs (abuild checksum).
+    With `checksum=True`, only update the APKBUILD sha512sums (abuild checksum).
     """
     aports = aports or REPO_ROOT / "aports"
     step = "abuild -F checksum" if checksum else "abuild -F -r -P /repodest"
-    # abuild -r instala as dependências; ao final atualiza e assina o APKINDEX do repositório.
+    # abuild -r installs the dependencies; at the end it updates and signs the APKINDEX.
     script = _SETUP_KEY + "".join(
         f"(cd /aports/{REPO_NAME}/{n} && {step})\n" for n in names
     )
@@ -105,7 +105,7 @@ def build_packages(
 
 
 def install_test(target: Target, name: str, aports: Path) -> str:
-    """Instala `name` num container limpo a partir do repositório local e devolve `apk info`."""
+    """Install `name` in a clean container from the local repository; return `apk info`."""
     c = _container(target, aports)
     out = c.sh(
         _SETUP_KEY

@@ -94,11 +94,11 @@ O sistema MUST registrar em `ROMS/logs/`, legível no PC, um retrato do hardware
 
 #### Scenario: Métricas e eventos durante o uso
 - **WHEN** um jogo é aberto, jogado por alguns minutos e fechado
-- **THEN** `ROMS/logs/metricas/boot-<n>.csv` tem amostras com temperatura, frequência e ocupação durante o jogo, e `ROMS/logs/eventos.log` tem a abertura e o fechamento do jogo com o core e a duração
+- **THEN** `ROMS/logs/metrics/boot-<n>.csv` tem amostras com temperatura, frequência e ocupação durante o jogo, e `ROMS/logs/events.log` tem a abertura e o fechamento do jogo com o core e a duração
 
 #### Scenario: Desligamento abrupto registrado
 - **WHEN** a energia é cortada sem desligar e o console é ligado de novo
-- **THEN** `ROMS/logs/eventos.log` registra que o desligamento anterior foi abrupto, e as métricas até o último lote gravado continuam lá
+- **THEN** `ROMS/logs/events.log` registra que o desligamento anterior foi abrupto, e as métricas até o último lote gravado continuam lá
 
 ### Requirement: Gravação dos logs sem desgaste nem perda de desempenho
 Os logs de diagnóstico MUST ser gravados em lote a partir da RAM e MUST ter rotação por tipo com um teto total configurável pelo PC, para não encher o cartão nem afetar o desempenho dos jogos.
@@ -109,7 +109,18 @@ Os logs de diagnóstico MUST ser gravados em lote a partir da RAM e MUST ter rot
 
 #### Scenario: Logs desligados pelo PC
 - **WHEN** o usuário põe `enable=0` em `ROMS/system/etc/logs.conf` e liga o console
-- **THEN** nenhum coletor roda e só o log de boot da `BOOT` é gravado
+- **THEN** o retrato do hardware e as métricas não são gravados, e o log de boot e os eventos continuam em `ROMS/logs/`
+
+### Requirement: Idioma dos logs e das mensagens ao usuário
+Os logs do sistema MUST ser em inglês: conteúdo, nomes de arquivos e pastas, categorias e resultados dos eventos e colunas das métricas. As mensagens do sistema para o usuário MUST seguir o idioma escolhido no menu do RetroArch (`user_language`), e um idioma sem tradução MUST cair no inglês.
+
+#### Scenario: Logs em inglês com a interface em português
+- **WHEN** o idioma do menu é português do Brasil e um jogo é aberto
+- **THEN** `ROMS/logs/events.log` registra `game OK opened: ...` e as métricas usam as colunas em inglês
+
+#### Scenario: Tela de falha no idioma escolhido
+- **WHEN** o usuário escolheu espanhol no menu e o frontend falha 3 vezes seguidas
+- **THEN** a tela de erro é mostrada em espanhol, e o evento correspondente em `events.log` continua em inglês
 
 ### Requirement: Resumo de hardware antes do frontend
 Antes de iniciar o frontend, o boot MUST imprimir um resumo com o estado de vídeo (driver de GPU), áudio, controle, bateria e partição de jogos, marcando cada item como ok ou falha.

@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+# Logs de diagnóstico em ROMS/logs/ (D14): retrato do hardware, métricas, eventos.
+# Sobe antes dos serviços que registram eventos e para depois do frontend, para a
+# descarga final pegar o log dele e marcar o desligamento como limpo.
+
+description="Diagnostic logs"
+pidfile=/run/r36os-logd.pid
+
+depend() {
+	need localmount
+	after r36os-persist
+	before r36os-hostshare r36os-playlists r36os-hwsummary frontend r36os-selftest
+}
+
+start() {
+	ebegin "Diagnostic logs in ROMS/logs"
+	/usr/libexec/r36os/logd start
+	start-stop-daemon --start --background --make-pidfile --pidfile "$pidfile" \
+		--exec /usr/libexec/r36os/logd -- run
+	eend $?
+}
+
+stop() {
+	ebegin "Writing diagnostic logs"
+	start-stop-daemon --stop --quiet --pidfile "$pidfile" --retry TERM/5/KILL/2
+	/usr/libexec/r36os/logd stop
+	eend 0
+}

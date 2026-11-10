@@ -1,0 +1,100 @@
+#!/bin/sh
+# Retrato do hardware deste boot (D14), para ROMS/logs/hw/boot-<n>.txt.
+# Só lê /proc, /sys e comandos de consulta; não muda nada no sistema.
+. /usr/libexec/r36os/lib.sh
+
+sec() { printf '\n== %s\n' "$1"; }
+kv() { printf '%-26s %s\n' "$1:" "$2"; }
+val() { cat "$1" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
+
+echo "Lume Retro OS: hardware snapshot"
+kv date "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+kv boot "$(cat "$R36OS_RUN/logs/boot-n" 2>/dev/null) (boot_id $(val /proc/sys/kernel/random/boot_id))"
+
+sec system
+kv version "$(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME")"
+kv board "$(board)"
+kv model "$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)"
+kv kernel "$(uname -r) $(uname -m)"
+kv cmdline "$(val /proc/cmdline)"
+kv uptime "$(cut -d' ' -f1 /proc/uptime) s"
+t=$(dmesg | sed -n 's/^\[ *\([0-9.]*\)\] lume: frontend started.*/\1/p' | head -n 1)
+kv "frontend (s from kernel)" "${t:-not started}"
+
+sec CPU
+kv cores "$(grep -c ^processor /proc/cpuinfo) (online $(val /sys/devices/system/cpu/online))"
+kv model "$(sed -n 's/^\(model name\|Hardware\|CPU part\)[[:space:]]*: //p' /proc/cpuinfo | sort -u | tr '\n' ';')"
+kv features "$(sed -n 's/^\(Features\|flags\)[[:space:]]*: //p' /proc/cpuinfo | head -n 1)"
+for p in /sys/devices/system/cpu/cpufreq/policy*; do
+	[ -d "$p" ] || continue
+	kv "${p##*/} cpus" "$(val "$p/related_cpus")"
+	kv "${p##*/} governor" "$(val "$p/scaling_governor") (available: $(val "$p/scaling_available_governors"))"
+	kv "${p##*/} current kHz" "$(val "$p/scaling_cur_freq")"
+	kv "${p##*/} min/max kHz" "$(val "$p/scaling_min_freq") / $(val "$p/scaling_max_freq") (hw $(val "$p/cpuinfo_min_freq") / $(val "$p/cpuinfo_max_freq"))"
+	kv "${p##*/} available kHz" "$(val "$p/scaling_available_frequencies")"
+done
+[ -d /sys/devices/system/cpu/cpufreq ] || kv cpufreq "absent"
+
+sec memory
+awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|CmaTotal):/{printf "%-26s %d MiB\n", $1, $2/1024}' /proc/meminfo
+for z in /sys/block/zram*; do [ -d "$z" ] && kv "${z##*/}" "$(val "$z/disksize") bytes"; done
+
+sec thermal
+for z in /sys/class/thermal/thermal_zone*; do
+	[ -d "$z" ] || continue
+	trips=""
+	for t in "$z"/trip_point_*_temp; do
+		[ -f "$t" ] && trips="$trips $(( $(cat "$t") / 1000 ))°C/$(val "${t%_temp}_type")"
+	done
+	kv "${z##*/} $(val "$z/type")" "$(( $(cat "$z/temp" 2>/dev/null || echo 0) / 1000 )) °C; limits:${trips:- none}"
+done
+for c in /sys/class/thermal/cooling_device*; do
+	[ -d "$c" ] && kv "${c##*/} $(val "$c/type")" "state $(val "$c/cur_state") of $(val "$c/max_state")"
+done
+
+sec regulators
+for r in /sys/class/regulator/regulator.*; do
+	[ -d "$r" ] || continue
+	kv "$(val "$r/name")" "$(val "$r/microvolts") µV $(val "$r/state")"
+done
+[ -d /sys/class/regulator ] || kv regulators "none exposed"
+
+sec "battery and power"
+for ps in /sys/class/power_supply/*; do
+	[ -d "$ps" ] || continue
+	echo "-- ${ps##*/} ($(val "$ps/type"))"
+	sed 's/^POWER_SUPPLY_//' "$ps/uevent" 2>/dev/null | grep -v '^NAME=' | sed 's/^/   /'
+done
+ls /sys/class/power_supply 2>/dev/null | grep -q . || kv "power_supply" "none (VM?)"
+
+sec storage
+for b in /sys/block/mmcblk[0-9] /sys/block/vd[a-z] /sys/block/sd[a-z]; do
+	[ -d "$b" ] || continue
+	kv "${b##*/}" "$(( $(cat "$b/size") / 2048 )) MiB $(val "$b/device/name") $(val "$b/device/type")"
+done
+grep -E ' (/|/boot|/storage|/lower) ' /proc/mounts | sed 's/^/   /'
+df -h /boot /storage 2>/dev/null | sed 's/^/   /'
+kv "ROMS (initramfs)" "$(dmesg | sed -n 's/.*lume: \(.*ROMS.*\)/\1/p' | tr '\n' ';')"
+
+sec video
+for c in /sys/class/drm/card[0-9]; do
+	[ -d "$c" ] || continue
+	kv "${c##*/} driver" "$(basename "$(readlink "$c/device/driver" 2>/dev/null)")"
+done
+for o in /sys/class/drm/card[0-9]-*; do
+	[ -f "$o/status" ] || continue
+	kv "${o##*/}" "$(val "$o/status"), modes: $(head -n 3 "$o/modes" 2>/dev/null | tr '\n' ' ')"
+done
+for d in /sys/class/devfreq/*; do
+	[ -d "$d" ] && kv "devfreq ${d##*/}" "$(val "$d/cur_freq") Hz ($(val "$d/governor"))"
+done
+
+sec audio
+sed 's/^/   /' /proc/asound/cards 2>/dev/null || echo "   no ALSA card"
+
+sec input
+awk '/^N: Name=/{n=$0; sub(/^N: Name="/,"",n); sub(/"$/,"",n)} /^H: Handlers=/{print "   " n " [" substr($0, 13) "]"}' \
+	/proc/bus/input/devices
+
+sec "hardware summary (before frontend)"
+cat "$R36OS_RUN/hwsummary" 2>/dev/null || echo "   absent"

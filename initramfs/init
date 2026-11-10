@@ -16,8 +16,8 @@ exec 0</dev/console 1>/dev/console 2>&1
 . /lib/storage.sh
 
 rescue() {
-	log "ERRO: $*"
-	log "abrindo shell de emergência no console"
+	log "ERROR: $*"
+	log "opening emergency shell on console"
 	exec setsid cttyhack sh
 }
 
@@ -33,7 +33,7 @@ SIG=""
 for arg in $(cat /proc/cmdline); do
 	case "$arg" in root=PARTUUID=*) SIG=${arg#root=PARTUUID=}; SIG=${SIG%-*} ;; esac
 done
-[ -n "$SIG" ] || rescue "cmdline sem root=PARTUUID="
+[ -n "$SIG" ] || rescue "cmdline without root=PARTUUID="
 
 # Espera o cartão pela assinatura do MBR (timeout de 10 s).
 find_disk() {
@@ -47,29 +47,29 @@ find_disk() {
 	done
 	return 1
 }
-log "procurando o cartão (PARTUUID=$SIG-01)..."
+log "searching for boot disk (PARTUUID=$SIG-01)..."
 i=0
 until DISK=$(find_disk); do
 	i=$((i + 1))
-	[ $i -ge 100 ] && rescue "cartão não encontrado em 10 s"
+	[ $i -ge 100 ] && rescue "boot disk not found within 10s"
 	sleep 0.1
 done
 BOOT=$(part_node "$DISK" 1)
-wait_node "$BOOT" || rescue "partição BOOT ausente em $DISK"
-log "cartão em $DISK"
+wait_node "$BOOT" || rescue "BOOT partition missing on $DISK"
+log "boot disk at $DISK"
 
 # Partição de jogos: antes de qualquer montagem do cartão (o kernel não relê
 # a tabela de um disco com partição montada).
 ROMS_OK=$(setup_storage "$DISK")
 
-mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "falha ao montar a BOOT"
-[ -f /boot/SYSTEM ] || rescue "BOOT sem o arquivo SYSTEM"
-mount -t squashfs -o ro,loop /boot/SYSTEM /lower || rescue "falha ao montar o SYSTEM"
+mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
+[ -f /boot/SYSTEM ] || rescue "BOOT missing SYSTEM file"
+mount -t squashfs -o ro,loop /boot/SYSTEM /lower || rescue "failed to mount SYSTEM"
 mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
 mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
-	|| rescue "falha ao montar o overlay"
-log "raiz: SYSTEM (somente leitura) + camada em RAM de 32 MiB"
+	|| rescue "failed to mount overlay"
+log "root: SYSTEM (read-only) + 32 MiB RAM layer"
 
 if [ "$ROMS_OK" = ok ]; then
 	if mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
@@ -78,19 +78,19 @@ if [ "$ROMS_OK" = ok ]; then
 		if [ -f "$CATALOG" ]; then
 			# caminho absoluto: o PATH do initramfs não tem /usr/bin
 			IDS=$(chroot /newroot /usr/bin/jq -r '.systems[].id' /usr/share/r36os/systems.json) \
-				|| log "ERRO: não foi possível ler o catálogo"
+				|| log "ERROR: failed to read catalog"
 			make_folders /newroot/storage $IDS
 		else
-			log "ERRO: catálogo $CATALOG ausente"
+			log "ERROR: catalog $CATALOG missing"
 			make_folders /newroot/storage
 		fi
 		README=/newroot/usr/share/r36os/LEIA-ME.txt
 		if [ -f "$README" ] && ! cmp -s "$README" /newroot/storage/LEIA-ME.txt; then
 			cp "$README" /newroot/storage/LEIA-ME.txt
 		fi
-		log "ROMS montada em /storage"
+		log "ROMS mounted at /storage"
 	else
-		log "ERRO: falha ao montar a ROMS; seguindo sem partição de jogos"
+		log "ERROR: failed to mount ROMS; continuing without games partition"
 	fi
 fi
 

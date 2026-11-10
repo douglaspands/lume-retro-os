@@ -12,3 +12,5 @@ def test_cores_for_all_targets():
     for t in ("vm", "r36s", "ga36"):
         assert "libretro-pcsx-rearmed" in local_aports(get_target(t))
         assert "retroarch" in local_aports(get_target(t))
+        # PSP disabled in this version (pending 12.1): the aport exists but is not built
+        assert "libretro-ppsspp" not in local_aports(get_target(t))

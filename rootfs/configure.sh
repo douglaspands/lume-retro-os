@@ -25,17 +25,18 @@ echo "$SERIAL_TTY" > /etc/r36os/serial-tty
 echo "$BOARD" > /etc/r36os/board
 chmod 644 /usr/libexec/r36os/lib.sh
 sed -i -e 's#:/sbin/openrc #:/usr/libexec/r36os/rc-tee #' /etc/inittab
-# Log de boot na BOOT, depois do runlevel default (busybox init: wait antes de once).
+# Log de boot em ROMS/logs/boot/ (ou na BOOT sem ROMS), depois do runlevel default
+# (busybox init: wait antes de once).
 echo "::once:/usr/libexec/r36os/bootlog" >> /etc/inittab
 
-# OpenRC: log de boot em /var/log/rc.log (usado pelo log de boot na BOOT).
+# OpenRC: log de boot em /var/log/rc.log (usado pelo log de boot).
 sed -i -e 's/^#*rc_logger=.*/rc_logger="YES"/' /etc/rc.conf
 
 add() { rc-update add "$1" "$2" >/dev/null; }
 for s in devfs dmesg udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback; do add "$s" boot; done
-for s in seatd alsa r36os-persist r36os-savesync r36os-hostshare r36os-playlists r36os-hwsummary frontend \
-	r36os-selftest; do
+for s in seatd alsa r36os-persist r36os-logd r36os-savesync r36os-hostshare r36os-playlists \
+	r36os-hwsummary frontend r36os-selftest; do
 	add "$s" default
 done
 for s in killprocs mount-ro savecache; do add "$s" shutdown; done

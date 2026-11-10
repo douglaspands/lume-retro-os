@@ -41,8 +41,10 @@ def test_partition_table():
 def test_boot_contents():
     off = 32768 * 512
     listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/vm.img@@{off} -b ::/")
-    for name in ("vmlinuz", "initramfs", "extlinux", "SYSTEM", "logs"):
+    for name in ("vmlinuz", "initramfs", "extlinux", "SYSTEM"):
         assert f"::/{name}" in listing, listing
+    # logs centralizados em ROMS/logs/ (D14): a BOOT não tem logs/
+    assert "::/logs" not in listing, listing
     ext = _sh(f"MTOOLS_SKIP_CHECK=1 mtype -i /out/vm.img@@{off} ::/extlinux/extlinux.conf")
     assert "root=PARTUUID=4c554d33-01" in ext
     assert "video=640x480" in ext

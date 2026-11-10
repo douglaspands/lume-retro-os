@@ -94,9 +94,12 @@ Resultado em `out/vm/test-vm/`:
 | `results/core-*.log` | log do RetroArch de cada core testado |
 
 Para ler o log serial: procure `SELFTEST ... FAIL`, as mensagens do initramfs e dos
-serviços (`lume: ...`) e o resumo de hardware. Os logs de boot também ficam na
-partição `BOOT`, em `logs/boot-<n>.log`, e o log do frontend em
-`logs/frontend-erro.log` quando ele falha 3 vezes.
+serviços (`lume: ...`) e o resumo de hardware.
+
+Os logs do sistema ficam na partição de jogos da VM, em `/storage/logs/` (`ROMS/logs/`):
+log de cada boot, retrato do hardware, métricas, eventos e log do RetroArch. O formato
+está em [LOGS.md](LOGS.md). Para vê-los, use a serial (`ls /storage/logs`) ou rode o
+teste com `--keep` e monte o disco `~/.cache/r36os/vm/test.img`.
 
 ## Depuração
 

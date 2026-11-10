@@ -1,4 +1,4 @@
-"""Tarefa 11.1: consoles só são liberados se o test-vm do mesmo build passar."""
+"""Task 11.1: consoles are only released if the test-vm of the same build passes."""
 
 import json
 
@@ -21,9 +21,9 @@ def _marked(name):
 
 def test_vm_defect_blocks_consoles(out):
     built = []
-    rc = release.build_all(build=built.append, test=lambda: 1)  # defeito injetado na VM
+    rc = release.build_all(build=built.append, test=lambda: 1)  # defect injected in the VM
     assert rc == 1
-    assert built == ["vm", "r36s", "ga36"]  # vm primeiro
+    assert built == ["vm", "r36s", "ga36"]  # vm first
     assert not _marked("r36s") and not _marked("ga36")
     rep = json.loads((out / "release.json").read_text())
     assert rep["targets"]["vm"]["test_vm"] == "FAIL"
@@ -46,7 +46,7 @@ def test_stale_marker_removed(out):
 def test_console_build_failure_not_released(out):
     def build(name):
         if name == "ga36":
-            raise RuntimeError("kernel não compilou")
+            raise RuntimeError("kernel did not build")
 
     rc = release.build_all(build=build, test=lambda: 0)
     assert rc == 1

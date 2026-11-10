@@ -38,7 +38,7 @@ check "sem-p2: p2 alinhada após a BOOT" '[ "$(part_field "$IMG" 2 start)" = 212
 check "sem-p2: p2 até o fim do disco" '[ $(( $(part_field "$IMG" 2 start) + $(part_field "$IMG" 2 size) )) = $(disk_sectors "$IMG") ]'
 check "sem-p2: exFAT" '[ "$(fs_type_at "$IMG" "$(part_field "$IMG" 2 start)")" = exfat ]'
 check "sem-p2: rótulo ROMS" '[ "$(with_part "$IMG" 2 label_of)" = ROMS ]'
-check "sem-p2: mensagem na tela" 'grep -q "partição ROMS criada" "$W/log1"'
+check "sem-p2: mensagem na tela" 'grep -q "ROMS partition created" "$W/log1"'
 check "sem-p2: BOOT intacta" '[ "$(part_field "$IMG" 1 start)" = 32768 ] && [ "$(part_field "$IMG" 1 size)" = 2097152 ]'
 
 ### 2. p2 exFAT existente: só verifica, nunca formata
@@ -49,7 +49,7 @@ R=$(setup_storage "$IMG" 2>"$W/log2")
 check "exfat: setup ok" '[ "$R" = ok ]'
 check "exfat: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
 check "exfat: mesmo volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
-check "exfat: verificação no log" 'grep -q "ROMS verificada" "$W/log2"'
+check "exfat: verificação no log" 'grep -q "ROMS checked" "$W/log2"'
 
 ### 3. p2 suja (VolumeDirty): fsck -p roda, resultado no log, monta
 FLAGS_OFF=$(( $(part_field "$IMG" 2 start) * 512 + 106 ))
@@ -57,7 +57,7 @@ printf '\002' | dd of="$IMG" bs=1 seek=$FLAGS_OFF conv=notrunc 2>/dev/null
 check "suja: flag marcada" '[ "$(p2_bytes "$IMG" 106 1)" = 02 ]'
 R=$(setup_storage "$IMG" 2>"$W/log3")
 check "suja: setup ok (monta)" '[ "$R" = ok ]'
-check "suja: verificação no log" 'grep -q "ROMS verificada" "$W/log3"'
+check "suja: verificação no log" 'grep -q "ROMS checked" "$W/log3"'
 check "suja: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
 check "suja: mesmo volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
 check "suja: flag limpa após fsck" '[ "$(p2_bytes "$IMG" 106 1)" = 00 ]'
@@ -71,7 +71,7 @@ MD5=$(p2_md5 "$IMG4")
 check "outro-fs: decisão foreign" '[ "$(decide_p2 "$IMG4")" = foreign ]'
 R=$(setup_storage "$IMG4" 2>"$W/log4")
 check "outro-fs: sem ROMS" '[ -z "$R" ]'
-check "outro-fs: erro no log" 'grep -q "não é exFAT" "$W/log4"'
+check "outro-fs: erro no log" 'grep -q "not exFAT" "$W/log4"'
 check "outro-fs: conteúdo intacto" '[ "$(p2_md5 "$IMG4")" = "$MD5" ]'
 check "outro-fs: tabela intacta" '[ "$(part_field "$IMG4" 2 type)" = 83 ]'
 check "outro-fs: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
