@@ -69,7 +69,7 @@ def test_log_text_is_english():
 def test_trace_documented_and_bounded():
     body = re.search(r"trace_sample\(\) \{(.*?)\n\}", LOGD, re.S).group(1)
     section = _section("trace/")
-    for field in ("fe", "pid", "st", "utime", "stime", "threads", "dri_fds", "gpu_mhz", "tasks"):
+    for field in ("fe", "pid", "st", "utime", "stime", "threads", "dri_fds", "gpu_mhz", "vblank", "tasks"):
         assert f"{field}=" in body, field
         assert f"`{field}`" in section, field
     # on the card and in RAM the trace has a cap, it is rotated, and the total cap drops it

@@ -119,15 +119,26 @@ frontend_state() {
 
 csv_field() { printf '%s' "$1" | tr ',\n' ';;'; }
 
-# Rastreio do frontend (trace/boot-<n>.log): uma linha por amostra com o estado do processo
-# do RetroArch, as mensagens novas do kernel e, quando ele para de responder, um
-# instantâneo detalhado. Serve para saber ONDE um congelamento aconteceu.
-KMSG_SEEN=0 NOANS=0 DEEP_N=0 PREV_STATE=""
-DEEP_MAX=6          # instantâneos detalhados por boot
-NOANS_LIMIT=3       # amostras seguidas sem resposta (15 s) até declarar o congelamento
+# Frontend trace (trace/boot-<n>.log): one line per sample with the RetroArch process
+# state, the new kernel messages and, when it stops answering, a detailed snapshot. It
+# tells WHERE a freeze happened. It also detects a hung frontend (blocked, no CPU and no
+# display vblank) and recovers from it by killing it, so the session restarts it.
+KMSG_SEEN=0 NOANS=0 DEEP_N=0 PREV_STATE="" PREV_PID="" PREV_TICKS="" PREV_VB="" HANG=0 RECOVER_N=0
+DEEP_MAX=6          # detailed snapshots per boot
+NOANS_LIMIT=3       # consecutive samples without an answer (15 s) before declaring it
+HANG_LIMIT=2        # consecutive samples blocked with no CPU and no vblank (10 s)
+RECOVER_MAX=${RECOVER_MAX:-3}   # times per boot the hung frontend is killed (0 = only log)
 FRONTEND_LOG_FILE=${FRONTEND_LOG:-/var/log/frontend.log}
+INTERRUPTS_FILE=${INTERRUPTS_FILE:-/proc/interrupts}
 
-# Mensagens do kernel surgidas desde a amostra anterior (o que veio antes está no log de boot)
+# Sum of the display controller interrupts (the vblank counter); empty when there is no
+# such device (the VM). A frozen display stops this counter.
+vblank_count() {
+	awk '/lcd-controller|tcon/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; found = 1 }
+		END { if (found) print s + 0 }' "$INTERRUPTS_FILE" 2>/dev/null
+}
+
+# New kernel messages since the previous sample (what came before is in the boot log)
 trace_kernel() {
 	local total
 	total=$(dmesg | wc -l)
@@ -138,8 +149,34 @@ trace_kernel() {
 	KMSG_SEEN=$total
 }
 
-# Instantâneo detalhado do processo (threads, pilha no kernel, descritores de dispositivos,
-# interrupções): mostra em que ponto o RetroArch está parado.
+# State of the display pipeline: connector and backlight sysfs, the DRM atomic state and
+# clients (who is master) from debugfs, the display controller / DSI registers and clocks.
+# Tells whether the CRTC is still active and the controller still enabled when it freezes.
+trace_display() {
+	local f l
+	mountpoint -q /sys/kernel/debug 2>/dev/null || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+	for f in /sys/class/drm/card*-*/status /sys/class/drm/card*-*/enabled /sys/class/drm/card*-*/dpms \
+		/sys/class/backlight/*/brightness /sys/class/backlight/*/bl_power; do
+		[ -r "$f" ] && trace "sysfs $f $(cat "$f" 2>/dev/null)"
+	done
+	for f in /sys/kernel/debug/dri/*/state /sys/kernel/debug/dri/*/clients; do
+		[ -r "$f" ] || continue
+		trace "debugfs $f"
+		head -n 60 "$f" | while IFS= read -r l; do trace "  $l"; done
+	done
+	trace "regmaps: $(ls /sys/kernel/debug/regmap 2>/dev/null | tr '\n' ' ')"
+	for f in /sys/kernel/debug/regmap/*lcd-controller*/registers /sys/kernel/debug/regmap/*tcon*/registers \
+		/sys/kernel/debug/regmap/*dsi*/registers; do
+		[ -r "$f" ] || continue
+		trace "regs $f"
+		head -n 80 "$f" | while IFS= read -r l; do trace "  $l"; done
+	done
+	grep -E 'tcon|dsi|mipi|pll-video|pll-mipi|gpu|mbus' /sys/kernel/debug/clk/clk_summary 2>/dev/null |
+		head -n 40 | while IFS= read -r l; do trace "clk $l"; done
+}
+
+# Detailed process snapshot (threads, kernel stack, device descriptors, interrupts, display
+# state): shows where RetroArch is stuck.
 trace_deep() {  # pid
 	local pid="$1" t l f r
 	trace "=== snapshot of retroarch pid $pid (frontend $FE_STATE)"
@@ -155,25 +192,30 @@ trace_deep() {  # pid
 		case "$r" in /dev/*) trace "fd ${f##*/} $r" ;; esac
 	done
 	trace "loadavg $(cat /proc/loadavg 2>/dev/null)"
-	while IFS= read -r l; do trace "irq $l"; done < /proc/interrupts
+	while IFS= read -r l; do trace "irq $l"; done < "$INTERRUPTS_FILE"
+	trace_display
 	trace "=== end of snapshot"
 }
 
-# Uma linha por amostra + detecção de "RetroArch vivo mas sem responder"
+# One line per sample + detection of "RetroArch alive but not answering" and of a hang
 trace_sample() {
-	local pid line t th="" dri=0 f r gpu=""
+	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
 	frontend_log_trim "$FRONTEND_LOG_FILE"
 	trace_kernel
+	vb=$(vblank_count)
 	# GPU clock in MHz (devfreq): shows whether it changed when a game started
 	for f in "${GPU_DEVFREQ_DIR:-/sys/class/devfreq}"/*gpu*/cur_freq; do
 		[ -r "$f" ] && gpu=$(( $(cat "$f" 2>/dev/null || echo 0) / 1000000 )) && break
 	done
 	pid=$(pidof retroarch 2>/dev/null | cut -d' ' -f1)
 	if [ -z "$pid" ]; then
-		trace "fe=$FE_STATE pid=- gpu_mhz=$gpu"
-		NOANS=0
+		trace "fe=$FE_STATE pid=- gpu_mhz=$gpu vblank=$vb"
+		NOANS=0 HANG=0 PREV_PID="" PREV_TICKS=""
 	else
-		line=$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{ print "st=" $1 " utime=" $12 " stime=" $13 " threads=" $18 }')
+		set -- $(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null)
+		st=${1:-?} utime=${12:-0} stime=${13:-0} threads=${18:-0}
+		ticks=$((utime + stime))
+		line="st=$st utime=$utime stime=$stime threads=$threads"
 		for t in /proc/$pid/task/*; do
 			[ -d "$t" ] || continue
 			th="$th ${t##*/}:$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null):$(cat "$t/wchan" 2>/dev/null)"
@@ -182,13 +224,36 @@ trace_sample() {
 			r=$(readlink "$f" 2>/dev/null)
 			case "$r" in /dev/dri/*) dri=$((dri + 1)) ;; esac
 		done
-		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu tasks=$th"
+		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu vblank=$vb tasks=$th"
+		# Hung = same process, (almost) no CPU used since the last sample and the display
+		# vblank counter not moving. A frontend that is only loading a big game uses CPU.
+		if [ "$pid" = "$PREV_PID" ] && [ -n "$PREV_TICKS" ] && [ "$ticks" -le $((PREV_TICKS + 2)) ] &&
+			{ [ -z "$vb" ] || [ "$vb" = "$PREV_VB" ]; }; then
+			HANG=$((HANG + 1))
+		else
+			HANG=0
+		fi
+		PREV_PID=$pid PREV_TICKS=$ticks PREV_VB=$vb
+		if [ "$HANG" -eq "$HANG_LIMIT" ]; then
+			event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+			if [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_deep "$pid"
+			fi
+			if [ "$RECOVER_N" -lt "$RECOVER_MAX" ]; then
+				RECOVER_N=$((RECOVER_N + 1))
+				logs_flush      # the evidence first, then the kill
+				kill -9 "$pid" 2>/dev/null
+				event frontend OK "recovery $RECOVER_N of $RECOVER_MAX: killed the hung retroarch pid $pid; the session restarts the frontend"
+				PREV_PID=""
+			fi
+		fi
 		if [ "$FE_STATE" = no_answer ]; then
 			NOANS=$((NOANS + 1))
 			if [ "$NOANS" -eq "$NOANS_LIMIT" ]; then
 				event frontend FAIL "retroarch pid $pid alive but no answer for $((NOANS * LOG_INTERVAL))s; see trace/boot-$(boot_n).log"
 			fi
-			# Instantâneo ao declarar o congelamento e depois a cada 6 amostras
+			# Snapshot when the freeze is declared and then every 6 samples
 			if [ "$NOANS" -ge "$NOANS_LIMIT" ] && [ $(( (NOANS - NOANS_LIMIT) % 6 )) -eq 0 ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
 				DEEP_N=$((DEEP_N + 1))
 				trace_deep "$pid"
@@ -198,8 +263,8 @@ trace_sample() {
 			NOANS=0
 		fi
 	fi
-	# Descarga imediata a cada mudança de estado e enquanto não responde: o aparelho
-	# congelado costuma ser desligado na marra, e o intervalo normal perderia a evidência.
+	# Flush at once on every state change and while it is not answering: a frozen console
+	# is usually switched off by hand, and the normal interval would lose the evidence.
 	if [ "$FE_STATE" != "$PREV_STATE" ] || [ "$NOANS" -gt 0 ]; then
 		logs_flush
 	fi

@@ -88,7 +88,7 @@ Uma linha por evento:
 |---|---|
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
-| `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`) |
+| `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
 | `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
@@ -127,7 +127,7 @@ Serve para descobrir **onde** o RetroArch parou quando o aparelho congela. Cada 
 começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segundos):
 
 ```
-10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 tasks= 312:S:do_wait 318:S:futex_wait_queue
+10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 vblank=2842 tasks= 312:S:do_poll 318:S:futex_wait_queue
 ```
 
 | Campo | Conteúdo |
@@ -139,6 +139,7 @@ começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segund
 | `threads` | número de threads |
 | `dri_fds` | descritores abertos em `/dev/dri/` (mais de um pode indicar o dispositivo herdado do processo anterior) |
 | `gpu_mhz` | frequência da GPU (devfreq) em MHz; vazio sem devfreq. Mostra se o clock da GPU mudou quando o jogo abriu |
+| `vblank` | soma das interrupções do controlador de vídeo (`lcd-controller`, o vblank); vazio sem ele (VM). Com o display vivo, sobe ~55 por segundo; **parada, a tela congelou** |
 | `tasks` | por thread: `tid:estado:wchan`. O `wchan` é a função do kernel em que a thread está dormindo |
 
 Além disso:
@@ -152,6 +153,21 @@ Além disso:
   dispositivos abertos (`fd`), a carga (`loadavg`) e as interrupções (`irq`, a tabela de
   `/proc/interrupts`). Comparando duas tabelas, as contagens que param de subir (vídeo,
   GPU, áudio) mostram o que travou.
+- **Travamento (hung) e recuperação.** O `logd` declara o frontend travado quando o mesmo
+  processo do RetroArch passa 2 amostras seguidas (10 s) **sem usar CPU** (no máximo 2
+  ticks) e com o `vblank` parado (ou sem `vblank`, na VM). Quem só está carregando um jogo
+  grande usa CPU e nunca é declarado travado, e um processo bloqueado com o `vblank`
+  subindo também não. Ao declarar, o `events.log` ganha `frontend FAIL retroarch pid <pid>
+  hung: blocked with no CPU and no display vblank for 10s`, o instantâneo é gravado e
+  descarregado no cartão, e só então o processo é morto (`kill -9`) para a sessão reiniciar o
+  frontend no menu (`frontend OK recovery <n> of 3: killed the hung retroarch`). São no
+  máximo 3 recuperações por boot (`RECOVER_MAX`; com 0 só registra). A sessão conta a morte
+  como uma falha do frontend (`terminated with error (code 137)`), e 3 falhas em 60 s
+  param o reinício.
+- O instantâneo também grava o estado do vídeo: `sysfs` do conector (`status`, `enabled`,
+  `dpms`) e da luz de fundo, `debugfs` do DRM (`state`, o estado atômico, e `clients`, quem
+  é o master), os registradores do controlador de vídeo e do DSI (`regs`, do regmap) e os
+  clocks de TCON, DSI, PLLs de vídeo e GPU (`clk`).
 - Ao declarar o congelamento, o `events.log` ganha `frontend FAIL retroarch pid <pid>
   alive but no answer for 15s`, e a descarga no cartão é imediata. Enquanto o estado muda
   ou não há resposta, a descarga acontece a cada amostra, porque um aparelho congelado

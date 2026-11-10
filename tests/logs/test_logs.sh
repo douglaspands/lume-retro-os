@@ -147,6 +147,7 @@ FRONTEND_RAM_MAX_BYTES=8388608 FRONTEND_RAM_KEEP_BYTES=1048576
 # Esta parte vale no busybox (pidof do console e do container); no pidof do PC não acha o script.
 export LOGD_LIB=1 LOGD_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os"
 . rootfs/overlay/usr/libexec/r36os/logd
+RECOVER_MAX=0   # the checks below only observe; the recovery (kill) is tested further down
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
 mkdir -p "$W/bin"
 # Script chamado retroarch: o kernel dá a ele o nome (comm) retroarch, que é o que o pidof acha
@@ -161,7 +162,7 @@ trace_sample; trace_sample
 check "logd: 2 amostras sem resposta ainda não são congelamento" '! grep -q "no answer" $LOGS_RAM/events.pending 2>/dev/null && ! grep -q "no answer" $LOGS_DIR/events.log 2>/dev/null'
 trace_sample
 check "logd: 3ª amostra declara o congelamento (evento de falha)" 'grep -q "frontend FAIL retroarch pid $FAKE alive but no answer for 15s" $LOGS_DIR/events.log'
-check "logd: linha do rastreio com estado, threads e descritores DRM" 'grep -qE "fe=no_answer pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=[0-9]+ dri_fds=[0-9]+ gpu_mhz=[0-9]* tasks=" $LOGS_DIR/trace/boot-7.log'
+check "logd: linha do rastreio com estado, threads e descritores DRM" 'grep -qE "fe=no_answer pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=[0-9]+ dri_fds=[0-9]+ gpu_mhz=[0-9]* vblank=[0-9]* tasks=" $LOGS_DIR/trace/boot-7.log'
 check "logd: instantâneo detalhado gravado de imediato no cartão" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "^[0-9:]* thread $FAKE " $LOGS_DIR/trace/boot-7.log && { [ ! -s /proc/interrupts ] || grep -q " irq " $LOGS_DIR/trace/boot-7.log; }'
 i=0; while [ $i -lt 40 ]; do trace_sample; i=$((i + 1)); done
 check "logd: instantâneos limitados por boot (DEEP_MAX)" '[ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -le "$DEEP_MAX" ] && [ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -ge 2 ]'
@@ -173,6 +174,76 @@ kill "$FAKE" 2>/dev/null
 FE_STATE=stopped
 trace_sample
 check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log | grep -q "fe=stopped pid=-"'
+
+### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
+reset_hang() {
+	HANG=0 PREV_PID="" PREV_TICKS="" PREV_VB="" RECOVER_N=0 NOANS=0 DEEP_N=0 PREV_STATE=""
+	rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
+}
+# vblank counter from a fake /proc/interrupts: per-CPU counts of the lcd controller line
+printf '           CPU0       CPU1\n 25:       9061       8051 GIC-0  29 Level     arch_timer\n171:       2842          7 GIC-0 118 Level     1c0c000.lcd-controller\n' > "$W/interrupts"
+INTERRUPTS_FILE="$W/interrupts"
+check "hang: vblank counter sums the per-CPU counts of the lcd controller" '[ "$(vblank_count)" = 2849 ]'
+printf ' 25:       9061 GIC-0 29 Level arch_timer\n' > "$W/interrupts.none"
+check "hang: no display controller gives an empty vblank counter" '[ -z "$(INTERRUPTS_FILE=$W/interrupts.none vblank_count)" ]'
+
+# a blocked process whose vblank counter does not move is declared hung and killed
+reset_hang
+RECOVER_MAX=2
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$W/bin/retroarch"
+"$W/bin/retroarch" &
+FAKE=$!
+sleep 1
+FE_STATE=no_answer
+trace_sample; trace_sample
+check "hang: the first samples only set the baseline" '! grep -q " hung" $LOGS_DIR/events.log 2>/dev/null'
+trace_sample
+check "hang: the third sample (two blocked intervals) declares the hang" 'grep -q "frontend FAIL retroarch pid $FAKE hung: blocked with no CPU and no display vblank for 10s" $LOGS_DIR/events.log'
+check "hang: the snapshot carries the display state" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "regmaps:" $LOGS_DIR/trace/boot-7.log'
+wait "$FAKE" 2>/dev/null
+check "hang: the recovery killed the process and logged it" '! kill -0 $FAKE 2>/dev/null && grep -q "frontend OK recovery 1 of 2: killed the hung retroarch pid $FAKE" $LOGS_DIR/events.log'
+
+# the same detection with RECOVER_MAX=0 only logs: the process stays alive
+reset_hang
+RECOVER_MAX=0
+"$W/bin/retroarch" &
+FAKE=$!
+sleep 1
+trace_sample; trace_sample; trace_sample
+check "hang: with recovery off it only logs, the process stays alive" 'kill -0 $FAKE 2>/dev/null && grep -q " hung: blocked" $LOGS_DIR/events.log && ! grep -q "recovery" $LOGS_DIR/events.log'
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+
+# a process that uses CPU (for example loading a big game) is never declared hung
+reset_hang
+RECOVER_MAX=2
+printf '#!/bin/sh\nwhile :; do :; done\n' > "$W/bin/retroarch"
+"$W/bin/retroarch" &
+FAKE=$!
+sleep 1
+i=0; while [ $i -lt 4 ]; do trace_sample; sleep 1; i=$((i + 1)); done
+check "hang: a busy process is not declared hung and is not killed" 'kill -0 $FAKE 2>/dev/null && ! grep -q " hung" $LOGS_DIR/events.log 2>/dev/null'
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+
+# a process that is blocked but whose vblank keeps moving is not hung (the display lives)
+reset_hang
+RECOVER_MAX=2
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$W/bin/retroarch"
+"$W/bin/retroarch" &
+FAKE=$!
+sleep 1
+n=100
+for k in 1 2 3 4; do
+	printf '171:       %s          0 GIC-0 118 Level     1c0c000.lcd-controller\n' "$n" > "$W/interrupts"
+	n=$((n + 50))
+	trace_sample
+done
+check "hang: no CPU but a moving vblank is not a hang" 'kill -0 $FAKE 2>/dev/null && ! grep -q " hung" $LOGS_DIR/events.log 2>/dev/null'
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+INTERRUPTS_FILE=/proc/interrupts
+FE_STATE=stopped
 
 ### persist: o idioma do build vale para cartões que já têm configuração
 export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/rootfs/overlay/usr/libexec/r36os/lib.sh"

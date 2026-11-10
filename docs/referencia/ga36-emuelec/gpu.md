@@ -50,12 +50,13 @@ From the compiled DTB (`sun8i-a33-ga36-mb-v1.2-panel1.dtb`) and the built `.conf
 ## 4. What follows from it
 
 - 384 MHz is inside the envelope the factory firmware validated (408 MHz at 1.10 V), and it
-  is the clock the GPU has at boot, so pinning to it (`r36os-gpu`) does not ask for anything new.
-- Without the GPU thermal cooling, a pinned GPU is not throttled by temperature. If heat
-  becomes a concern, enable `CONFIG_DEVFREQ_THERMAL` and rethink the pin, because a cooling
-  device and a `min_freq` pin both constrain the same range.
-- Open: whether the freeze at game start is the GPU clock change under load (task 9.8) or
-  something else is **not** settled by these files.
+  is the clock the GPU has at boot.
+- Without the GPU thermal cooling, the GPU is not throttled by temperature. If heat becomes
+  a concern, enable `CONFIG_DEVFREQ_THERMAL`.
+- **The GPU clock is not the cause of the freeze at game start.** A build that pinned the
+  GPU at 384 MHz (`gpu_mhz=384` in every trace sample) froze the same way, so the pin
+  (`r36os-gpu`) was removed. What the trace shows instead is in task 9.8: the display
+  controller (`lcd-controller`) stops generating vblank after the process swap.
 
 ## 5. How to reproduce
 
