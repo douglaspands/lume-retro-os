@@ -101,6 +101,7 @@ modelo para gravar o cartão do GA36:
 | `sistema/bateria-percentual`, `bateria-curva.conf` | `features/48-bateria-percentual` |
 | `sistema/thermal-log` | `features/43-registro-termico` |
 | `medicoes/` | `var/r36-sysinfo.txt`, `var/r36-thermal.csv`, `var/r36-thermal.1.csv` |
+| `gpu.md` | lido da imagem de fábrica (FEX e `mali.ko`) e do DTB do nosso kernel, não vem do projeto EmuELEC |
 | `ferramentas/` | `tools/ajusta_curva_bateria.py`, `tools/analisa_bateria.py`, `tools/r36img/flash.py`, `flash.sh` |
 
 Não foram copiados a imagem de fábrica (só baixando do post original), os binários dos

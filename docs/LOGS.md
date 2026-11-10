@@ -127,7 +127,7 @@ Serve para descobrir **onde** o RetroArch parou quando o aparelho congela. Cada 
 começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segundos):
 
 ```
-10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 tasks= 312:S:do_wait 318:S:futex_wait_queue
+10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 tasks= 312:S:do_wait 318:S:futex_wait_queue
 ```
 
 | Campo | Conteúdo |
@@ -138,6 +138,7 @@ começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segund
 | `utime`, `stime` | tempo de CPU do processo em ticks (100 por segundo), em modo usuário e kernel |
 | `threads` | número de threads |
 | `dri_fds` | descritores abertos em `/dev/dri/` (mais de um pode indicar o dispositivo herdado do processo anterior) |
+| `gpu_mhz` | frequência da GPU (devfreq) em MHz; vazio sem devfreq. Mostra se o clock da GPU mudou quando o jogo abriu |
 | `tasks` | por thread: `tid:estado:wchan`. O `wchan` é a função do kernel em que a thread está dormindo |
 
 Além disso:
