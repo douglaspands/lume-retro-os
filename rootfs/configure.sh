@@ -35,6 +35,7 @@ sed -i -e 's/^#*rc_logger=.*/rc_logger="YES"/' /etc/rc.conf
 add() { rc-update add "$1" "$2" >/dev/null; }
 for s in devfs dmesg udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done
+add r36os-gpu boot
 for s in seatd alsa r36os-persist r36os-logd r36os-savesync r36os-hostshare r36os-playlists \
 	r36os-hwsummary frontend r36os-selftest; do
 	add "$s" default

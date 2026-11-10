@@ -161,12 +161,16 @@ trace_deep() {  # pid
 
 # Uma linha por amostra + detecção de "RetroArch vivo mas sem responder"
 trace_sample() {
-	local pid line t th="" dri=0 f r
+	local pid line t th="" dri=0 f r gpu=""
 	frontend_log_trim "$FRONTEND_LOG_FILE"
 	trace_kernel
+	# GPU clock in MHz (devfreq): shows whether it changed when a game started
+	for f in "${GPU_DEVFREQ_DIR:-/sys/class/devfreq}"/*gpu*/cur_freq; do
+		[ -r "$f" ] && gpu=$(( $(cat "$f" 2>/dev/null || echo 0) / 1000000 )) && break
+	done
 	pid=$(pidof retroarch 2>/dev/null | cut -d' ' -f1)
 	if [ -z "$pid" ]; then
-		trace "fe=$FE_STATE pid=-"
+		trace "fe=$FE_STATE pid=- gpu_mhz=$gpu"
 		NOANS=0
 	else
 		line=$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{ print "st=" $1 " utime=" $12 " stime=" $13 " threads=" $18 }')
@@ -178,7 +182,7 @@ trace_sample() {
 			r=$(readlink "$f" 2>/dev/null)
 			case "$r" in /dev/dri/*) dri=$((dri + 1)) ;; esac
 		done
-		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri tasks=$th"
+		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu tasks=$th"
 		if [ "$FE_STATE" = no_answer ]; then
 			NOANS=$((NOANS + 1))
 			if [ "$NOANS" -eq "$NOANS_LIMIT" ]; then

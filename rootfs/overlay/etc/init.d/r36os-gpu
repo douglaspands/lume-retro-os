@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# Pins the GPU clock before the frontend starts (see /usr/libexec/r36os/gpu-pin).
+
+description="Pin the GPU devfreq frequency"
+
+depend() {
+	after modules
+	before bootmisc
+}
+
+start() {
+	ebegin "Pinning GPU frequency"
+	/usr/libexec/r36os/gpu-pin
+	eend 0
+}
