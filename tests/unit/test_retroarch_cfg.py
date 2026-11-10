@@ -15,8 +15,16 @@ def test_default_menu_and_official_assets():
     assert not [p for p in packages if "theme" in p]
 
 
-def test_readable_on_small_screen():
-    assert 'menu_scale_factor = "1.500000"' in CFG
+FACTORY = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+
+
+def test_readable_on_small_screen_and_user_adjustable():
+    # The scale is a factory default of the user config: in the --appendconfig file it
+    # would override, on every start, what the user set in the menu.
+    assert 'menu_scale_factor = "1.500000"' in FACTORY
+    assert 'ozone_font_scale_factor_global = "1.200000"' in FACTORY
+    assert "menu_scale_factor" not in CFG
+    assert "ozone_font_scale" not in CFG
 
 
 def test_no_quit_combo_and_menu_pauses():

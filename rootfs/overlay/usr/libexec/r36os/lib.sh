@@ -82,7 +82,7 @@ board() { cat /etc/r36os/board 2>/dev/null; }
 # mesmos idiomas do rótulo "Desligar"); os outros idiomas caem no inglês.
 # RETRO_LANGUAGE_*: 3 = espanhol, 7 = português do Brasil, 8 = português de Portugal.
 RA_USER_CFG=${RA_USER_CFG:-/home/game/.config/retroarch/retroarch.cfg}
-RA_FACTORY_CFG=${RA_FACTORY_CFG:-/usr/share/r36os/retroarch-lume.cfg}
+RA_FACTORY_CFG=${RA_FACTORY_CFG:-/usr/share/r36os/factory/retroarch/retroarch.cfg}
 ui_lang() {
 	local cfg v=""
 	for cfg in "$RA_USER_CFG" "$RA_FACTORY_CFG"; do

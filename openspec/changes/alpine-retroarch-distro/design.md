@@ -185,7 +185,7 @@ loop:
 - O `retroarch-lume.cfg` contém só o que a distro precisa:
   - vídeo e entrada: `video_driver = gl`, contexto `kms`, `alsa`, `udev`;
   - pastas do contrato de jogos;
-  - legibilidade numa tela de 3,5" a 640x480: `menu_driver = ozone`, `menu_scale_factor = 1.5`, `ozone_font_scale_factor_global = 1.2`;
+  - menu: `menu_driver = ozone`. O idioma de fábrica (`user_language`, do `--lang` do build) e a legibilidade numa tela de 3,5" a 640x480 (`menu_scale_factor = 1.5`, `ozone_font_scale_factor_global = 1.2`) ficam na configuração de fábrica do usuário (`factory/retroarch/retroarch.cfg`), porque no `--appendconfig` venceriam o ajuste feito no menu;
   - menu completo, sem modo kiosk. A exceção é o Core Updater, oculto porque os cores do buildbot são compilados para glibc e não rodam no Alpine (musl);
   - atalhos: `menu_pause_libretro = true`; Start + Select abre o menu (`input_menu_toggle_gamepad_combo = 4`); no teclado da VM, Shift direito (Select) + S também abre; nenhuma combinação encerra o RetroArch.
 - O pacote `retroarch` local troca o rótulo "Sair do RetroArch" por "Desligar" (en, pt_BR e es), porque sair desliga o console (D10).

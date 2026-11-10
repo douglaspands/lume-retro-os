@@ -21,7 +21,10 @@ def test_invalid_language_fails_before_build(capsys):
 
 
 def test_overlay_default_matches_and_build_replaces_it():
-    cfg = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
+    # In the user config seed: in the --appendconfig file it would override the menu choice.
+    cfg = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
     assert re.findall(r'^user_language = "(\d+)"$', cfg, re.M) == ["0"]
+    lume = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
+    assert "user_language" not in lume
     from r36os import rootfs
     assert 'user_language = "{retro_lang}"' in rootfs._ROOTFS_SCRIPT

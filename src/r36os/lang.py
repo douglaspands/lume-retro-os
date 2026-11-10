@@ -1,7 +1,8 @@
 """Default interface language, chosen at build time (`r36os build <target> --lang <code>`).
 
-The value becomes RetroArch's factory `user_language` (retroarch-lume.cfg). The user can
-still change it in the menu, and the choice is persisted. Without `--lang`, English.
+The value becomes RetroArch's factory `user_language` (factory/retroarch/retroarch.cfg, the
+user config seed, not the --appendconfig file). The user can still change it in the menu,
+and the choice is persisted. Without `--lang`, English.
 System messages for the user follow the same value (ui_lang in lib.sh); logs are always
 in English.
 """
