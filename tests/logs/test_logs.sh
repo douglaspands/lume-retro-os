@@ -107,6 +107,95 @@ check "ui_lang: idioma sem texto (alemão) cai no inglês" '[ "$(ui_lang)" = en 
 echo 'user_language = "8"' > "$RA_USER_CFG"
 check "ui_lang: português de Portugal usa o texto em português" '[ "$(ui_lang)" = pt ]'
 
+### Rastreio do frontend (trace/): descarga, teto no cartão e na RAM
+LOGS_MOUNT=/
+rm -f "$LOGS_RAM"/*.pending
+mkdir -p "$LOGS_DIR/trace"
+trace "hello trace"
+check "trace: linha com hora na RAM" 'grep -qE "^[0-9:]{8} hello trace$" $LOGS_RAM/trace.pending'
+logs_flush
+check "trace: descarregado em trace/boot-7.log" 'grep -q "hello trace" $LOGS_DIR/trace/boot-7.log && [ ! -e $LOGS_RAM/trace.pending ]'
+TRACE_MAX_BYTES=300
+i=0; while [ $i -lt 100 ]; do trace "xxxxxxxxxxxxxxxxxxxx"; i=$((i + 1)); done
+check "trace: buffer na RAM tem teto" '[ "$(stat -c %s $LOGS_RAM/trace.pending)" -lt 340 ]'
+logs_flush
+size=$(stat -c %s $LOGS_DIR/trace/boot-7.log)
+i=0; while [ $i -lt 100 ]; do trace "yyyyyyyyyyyyyyyyyyyy"; i=$((i + 1)); done
+logs_flush
+check "trace: arquivo para de crescer no teto" '[ "$(stat -c %s $LOGS_DIR/trace/boot-7.log)" = "$size" ]'
+TRACE_MAX_BYTES=2097152
+
+### Teto total também alcança o rastreio (max_mb=8): o mais antigo sai, o boot atual fica
+rm -f $LOGS_DIR/metrics/* $LOGS_DIR/trace/*
+for n in 3 4 5 6 7; do head -c 2097152 /dev/zero > "$LOGS_DIR/trace/boot-$n.log"; done
+logs_rotate
+check "teto: rastreio dentro de 8 MiB" '[ "$(du -sk $LOGS_DIR | cut -f1)" -le 8192 ]'
+check "teto: apagou o rastreio mais antigo" '[ ! -e $LOGS_DIR/trace/boot-3.log ]'
+check "teto: manteve o rastreio do boot atual" '[ -e $LOGS_DIR/trace/boot-7.log ]'
+
+### Log do frontend na RAM: passando do teto, fica só o fim
+FRONTEND_RAM_MAX_BYTES=1000 FRONTEND_RAM_KEEP_BYTES=200
+head -c 3000 /dev/zero | tr '\0' a > "$FRONTEND_LOG"
+echo "last line" >> "$FRONTEND_LOG"
+frontend_log_trim "$FRONTEND_LOG"
+check "frontend na RAM: aparado para o fim" '[ "$(stat -c %s $FRONTEND_LOG)" = 200 ] && tail -n 1 $FRONTEND_LOG | grep -q "last line"'
+frontend_log_trim "$FRONTEND_LOG"
+check "frontend na RAM: abaixo do teto fica intacto" '[ "$(stat -c %s $FRONTEND_LOG)" = 200 ]'
+FRONTEND_RAM_MAX_BYTES=8388608 FRONTEND_RAM_KEEP_BYTES=1048576
+
+### logd: RetroArch vivo mas sem responder (processo falso chamado retroarch)
+# Esta parte vale no busybox (pidof do console e do container); no pidof do PC não acha o script.
+export LOGD_LIB=1 LOGD_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os"
+. rootfs/overlay/usr/libexec/r36os/logd
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
+mkdir -p "$W/bin"
+# Script chamado retroarch: o kernel dá a ele o nome (comm) retroarch, que é o que o pidof acha
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$W/bin/retroarch"
+chmod +x "$W/bin/retroarch"
+"$W/bin/retroarch" &
+FAKE=$!
+sleep 1
+FE_STATE=no_answer
+LOG_INTERVAL=5
+trace_sample; trace_sample
+check "logd: 2 amostras sem resposta ainda não são congelamento" '! grep -q "no answer" $LOGS_RAM/events.pending 2>/dev/null && ! grep -q "no answer" $LOGS_DIR/events.log 2>/dev/null'
+trace_sample
+check "logd: 3ª amostra declara o congelamento (evento de falha)" 'grep -q "frontend FAIL retroarch pid $FAKE alive but no answer for 15s" $LOGS_DIR/events.log'
+check "logd: linha do rastreio com estado, threads e descritores DRM" 'grep -qE "fe=no_answer pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=[0-9]+ dri_fds=[0-9]+ tasks=" $LOGS_DIR/trace/boot-7.log'
+check "logd: instantâneo detalhado gravado de imediato no cartão" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "^[0-9:]* thread $FAKE " $LOGS_DIR/trace/boot-7.log && { [ ! -s /proc/interrupts ] || grep -q " irq " $LOGS_DIR/trace/boot-7.log; }'
+i=0; while [ $i -lt 40 ]; do trace_sample; i=$((i + 1)); done
+check "logd: instantâneos limitados por boot (DEEP_MAX)" '[ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -le "$DEEP_MAX" ] && [ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -ge 2 ]'
+FE_STATE=menu
+trace_sample
+check "logd: voltou a responder (evento OK)" 'grep -q "frontend OK retroarch answering again" $LOGS_DIR/events.log'
+check "logd: rastreio dentro do teto de tamanho" '[ "$(stat -c %s $LOGS_DIR/trace/boot-7.log)" -le $((TRACE_MAX_BYTES + 65536)) ]'
+kill "$FAKE" 2>/dev/null
+FE_STATE=stopped
+trace_sample
+check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log | grep -q "fe=stopped pid=-"'
+
+### persist: o idioma do build vale para cartões que já têm configuração
+export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/rootfs/overlay/usr/libexec/r36os/lib.sh"
+export PERSIST_RAM=$W/p/ram PERSIST_SYS=$W/p/sys PERSIST_FACTORY=$W/p/factory PERSIST_BUILD_LANG=$W/p/build-lang
+mkdir -p "$PERSIST_RAM" "$PERSIST_SYS" "$PERSIST_FACTORY"
+. rootfs/overlay/usr/libexec/r36os/persist
+echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
+printf 'menu_scale_factor = "2.000000"\nuser_language = "0"\n' > "$PERSIST_RAM/retroarch.cfg"
+check "idioma: sem arquivo de idioma do build, nada muda" '! lang_sync && grep -q "user_language = \"0\"" $PERSIST_RAM/retroarch.cfg'
+echo pt_BR > "$PERSIST_BUILD_LANG"
+check "idioma: cartão antigo (sem marcador) recebe o idioma do build" 'lang_sync >/dev/null && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg && grep -q "menu_scale_factor = \"2.000000\"" $PERSIST_RAM/retroarch.cfg'
+check "idioma: marcador gravado" '[ "$(cat $PERSIST_SYS/etc/language)" = pt_BR ]'
+sed -i 's/^user_language = .*/user_language = "3"/' "$PERSIST_RAM/retroarch.cfg"
+check "idioma: mesmo build, a escolha do menu (espanhol) é respeitada" '! lang_sync && grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg'
+echo en > "$PERSIST_BUILD_LANG"
+echo 'user_language = "0"' > "$PERSIST_FACTORY/retroarch.cfg"
+check "idioma: build com outro idioma volta a valer" 'lang_sync >/dev/null && grep -q "^user_language = \"0\"$" $PERSIST_RAM/retroarch.cfg && [ "$(cat $PERSIST_SYS/etc/language)" = en ]'
+echo pt_BR > "$PERSIST_BUILD_LANG"
+echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
+echo 'menu_driver = "ozone"' > "$PERSIST_RAM/retroarch.cfg"
+check "idioma: configuração sem user_language recebe a linha" 'lang_sync >/dev/null && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg && grep -q "menu_driver" $PERSIST_RAM/retroarch.cfg'
+check "idioma: sem temporários" '[ -z "$(find $PERSIST_SYS -name "*.tmp.*")" ]'
+
 rm -rf "$W"
 echo "falhas: $FAILS"
 [ $FAILS -eq 0 ]

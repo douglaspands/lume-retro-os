@@ -22,13 +22,15 @@ ROMS/logs/
   boot/boot-<n>.log       kernel, serviços e resumo de hardware de cada boot
   hw/boot-<n>.txt         retrato do hardware de cada boot
   metrics/boot-<n>.csv    uma amostra a cada 5 s durante o uso
+  trace/boot-<n>.log      rastreio do RetroArch: estado do processo, kernel e congelamentos
   frontend/boot-<n>.log   log do RetroArch (também o log mostrado quando ele falha)
   .boot                   contador de boots (não apague só ele)
   .clean                  marcador de desligamento limpo
 ```
 
 `<n>` é o número do boot e é o mesmo em todas as pastas: `boot/boot-12.log`,
-`hw/boot-12.txt`, `metrics/boot-12.csv` e `frontend/boot-12.log` são do mesmo boot.
+`hw/boot-12.txt`, `metrics/boot-12.csv`, `trace/boot-12.log` e `frontend/boot-12.log`
+são do mesmo boot.
 
 **Sem a partição de jogos** (por exemplo, quando a partição 2 não é exFAT), os logs
 ficam só na RAM, e o log de boot vai para `BOOT/logs/boot-<n>.log` (os 10 mais recentes),
@@ -50,23 +52,28 @@ Criado com os padrões no primeiro boot (comentários em inglês) e editável no
 
 | Chave | Padrão | Significado |
 |---|---|---|
-| `enable` | `1` | `0` desliga o retrato do hardware e as métricas. O log de boot, os eventos e o log do frontend continuam |
+| `enable` | `1` | `0` desliga o retrato do hardware, as métricas e o rastreio. O log de boot, os eventos e o log do frontend continuam |
 | `interval` | `5` | segundos entre amostras de métricas (mínimo 1) |
 | `flush` | `60` | segundos entre gravações no cartão (mínimo 5) |
-| `keep_boots` | `30` | quantos boots manter em `boot/`, `hw/`, `metrics/` e `frontend/` |
+| `keep_boots` | `30` | quantos boots manter em `boot/`, `hw/`, `metrics/`, `trace/` e `frontend/` |
 | `max_mb` | `64` | teto de `ROMS/logs/` em MiB (mínimo 8) |
 
 Valores fora da faixa são ignorados e o padrão vale.
 
 ## Rotação
 
-- `boot/`, `hw/`, `metrics/` e `frontend/`: os `keep_boots` boots mais recentes.
+- `boot/`, `hw/`, `metrics/`, `trace/` e `frontend/`: os `keep_boots` boots mais recentes.
 - `metrics/boot-<n>.csv` para de crescer em 4 MiB (cerca de 30 h a 5 s).
-- `frontend/boot-<n>.log`: os últimos 4 MiB do log do RetroArch.
+- `trace/boot-<n>.log` para de crescer em 2 MiB (cerca de 12 h de uso). O buffer na RAM
+  entre duas gravações tem o mesmo teto, inclusive sem a ROMS.
+- `frontend/boot-<n>.log`: os últimos 4 MiB do log do RetroArch. Na RAM, onde o RetroArch
+  escreve, o log também é aparado: passando de 8 MiB, ficam só os últimos 1 MiB.
 - `events.log` vira `events.1.log` em 1 MiB, e são mantidos 3 antigos.
-- Acima de `max_mb`, apaga primeiro as métricas mais antigas, depois os logs do
+- Acima de `max_mb`, apaga primeiro as métricas mais antigas, depois o rastreio, os logs do
   frontend, os retratos, os logs de boot e os eventos antigos. Os arquivos do boot atual
   nunca são apagados por esse teto.
+- No pior caso, os arquivos do boot atual somam cerca de 10 MiB (métricas 4 + rastreio 2 +
+  frontend 4), bem abaixo do teto padrão de 64 MiB.
 
 ## `events.log`
 
@@ -81,7 +88,7 @@ Uma linha por evento:
 |---|---|
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
-| `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas |
+| `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`) |
 | `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
@@ -113,6 +120,46 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `content` | nome do jogo em execução (vazio fora de jogo) |
 
 Na VM não há cpufreq, zonas térmicas nem bateria, e essas colunas não aparecem.
+
+## `trace/boot-<n>.log`
+
+Serve para descobrir **onde** o RetroArch parou quando o aparelho congela. Cada linha
+começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segundos):
+
+```
+10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 tasks= 312:S:do_wait 318:S:futex_wait_queue
+```
+
+| Campo | Conteúdo |
+|---|---|
+| `fe` | o mesmo estado da coluna `frontend` das métricas |
+| `pid` | processo do RetroArch (`-` se não há) |
+| `st` | estado do processo: `R` rodando, `S` dormindo, `D` preso no kernel, `Z` zumbi |
+| `utime`, `stime` | tempo de CPU do processo em ticks (100 por segundo), em modo usuário e kernel |
+| `threads` | número de threads |
+| `dri_fds` | descritores abertos em `/dev/dri/` (mais de um pode indicar o dispositivo herdado do processo anterior) |
+| `tasks` | por thread: `tid:estado:wchan`. O `wchan` é a função do kernel em que a thread está dormindo |
+
+Além disso:
+
+- `k <mensagem>`: mensagens novas do kernel surgidas depois do início do `logd` (erros do
+  driver de vídeo, de áudio ou do cartão aparecem aqui, com a hora do kernel).
+- **Instantâneo** (`=== snapshot of retroarch pid ...` até `=== end of snapshot`): gravado
+  quando o RetroArch fica 3 amostras seguidas (15 s) vivo e sem responder ao `GET_STATUS`,
+  e de novo a cada 6 amostras, no máximo 6 por boot. Traz o `status` do processo, cada
+  thread com a pilha no kernel (`stack`, quando o kernel expõe), os descritores de
+  dispositivos abertos (`fd`), a carga (`loadavg`) e as interrupções (`irq`, a tabela de
+  `/proc/interrupts`). Comparando duas tabelas, as contagens que param de subir (vídeo,
+  GPU, áudio) mostram o que travou.
+- Ao declarar o congelamento, o `events.log` ganha `frontend FAIL retroarch pid <pid>
+  alive but no answer for 15s`, e a descarga no cartão é imediata. Enquanto o estado muda
+  ou não há resposta, a descarga acontece a cada amostra, porque um aparelho congelado
+  costuma ser desligado na marra e o intervalo normal de `flush` perderia a evidência.
+
+Como ler: `st=S` com o mesmo `wchan` e `utime` parado entre amostras é um processo
+bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em laço, ocupado.
+Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
+um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
 ## `hw/boot-<n>.txt`
 

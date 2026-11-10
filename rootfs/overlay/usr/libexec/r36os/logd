@@ -7,8 +7,8 @@
 #               descarga em lote a cada flush s
 #   logd flush  descarga imediata (usada pelo self-test e pela sessão)
 #   logd stop   descarga final e marcador de desligamento limpo
-. /usr/libexec/r36os/lib.sh
-. /usr/libexec/r36os/logs.sh
+. "${LOGD_LIBDIR:-/usr/libexec/r36os}/lib.sh"
+. "${LOGD_LIBDIR:-/usr/libexec/r36os}/logs.sh"
 
 CLEAN_MARK=$LOGS_DIR/.clean
 COUNTER=$LOGS_DIR/.boot
@@ -18,7 +18,7 @@ cmd_start() {
 	mkdir -p "$LOGS_RAM"
 	n=0
 	if logs_on_disk; then
-		mkdir -p "$LOGS_DIR/boot" "$LOGS_DIR/hw" "$LOGS_DIR/metrics" "$LOGS_DIR/frontend"
+		mkdir -p "$LOGS_DIR/boot" "$LOGS_DIR/hw" "$LOGS_DIR/metrics" "$LOGS_DIR/trace" "$LOGS_DIR/frontend"
 		if [ ! -f "$LOGS_CONF" ]; then
 			mkdir -p "$(dirname "$LOGS_CONF")"
 			printf '%s\n' "$LOGS_CONF_DEFAULT" > "$LOGS_CONF"
@@ -119,6 +119,89 @@ frontend_state() {
 
 csv_field() { printf '%s' "$1" | tr ',\n' ';;'; }
 
+# Rastreio do frontend (trace/boot-<n>.log): uma linha por amostra com o estado do processo
+# do RetroArch, as mensagens novas do kernel e, quando ele para de responder, um
+# instantâneo detalhado. Serve para saber ONDE um congelamento aconteceu.
+KMSG_SEEN=0 NOANS=0 DEEP_N=0 PREV_STATE=""
+DEEP_MAX=6          # instantâneos detalhados por boot
+NOANS_LIMIT=3       # amostras seguidas sem resposta (15 s) até declarar o congelamento
+FRONTEND_LOG_FILE=${FRONTEND_LOG:-/var/log/frontend.log}
+
+# Mensagens do kernel surgidas desde a amostra anterior (o que veio antes está no log de boot)
+trace_kernel() {
+	local total
+	total=$(dmesg | wc -l)
+	[ "$total" -ge "$KMSG_SEEN" ] || KMSG_SEEN=0   # o buffer do kernel girou
+	if [ "$total" -gt "$KMSG_SEEN" ]; then
+		dmesg | tail -n +$((KMSG_SEEN + 1)) | while IFS= read -r l; do trace "k $l"; done
+	fi
+	KMSG_SEEN=$total
+}
+
+# Instantâneo detalhado do processo (threads, pilha no kernel, descritores de dispositivos,
+# interrupções): mostra em que ponto o RetroArch está parado.
+trace_deep() {  # pid
+	local pid="$1" t l f r
+	trace "=== snapshot of retroarch pid $pid (frontend $FE_STATE)"
+	grep -E '^(State|Threads|VmRSS|VmSwap|voluntary_ctxt_switches|nonvoluntary_ctxt_switches)' \
+		"/proc/$pid/status" 2>/dev/null | while IFS= read -r l; do trace "status $l"; done
+	for t in /proc/$pid/task/*; do
+		[ -d "$t" ] || continue
+		trace "thread ${t##*/} $(cat "$t/comm" 2>/dev/null) state=$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null) wchan=$(cat "$t/wchan" 2>/dev/null)"
+		head -n 12 "$t/stack" 2>/dev/null | while IFS= read -r l; do trace "  stack ${t##*/} $l"; done
+	done
+	for f in /proc/$pid/fd/*; do
+		r=$(readlink "$f" 2>/dev/null)
+		case "$r" in /dev/*) trace "fd ${f##*/} $r" ;; esac
+	done
+	trace "loadavg $(cat /proc/loadavg 2>/dev/null)"
+	while IFS= read -r l; do trace "irq $l"; done < /proc/interrupts
+	trace "=== end of snapshot"
+}
+
+# Uma linha por amostra + detecção de "RetroArch vivo mas sem responder"
+trace_sample() {
+	local pid line t th="" dri=0 f r
+	frontend_log_trim "$FRONTEND_LOG_FILE"
+	trace_kernel
+	pid=$(pidof retroarch 2>/dev/null | cut -d' ' -f1)
+	if [ -z "$pid" ]; then
+		trace "fe=$FE_STATE pid=-"
+		NOANS=0
+	else
+		line=$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{ print "st=" $1 " utime=" $12 " stime=" $13 " threads=" $18 }')
+		for t in /proc/$pid/task/*; do
+			[ -d "$t" ] || continue
+			th="$th ${t##*/}:$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null):$(cat "$t/wchan" 2>/dev/null)"
+		done
+		for f in /proc/$pid/fd/*; do
+			r=$(readlink "$f" 2>/dev/null)
+			case "$r" in /dev/dri/*) dri=$((dri + 1)) ;; esac
+		done
+		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri tasks=$th"
+		if [ "$FE_STATE" = no_answer ]; then
+			NOANS=$((NOANS + 1))
+			if [ "$NOANS" -eq "$NOANS_LIMIT" ]; then
+				event frontend FAIL "retroarch pid $pid alive but no answer for $((NOANS * LOG_INTERVAL))s; see trace/boot-$(boot_n).log"
+			fi
+			# Instantâneo ao declarar o congelamento e depois a cada 6 amostras
+			if [ "$NOANS" -ge "$NOANS_LIMIT" ] && [ $(( (NOANS - NOANS_LIMIT) % 6 )) -eq 0 ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_deep "$pid"
+			fi
+		else
+			[ "$NOANS" -ge "$NOANS_LIMIT" ] && event frontend OK "retroarch answering again after $((NOANS * LOG_INTERVAL))s"
+			NOANS=0
+		fi
+	fi
+	# Descarga imediata a cada mudança de estado e enquanto não responde: o aparelho
+	# congelado costuma ser desligado na marra, e o intervalo normal perderia a evidência.
+	if [ "$FE_STATE" != "$PREV_STATE" ] || [ "$NOANS" -gt 0 ]; then
+		logs_flush
+	fi
+	PREV_STATE=$FE_STATE
+}
+
 GAME_KEY="" GAME_CORE="" GAME_CONTENT="" GAME_T0=0
 HOT_ZONES="" BAT_LOW=0
 sample() {
@@ -171,6 +254,7 @@ sample() {
 	frontend_state
 	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT")"
 	echo "$line" >> "$LOGS_RAM/metrics.pending"
+	trace_sample
 
 	# Jogo aberto/fechado (a pausa no menu continua sendo o mesmo jogo)
 	local key=""
@@ -205,6 +289,7 @@ cmd_run() {
 	if [ "$LOG_ENABLE" = 1 ]; then
 		discover
 		: > "$LOGS_RAM/stat.prev"
+		KMSG_SEEN=$(dmesg | wc -l)
 		hw_snapshot
 	fi
 	while :; do
@@ -225,6 +310,8 @@ cmd_stop() {
 	logs_on_disk && { : > "$CLEAN_MARK"; fsync "$CLEAN_MARK" 2>/dev/null; sync; }
 	return 0
 }
+
+[ -n "${LOGD_LIB:-}" ] && return 0   # testes: só as funções
 
 case "$1" in
 start) cmd_start ;;

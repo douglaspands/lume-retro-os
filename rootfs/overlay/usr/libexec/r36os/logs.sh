@@ -15,7 +15,12 @@ METRICS_MAX_BYTES=4194304
 EVENTS_MAX_BYTES=1048576
 EVENTS_KEEP=3
 FRONTEND_MAX_BYTES=4194304
-LOG_TYPES="boot hw metrics frontend"
+# Rastreio do frontend (trace/boot-<n>.log): teto no cartão e na RAM (buffer entre descargas)
+TRACE_MAX_BYTES=2097152
+# O log do RetroArch vive na RAM (overlay de 32 MiB): acima de RAM_MAX fica só o fim
+FRONTEND_RAM_MAX_BYTES=8388608
+FRONTEND_RAM_KEEP_BYTES=1048576
+LOG_TYPES="boot hw metrics trace frontend"
 
 LOGS_CONF_DEFAULT='# Lume Retro OS diagnostic logs (ROMS/logs/). Editable on a PC.
 # enable=0 turns off the hardware snapshot and the metrics (boot log and events stay on).
@@ -73,6 +78,15 @@ _boot_files() {
 
 _size() { stat -c %s "$1" 2>/dev/null || echo 0; }
 
+# Rastreio: trace <texto...> -> uma linha com hora na RAM (trace.pending). O buffer na RAM
+# também tem teto: sem a ROMS (nada é descarregado) ele não cresce além de TRACE_MAX_BYTES.
+trace() {
+	mkdir -p "$LOGS_RAM"
+	[ "$(_size "$LOGS_RAM/trace.pending")" -lt "$TRACE_MAX_BYTES" ] || return 0
+	printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >> "$LOGS_RAM/trace.pending"
+	return 0
+}
+
 # Move um buffer da RAM para o fim de um arquivo do cartão, com fsync.
 # O nome temporário é único: dois flushes ao mesmo tempo não perdem linhas.
 _drain() {  # buffer destino [cabeçalho] [limite]
@@ -88,7 +102,17 @@ _drain() {  # buffer destino [cabeçalho] [limite]
 	rm -f "$tmp"
 }
 
-# Descarga em lote: eventos, métricas e log do frontend; depois a rotação.
+# Limita o log do frontend na RAM: passando de FRONTEND_RAM_MAX_BYTES, fica só o fim.
+# O RetroArch escreve com O_APPEND, então truncar o arquivo no lugar é seguro.
+frontend_log_trim() {  # arquivo
+	[ "$(_size "$1")" -gt "$FRONTEND_RAM_MAX_BYTES" ] || return 0
+	tail -c "$FRONTEND_RAM_KEEP_BYTES" "$1" > "$1.trim.$$" || { rm -f "$1.trim.$$"; return 0; }
+	cat "$1.trim.$$" > "$1"
+	rm -f "$1.trim.$$" "$LOGS_RAM/frontend.size"
+	return 0
+}
+
+# Descarga em lote: eventos, métricas, rastreio e log do frontend; depois a rotação.
 logs_flush() {
 	logs_on_disk || return 0
 	local n f size
@@ -97,8 +121,10 @@ logs_flush() {
 	_drain "$LOGS_RAM/events.pending" "$LOGS_DIR/events.log"
 	_drain "$LOGS_RAM/metrics.pending" "$LOGS_DIR/metrics/boot-$n.csv" \
 		"$LOGS_RAM/metrics.header" "$METRICS_MAX_BYTES"
+	_drain "$LOGS_RAM/trace.pending" "$LOGS_DIR/trace/boot-$n.log" "" "$TRACE_MAX_BYTES"
 	# Log do frontend: cópia inteira (só o fim, até o teto), quando mudou
 	f=${FRONTEND_LOG:-/var/log/frontend.log}
+	frontend_log_trim "$f"
 	if [ -s "$f" ]; then
 		size=$(_size "$f")
 		if [ "$size" != "$(cat "$LOGS_RAM/frontend.size" 2>/dev/null)" ]; then
@@ -151,6 +177,7 @@ logs_rotate() {
 		used=$(du -sk "$LOGS_DIR" 2>/dev/null | cut -f1)
 		[ "${used:-0}" -gt "$max" ] || break
 		_drop_oldest "$LOGS_DIR/metrics" && continue
+		_drop_oldest "$LOGS_DIR/trace" && continue
 		_drop_oldest "$LOGS_DIR/frontend" && continue
 		_drop_oldest "$LOGS_DIR/hw" && continue
 		_drop_oldest "$LOGS_DIR/boot" && continue

@@ -66,6 +66,34 @@ def test_log_text_is_english():
     assert not accented, accented
 
 
+def test_trace_documented_and_bounded():
+    body = re.search(r"trace_sample\(\) \{(.*?)\n\}", LOGD, re.S).group(1)
+    section = _section("trace/")
+    for field in ("fe", "pid", "st", "utime", "stime", "threads", "dri_fds", "tasks"):
+        assert f"{field}=" in body, field
+        assert f"`{field}`" in section, field
+    # on the card and in RAM the trace has a cap, it is rotated, and the total cap drops it
+    assert "TRACE_MAX_BYTES=2097152" in LOGS_SH and "2 MiB" in DOC
+    assert re.search(r'LOG_TYPES="[^"]*\btrace\b', LOGS_SH)
+    assert '_drop_oldest "$LOGS_DIR/trace"' in LOGS_SH
+    assert "trace/boot-<n>" in DOC
+    # the RetroArch log in RAM (32 MiB overlay) is trimmed too
+    assert "FRONTEND_RAM_MAX_BYTES=8388608" in LOGS_SH and "8 MiB" in DOC
+
+
+def test_freeze_is_flushed_at_once():
+    """A frozen console is switched off by hand: the evidence cannot wait for the 60 s flush."""
+    body = re.search(r"trace_sample\(\) \{(.*?)\n\}", LOGD, re.S).group(1)
+    assert re.search(r'NOANS" -gt 0 \]; then\s+logs_flush', body)
+    assert "event frontend FAIL" in body and "event frontend OK" in body
+
+
+def test_build_language_applied_to_existing_cards():
+    persist = (LIBEXEC / "persist").read_text()
+    assert "lang_sync" in persist and "$SYS/etc/language" in persist
+    assert "system/etc/language" in (REPO_ROOT / "docs/FRONTEND.md").read_text()
+
+
 def test_conf_defaults_documented():
     # lines of LOGS_CONF_DEFAULT (the last one closes the string with ')
     defaults = dict(re.findall(r"^([a-z_]+)=([0-9]+)'?$", LOGS_SH, re.M))
