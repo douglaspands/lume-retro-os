@@ -1,5 +1,7 @@
 """Fixed RetroArch configuration (retroarch-lume.cfg = system name, not a theme name)."""
 
+import re
+
 from r36os.paths import REPO_ROOT
 
 CFG = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
@@ -25,6 +27,8 @@ def test_readable_on_small_screen_and_user_adjustable():
     assert 'ozone_font_scale_factor_global = "1.200000"' in FACTORY
     assert "menu_scale_factor" not in CFG
     assert "ozone_font_scale" not in CFG
+    # ozone_font_scale is numeric: "true" is read as 0 and turns the font scaling off
+    assert not re.search(r'^ozone_font_scale = "(true|false)"', FACTORY, re.M)
 
 
 def test_no_quit_combo_and_menu_pauses():
