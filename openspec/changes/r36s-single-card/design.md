@@ -160,6 +160,16 @@ BOOT/
   (sem `uInitrd`: o initramfs vai embutido no kernel, como no GA36). A linha de comando
   fica no kernel (`CMDLINE_FORCE`, `root=PARTUUID=4c554d32-01`, `console=ttyS2,1500000`,
   `console=tty1`), então a do `boot.ini` não conta.
+- **Medido no backup (2026-11-11):** a `BOOT` de fábrica tem, sim, o
+  `rk3326-r35s-linux.dtb` e o `uInitrd` (no FAT eles aparecem também pelos nomes curtos
+  `RK3326~1.DTB` e `UINITRD`, o que explica a "curiosidade" abaixo), além do `Image`, do
+  `boot.ini`, do `logo.bmp` e de dois DTBs do RG351 que não são usados. O `boot.ini` começa
+  com `odroidgoa-uboot-config`, define `loadaddr` 0x02000000, `initrd_loadaddr` 0x01100000 e
+  `dtb_loadaddr` 0x01f00000, carrega os três arquivos de `mmc 1:1` e chama `booti`. O DTB
+  de fábrica é a fonte dos valores do DTS (D7) que o Apêndice A não tinha: tensões do RK817,
+  interrupção do PMIC em `gpio0 7`, *io-domains*, `vcc_lcd` a 1,8 V e os botões de volume
+  (`gpio3 22` e `gpio3 21`). A tarefa 1.1 continua valendo para confirmar que o U-Boot lê
+  um `boot.ini` alterado.
 - **Antes de tudo, a tarefa 1.1 descobre como este U-Boot usa o `boot.ini`**: o do cartão de
   fábrica pede um DTB que não existe e o aparelho inicia assim mesmo. Hipóteses: o U-Boot
   segue em frente quando um `load` falha e usa um DTB padrão (o `rg351mp-kernel.dtb`?), ou
