@@ -115,6 +115,9 @@ def build_initramfs(target: Target) -> Path:
     shutil.copy(REPO_ROOT / "initramfs/init", stage / "init")
     (stage / "init").chmod(0o755)
     shutil.copy(REPO_ROOT / "initramfs/lib/storage.sh", stage / "lib/storage.sh")
+    # the console of this initramfs: the init mounts BOOT/<console>/SYSTEM (single card)
+    ensure_dir(stage / "etc")
+    (stage / "etc/board").write_text(target.name + "\n")
     mods = REPO_ROOT / f"initramfs/modules-{target.name}.txt"
     if mods.exists():
         stage_modules(out / "rootfs.tar", _read_list(mods), stage)
