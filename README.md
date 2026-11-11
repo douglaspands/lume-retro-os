@@ -21,13 +21,14 @@ no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome intern
 
 Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em Alpine.
 
-**GA36: imagem de fábrica.** O GA36 sobe pelo bootloader do fabricante (boot0 e U-Boot da
-Allwinner), que é binário fechado e não está no repositório. Na primeira vez, aponte a
-variável para a imagem de fábrica (ou um dump dos primeiros 128 MiB do cartão original);
-o build extrai a área de boot para o cache e confere o SHA256:
+**GA36: área de boot do aparelho.** O GA36 sobe pelo bootloader do próprio fabricante
+(boot0 e U-Boot da Allwinner), que é binário fechado e não está no repositório. Na primeira
+vez, faça um dump dos primeiros 128 MiB do cartão que veio com o aparelho e aponte a
+variável para ele; o build extrai a área de boot para o cache e confere o SHA256:
 
 ```sh
-R36OS_GA36_FACTORY="/caminho/R36S GA36-MB V1.2-20260416 - Emuelec - No ROMS.img" uv run r36os build ga36
+sudo dd if=/dev/sdX of=ga36-boot-area.img bs=1M count=128   # cartão original do aparelho
+R36OS_GA36_FACTORY=ga36-boot-area.img uv run r36os build ga36
 ```
 
 ## Uso rápido
@@ -153,6 +154,7 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
 - Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
   um); os patches desses pacotes seguem a licença do projeto que modificam.
 - O bootloader do fabricante do GA36 (boot0 e U-Boot da Allwinner) é binário fechado e
-  **não é distribuído**: cada um o extrai da própria imagem de fábrica (`R36OS_GA36_FACTORY`).
+  **não é distribuído**: cada um o extrai do cartão original do próprio aparelho
+  (`R36OS_GA36_FACTORY`).
 - Nenhuma ROM, BIOS ou jogo comercial faz parte do repositório; as ROMs de teste da VM
   são geradas pelo build.

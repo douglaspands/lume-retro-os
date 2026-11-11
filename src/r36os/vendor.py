@@ -1,8 +1,7 @@
 """GA36 vendor bootloader (D5): the boot area of the factory card.
 
-The GA36 is only proven to boot with the vendor chain (Allwinner boot0 and U-Boot 2017),
-the one used by the factory firmware and by goodluckOS. It takes the first 128 MiB of
-the card:
+The GA36 is only proven to boot with the vendor chain (Allwinner boot0 and U-Boot 2017)
+that comes on its factory card. It takes the first 128 MiB of the card:
 
 | sector | contents                                                         |
 |--------|------------------------------------------------------------------|
@@ -13,9 +12,9 @@ the card:
 | 139264 | U-Boot env                                                       |
 | 172032 | "boot": Android boot image loaded by the U-Boot (here, ours)     |
 
-These binaries are closed and stay out of git: the build reads them from the factory
-image (or a dump of the original card) given in R36OS_GA36_FACTORY, keeps the 128 MiB in
-the cache and checks the SHA256 (without sector 0, the MBR, which is always ours).
+These binaries are closed and stay out of git: the build reads them from a dump of the
+device's original card (its first 128 MiB) given in R36OS_GA36_FACTORY, keeps the 128 MiB
+in the cache and checks the SHA256 (without sector 0, the MBR, which is always ours).
 """
 
 from __future__ import annotations
@@ -30,7 +29,8 @@ SECTOR = 512
 AREA_SECTORS = 262144            # 128 MiB
 ANDROID_BOOT_SECTOR = 172032     # "boot" partition of the softw411 table
 ANDROID_BOOT_MAX = 65536 * SECTOR  # 32 MiB
-# SHA256 of sectors 1..262143 of "R36S GA36-MB V1.2-20260416 - Emuelec - No ROMS"
+# SHA256 of sectors 1..262143 of the GA36-MB V1.2 factory card (vendor boot area of the
+# 2026-04-16 factory firmware)
 AREA_SHA256 = "c915f899c4e110ad7d1ad35efa853708ab9d5a127ddb18c5118f0716803f607a"
 ENV_VAR = "R36OS_GA36_FACTORY"
 
@@ -44,14 +44,14 @@ def area_digest(data: bytes) -> str:
 
 
 def vendor_area() -> Path:
-    """The 128 MiB vendor area in the cache, extracted from the factory image if needed."""
+    """The 128 MiB vendor area in the cache, extracted from the original card dump if needed."""
     dest = ensure_dir(cache_dir() / "vendor") / "ga36-factory-128M.bin"
     if not dest.exists():
         src = os.environ.get(ENV_VAR)
         if not src or not Path(src).is_file():
             raise VendorAreaError(
-                f"the GA36 vendor boot area is missing. Point {ENV_VAR} to the factory image "
-                "(or a dump of the first 128 MiB of the original card) and run again")
+                f"the GA36 vendor boot area is missing. Point {ENV_VAR} to a dump of the "
+                "first 128 MiB of the device's original card and run again")
         with open(src, "rb") as f:
             data = f.read(AREA_SECTORS * SECTOR)
         if len(data) != AREA_SECTORS * SECTOR or area_digest(data) != AREA_SHA256:

@@ -6,7 +6,7 @@ Validado no aparelho em 2026-11-11 (imagens `20261111-002830` a `20261111-134121
 ## 1. Gerar e gravar
 
 ```sh
-uv run r36os build ga36                         # precisa de R36OS_GA36_FACTORY na 1ª vez (README)
+uv run r36os build ga36                         # 1ª vez: R36OS_GA36_FACTORY com a área de boot do cartão original (README)
 uv run r36os flash ga36 /dev/sdX --full --eject # cartão novo: imagem + ROMS no resto do cartão
 uv run r36os flash ga36 /dev/sdX --update --eject   # atualizar: preserva jogos, saves e ajustes
 uv run r36os eject /dev/sdX                     # ejetar depois de copiar jogos (sem senha)
