@@ -56,8 +56,11 @@ done)
 # drives each one; else the device-tree nodes that exist but are disabled; else absent.
 component() {  # <label> <compatible regex>
 	local devs off
+	# nvmem and iio devices are interfaces of another device and a "serialN" is only the
+	# controller of a serdev bus: none of them ever has a driver of its own
 	devs=$(printf '%s\n' "$DEVTAB" | grep -E "^[^|]*($2)" |
-		awk -F'|' '{ printf "      %-30s %-22s %s (%s)\n", $3, ($4 == "" ? "NO DRIVER" : $4), $1, $2 }')
+		awk -F'|' '$2 == "nvmem" || $2 == "iio" || ($2 == "serial" && $3 ~ /^serial[0-9]+$/) { next }
+			{ printf "      %-30s %-22s %s (%s)\n", $3, ($4 == "" ? "NO DRIVER" : $4), $1, $2 }')
 	off=$(printf '%s\n' "$DTTAB" | grep -E "^[^|]*($2)[^|]*\|(disabled|fail)" |
 		awk -F'|' '{ printf "      %-30s %-22s %s\n", $3, "disabled in DT", $1 }')
 	if [ -n "$devs" ]; then
