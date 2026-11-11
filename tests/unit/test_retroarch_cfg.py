@@ -52,6 +52,19 @@ def test_user_tunable_defaults_are_in_the_factory_config():
         assert key not in _keys(CFG), key
 
 
+def test_menu_scale_default_reaches_the_ozone_cap_at_640x480():
+    # KMS reports no DPI: base scale = diagonal / 1080p diagonal; Ozone caps the scale at
+    # (width / 3) / 408. The factory factor must reach the cap (a smaller menu was reported
+    # as too small on the device), and the cap is why higher factors change nothing.
+    import math
+
+    base = math.hypot(640, 480) / math.hypot(1920, 1080)
+    cap = (640 / 3) / 408
+    factor = float(re.search(r'^menu_scale_factor = "([\d.]+)"', FACTORY, re.M).group(1))
+    assert base * factor >= cap
+    assert round(cap / base, 2) == 1.44
+
+
 def test_readable_on_small_screen_and_user_adjustable():
     # Ozone caps its layout at a third of the width (sidebar 408 px * scale <= 640 / 3), so
     # at 640x480 menu_scale_factor stops mattering at ~0.55; the text grows with the global
