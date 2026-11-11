@@ -1,0 +1,35 @@
+# Lume Retro OS: one gamepad for the R36S. Joins the built-in buttons (gpio-keys) and the
+# sticks (adc-joystick behind the SARADC mux) into "R36S Gamepad" through uinput, before
+# the frontend starts (r36s-single-card, design D8). Only the R36S needs it, so it is built
+# for aarch64 only and listed in board/r36s/hw-packages.txt.
+pkgname=r36os-padmerge
+pkgver=1.0
+pkgrel=0
+pkgdesc="Join the R36S buttons and sticks into one gamepad (Lume Retro OS)"
+url="https://example.invalid"
+arch="aarch64"
+license="GPL-2.0-or-later"
+depends="openrc"
+options="!check" # tested on the host and in the VM with fake uinput devices
+source="padmerge.c
+	r36os-padmerge.initd
+	61-r36os-padmerge.rules
+	"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o r36os-padmerge padmerge.c
+}
+
+package() {
+	install -Dm755 r36os-padmerge "$pkgdir"/usr/bin/r36os-padmerge
+	install -Dm755 "$srcdir"/r36os-padmerge.initd "$pkgdir"/etc/init.d/r36os-padmerge
+	install -Dm644 "$srcdir"/61-r36os-padmerge.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/61-r36os-padmerge.rules
+}
+
+sha512sums="
+6e759c7e06c6bf2cedf22436f1a98379c03d801fe205fe6546fbbaaedf8989962e0f88c4b1216a7ae708472b00717c3c0671fbe85624a86b2ef44363ad90a2a6  padmerge.c
+c36a9bcd3fce4058e85156b4b02b0971963b28e192d149e17dca2e2fd487571e6debc69f1344bb150da495c2a4d7ae17c7fc888e2508cc0c0b9ab511d883b31e  r36os-padmerge.initd
+05ab00782eae719f90fc7444198ab696a9679ac1378a8b3e94f9c89e9e9136e277a97aba5683205905b3fd0a745434e4a12033f3fabcbeed3d6733fe624680f5  61-r36os-padmerge.rules
+"

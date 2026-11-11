@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# One gamepad for the R36S: buttons (gpio-keys) and sticks (adc-joystick) joined in
+# "R36S Gamepad" before the frontend starts (r36s-single-card, design D8).
+
+description="Built-in gamepad of the R36S (buttons and sticks in one device)"
+supervisor="supervise-daemon"
+command="/usr/bin/r36os-padmerge"
+respawn_delay=2
+respawn_max=5
+
+depend() {
+	need udev
+	after udev-settle
+	before frontend r36os-hwsummary
+}
