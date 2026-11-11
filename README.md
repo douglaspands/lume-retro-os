@@ -4,8 +4,8 @@ Distro mínima baseada em **Alpine Linux** com **RetroArch** para consoles port�
 
 | Alvo | Aparelho | SoC | Estado |
 |---|---|---|---|
-| `ga36` | GA36-MB V1.2 (clone do R36S) | Allwinner A33, armv7 | imagem gerada; primeira subida em teste |
-| `r36s` | R36S "V5" | Rockchip RK3326, aarch64 | em planejamento |
+| `ga36` | GA36-MB V1.2 (clone do R36S) | Allwinner A33, armv7 | validado no aparelho ([guia](docs/BRINGUP-GA36.md)) |
+| `r36s` | R36S "V5" | Rockchip RK3326, aarch64 | planejado (pendência P-27) |
 | `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
 
 O sistema sobe direto no menu do RetroArch (Ozone), sem login, com a raiz somente leitura
@@ -119,6 +119,8 @@ VM: `test-vm` da mesma build, 69 de 69 checagens):
 
 ## Documentação
 
+- [docs/BRINGUP-GA36.md](docs/BRINGUP-GA36.md): gravar, subir e conferir o GA36
+- [docs/PENDENCIAS.md](docs/PENDENCIAS.md): o que falta, para decidir as próximas changes
 - [docs/VM.md](docs/VM.md): VM, atalhos de teclado e leitura do teste de aceitação
 - [docs/LOGS.md](docs/LOGS.md): logs de diagnóstico
 - [docs/CATALOG.md](docs/CATALOG.md): catálogo de sistemas e cores
@@ -143,7 +145,14 @@ toda mudança entra como patch numerado.
 
 ## Licença
 
-Os drivers do painel JD9366 e do controle do GA36 são port do goodluckOS (GPL-2.0), e os
-patches do kernel seguem a GPL-2.0. Cada pacote em `aports/` mantém a licença do upstream.
-O bootloader do fabricante do GA36 não é distribuído: cada um o extrai da própria imagem
-de fábrica.
+O Lume Retro OS é distribuído sob a **GNU General Public License, versão 2** (somente a
+versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
+
+- Os drivers do painel JD9366 e do controle do GA36 (`kernel/patches/`) são port do
+  goodluckOS (GPL-2.0), e os patches do kernel seguem a GPL-2.0, como o próprio Linux.
+- Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
+  um); os patches desses pacotes seguem a licença do projeto que modificam.
+- O bootloader do fabricante do GA36 (boot0 e U-Boot da Allwinner) é binário fechado e
+  **não é distribuído**: cada um o extrai da própria imagem de fábrica (`R36OS_GA36_FACTORY`).
+- Nenhuma ROM, BIOS ou jogo comercial faz parte do repositório; as ROMs de teste da VM
+  são geradas pelo build.
