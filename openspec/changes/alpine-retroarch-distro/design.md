@@ -14,7 +14,7 @@ O que o Alpine v3.24 (estável) já oferece, consultado em 2026-11-09:
 | `retroarch` 1.22.2 | community, x86_64 / aarch64 / armv7 |
 | `libretro-fceumm`, `-gambatte`, `-mgba`, `-gpsp`, `-nestopia` | community, nos 3 arches |
 | `libretro-snes9x`, `-genesis-plus-gx`, `-picodrive`, `-pcsx-rearmed`, `-fbneo` | só `testing` do edge |
-| `libretro-snes9x2010`, `-mame2003-plus` | não existem |
+| `libretro-snes9x2005-plus`, `-snes9x2010`, `-mame2003-plus` | não existem |
 | `mesa-dri-gallium` 26.1 | main, nos 3 arches |
 | `exfatprogs` | community |
 
@@ -137,7 +137,7 @@ O RetroArch grava direto nos próprios arquivos de configuração, o que não é
 | id | Nome no menu | Extensões | Core padrão | Padrão armv7 | Alternativos |
 |---|---|---|---|---|---|
 | nes | NES | nes, fds, unf, zip, 7z | fceumm | — | nestopia |
-| snes | Super Nintendo | sfc, smc, fig, swc, zip, 7z | snes9x2010 | — | snes9x |
+| snes | Super Nintendo | sfc, smc, fig, swc, zip, 7z | snes9x2005_plus | — | snes9x |
 | mastersystem | Master System | sms, zip, 7z | genesis_plus_gx | picodrive | — |
 | megadrive | Mega Drive | md, gen, bin, smd, zip, 7z | genesis_plus_gx | picodrive | — |
 | gb | Game Boy | gb, zip, 7z | gambatte | — | — |
@@ -148,7 +148,7 @@ O RetroArch grava direto nos próprios arquivos de configuração, o que não é
 
 - Cores do Alpine v3.24: fceumm, nestopia, gambatte e gpsp. O `mgba` ficou fora desta versão: o GBA usa o `gpsp` em todos os alvos.
 - PSP: fora desta versão. O `aports/libretro-ppsspp` existe, mas está desativado (`arch=""`) e é pendência (tarefa 12.1).
-- Pacotes locais: snes9x2010, snes9x, genesis_plus_gx, picodrive, fbneo, mame2003_plus e pcsx_rearmed. Partem dos APKBUILDs do `testing` quando existem, atualizados para o código atual.
+- Pacotes locais: snes9x2005_plus (o core de SNES de fábrica do GA36, no lugar do snes9x2010 desde 2026-11-11; build padrão, a otimização para o A33 fica para uma change futura), snes9x, genesis_plus_gx, picodrive, fbneo, mame2003_plus e pcsx_rearmed. Partem dos APKBUILDs do `testing` quando existem, atualizados para o código atual.
 - O `r36os-playlists` é ash + jq e gera `/storage/system/retroarch/playlists/<Nome no menu>.lpl` no boot, antes do frontend subir. O nome do arquivo é o rótulo da lista no menu.
 - Cada entrada da lista fixa o core pelo caminho, então o RetroArch não pergunta qual core usar.
 - BIOS do PS1: `bios/scph5500.bin`, `scph5501.bin`, `scph5502.bin` e `scph1001.bin`. O `pcsx_rearmed` tem BIOS HLE como alternativa, que vai explicada no `LEIA-ME.txt`.

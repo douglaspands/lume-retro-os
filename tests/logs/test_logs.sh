@@ -195,6 +195,42 @@ check "audio: lines already read are not reported again" '[ "$(grep -c " audio F
 : > "$FRONTEND_LOG"
 AUDIO_LOG_POS=0
 
+### logd: game FPS from the GET_STATUS frame counter (RetroArch patch 0004)
+pidof() { return 0; }
+nc() { printf '%s' "$NC_REPLY"; }
+NC_REPLY='GET_STATUS PLAYING game_boy_advance,Mario Kart (U) [!],crc32=1a2b3c,frames=1200
+'
+frontend_state
+check "fps: GET_STATUS with frames gives core, content and counter" '[ "$FE_STATE" = game ] && [ "$FE_CORE" = game_boy_advance ] && [ "$FE_CONTENT" = "Mario Kart (U) [!]" ] && [ "$FE_FRAMES" = 1200 ]'
+NC_REPLY='GET_STATUS PLAYING game_boy_advance,Mario Kart (U) [!],crc32=1a2b3c
+'
+frontend_state
+check "fps: an older GET_STATUS without frames still parses" '[ "$FE_CONTENT" = "Mario Kart (U) [!]" ] && [ -z "$FE_FRAMES" ]'
+unset -f pidof nc
+rm -f "$LOGS_RAM"/events.pending "$LOGS_DIR"/events*.log
+echo "[INFO] [Core] Geometry: 240x160, Aspect: 1.500, FPS: 59.73, Sample rate: 65536.00 Hz." > "$FRONTEND_LOG"
+FE_STATE=game FE_CORE=gba FE_CONTENT=kart FE_FRAMES=100
+game_track 10.00
+check "fps: the first sample of a game only sets the baseline" '[ -z "$FPS" ] && [ "$GAME_NOMINAL" = 59.73 ]'
+FE_FRAMES=550; game_track 17.50
+check "fps: frames over time (450 frames in 7.5 s = 60.0)" '[ "$FPS" = 60.0 ]'
+FE_FRAMES=900; game_track 25.00; logs_flush
+check "fps: one slow sample (46.7) is not an event yet" '[ "$FPS" = 46.7 ] && ! grep -q " slow" $LOGS_DIR/events.log'
+FE_FRAMES=1250; game_track 32.50; FE_FRAMES=1600; game_track 40.00; logs_flush
+check "fps: two slow samples in a row give one slow event" '[ "$(grep -c "game FAIL slow: core=gba 46.7 fps (nominal 59.73) content=kart" $LOGS_DIR/events.log)" = 1 ]'
+FE_FRAMES=2048; game_track 47.50; logs_flush
+check "fps: back at full speed gives an OK event" 'grep -q "game OK full speed again: core=gba 59.7 fps (nominal 59.73)" $LOGS_DIR/events.log'
+FE_STATE=paused FE_FRAMES=2100; game_track 55.00
+check "fps: paused in the menu gives no FPS" '[ -z "$FPS" ] && [ -z "$FPS_PREV_FRAMES" ]'
+FE_STATE=game FE_FRAMES=10; game_track 62.50
+check "fps: after the pause the baseline starts again" '[ -z "$FPS" ] && [ "$FPS_PREV_FRAMES" = 10 ]'
+FE_FRAMES=5; game_track 70.00
+check "fps: a counter that went back (new video init) is not a negative FPS" '[ -z "$FPS" ] && [ "$FPS_PREV_FRAMES" = 5 ]'
+FE_STATE=menu FE_CORE="" FE_CONTENT="" FE_FRAMES=""; game_track 77.50; logs_flush
+check "fps: closing the game clears the nominal FPS" '[ -z "$GAME_KEY" ] && [ -z "$GAME_NOMINAL" ] && grep -q "game OK closed: core=gba content=kart" $LOGS_DIR/events.log'
+: > "$FRONTEND_LOG"
+FE_STATE=stopped
+
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
 	HANG=0 PREV_PID="" PREV_TICKS="" PREV_VB="" RECOVER_N=0 NOANS=0 DEEP_N=0 PREV_STATE=""
@@ -363,27 +399,20 @@ DEVMEM_BIN=r36os-devmem
 INTERRUPTS_FILE=/proc/interrupts
 FE_STATE=stopped
 
-### persist: o idioma do build vale para cartões que já têm configuração
-export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/rootfs/overlay/usr/libexec/r36os/lib.sh"
-export PERSIST_RAM=$W/p/ram PERSIST_SYS=$W/p/sys PERSIST_FACTORY=$W/p/factory PERSIST_BUILD_LANG=$W/p/build-lang
+### persist: the build language only seeds new cards; the menu choice always wins
+export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/rootfs/overlay/usr/libexec/r36os/lib.sh" PERSIST_MOUNT=/
+export PERSIST_RAM=$W/p/ram PERSIST_SYS=$W/p/sys PERSIST_FACTORY=$W/p/factory
 mkdir -p "$PERSIST_RAM" "$PERSIST_SYS" "$PERSIST_FACTORY"
 . rootfs/overlay/usr/libexec/r36os/persist
 echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
-printf 'menu_scale_factor = "2.000000"\nuser_language = "0"\n' > "$PERSIST_RAM/retroarch.cfg"
-check "idioma: sem arquivo de idioma do build, nada muda" '! lang_sync && grep -q "user_language = \"0\"" $PERSIST_RAM/retroarch.cfg'
-echo pt_BR > "$PERSIST_BUILD_LANG"
-check "idioma: cartão antigo (sem marcador) recebe o idioma do build" 'lang_sync >/dev/null && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg && grep -q "menu_scale_factor = \"2.000000\"" $PERSIST_RAM/retroarch.cfg'
-check "idioma: marcador gravado" '[ "$(cat $PERSIST_SYS/etc/language)" = pt_BR ]'
-sed -i 's/^user_language = .*/user_language = "3"/' "$PERSIST_RAM/retroarch.cfg"
-check "idioma: mesmo build, a escolha do menu (espanhol) é respeitada" '! lang_sync && grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg'
-echo en > "$PERSIST_BUILD_LANG"
+restore >/dev/null 2>&1
+check "language: a new card gets the factory (build) language" 'grep -q "^user_language = \"7\"$" $PERSIST_SYS/retroarch/retroarch.cfg && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg'
+printf 'menu_scale_factor = "2.000000"\nuser_language = "3"\n' > "$PERSIST_SYS/retroarch/retroarch.cfg"
 echo 'user_language = "0"' > "$PERSIST_FACTORY/retroarch.cfg"
-check "idioma: build com outro idioma volta a valer" 'lang_sync >/dev/null && grep -q "^user_language = \"0\"$" $PERSIST_RAM/retroarch.cfg && [ "$(cat $PERSIST_SYS/etc/language)" = en ]'
-echo pt_BR > "$PERSIST_BUILD_LANG"
-echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
-echo 'menu_driver = "ozone"' > "$PERSIST_RAM/retroarch.cfg"
-check "idioma: configuração sem user_language recebe a linha" 'lang_sync >/dev/null && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg && grep -q "menu_driver" $PERSIST_RAM/retroarch.cfg'
-check "idioma: sem temporários" '[ -z "$(find $PERSIST_SYS -name "*.tmp.*")" ]'
+rm -rf "$PERSIST_RAM"
+restore >/dev/null 2>&1
+check "language: a build with another language keeps the menu choice" 'grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg && grep -q "^user_language = \"3\"$" $PERSIST_SYS/retroarch/retroarch.cfg'
+check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" rootfs/overlay/usr/libexec/r36os/persist'
 
 rm -rf "$W"
 echo "falhas: $FAILS"

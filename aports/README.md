@@ -37,7 +37,7 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 
 | Pacote | Origem | Commit |
 |---|---|---|
-| libretro-snes9x2010 | novo | `fe690dd3` |
+| libretro-snes9x2005-plus | novo, o core de SNES de fábrica do GA36 (build padrão, `USE_BLARGG_APU=1`; substitui o snes9x2010 desde 2026-11-11) | `fd45b0e0` |
 | libretro-snes9x | testing (edge) | `229933ea` |
 | libretro-genesis-plus-gx | testing (edge) | `b72b8c96` |
 | libretro-picodrive | testing, atualizado + submódulos | `1890c293` |

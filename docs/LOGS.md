@@ -89,7 +89,7 @@ Uma linha por evento:
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
 | `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
-| `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos) |
+| `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos); lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
 | `audio` | o dispositivo de som parou de consumir e o jogo segue sem som (`FAIL`, linha `[ALSA] Playback stalled` do RetroArch, patch 0003); o som voltou (`OK`) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
@@ -119,6 +119,8 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `frontend` | `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
 | `core` | core do jogo em execução (vazio fora de jogo) |
 | `content` | nome do jogo em execução (vazio fora de jogo) |
+| `fps` | quadros por segundo do jogo desde a amostra anterior: diferença do contador de quadros do `GET_STATUS` (patch 0004 do RetroArch) dividida pelo tempo. Vazio no menu, na pausa, na primeira amostra de um jogo e quando o contador recomeça |
+| `fps_nominal` | FPS nominal do core (linha `Geometry: ... FPS:` do log do RetroArch), para comparar com `fps`; vazio fora de jogo |
 
 Na VM não há cpufreq, zonas térmicas nem bateria, e essas colunas não aparecem.
 

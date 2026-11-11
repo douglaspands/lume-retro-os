@@ -14,7 +14,7 @@
       "id": "snes",
       "name": "Super Nintendo",
       "extensions": ["sfc", "smc", "fig", "swc", "zip", "7z"],
-      "core": "snes9x2010",
+      "core": "snes9x2005_plus",
       "core_by_arch": {},
       "alt_cores": ["snes9x"],
       "bios": []
@@ -90,7 +90,7 @@
   "cores": {
     "fceumm": {"package": "libretro-fceumm", "file": "fceumm_libretro.so"},
     "nestopia": {"package": "libretro-nestopia", "file": "nestopia_libretro.so"},
-    "snes9x2010": {"package": "libretro-snes9x2010", "file": "snes9x2010_libretro.so"},
+    "snes9x2005_plus": {"package": "libretro-snes9x2005-plus", "file": "snes9x2005_plus_libretro.so"},
     "snes9x": {"package": "libretro-snes9x", "file": "snes9x_libretro.so"},
     "genesis_plus_gx": {"package": "libretro-genesis-plus-gx", "file": "genesis_plus_gx_libretro.so"},
     "picodrive": {"package": "libretro-picodrive", "file": "picodrive_libretro.so"},

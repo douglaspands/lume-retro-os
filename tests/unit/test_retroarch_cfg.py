@@ -8,34 +8,65 @@ from r36os.paths import REPO_ROOT
 CFG = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
 
 
+FACTORY = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+
+
+def _keys(text):
+    return set(re.findall(r"^(\w+) = ", text, re.M))
+
+
 def test_default_menu_and_official_assets():
     # RetroArch default menu (Ozone, official assets); no theme of our own in this change.
-    assert 'menu_driver = "ozone"' in CFG
+    assert 'menu_driver = "ozone"' in FACTORY
     assert 'assets_directory = "/usr/share/libretro/assets"' in CFG
-    assert "xmb_" not in CFG
+    assert "xmb_" not in CFG + FACTORY
     packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
     assert "retroarch-assets" in packages
     assert not [p for p in packages if "theme" in p]
 
 
-FACTORY = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+def test_fixed_config_holds_only_what_keeps_the_system_working():
+    # Every key in the --appendconfig file overrides the user's choice on every start, so
+    # whatever the user may tune lives in the factory config (saved on the card) instead.
+    fixed = {
+        "video_driver", "video_context_driver", "video_fullscreen", "audio_driver",
+        "input_driver", "input_joypad_driver", "input_autodetect_enable",
+        "joypad_autoconfig_dir", "rgui_browser_directory", "system_directory",
+        "savefile_directory", "savestate_directory", "sort_savefiles_by_content_enable",
+        "sort_savestates_by_content_enable", "sort_savefiles_enable", "sort_savestates_enable",
+        "screenshot_directory", "playlist_directory", "libretro_directory",
+        "libretro_info_path", "assets_directory", "network_cmd_enable", "network_cmd_port",
+        "menu_show_core_updater", "input_menu_toggle_gamepad_combo", "input_quit_gamepad_combo",
+        "quit_press_twice", "input_exit_emulator", "input_exit_emulator_btn",
+        "input_exit_emulator_axis", "input_enable_hotkey",
+    }
+    assert _keys(CFG) == fixed
+    # a key is either fixed or a user default, never both
+    assert not _keys(CFG) & _keys(FACTORY)
+
+
+def test_user_tunable_defaults_are_in_the_factory_config():
+    for key in ("menu_driver", "menu_pause_libretro", "video_vsync", "video_threaded",
+                "input_volume_up", "input_player1_a", "input_menu_toggle"):
+        assert key in _keys(FACTORY), key
+        assert key not in _keys(CFG), key
 
 
 def test_readable_on_small_screen_and_user_adjustable():
-    # The scale is a factory default of the user config: in the --appendconfig file it
-    # would override, on every start, what the user set in the menu.
-    assert 'menu_scale_factor = "1.500000"' in FACTORY
+    # Ozone caps its layout at a third of the width (sidebar 408 px * scale <= 640 / 3), so
+    # at 640x480 menu_scale_factor stops mattering at ~0.55; the text grows with the global
+    # font factor, which only applies with ozone_font_scale = 1 (numeric; "true" reads as 0).
+    assert 'ozone_font_scale = "1"' in FACTORY
     assert 'ozone_font_scale_factor_global = "1.200000"' in FACTORY
     assert "menu_scale_factor" not in CFG
     assert "ozone_font_scale" not in CFG
-    # ozone_font_scale is numeric: "true" is read as 0 and turns the font scaling off
     assert not re.search(r'^ozone_font_scale = "(true|false)"', FACTORY, re.M)
 
 
 def test_no_quit_combo_and_menu_pauses():
     assert 'input_quit_gamepad_combo = "0"' in CFG
     assert 'input_exit_emulator = "nul"' in CFG
-    assert 'menu_pause_libretro = "true"' in CFG
+    assert 'menu_pause_libretro = "true"' in FACTORY
     # shutting down asks for confirmation by default (patch 0002: the menu item has to be
     # selected twice); the self-test turns it off for itself because it quits with QUIT
     assert 'quit_press_twice = "true"' in CFG
@@ -50,10 +81,10 @@ FRONTEND = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/frontends/retroarch"
 def test_volume_buttons_are_bound():
     # the volume buttons are KEY_VOLUMEUP/DOWN, "volumeup"/"volumedown" in RetroArch;
     # upstream binds volume to the keypad +/-
-    assert 'input_volume_up = "volumeup"' in CFG
-    assert 'input_volume_down = "volumedown"' in CFG
-    # not in the user config: there it could be lost, here it wins on every start
-    assert "input_volume" not in FACTORY
+    assert 'input_volume_up = "volumeup"' in FACTORY
+    assert 'input_volume_down = "volumedown"' in FACTORY
+    # a user default (rebindable in the menu), not forced on every start
+    assert "input_volume" not in CFG
 
 
 def test_ga36_has_no_keyboard_enable_hotkey():
@@ -108,10 +139,10 @@ def test_frontend_without_board_file_only_appends_the_common_one(tmp_path):
 
 
 def test_menu_has_no_transparency():
-    # simple hardware: no blending of the menu over the game. In the fixed config (not the
-    # user one) so that it reaches cards that already have a saved config.
+    # simple hardware: no blending of the menu over the game, as a factory default (cards
+    # with a saved config already have these values: RetroArch saved them)
     for key in ("menu_framebuffer_opacity", "menu_wallpaper_opacity", "menu_header_opacity",
                 "menu_footer_opacity", "video_msg_bgcolor_opacity"):
-        assert f'{key} = "1.000000"' in CFG, key
-    assert 'menu_rgui_transparency = "false"' in CFG
-    assert "opacity" not in FACTORY
+        assert f'{key} = "1.000000"' in FACTORY, key
+    assert 'menu_rgui_transparency = "false"' in FACTORY
+    assert "opacity" not in CFG

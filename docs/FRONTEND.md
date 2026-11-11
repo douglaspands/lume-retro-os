@@ -43,10 +43,9 @@ O idioma da interface é o `user_language` do RetroArch, escolhido pelo usuário
 Configurações → Usuário → Idioma e persistido em `ROMS/system/retroarch/retroarch.cfg`.
 O padrão de fábrica vem do `--lang` do build (`r36os build <alvo> --lang pt_BR`; sem ele,
 inglês) e fica na configuração de fábrica do usuário, não no `retroarch-lume.cfg`, para
-a escolha no menu valer. O idioma do build também vale para cartões que já têm
-configuração: a cada boot o `r36os-persist` compara o idioma do build com o último que
-rodou no cartão (`ROMS/system/etc/language`) e, só quando mudou, troca o `user_language`.
-Com o mesmo idioma de build, a escolha feita no menu nunca é tocada. As mensagens do sistema para o usuário (como a
+a escolha no menu valer. O idioma do build só chega a cartões novos (sem
+`ROMS/system/retroarch/`), pela configuração de fábrica. A escolha feita no menu nunca é
+sobrescrita, nem por um build com outro idioma: para trocar, use o menu. As mensagens do sistema para o usuário (como a
 tela de falha do frontend) seguem esse valor (`ui_lang` em `lib.sh`), com texto em
 inglês, português e espanhol; os outros idiomas caem no inglês. Os logs são sempre em
 inglês ([LOGS.md](LOGS.md)). Um frontend alternativo que tenha um idioma próprio não

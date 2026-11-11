@@ -72,7 +72,7 @@ discover() {
 		for z in $ZONES; do printf ',temp_%s_c' "$(cat "$z/type" 2>/dev/null | tr -c 'a-zA-Z0-9_\n' '_')"; done
 		for p in $POLICIES; do printf ',freq_%s_mhz' "${p##*/}"; done
 		for c in $CPUS; do printf ',cpu%s_pct' "$c"; done
-		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content\n'
+		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal\n'
 	} > "$LOGS_RAM/metrics.header"
 }
 
@@ -87,10 +87,10 @@ passive_trip() {  # zona
 }
 
 # Estado do frontend pelo comando de rede local (GET_STATUS)
-FE_STATE="" FE_CORE="" FE_CONTENT=""
+FE_STATE="" FE_CORE="" FE_CONTENT="" FE_FRAMES=""
 frontend_state() {
 	local r st rest
-	FE_CORE="" FE_CONTENT=""
+	FE_CORE="" FE_CONTENT="" FE_FRAMES=""
 	if ! pidof retroarch >/dev/null 2>&1; then
 		# outro frontend instalado em /usr/libexec/r36os/frontends/, ou nenhum
 		if pgrep -f /usr/libexec/r36os/frontends/ >/dev/null 2>&1; then
@@ -111,6 +111,11 @@ frontend_state() {
 		FE_CORE=${rest%%,*}
 		rest=${rest#*,}
 		FE_CONTENT=${rest%,crc32=*}
+		# video frame counter (aports/retroarch patch 0004); absent on older builds
+		case "$r" in *,frames=*)
+			FE_FRAMES=${r##*,frames=}
+			FE_FRAMES=$(printf '%s' "$FE_FRAMES" | tr -cd '0-9') ;;
+		esac
 		;;
 	CONTENTLESS) FE_STATE=menu ;;
 	*) FE_STATE=no_answer ;;
@@ -458,12 +463,28 @@ sample() {
 	fi
 	line="$line,$bpct,$bmv,$bma,$bst"
 	frontend_state
-	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT")"
+	game_track "$up"
+	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT"),$FPS,"
+	[ -n "$GAME_KEY" ] && line="$line$GAME_NOMINAL"
 	echo "$line" >> "$LOGS_RAM/metrics.pending"
 	trace_sample
+}
 
-	# Jogo aberto/fechado (a pausa no menu continua sendo o mesmo jogo)
-	local key=""
+# Nominal FPS of the running core: the last "Geometry: ... FPS: <n>," line of the frontend
+# log, written by RetroArch when the core loads.
+core_nominal_fps() {
+	grep -o 'Geometry: .* FPS: [0-9.]*' "$FRONTEND_LOG_FILE" 2>/dev/null | tail -n 1 |
+		sed 's/.*FPS: //'
+}
+
+# Game opened/closed (a pause in the menu is still the same game) and the game FPS:
+# frame counter difference (GET_STATUS, patch 0004) over the uptime difference between two
+# samples while the game runs. Two samples in a row below 95% of the nominal FPS give a
+# "slow" event; the first sample back at full speed gives an OK event.
+FPS="" FPS_PREV_FRAMES="" FPS_PREV_T="" GAME_NOMINAL="" SLOW_N=0 SLOW=0
+FPS_SLOW_PCT=95
+game_track() {  # uptime
+	local up=$1 key=""
 	case "$FE_STATE" in game|paused) key="$FE_CORE|$FE_CONTENT" ;; esac
 	if [ "$key" != "$GAME_KEY" ]; then
 		if [ -n "$GAME_KEY" ]; then
@@ -473,7 +494,33 @@ sample() {
 			GAME_CORE=$FE_CORE GAME_CONTENT=$FE_CONTENT GAME_T0=${up%.*}
 			event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
 		fi
-		GAME_KEY=$key
+		GAME_KEY=$key GAME_NOMINAL="" FPS_PREV_FRAMES="" SLOW_N=0 SLOW=0
+	fi
+	FPS=""
+	[ -n "$GAME_KEY" ] && [ -z "$GAME_NOMINAL" ] && GAME_NOMINAL=$(core_nominal_fps)
+	# only while the game runs: paused in the menu, the counter counts menu frames
+	if [ "$FE_STATE" != game ] || [ -z "$FE_FRAMES" ]; then
+		FPS_PREV_FRAMES=""
+		return 0
+	fi
+	if [ -n "$FPS_PREV_FRAMES" ] && [ "$FE_FRAMES" -ge "$FPS_PREV_FRAMES" ]; then
+		FPS=$(awk -v f="$FE_FRAMES" -v pf="$FPS_PREV_FRAMES" -v t="$up" -v pt="$FPS_PREV_T" \
+			'BEGIN { if (t > pt) printf "%.1f", (f - pf) / (t - pt) }')
+	fi
+	FPS_PREV_FRAMES=$FE_FRAMES FPS_PREV_T=$up
+	[ -n "$FPS" ] && [ -n "$GAME_NOMINAL" ] || return 0
+	if awk -v f="$FPS" -v n="$GAME_NOMINAL" -v p="$FPS_SLOW_PCT" 'BEGIN { exit !(f * 100 < n * p) }'; then
+		SLOW_N=$((SLOW_N + 1))
+		if [ "$SLOW_N" -ge 2 ] && [ "$SLOW" = 0 ]; then
+			SLOW=1
+			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL) content=$GAME_CONTENT"
+		fi
+	else
+		SLOW_N=0
+		if [ "$SLOW" = 1 ]; then
+			SLOW=0
+			event game OK "full speed again: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL)"
+		fi
 	fi
 }
 

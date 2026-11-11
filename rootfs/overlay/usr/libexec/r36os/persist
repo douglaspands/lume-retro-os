@@ -14,44 +14,14 @@ RAM=${PERSIST_RAM:-/home/game/.config/retroarch}
 SYS=${PERSIST_SYS:-/storage/system}
 CARD=$SYS/retroarch
 FACTORY=${PERSIST_FACTORY:-/usr/share/r36os/factory/retroarch}
-BUILD_LANG=${PERSIST_BUILD_LANG:-/etc/r36os/language}
 DIRTY=$R36OS_RUN/persist.dirty
 DEBOUNCE=2
 
 storage_ok() { mountpoint -q "${PERSIST_MOUNT:-/storage}"; }
 
-# user_language de um retroarch.cfg (vazio se não houver)
-cfg_language() {
-	sed -n 's/^user_language *= *"\{0,1\}\([0-9][0-9]*\)"\{0,1\} *$/\1/p' "$1" 2>/dev/null | tail -n 1
-}
-
-# O idioma do build (r36os build --lang) vale para cartões que já têm configuração:
-# quando muda em relação ao último build que rodou no cartão (system/etc/language, ou
-# ausente em cartões antigos), troca só o user_language da configuração do usuário. Com o
-# mesmo idioma, a escolha feita no menu não é tocada. Devolve 0 se alterou a configuração.
-lang_sync() {
-	local want have fac cur
-	want=$(head -n1 "$BUILD_LANG" 2>/dev/null | tr -cd 'A-Za-z_')
-	[ -n "$want" ] || return 1
-	have=$(head -n1 "$SYS/etc/language" 2>/dev/null | tr -cd 'A-Za-z_')
-	[ "$want" = "$have" ] && return 1
-	fac=$(cfg_language "$FACTORY/retroarch.cfg")
-	cur=$(cfg_language "$RAM/retroarch.cfg")
-	mkdir -p "$SYS/etc"
-	if printf '%s\n' "$want" > "$SYS/etc/language.tmp.$$"; then
-		fsync "$SYS/etc/language.tmp.$$" 2>/dev/null
-		mv -f "$SYS/etc/language.tmp.$$" "$SYS/etc/language"
-	fi
-	[ -n "$fac" ] && [ -f "$RAM/retroarch.cfg" ] && [ "$cur" != "$fac" ] || return 1
-	if [ -n "$cur" ]; then
-		sed -i "s/^user_language *=.*/user_language = \"$fac\"/" "$RAM/retroarch.cfg"
-	else
-		printf 'user_language = "%s"\n' "$fac" >> "$RAM/retroarch.cfg"
-	fi
-	log "menu language set to the build language ($want): user_language $cur -> $fac"
-	return 0
-}
-
+# The build language (r36os build --lang) is only the factory default: it reaches a card
+# through the factory config seeded below, on a card with no configuration yet. The menu
+# language the user picks is never overwritten by a later build.
 restore() {
 	mkdir -p "$RAM"
 	if storage_ok; then
@@ -62,7 +32,6 @@ restore() {
 			sync
 		fi
 		cp -a "$CARD/." "$RAM/"
-		lang_sync && mirror "$RAM" "$CARD" && sync
 	else
 		log "no ROMS: factory configuration in RAM only"
 		cp -a "$FACTORY/." "$RAM/"

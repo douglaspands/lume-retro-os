@@ -173,13 +173,18 @@ phase_first() {
 	wait_for 10 '! frontend_running'
 	ra_run "$R36OS_RUN/logs-game.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
 	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
-	sleep 12
+	# at least three samples (interval 5 s) in game: the FPS needs two in a row
+	sleep 17
 	ra_cmd QUIT >/dev/null
 	wait_for 10 '! frontend_running'
 	sleep 7
 	logs_flush_now
 	check logs-game-events 'grep -qE " game OK opened: core=.*content=Test NES" $LOGS/events.log && grep -qE " game OK closed: core=.* duration=[0-9]+s" $LOGS/events.log' "$(grep " game " $LOGS/events.log | tail -n 2 | tr '\n' '|')"
 	check logs-metrics-game 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q "^time,uptime_s," && grep -q ",game," $LOGS/metrics/boot-1.csv' "$(grep -c "" $LOGS/metrics/boot-1.csv 2>/dev/null) lines"
+	# game FPS (GET_STATUS frame counter, RetroArch patch 0004). The nominal FPS comes from
+	# the session's frontend log, which this RetroArch run does not write (it logs to
+	# logs-game.log), so here it may be empty.
+	check logs-metrics-fps 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q ",content,fps,fps_nominal$" && grep -qE ",game,[^,]*,[^,]*,[0-9]+\.[0-9],[0-9.]*$" $LOGS/metrics/boot-1.csv' "$(grep ",game," $LOGS/metrics/boot-1.csv | tail -n 2 | tr '\n' '|')"
 	local pct
 	pct=$(logd_cpu_pct)
 	# exige um número: um valor vazio não pode passar como "menor que 1"

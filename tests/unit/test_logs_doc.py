@@ -88,10 +88,13 @@ def test_freeze_is_flushed_at_once():
     assert "event frontend FAIL" in body and "event frontend OK" in body
 
 
-def test_build_language_applied_to_existing_cards():
+def test_menu_language_choice_survives_builds():
+    # the build language only seeds a new card; the user's menu choice is never rewritten
     persist = (LIBEXEC / "persist").read_text()
-    assert "lang_sync" in persist and "$SYS/etc/language" in persist
-    assert "system/etc/language" in (REPO_ROOT / "docs/FRONTEND.md").read_text()
+    assert "lang_sync" not in persist and "user_language" not in persist
+    doc = (REPO_ROOT / "docs/FRONTEND.md").read_text()
+    assert "system/etc/language" not in doc
+    assert "nem por um build com outro idioma" in doc
 
 
 def test_conf_defaults_documented():

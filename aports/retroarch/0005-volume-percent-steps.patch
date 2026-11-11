@@ -1,0 +1,160 @@
+From: Lume Retro OS
+Subject: [PATCH] volume: 0-100% in 5% steps, capped at 0 dB
+
+Upstream, each volume key press changes the gain by 0.5 dB between -80 and
++12 dB, and the volume widget shows the dB value and the linear amplitude as
+a percent. On a handheld this is hard to read: -29.5 dB shows as 3%, going
+from silence to full takes 160 presses, and above 0 dB the percent passes
+100% (up to 398%) while the small speaker only clips.
+
+The volume keys now move a 0-100% level in 5% steps on a perceptual curve,
+amplitude = level^2, i.e. dB = 40 * log10(level / 100): 100% is 0 dB, 50% is
+-12 dB, 10% is -40 dB and 0% is -80 dB (the lowest RetroArch accepts). A
+volume set in the menu snaps to the grid on the next key press. The widget
+shows the same level, as a bar and a percent, without the dB value. The
+menu's Volume setting is capped at 0 dB too.
+
+--- a/command.c
++++ b/command.c
+@@ -20,6 +20,7 @@
+ #include <stdlib.h>
+ #include <stddef.h>
+ #include <locale.h>
++#include <math.h>
+ #ifdef HAVE_NETWORKING
+ #include <net/net_compat.h>
+ #include <net/net_socket.h>
+@@ -1157,6 +1158,27 @@
+ }
+ #endif
+
++/* Lume: the volume keys move a 0-100% level in 5% steps, capped at 0 dB
++ * (no gain above the original sound, which only clips on the small
++ * speaker). The level follows a perceptual curve, amplitude = level^2:
++ * dB = 40 * log10(level / 100), so 50% is -12 dB and 10% is -40 dB.
++ * Level 0 is -80 dB, the lowest volume RetroArch accepts. */
++#define LUME_VOLUME_STEP 5.0f
++
++static float lume_volume_db_to_level(float db)
++{
++   if (db <= -80.0f)
++      return 0.0f;
++   return 100.0f * (float)pow(10.0, db / 40.0);
++}
++
++static float lume_volume_level_to_db(float level)
++{
++   if (level < LUME_VOLUME_STEP / 2.0f)
++      return -80.0f;
++   return 40.0f * (float)log10(level / 100.0f);
++}
++
+ void command_event_set_volume(
+       settings_t *settings,
+       float gain,
+@@ -1165,16 +1187,24 @@
+ {
+    size_t _len;
+    char msg[128];
+-   float new_volume = settings->floats.audio_volume + gain;
+-   new_volume       = MAX(new_volume, -80.0f);
+-   new_volume       = MIN(new_volume, 12.0f);
++   float level      = lume_volume_db_to_level(settings->floats.audio_volume);
++   float new_volume;
++   /* Snap to the step grid first, so a volume set in the menu (any dB)
++    * joins the 5% steps on the next key press. A gain kept from before
++    * (above 0 dB) counts as 100%. */
++   level            = MIN(level, 100.0f);
++   level            = (float)floor(level / LUME_VOLUME_STEP + 0.5f)
++      * LUME_VOLUME_STEP;
++   level           += (gain > 0.0f) ? LUME_VOLUME_STEP : -LUME_VOLUME_STEP;
++   level            = MAX(level, 0.0f);
++   level            = MIN(level, 100.0f);
++   new_volume       = lume_volume_level_to_db(level);
+    configuration_set_float(settings, settings->floats.audio_volume, new_volume);
+    _len             = strlcpy(msg, msg_hash_to_str(MSG_AUDIO_VOLUME),
+          sizeof(msg));
+    _len            += strlcpy(msg + _len, ": ", sizeof(msg) - _len);
+-   _len            += snprintf(msg + _len, sizeof(msg) - _len, "%.1f",
+-         new_volume);
+-   _len            += strlcpy(msg + _len, " dB", sizeof(msg) - _len);
++   _len            += snprintf(msg + _len, sizeof(msg) - _len, "%d%%",
++         (int)level);
+
+ #if defined(HAVE_GFX_WIDGETS)
+    if (widgets_active)
+--- a/gfx/widgets/gfx_widget_volume.c
++++ b/gfx/widgets/gfx_widget_volume.c
+@@ -94,7 +94,6 @@
+
+    if (state->alpha > 0.0f)
+    {
+-      char msg[128];
+       char percentage_msg[128];
+       video_frame_info_t *video_info       = (video_frame_info_t*)data;
+       dispgfx_widget_t *p_dispwidget       = (dispgfx_widget_t*)user_data;
+@@ -111,7 +110,6 @@
+       uintptr_t volume_icon                = 0;
+       unsigned icon_size                   = state->textures[ICON_MED] ? state->widget_height : padding;
+       unsigned text_color                  = COLOR_TEXT_ALPHA(TEXT_COLOR_INFO, (unsigned)(state->text_alpha*255.0f));
+-      unsigned text_color_db               = COLOR_TEXT_ALPHA(TEXT_COLOR_FAINT, (unsigned)(state->text_alpha*255.0f));
+
+       unsigned bar_x                       = icon_size;
+       unsigned bar_height                  = font_regular->line_height / 2;
+@@ -132,7 +130,6 @@
+          + font_regular->line_centre_offset
+          + font_regular->line_descender;
+
+-      msg[0]                               = '\0';
+       percentage_msg[0]                    = '\0';
+
+       if (state->mute)
+@@ -257,20 +254,9 @@
+                NULL
+                );
+
+-         /* Text */
+-         snprintf(msg, sizeof(msg), (state->db >= 0 ? "+%.1f dB" : "%.1f dB"),
+-            state->db);
+-
++         /* Text. Lume: only the level in percent, no dB value. */
+          snprintf(percentage_msg, sizeof(percentage_msg), "%d%%",
+-            (int)(state->percent * 100.0f));
+-
+-         gfx_widgets_draw_text(font_regular,
+-               msg,
+-               state->widget_width - padding, volume_text_y,
+-               video_width, video_height,
+-               text_color_db,
+-               TEXT_ALIGN_RIGHT,
+-               false);
++            (int)(state->percent * 100.0f + 0.5f));
+
+          gfx_widgets_draw_text(font_regular,
+             percentage_msg,
+@@ -311,7 +297,12 @@
+    gfx_animation_kill_by_tag(&state->tag);
+
+    state->db         = new_volume;
+-   state->percent    = pow(10, new_volume/20);
++   /* Lume: the same perceptual level as the volume keys (command.c),
++    * amplitude = level^2, so the bar and the percent match the steps. */
++   state->percent    = (new_volume <= -80.0f) ? 0.0f
++      : pow(10, new_volume / 40);
++   if (state->percent > 1.0f)
++      state->percent = 1.0f;
+    state->alpha      = DEFAULT_BACKDROP;
+    state->text_alpha = 1.0f;
+    state->mute       = mute;
+--- a/menu/menu_setting.c
++++ b/menu/menu_setting.c
+@@ -14603,7 +14603,8 @@
+                general_write_handler,
+                general_read_handler);
+          (*list)[list_info->index - 1].action_ok = &setting_action_ok_uint;
+-         menu_settings_list_current_add_range(list, list_info, -80, 12, 1.0, true, true);
++         /* Lume: no gain above 0 dB, the same cap as the volume keys. */
++         menu_settings_list_current_add_range(list, list_info, -80, 0, 1.0, true, true);
+
+ #ifdef HAVE_AUDIOMIXER
+          CONFIG_FLOAT(

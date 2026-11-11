@@ -15,9 +15,11 @@ APORT = REPO_ROOT / "aports/retroarch"
 APKBUILD = (APORT / "APKBUILD").read_text()
 SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
-           "0003-alsa-bounded-write-wait.patch"]
+           "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
+           "0005-volume-percent-steps.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
-           "intl/msg_hash_es.h", "audio/drivers/alsa.c"]
+           "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
+           "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -69,6 +71,40 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     alsa = (tmp_path / "audio/drivers/alsa.c").read_text()
     assert "snd_pcm_wait(alsa->pcm, -1)" not in alsa
     assert "alsa->stalled ? 0 : ALSA_WRITE_TIMEOUT_MS" in alsa
+    # 0004: GET_STATUS ends with the frame counter, after crc32 (logd cuts at ",crc32=")
+    command = (tmp_path / "command.c").read_text()
+    assert '",crc32=%lx,frames=%llu\\n"' in command
+    # 0005: volume keys in 5% steps capped at 0 dB; the widget shows no dB; menu stops at 0 dB
+    assert "level            = MIN(level, 100.0f);" in command
+    # only the mixer volume (not touched) keeps the +12 dB cap
+    assert command.count("MIN(new_volume, 12.0f)") == 1
+    widget = (tmp_path / "gfx/widgets/gfx_widget_volume.c").read_text()
+    assert '" dB"' not in widget and "+%.1f dB" not in widget
+    assert "pow(10, new_volume / 40)" in widget
+    assert "list, list_info, -80, 0, 1.0, true, true);" in (tmp_path / "menu/menu_setting.c").read_text()
+
+
+def test_volume_curve_steps_and_cap():
+    # the curve in patch 0005: dB = 40 * log10(level / 100), level 0 = -80 dB, 5% steps
+    import math
+
+    def level_to_db(level):
+        return -80.0 if level < 2.5 else 40 * math.log10(level / 100)
+
+    def db_to_level(db):
+        return 0.0 if db <= -80 else 100 * 10 ** (db / 40)
+
+    def press(db, up):
+        level = math.floor(min(db_to_level(db), 100) / 5 + 0.5) * 5 + (5 if up else -5)
+        return level_to_db(min(max(level, 0), 100))
+
+    assert level_to_db(100) == 0 and round(level_to_db(50), 1) == -12.0
+    db = -80.0
+    for _ in range(25):                     # 20 presses reach the top, then it stays there
+        db = press(db, up=True)
+    assert db == 0
+    assert round(db_to_level(press(12.0, up=False))) == 95   # an old +12 dB joins the grid
+    assert round(db_to_level(press(-29.5, up=True))) == 25    # -29.5 dB is ~18% -> 20% -> 25%
 
 
 def test_alsa_patch_only_bounds_the_playback_wait():
