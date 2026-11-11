@@ -64,6 +64,13 @@ def test_readable_on_small_screen_and_user_adjustable():
     assert not re.search(r'^ozone_font_scale = ', FACTORY, re.M)
 
 
+def test_menu_buttons_not_swapped():
+    # RetroArch 1.22 swaps OK/Cancel in the menu by default; ours: A confirms, B goes back.
+    # A user default (changeable in the menu, restored by "Reset to Default Config").
+    assert 'menu_swap_ok_cancel_buttons = "false"' in FACTORY
+    assert "menu_swap_ok_cancel_buttons" not in _keys(CFG)
+
+
 def test_no_quit_combo_and_menu_pauses():
     assert 'input_quit_gamepad_combo = "0"' in CFG
     assert 'input_exit_emulator = "nul"' in CFG
