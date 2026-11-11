@@ -2,7 +2,12 @@
 
 Two modes:
 
-- full (default): writes the whole image. Erases the card, including the ROMS partition;
+- full (default): writes the whole image. Erases the card, including the ROMS partition,
+  then creates ROMS (exFAT) on all the remaining space of the card, with the default
+  folders (roms/<system> for every system of the catalog, bios, saves, states,
+  screenshots, system) and the factory RetroArch config, so games can be copied before
+  the first boot. The console's first boot finds ROMS ready and only checks it (the
+  initramfs creates it only when it is missing);
 - `--update`: writes only the boot area (from 8 KiB to BOOT) and the BOOT partition.
   Sector 0 (the partition table) and ROMS (games, saves, settings, logs) are not
   touched. It only accepts a card whose partition 1 has the same start, size and disk
@@ -20,17 +25,21 @@ was written. Writing uses `sudo dd`, so run it in a terminal (sudo asks for the 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from r36os import lang
 from r36os.archive import images_dir
 from r36os.image import BOOT_SECTORS, boot_start
-from r36os.paths import cache_dir, ensure_dir
+from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
 from r36os.targets import Target
 
 _ENV = dict(os.environ, LC_ALL="C", LANG="C")
@@ -40,6 +49,12 @@ SECTOR = 512
 BOOTLOADER_START = 8192             # sector 0 (MBR) is never written in update mode
 BOOT_BYTES = BOOT_SECTORS * SECTOR  # 1 GiB
 CHUNK = 1 << 22
+ALIGN = 2048                        # 1 MiB, as the initramfs (initramfs/lib/storage.sh)
+MIN_ROMS = 131072                   # 64 MiB, as the initramfs
+OVERLAY = REPO_ROOT / "rootfs/overlay"
+CATALOG = OVERLAY / "usr/share/r36os/systems.json"
+FACTORY = OVERLAY / "usr/share/r36os/factory"
+BASE_FOLDERS = ("bios", "saves", "states", "screenshots", "system")
 
 
 class FlashError(RuntimeError):
@@ -83,6 +98,106 @@ def update_regions(target: Target | str) -> list[tuple[int, int]]:
     """
     boot_offset = boot_start(target) * SECTOR
     return [(BOOTLOADER_START, boot_offset - BOOTLOADER_START), (boot_offset, BOOT_BYTES)]
+
+
+def roms_layout(card_sectors: int, image: Mbr) -> tuple[int, int]:
+    """(start, sectors) of ROMS: from the first 1 MiB boundary after BOOT to the card end.
+
+    The same rule as the initramfs (free_start in initramfs/lib/storage.sh), so a card
+    prepared here looks to the console exactly like one it prepared itself.
+    """
+    start = (image.p1_start + image.p1_sectors + ALIGN - 1) // ALIGN * ALIGN
+    sectors = card_sectors - start
+    if sectors < MIN_ROMS:
+        raise FlashError(f"only {sectors * SECTOR // 2**20} MiB left after BOOT, "
+                         f"ROMS needs at least {MIN_ROMS * SECTOR // 2**20} MiB")
+    return start, sectors
+
+
+def build_language(zst: Path) -> str:
+    """Factory menu language of the build (build.json next to the image), default English."""
+    try:
+        return json.loads((zst.parent / "build.json").read_text()).get("language") or lang.DEFAULT
+    except (OSError, ValueError):
+        return lang.DEFAULT
+
+
+def populate_roms(root: Path, language: str = lang.DEFAULT) -> None:
+    """Default folders and factory config on a mounted ROMS, as the first boot makes them.
+
+    roms/<id> for every system of the catalog and the base folders (make_folders in the
+    initramfs), and system/retroarch/ from the factory config with the build's language
+    (what r36os-persist seeds on a card without system/retroarch/).
+    """
+    ids = [s["id"] for s in json.loads(CATALOG.read_text())["systems"]]
+    for sid in ids:
+        (root / "roms" / sid).mkdir(parents=True, exist_ok=True)
+    for name in BASE_FOLDERS:
+        (root / name).mkdir(parents=True, exist_ok=True)
+    retro = lang.retro_language(language)
+    for src in sorted(FACTORY.rglob("*")):
+        dest = root / "system" / src.relative_to(FACTORY)
+        if src.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = src.read_text()
+        if src.name == "retroarch.cfg":
+            text = re.sub(r'^user_language = .*$', f'user_language = "{retro}"', text,
+                          flags=re.M)
+        dest.write_text(text)
+
+
+def _part_node(device: str, n: int) -> str:
+    return f"{device}p{n}" if device[-1].isdigit() else f"{device}{n}"
+
+
+def _mountpoint(node: str) -> str | None:
+    for line in Path("/proc/mounts").read_text().splitlines():
+        fields = line.split()
+        if fields[0] == node:
+            return fields[1].replace("\\040", " ")
+    return None
+
+
+def _create_roms(device: str, img: Path, language: str) -> None:
+    """Partition 2 (exFAT, label ROMS) on the rest of the card, with folders and config."""
+    with img.open("rb") as f:
+        image_mbr = Mbr.parse(f.read(SECTOR))
+    card_sectors = int((Path("/sys/block") / Path(device).name / "size").read_text())
+    start, sectors = roms_layout(card_sectors, image_mbr)
+    print(f"ROMS: {sectors * SECTOR / 1e9:.1f} GB (sectors {start}+{sectors})")
+    subprocess.run(["sudo", "sfdisk", "--append", "--no-reread", "-q", device],
+                   input=f"start={start}, size={sectors}, type=7\n", text=True,
+                   check=True, env=_ENV)
+    _rereadpt(device)
+    node = _part_node(device, 2)
+    for _ in range(50):
+        if Path(node).is_block_device():
+            break
+        time.sleep(0.1)
+    else:
+        raise FlashError(f"{node} did not appear after writing the partition table")
+    # the desktop may automount the new partition: it must be free while it is formatted
+    _unmount(device)
+    subprocess.run(["sudo", "mkfs.exfat", "-L", "ROMS", node], check=True,
+                   stdout=subprocess.DEVNULL, env=_ENV)
+    mp = _mountpoint(node)
+    if mp is None:
+        out = subprocess.run(["udisksctl", "mount", "-b", node, "--no-user-interaction"],
+                             check=True, capture_output=True, text=True, env=_ENV).stdout
+        mp = _mountpoint(node) or out.strip().rsplit(" at ", 1)[-1].rstrip(".")
+    populate_roms(Path(mp), language)
+    subprocess.run(["sync", "-f", mp], check=False, env=_ENV)
+    subprocess.run(["udisksctl", "unmount", "-b", node], check=True,
+                   stdout=subprocess.DEVNULL, env=_ENV)
+    # read-only check of what was written (the USB reader 14cd:125d once corrupted small
+    # writes: a problem shows here, not on the console)
+    r = subprocess.run(["sudo", "fsck.exfat", "-n", node], capture_output=True, text=True,
+                       env=_ENV)
+    if r.returncode != 0:
+        raise FlashError(f"ROMS check failed after creating it (fsck.exfat exit "
+                         f"{r.returncode}): {r.stdout.strip()} {r.stderr.strip()}")
 
 
 def find_image(target: Target, build: str = "latest") -> Path:
@@ -215,7 +330,7 @@ def flash(target: Target, device: str, update: bool = False, build: str = "lates
     zst = find_image(target, build)
     desc = _check_device(device)
     mode = "UPDATE (boot area + BOOT; ROMS kept)" if update else \
-        "FULL (erases the whole card, including ROMS)"
+        "FULL (erases the whole card, including ROMS, then creates an empty ROMS)"
     print(f"image: {zst}\ncard:  {desc}\nmode:  {mode}")
     if not yes:
         answer = input(f"Type the device name ({Path(device).name}) to confirm: ")
@@ -253,6 +368,9 @@ def flash(target: Target, device: str, update: bool = False, build: str = "lates
                 f"verification failed at {offset}+{length}: "
                 f"expected {expected_hash[:16]}..., got {actual_hash[:16]}...: write it again"
             )
+
+    if not update:
+        _create_roms(device, img, build_language(zst))
 
     if eject:
         _eject(device)

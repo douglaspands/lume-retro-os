@@ -102,6 +102,57 @@ def test_eject_calls_udisksctl_power_off(monkeypatch):
     assert any("udisksctl" in c and "power-off" in c and "/dev/sdc" in c for c in commands)
 
 
+def test_roms_takes_the_rest_of_the_card_from_the_first_mib_after_boot():
+    image = flash.Mbr.parse(_mbr())
+    card = 30_597_120                                         # 14.6 GB card, in sectors
+    start, sectors = flash.roms_layout(card, image)
+    assert start == BOOT_START + BOOT_SECTORS                 # BOOT already ends on 1 MiB
+    assert start % 2048 == 0 and start + sectors == card
+    odd = flash.Mbr.parse(_mbr(size=BOOT_SECTORS - 1))
+    assert flash.roms_layout(card, odd)[0] == BOOT_START + BOOT_SECTORS
+
+
+def test_roms_layout_matches_the_initramfs_rule():
+    # the console's first boot creates ROMS with the same start (free_start, storage.sh)
+    storage = (flash.REPO_ROOT / "initramfs/lib/storage.sh").read_text()
+    assert f"ALIGN={flash.ALIGN} " in storage and f"MIN_ROMS={flash.MIN_ROMS} " in storage
+    assert "echo $(( (s + z + ALIGN - 1) / ALIGN * ALIGN ))" in storage
+
+
+def test_roms_refuses_a_card_without_room():
+    image = flash.Mbr.parse(_mbr())
+    with pytest.raises(flash.FlashError):
+        flash.roms_layout(BOOT_START + BOOT_SECTORS + 1000, image)
+
+
+def test_build_language_from_build_json(tmp_path):
+    zst = tmp_path / "ga36-1.img.zst"
+    assert flash.build_language(zst) == "en"                  # no build.json: default
+    (tmp_path / "build.json").write_text('{"language": "pt_BR"}')
+    assert flash.build_language(zst) == "pt_BR"
+
+
+def test_populate_roms_has_the_default_folders_and_factory_config(tmp_path):
+    import json
+
+    from r36os import lang
+
+    flash.populate_roms(tmp_path, "pt_BR")
+    ids = [s["id"] for s in json.loads(flash.CATALOG.read_text())["systems"]]
+    for sid in ids:
+        assert (tmp_path / "roms" / sid).is_dir(), sid
+    for name in ("bios", "saves", "states", "screenshots", "system"):
+        assert (tmp_path / name).is_dir(), name
+    cfg = (tmp_path / "system/retroarch/retroarch.cfg").read_text()
+    factory = (flash.FACTORY / "retroarch/retroarch.cfg").read_text()
+    assert f'user_language = "{lang.retro_language("pt_BR")}"' in cfg
+    # the rest is the factory file as is (what r36os-persist would seed)
+    strip = lambda t: [l for l in t.splitlines() if not l.startswith("user_language")]  # noqa: E731
+    assert strip(cfg) == strip(factory)
+    flash.populate_roms(tmp_path, "en")                         # idempotent
+    assert 'user_language = "0"' in (tmp_path / "system/retroarch/retroarch.cfg").read_text()
+
+
 def test_wipe_disk_and_rereadpt(monkeypatch):
     commands = []
 

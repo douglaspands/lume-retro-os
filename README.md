@@ -9,8 +9,8 @@ Distro mínima baseada em **Alpine Linux** com **RetroArch** para consoles port�
 | `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
 
 O sistema sobe direto no menu do RetroArch (Ozone), sem login, com a raiz somente leitura
-(`SYSTEM` em squashfs) e uma partição de jogos `ROMS` em exFAT, criada no primeiro boot e
-legível em qualquer PC. `r36os` é o nome interno do orquestrador, dos pacotes e dos serviços.
+(`SYSTEM` em squashfs) e uma partição de jogos `ROMS` em exFAT, criada pelo `r36os flash` (ou
+no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome interno do orquestrador, dos pacotes e dos serviços.
 
 ## Requisitos
 
@@ -73,6 +73,11 @@ uv run r36os flash ga36 /dev/sdX --build 20261109-214233   # um build específic
 
 - O comando só aceita discos removíveis, desmonta as partições, pede para digitar o nome
   do dispositivo como confirmação e, no fim, lê de volta e confere o SHA256.
+- A gravação completa cria também a `ROMS` (exFAT) com todo o espaço que sobra do cartão,
+  as pastas padrão (`roms/<sistema>` de cada sistema do catálogo, `bios`, `saves`, `states`,
+  `screenshots`, `system`) e a configuração de fábrica do RetroArch, no idioma do build.
+  Dá para copiar os jogos logo depois, antes do primeiro boot. No fim, o `fsck.exfat -n`
+  confere a partição criada.
 - `--update` grava só a área de boot e a partição `BOOT`; a tabela de partições e a `ROMS`
   não são tocadas. Ele recusa cartões que não foram gravados com uma imagem do mesmo alvo
   (por exemplo, um cartão com o layout antigo, em que a `BOOT` começava em 16 MiB).
