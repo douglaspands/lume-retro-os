@@ -178,7 +178,7 @@ check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log |
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
 	HANG=0 PREV_PID="" PREV_TICKS="" PREV_VB="" RECOVER_N=0 NOANS=0 DEEP_N=0 PREV_STATE=""
-	KICK_N=0 KICK_WROTE="" SNAPPED=""
+	KICK_N=0 KICK_WROTE="" SNAPPED="" KICKED_PID=""
 	rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
 }
 # vblank counter from a fake /proc/interrupts: per-CPU counts of the lcd controller line
@@ -278,9 +278,37 @@ check "kick: the base address comes from the interrupt name" '[ "$(tcon_base)" =
 RECOVER_MAX=2
 frozen_tcon 0x00000a00 4000
 trace_sample; trace_sample
-check "kick: masked vblank is re-enabled and the process keeps running" 'kill -0 $FAKE 2>/dev/null && grep -q "frontend OK recovery: re-enabled the masked display vblank interrupt; retroarch pid $FAKE runs again" $LOGS_DIR/events.log && ! grep -q " hung" $LOGS_DIR/events.log'
+check "kick: masked vblank is re-enabled and the process keeps running" 'kill -0 $FAKE 2>/dev/null && grep -q "frontend OK recovery: re-enabled the masked display vblank interrupt; the display runs again, watching retroarch pid $FAKE" $LOGS_DIR/events.log && ! grep -q " hung" $LOGS_DIR/events.log'
 check "kick: reads GINT0 (base + 4) and writes it with the three enable bits set" 'grep -qx "0x1c0c004" $W/devmem.log && grep -qx "0x1c0c004 0xc8000a00" $W/devmem.log && [ "$(cat $W/reg)" = 0xc8000a00 ]'
 check "kick: the snapshot taken before the kick is on the card" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "tcon GINT0 0x00000a00 masked: wrote 0xc8000a00" $LOGS_DIR/trace/boot-7.log'
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+
+# the kick brings the vblank back but the process stays blocked with no CPU (GA36 image
+# 214119): a moving vblank no longer saves it, it is killed two samples later
+frozen_tcon 0x00000a00 4000
+trace_sample; trace_sample
+n=4100
+for k in 1 2; do
+	printf '171:       %s          0 GIC-0 118 Level     1c0c000.lcd-controller\n' "$n" > "$W/interrupts"
+	n=$((n + 450))
+	trace_sample
+done
+wait "$FAKE" 2>/dev/null
+check "kick: a kicked process still blocked is killed although the vblank moves" 'grep -q "recovery: re-enabled the masked" $LOGS_DIR/events.log && grep -q "frontend FAIL retroarch pid $FAKE hung: blocked with no CPU for 10s although the display vblank runs again" $LOGS_DIR/events.log && ! kill -0 $FAKE 2>/dev/null'
+
+# the kicked process that uses CPU again is left alone, and is again judged by the vblank
+frozen_tcon 0x00000a00 4000
+trace_sample; trace_sample
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+printf '#!/bin/sh\nwhile :; do :; done\n' > "$W/bin/retroarch"
+"$W/bin/retroarch" &
+FAKE=$!
+KICKED_PID=$FAKE PREV_PID=$FAKE PREV_TICKS=0
+sleep 1
+trace_sample
+check "kick: a kicked process that uses CPU again is no longer watched" '[ -z "$KICKED_PID" ] && kill -0 $FAKE 2>/dev/null && ! grep -q " hung" $LOGS_DIR/events.log'
 kill -9 "$FAKE" 2>/dev/null
 wait "$FAKE" 2>/dev/null
 

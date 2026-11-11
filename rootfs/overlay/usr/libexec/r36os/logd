@@ -130,6 +130,10 @@ HANG_LIMIT=2        # consecutive samples blocked with no CPU and no vblank (10 
 RECOVER_MAX=${RECOVER_MAX:-3}   # times per boot the hung frontend is killed (0 = only log)
 KICK_MAX=${KICK_MAX:-5}         # times per boot the TCON vblank interrupt is re-enabled
 KICK_N=0 KICK_WROTE="" SNAPPED=""
+# PID whose vblank interrupt was re-enabled. Its display runs again, so a moving vblank no
+# longer proves it lives: if it stays blocked with no CPU it is hung all the same (the GA36
+# image 214119 showed it: the vblank came back, RetroArch never woke up and was never killed).
+KICKED_PID=""
 FRONTEND_LOG_FILE=${FRONTEND_LOG:-/var/log/frontend.log}
 INTERRUPTS_FILE=${INTERRUPTS_FILE:-/proc/interrupts}
 DEVMEM_BIN=${DEVMEM_BIN:-r36os-devmem}   # reads/writes one 32-bit register (GA36 only)
@@ -289,11 +293,14 @@ trace_sample() {
 		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu vblank=$vb tasks=$th"
 		# Hung = same process, (almost) no CPU used since the last sample and the display
 		# vblank counter not moving. A frontend that is only loading a big game uses CPU.
+		# After a kick only the CPU counts (see KICKED_PID).
 		if [ "$pid" = "$PREV_PID" ] && [ -n "$PREV_TICKS" ] && [ "$ticks" -le $((PREV_TICKS + 2)) ] &&
-			{ [ -z "$vb" ] || [ "$vb" = "$PREV_VB" ]; }; then
+			{ [ -z "$vb" ] || [ "$vb" = "$PREV_VB" ] || [ "$pid" = "$KICKED_PID" ]; }; then
 			HANG=$((HANG + 1))
 		else
 			HANG=0
+			# the kicked process used CPU again: it really woke up
+			[ "$pid" = "$KICKED_PID" ] && [ -n "$PREV_TICKS" ] && KICKED_PID=""
 		fi
 		PREV_PID=$pid PREV_TICKS=$ticks PREV_VB=$vb
 		[ "$HANG" -eq 0 ] && SNAPPED=""
@@ -309,8 +316,10 @@ trace_sample() {
 			if [ "$KICK_N" -lt "$KICK_MAX" ]; then
 				if tcon_kick; then
 					[ -n "$KICK_WROTE" ] && KICK_N=$((KICK_N + 1))
-					event frontend OK "recovery: re-enabled the masked display vblank interrupt; retroarch pid $pid runs again (kick $KICK_N of $KICK_MAX)"
-					HANG=0 PREV_TICKS="" PREV_VB=$(vblank_count)
+					event frontend OK "recovery: re-enabled the masked display vblank interrupt; the display runs again, watching retroarch pid $pid (kick $KICK_N of $KICK_MAX)"
+					# keep PREV_TICKS: if the process does not use CPU in the next two
+					# samples it is killed like any other hang
+					HANG=0 KICKED_PID=$pid PREV_VB=$(vblank_count)
 					logs_flush
 				elif [ -n "$KICK_WROTE" ]; then
 					KICK_N=$((KICK_N + 1))
@@ -318,7 +327,11 @@ trace_sample() {
 			fi
 		fi
 		if [ "$HANG" -eq "$HANG_LIMIT" ]; then
-			event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+			if [ "$pid" = "$KICKED_PID" ]; then
+				event frontend FAIL "retroarch pid $pid hung: blocked with no CPU for $((HANG * LOG_INTERVAL))s although the display vblank runs again (state $FE_STATE); see trace/boot-$(boot_n).log"
+			else
+				event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+			fi
 			if [ -z "$SNAPPED" ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
 				DEEP_N=$((DEEP_N + 1))
 				trace_snapshot "$pid"
