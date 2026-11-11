@@ -21,13 +21,14 @@ no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome intern
 
 Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em Alpine.
 
-**GA36: imagem de fábrica.** O GA36 sobe pelo bootloader do fabricante (boot0 e U-Boot da
-Allwinner), que é binário fechado e não está no repositório. Na primeira vez, aponte a
-variável para a imagem de fábrica (ou um dump dos primeiros 128 MiB do cartão original);
-o build extrai a área de boot para o cache e confere o SHA256:
+**GA36: área de boot do aparelho.** O GA36 sobe pelo bootloader do próprio fabricante
+(boot0 e U-Boot da Allwinner), que é binário fechado e não está no repositório. Na primeira
+vez, faça um dump dos primeiros 128 MiB do cartão que veio com o aparelho e aponte a
+variável para ele; o build extrai a área de boot para o cache e confere o SHA256:
 
 ```sh
-R36OS_GA36_FACTORY="/caminho/R36S GA36-MB V1.2-20260416 - Emuelec - No ROMS.img" uv run r36os build ga36
+sudo dd if=/dev/sdX of=ga36-boot-area.img bs=1M count=128   # cartão original do aparelho
+R36OS_GA36_FACTORY=ga36-boot-area.img uv run r36os build ga36
 ```
 
 ## Uso rápido
@@ -143,6 +144,24 @@ openspec/         planejamento (proposta, design, specs e tarefas)
 Upstream (kernel, U-Boot, aports, RetroArch) fica intocado e fixado por versão e sha256;
 toda mudança entra como patch numerado.
 
+## Agradecimentos
+
+O Lume Retro OS é autocontido: o build não baixa nem depende de nada destes projetos. Eles
+serviram de inspiração e de referência, e o que foi aproveitado está copiado no próprio
+repositório, com o crédito no lugar:
+
+- **[goodluckOS](https://github.com/CodeZombie/goodluckOS)** (GPL-2.0): os drivers do painel
+  JD9366 e do controle serial do GA36 (`kernel/patches/0005` e `0006`) e a base do device
+  tree (`board/ga36/dts/`) são port do trabalho dele.
+- **Firmware de fábrica do GA36** (baseado no EmuELEC): medições, ajustes de áudio, bateria
+  e cores registrados em `docs/referencia/ga36-emuelec/`, que guiaram decisões como o core
+  de SNES e o volume.
+- **[dArkOSRE-R36](https://github.com/southoz/dArkOSRE-R36)**: os dados do hardware do R36S
+  (Apêndice A do design), referência para o suporte futuro (P-27).
+- **[Alpine Linux](https://alpinelinux.org/)**, **[RetroArch e libretro](https://www.retroarch.com/)**
+  e o **Linux mainline**: a base de tudo; os pacotes locais de `aports/` partem dos APKBUILDs do
+  Alpine, e as mudanças no RetroArch e nos cores ficam em patches numerados.
+
 ## Licença
 
 O Lume Retro OS é distribuído sob a **GNU General Public License, versão 2** (somente a
@@ -153,6 +172,7 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
 - Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
   um); os patches desses pacotes seguem a licença do projeto que modificam.
 - O bootloader do fabricante do GA36 (boot0 e U-Boot da Allwinner) é binário fechado e
-  **não é distribuído**: cada um o extrai da própria imagem de fábrica (`R36OS_GA36_FACTORY`).
+  **não é distribuído**: cada um o extrai do cartão original do próprio aparelho
+  (`R36OS_GA36_FACTORY`).
 - Nenhuma ROM, BIOS ou jogo comercial faz parte do repositório; as ROMs de teste da VM
   são geradas pelo build.
