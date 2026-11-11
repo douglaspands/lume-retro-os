@@ -1,11 +1,21 @@
 #!/bin/sh
-# Retrato do hardware deste boot (D14), para ROMS/logs/hw/boot-<n>.txt.
-# Só lê /proc, /sys e comandos de consulta; não muda nada no sistema.
+# Hardware snapshot of this boot (D14), for ROMS/logs/hw/boot-<n>.txt. Runs once per boot.
+# Only reads /proc, /sys, debugfs and query commands; it changes nothing in the system
+# (it only mounts debugfs when it is not mounted yet). The goal is a full map of the
+# hardware: every bus, device, driver, pin, clock, interrupt and DMA channel.
 . /usr/libexec/r36os/lib.sh
 
 sec() { printf '\n== %s\n' "$1"; }
 kv() { printf '%-26s %s\n' "$1:" "$2"; }
 val() { cat "$1" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'; }
+# device-tree strings are NUL separated
+dtstr() { [ -r "$1" ] || return 0; tr '\0' ' ' < "$1" | sed 's/ *$//'; }
+drv_of() { local d; d=$(readlink "$1/driver" 2>/dev/null); echo "${d##*/}"; }
+indent() { sed 's/^/   /'; }
+has() { command -v "$1" >/dev/null 2>&1; }
+
+mountpoint -q /sys/kernel/debug 2>/dev/null || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+DBG=/sys/kernel/debug
 
 echo "Lume Retro OS: hardware snapshot"
 kv date "$(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -14,30 +24,122 @@ kv boot "$(cat "$R36OS_RUN/logs/boot-n" 2>/dev/null) (boot_id $(val /proc/sys/ke
 sec system
 kv version "$(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME")"
 kv board "$(board)"
-kv model "$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)"
+kv model "$(dtstr /proc/device-tree/model)"
+kv "dt compatible" "$(dtstr /proc/device-tree/compatible)"
+kv "serial number" "$(dtstr /proc/device-tree/serial-number)"
+for f in machine family soc_id revision serial_number; do
+	[ -r "/sys/devices/soc0/$f" ] && kv "soc $f" "$(val "/sys/devices/soc0/$f")"
+done
 kv kernel "$(uname -r) $(uname -m)"
+kv "kernel build" "$(val /proc/version)"
 kv cmdline "$(val /proc/cmdline)"
+kv "dt chosen" "$(ls /proc/device-tree/chosen 2>/dev/null | tr '\n' ' ')"
 kv uptime "$(cut -d' ' -f1 /proc/uptime) s"
 t=$(dmesg | sed -n 's/^\[ *\([0-9.]*\)\] lume: frontend started.*/\1/p' | head -n 1)
 kv "frontend (s from kernel)" "${t:-not started}"
 
+# Tables built once (a fork per device is slow on the A33):
+#   DEVTAB "compatible|bus|device|driver" for every device created from the device tree
+#   DTTAB  "compatible|status|node" for every device-tree node with a compatible
+DEVTAB=$(for d in /sys/bus/*/devices/*; do
+	[ -e "$d/of_node/compatible" ] || continue
+	b=${d%/devices/*}
+	printf '%s|%s|%s|%s\n' "$(dtstr "$d/of_node/compatible")" "${b##*/}" "${d##*/}" "$(drv_of "$d")"
+done)
+DTTAB=$(find /proc/device-tree -name compatible 2>/dev/null | while read -r f; do
+	n=${f%/compatible}
+	st=$(tr -d '\0' < "$n/status" 2>/dev/null)
+	printf '%s|%s|%s\n' "$(dtstr "$f")" "${st:-okay}" "${n#/proc/device-tree}"
+done)
+
+# One component: the devices whose compatible matches the regex, with the driver that
+# drives each one; else the device-tree nodes that exist but are disabled; else absent.
+component() {  # <label> <compatible regex>
+	local devs off
+	devs=$(printf '%s\n' "$DEVTAB" | grep -E "^[^|]*($2)" |
+		awk -F'|' '{ printf "      %-30s %-22s %s (%s)\n", $3, ($4 == "" ? "NO DRIVER" : $4), $1, $2 }')
+	off=$(printf '%s\n' "$DTTAB" | grep -E "^[^|]*($2)[^|]*\|(disabled|fail)" |
+		awk -F'|' '{ printf "      %-30s %-22s %s\n", $3, "disabled in DT", $1 }')
+	if [ -n "$devs" ]; then
+		if printf '%s\n' "$devs" | grep -q 'NO DRIVER'; then kv "$1" "found, some without a driver"; else kv "$1" "found, driver bound"; fi
+		printf '%s\n' "$devs"
+	elif [ -n "$off" ]; then
+		kv "$1" "in the device tree but disabled"
+	else
+		kv "$1" "not in the device tree"
+	fi
+	[ -n "$off" ] && printf '%s\n' "$off"
+	return 0
+}
+
+sec "component check (hardware -> device -> driver)"
+component "LEDs" "gpio-leds|pwm-leds|leds"
+component "USB OTG controller" "musb"
+component "USB host controllers" "ehci|ohci"
+component "USB PHY" "usb-phy"
+component "USB/DC power input" "usb-power-supply|ac-power-supply"
+component "battery / charger" "battery-power-supply|charger"
+component "PMIC" "x-powers,axp|rk8[0-9]+"
+component "display pipeline" "display-engine|tcon|mipi-dsi|display-backend|display-frontend|vop|dphy|d-phy"
+component "panel" "panel|jd9366|st7701"
+component "backlight" "backlight"
+component "GPU" "mali|utgard|lima|bifrost"
+component "video decoder" "video-engine|cedrus|vpu"
+component "audio" "codec|i2s|simple-audio-card|audio-amplifier|sound"
+component "DMA controller" "dma"
+component "buttons" "lradc|pek|gpio-keys|adc-keys"
+component "gamepad / sticks" "gamepad|joystick|adc-joystick"
+component "SD/MMC" "mmc"
+component "RTC" "rtc"
+component "watchdog" "wdt|watchdog"
+component "thermal sensor" "ths|thermal|tsadc"
+component "serial (UART)" "uart"
+component "I2C / RSB" "i2c|rsb"
+component "Wi-Fi / Bluetooth" "wifi|wlan|brcm|rtl8|bluetooth|esp8089"
+# runtime state of the USB ports and the power input
+for c in /sys/bus/platform/devices/*musb*; do
+	[ -r "$c/mode" ] && kv "USB OTG mode" "$(val "$c/mode") (${c##*/})"
+done
+for c in /sys/class/usb_role/* /sys/class/extcon/*; do
+	[ -d "$c" ] && kv "USB role ${c##*/}" "$(val "$c/role")$(val "$c/state")"
+done
+for ps in /sys/class/power_supply/*; do
+	case "$(val "$ps/type")" in
+		USB|Mains) kv "power input ${ps##*/}" "present=$(val "$ps/present") online=$(val "$ps/online") current limit=$(val "$ps/input_current_limit")" ;;
+	esac
+done
+echo "-- LEDs as the kernel sees them"
+for l in /sys/class/leds/*; do
+	[ -d "$l" ] && kv "   ${l##*/}" "driver $(drv_of "$l/device"), brightness $(val "$l/brightness") of $(val "$l/max_brightness"), trigger $(sed -n 's/.*\[\(.*\)\].*/\1/p' "$l/trigger" 2>/dev/null)"
+done
+ls /sys/class/leds 2>/dev/null | grep -q . || echo "   no LED registered"
+
 sec CPU
-kv cores "$(grep -c ^processor /proc/cpuinfo) (online $(val /sys/devices/system/cpu/online))"
+kv cores "$(grep -c ^processor /proc/cpuinfo) (online $(val /sys/devices/system/cpu/online), possible $(val /sys/devices/system/cpu/possible))"
 kv model "$(sed -n 's/^\(model name\|Hardware\|CPU part\)[[:space:]]*: //p' /proc/cpuinfo | sort -u | tr '\n' ';')"
 kv features "$(sed -n 's/^\(Features\|flags\)[[:space:]]*: //p' /proc/cpuinfo | head -n 1)"
+kv "id (impl/arch/var/part/rev)" "$(sed -n 's/^CPU \(implementer\|architecture\|variant\|part\|revision\)[[:space:]]*: //p' /proc/cpuinfo | head -n 5 | tr '\n' '/' | sed 's|/$||')"
 for p in /sys/devices/system/cpu/cpufreq/policy*; do
 	[ -d "$p" ] || continue
 	kv "${p##*/} cpus" "$(val "$p/related_cpus")"
+	kv "${p##*/} driver" "$(val "$p/scaling_driver")"
 	kv "${p##*/} governor" "$(val "$p/scaling_governor") (available: $(val "$p/scaling_available_governors"))"
 	kv "${p##*/} current kHz" "$(val "$p/scaling_cur_freq")"
 	kv "${p##*/} min/max kHz" "$(val "$p/scaling_min_freq") / $(val "$p/scaling_max_freq") (hw $(val "$p/cpuinfo_min_freq") / $(val "$p/cpuinfo_max_freq"))"
 	kv "${p##*/} available kHz" "$(val "$p/scaling_available_frequencies")"
 done
 [ -d /sys/devices/system/cpu/cpufreq ] || kv cpufreq "absent"
+for s in /sys/devices/system/cpu/cpu0/cpuidle/state*; do
+	[ -d "$s" ] && kv "cpuidle ${s##*/}" "$(val "$s/name") (latency $(val "$s/latency") us)"
+done
 
 sec memory
-awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|CmaTotal):/{printf "%-26s %d MiB\n", $1, $2/1024}' /proc/meminfo
-for z in /sys/block/zram*; do [ -d "$z" ] && kv "${z##*/}" "$(val "$z/disksize") bytes"; done
+awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|CmaTotal|CmaFree):/{printf "%-26s %d MiB\n", $1, $2/1024}' /proc/meminfo
+for z in /sys/block/zram*; do
+	[ -d "$z" ] && kv "${z##*/}" "$(val "$z/disksize") bytes ($(val "$z/comp_algorithm"))"
+done
+echo "-- physical memory map (/proc/iomem, top level)"
+grep -v '^ ' /proc/iomem 2>/dev/null | indent
 
 sec thermal
 for z in /sys/class/thermal/thermal_zone*; do
@@ -55,46 +157,235 @@ done
 sec regulators
 for r in /sys/class/regulator/regulator.*; do
 	[ -d "$r" ] || continue
-	kv "$(val "$r/name")" "$(val "$r/microvolts") µV $(val "$r/state")"
+	kv "$(val "$r/name")" "$(val "$r/microvolts") µV $(val "$r/state") (range $(val "$r/min_microvolts")-$(val "$r/max_microvolts"), users $(val "$r/num_users"))"
 done
 [ -d /sys/class/regulator ] || kv regulators "none exposed"
+if [ -r "$DBG/regulator/regulator_summary" ]; then
+	echo "-- regulator tree (who uses each supply)"
+	indent < "$DBG/regulator/regulator_summary"
+fi
 
 sec "battery and power"
 for ps in /sys/class/power_supply/*; do
 	[ -d "$ps" ] || continue
 	echo "-- ${ps##*/} ($(val "$ps/type"))"
-	sed 's/^POWER_SUPPLY_//' "$ps/uevent" 2>/dev/null | grep -v '^NAME=' | sed 's/^/   /'
+	sed 's/^POWER_SUPPLY_//' "$ps/uevent" 2>/dev/null | grep -v '^NAME=' | indent
 done
 ls /sys/class/power_supply 2>/dev/null | grep -q . || kv "power_supply" "none (VM?)"
+if [ -d "$DBG/pm_genpd" ] && [ -r "$DBG/pm_genpd/pm_genpd_summary" ]; then
+	echo "-- power domains"
+	indent < "$DBG/pm_genpd/pm_genpd_summary"
+fi
 
 sec storage
 for b in /sys/block/mmcblk[0-9] /sys/block/vd[a-z] /sys/block/sd[a-z]; do
 	[ -d "$b" ] || continue
-	kv "${b##*/}" "$(( $(cat "$b/size") / 2048 )) MiB $(val "$b/device/name") $(val "$b/device/type")"
+	kv "${b##*/}" "$(( $(cat "$b/size") / 2048 )) MiB $(val "$b/device/name") $(val "$b/device/type") (scheduler $(val "$b/queue/scheduler"), read-ahead $(val "$b/queue/read_ahead_kb") KiB)"
 done
-grep -E ' (/|/boot|/storage|/lower) ' /proc/mounts | sed 's/^/   /'
-df -h /boot /storage 2>/dev/null | sed 's/^/   /'
+echo "-- partitions"
+indent < /proc/partitions
+grep -E ' (/|/boot|/storage|/lower) ' /proc/mounts | indent
+df -h /boot /storage 2>/dev/null | indent
 kv "ROMS (initramfs)" "$(dmesg | sed -n 's/.*lume: \(.*ROMS.*\)/\1/p' | tr '\n' ';')"
+for c in /sys/bus/mmc/devices/*; do
+	[ -d "$c" ] || continue
+	echo "-- card ${c##*/} ($(val "$c/type"))"
+	for f in name manfid oemid date serial hwrev fwrev cid csd scr ssr ocr dsr preferred_erase_size erase_size; do
+		[ -r "$c/$f" ] && kv "   $f" "$(val "$c/$f")"
+	done
+done
+for h in /sys/class/mmc_host/mmc*; do
+	[ -d "$h" ] || continue
+	echo "-- host ${h##*/} ($(drv_of "$h/device") $(readlink "$h/device" | sed 's|.*/||'))"
+	[ -r "$DBG/${h##*/}/ios" ] && indent < "$DBG/${h##*/}/ios"
+done
+
+sec USB
+for c in /sys/bus/platform/devices/*usb* /sys/bus/platform/devices/*musb* /sys/bus/platform/devices/*phy*; do
+	[ -d "$c" ] || continue
+	kv "   ${c##*/}" "$(drv_of "$c")$( [ -r "$c/mode" ] && echo " mode=$(val "$c/mode")")"
+done
+for c in /sys/class/usb_role/* /sys/class/udc/*; do
+	[ -d "$c" ] && kv "   ${c##*/}" "$(val "$c/role")$(val "$c/state")"
+done
+found=""
+for d in /sys/bus/usb/devices/*; do
+	[ -f "$d/idVendor" ] || continue
+	found=1
+	n=${d##*/}
+	echo "-- $n $(val "$d/idVendor"):$(val "$d/idProduct") $(val "$d/manufacturer") $(val "$d/product")"
+	kv "   speed / version" "$(val "$d/speed") Mb/s, USB $(val "$d/version"), class $(val "$d/bDeviceClass"), ports $(val "$d/maxchild")"
+	kv "   serial" "$(val "$d/serial")"
+	kv "   power" "$(val "$d/bMaxPower"), $(val "$d/power/control")"
+	for i in "$d/$n":*; do
+		[ -d "$i" ] && kv "   interface ${i##*/}" "class $(val "$i/bInterfaceClass") sub $(val "$i/bInterfaceSubClass") proto $(val "$i/bInterfaceProtocol") driver $(drv_of "$i")"
+	done
+done
+[ -n "$found" ] || echo "   no USB device (no host controller active or nothing plugged)"
+if has lsusb; then
+	echo "-- lsusb"
+	lsusb 2>&1 | indent
+	echo "-- lsusb -t"
+	lsusb -t 2>&1 | indent
+fi
+
+sec PCI
+if ls /sys/bus/pci/devices 2>/dev/null | grep -q .; then
+	if has lspci; then
+		lspci -nnk 2>&1 | indent
+	else
+		for d in /sys/bus/pci/devices/*; do
+			kv "   ${d##*/}" "$(val "$d/vendor"):$(val "$d/device") class $(val "$d/class") driver $(drv_of "$d")"
+		done
+	fi
+else
+	echo "   no PCI bus (normal on the consoles)"
+fi
+
+sec network
+for n in /sys/class/net/*; do
+	[ -d "$n" ] || continue
+	w=""; [ -d "$n/wireless" ] || [ -d "$n/phy80211" ] && w=" wireless"
+	kv "${n##*/}" "$(val "$n/address") $(val "$n/operstate") driver $(drv_of "$n/device")$w"
+done
+for r in /sys/class/rfkill/rfkill*; do
+	[ -d "$r" ] && kv "${r##*/}" "$(val "$r/name") $(val "$r/type") soft=$(val "$r/soft") hard=$(val "$r/hard")"
+done
+for b in /sys/class/bluetooth/*; do
+	[ -e "$b" ] && kv "bluetooth ${b##*/}" "$(drv_of "$b/device")"
+done
 
 sec video
-for c in /sys/class/drm/card[0-9]; do
+for c in /sys/class/drm/card[0-9] /sys/class/drm/renderD*; do
 	[ -d "$c" ] || continue
-	kv "${c##*/} driver" "$(basename "$(readlink "$c/device/driver" 2>/dev/null)")"
+	kv "${c##*/} driver" "$(drv_of "$c/device") ($(readlink "$c/device" | sed 's|.*/||'))"
 done
 for o in /sys/class/drm/card[0-9]-*; do
 	[ -f "$o/status" ] || continue
-	kv "${o##*/}" "$(val "$o/status"), modes: $(head -n 3 "$o/modes" 2>/dev/null | tr '\n' ' ')"
+	edid=$(wc -c < "$o/edid" 2>/dev/null)
+	kv "${o##*/}" "$(val "$o/status") $(val "$o/enabled") dpms $(val "$o/dpms"), edid ${edid:-0} bytes, modes: $(val "$o/modes")"
+done
+for b in /sys/class/backlight/*; do
+	[ -d "$b" ] && kv "backlight ${b##*/}" "$(val "$b/brightness") of $(val "$b/max_brightness") (actual $(val "$b/actual_brightness"), $(val "$b/type"))"
+done
+for f in /sys/class/graphics/fb[0-9]; do
+	[ -d "$f" ] && kv "${f##*/}" "$(val "$f/name") $(val "$f/virtual_size") $(val "$f/bits_per_pixel") bpp"
+done
+for v in /sys/class/video4linux/*; do
+	[ -d "$v" ] && kv "${v##*/}" "$(val "$v/name") driver $(drv_of "$v/device")"
 done
 for d in /sys/class/devfreq/*; do
-	[ -d "$d" ] && kv "devfreq ${d##*/}" "$(val "$d/cur_freq") Hz ($(val "$d/governor"))"
+	[ -d "$d" ] || continue
+	kv "devfreq ${d##*/}" "$(val "$d/cur_freq") Hz ($(val "$d/governor")), available: $(val "$d/available_frequencies")"
 done
 
 sec audio
-sed 's/^/   /' /proc/asound/cards 2>/dev/null || echo "   no ALSA card"
+if [ -r /proc/asound/cards ]; then indent < /proc/asound/cards; else echo "   no ALSA card"; fi
+for f in devices pcm; do
+	[ -r "/proc/asound/$f" ] || continue
+	echo "-- $f"
+	indent < "/proc/asound/$f"
+done
+for c in /proc/asound/card[0-9]; do
+	[ -d "$c" ] || continue
+	n=${c##*card}
+	if has amixer; then
+		echo "-- mixer card $n (amixer scontents)"
+		amixer -c "$n" scontents 2>&1 | indent
+	fi
+done
+if [ -r "$DBG/asoc/components" ]; then
+	echo "-- ASoC components / DAIs"
+	cat "$DBG/asoc/components" "$DBG/asoc/dais" 2>/dev/null | indent
+fi
 
 sec input
-awk '/^N: Name=/{n=$0; sub(/^N: Name="/,"",n); sub(/"$/,"",n)} /^H: Handlers=/{print "   " n " [" substr($0, 13) "]"}' \
+awk '/^I: /{id=$0; sub(/^I: /,"",id)} /^N: Name=/{n=$0; sub(/^N: Name="/,"",n); sub(/"$/,"",n)}
+	/^P: Phys=/{p=substr($0, 9)} /^H: Handlers=/{print "   " n " [" substr($0, 13) "] " id " phys=" p}' \
 	/proc/bus/input/devices
+
+sec "serial ports"
+for t in /sys/class/tty/ttyS* /sys/class/tty/ttyGS* /sys/class/tty/ttyUSB* /sys/class/tty/ttyACM*; do
+	[ -e "$t/device" ] || continue
+	kv "${t##*/}" "$(readlink "$t/device" | sed 's|.*/||') driver $(drv_of "$t/device")"
+done
+for s in /sys/bus/serial/devices/*; do
+	[ -d "$s" ] && kv "serdev ${s##*/}" "$(drv_of "$s") $(dtstr "$s/of_node/compatible")"
+done
+
+sec "other devices"
+for r in /sys/class/rtc/rtc*; do
+	[ -d "$r" ] && kv "${r##*/}" "$(val "$r/name") $(val "$r/date") $(val "$r/time")"
+done
+for w in /sys/class/watchdog/watchdog*; do
+	[ -d "$w" ] && kv "${w##*/}" "$(val "$w/identity") timeout $(val "$w/timeout") s, state $(val "$w/state")"
+done
+for p in /sys/class/pwm/pwmchip*; do
+	[ -d "$p" ] && kv "${p##*/}" "$(val "$p/npwm") channels ($(readlink "$p/device" | sed 's|.*/||'))"
+done
+for i in /sys/bus/iio/devices/iio:device*; do
+	[ -d "$i" ] && kv "${i##*/}" "$(val "$i/name"): $(ls "$i" | grep '_raw$' | tr '\n' ' ')"
+done
+for e in /sys/class/extcon/*; do
+	[ -d "$e" ] && kv "extcon ${e##*/}" "$(val "$e/name") $(val "$e/state")"
+done
+
+sec "buses and drivers (every device the kernel knows)"
+# One line per device: name, bound driver (or "-"), device-tree compatible. A device with
+# a compatible and no driver is hardware the kernel sees but does not drive.
+for b in /sys/bus/*; do
+	case "${b##*/}" in
+		cpu|memory|workqueue|clockevents|clocksource|event_source|container|genpd|nvmem|cpufreq|node|machinecheck) continue ;;
+	esac
+	ls "$b/devices" 2>/dev/null | grep -q . || continue
+	echo "-- ${b##*/}"
+	for d in "$b"/devices/*; do
+		drv=$(drv_of "$d")
+		printf '   %-34s %-24s %s\n' "${d##*/}" "${drv:--}" "$(dtstr "$d/of_node/compatible")"
+	done
+done
+if [ -r "$DBG/devices_deferred" ]; then
+	echo "-- deferred probes (waiting for a resource)"
+	indent < "$DBG/devices_deferred"
+fi
+echo "-- kernel modules"
+if [ -s /proc/modules ]; then indent < /proc/modules; else echo "   none loaded (all built in)"; fi
+
+sec "device tree aliases"
+for a in /proc/device-tree/aliases/*; do
+	[ -f "$a" ] && kv "   ${a##*/}" "$(dtstr "$a")"
+done
+
+sec "GPIO and pins"
+if [ -r "$DBG/gpio" ]; then
+	indent < "$DBG/gpio"
+else
+	echo "   debugfs gpio not available"
+fi
+for p in "$DBG"/pinctrl/*/pinmux-pins; do
+	[ -r "$p" ] || continue
+	echo "-- claimed pins: ${p%/pinmux-pins}" | sed "s|$DBG/pinctrl/||"
+	grep -v 'UNCLAIMED' "$p" | indent
+done
+
+sec clocks
+if [ -r "$DBG/clk/clk_summary" ]; then
+	indent < "$DBG/clk/clk_summary"
+else
+	echo "   debugfs clk not available"
+fi
+
+sec DMA
+if [ -r "$DBG/dmaengine/summary" ]; then
+	indent < "$DBG/dmaengine/summary"
+else
+	for c in /sys/class/dma/*; do
+		[ -d "$c" ] && kv "   ${c##*/}" "in_use $(val "$c/in_use") ($(readlink "$c/device" | sed 's|.*/||'))"
+	done
+fi
+
+sec interrupts
+indent < /proc/interrupts
 
 sec "hardware summary (before frontend)"
 cat "$R36OS_RUN/hwsummary" 2>/dev/null || echo "   absent"

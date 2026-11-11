@@ -22,6 +22,10 @@ seatd-openrc
 alsa-utils
 alsa-utils-openrc
 
+# Retrato do hardware (hwinfo): lsusb e lspci com os nomes dos dispositivos
+usbutils
+pciutils
+
 # Partição de jogos e scripts
 exfatprogs
 jq

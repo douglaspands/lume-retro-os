@@ -193,8 +193,29 @@ um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
 ## `hw/boot-<n>.txt`
 
-Texto com seções `== system`, `== CPU` (cores, governor, frequências), `== memory`,
-`== thermal` (zonas e limites), `== regulators`, `== battery and power`,
-`== storage`, `== video`, `== audio`, `== input` e o resumo de hardware mostrado
-antes do frontend. É gravado depois que o frontend sobe, e por isso inclui o tempo até
-ele.
+Mapa completo do hardware, gerado uma vez por boot pelo `hwinfo`, depois que o frontend
+sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Seções:
+
+- `== system`: versão, placa, modelo e `compatible` do device tree, número de série, SoC,
+  kernel e linha de comando.
+- `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
+  entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
+  decodificador de vídeo, áudio, DMA, botões, gamepad, cartão, RTC, watchdog, sensor
+  térmico, UART, I2C/RSB, Wi-Fi/Bluetooth), diz se o hardware está no device tree, se o
+  kernel criou o dispositivo e **qual driver o ativa** (`NO DRIVER` quando não há),
+  ou se o nó existe mas está desativado (`disabled in DT`). Traz também o modo do USB OTG,
+  o estado da entrada de energia e os LEDs com driver, brilho e gatilho.
+- `== CPU`, `== memory` (com o mapa físico do `/proc/iomem`), `== thermal`,
+  `== regulators` (com a árvore de quem usa cada alimentação), `== battery and power`
+  (com os domínios de energia).
+- `== storage`: partições, montagens e, para o cartão, CID/CSD, fabricante, data e o
+  `ios` do controlador (clock, largura do barramento, modo).
+- `== USB` (controladores, modo, cada dispositivo com interfaces e drivers, `lsusb` e
+  `lsusb -t`), `== PCI` (`lspci -nnk`; não há PCI nos consoles), `== network`.
+- `== video`, `== audio` (com o mixer do `amixer` e os componentes ASoC), `== input`,
+  `== serial ports`, `== other devices` (RTC, watchdog, PWM, IIO, extcon).
+- `== buses and drivers`: **todo dispositivo que o kernel conhece**, por barramento, com
+  o driver ligado e o `compatible` do device tree; os *probes* adiados e os módulos.
+- `== device tree aliases`, `== GPIO and pins` (GPIOs em uso e pinos reservados por
+  driver), `== clocks` (`clk_summary` inteiro), `== DMA` (canais e quem os usa),
+  `== interrupts` e o resumo de hardware mostrado antes do frontend.

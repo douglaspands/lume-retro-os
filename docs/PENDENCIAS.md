@@ -87,6 +87,7 @@ Vêm da seção "Fora do escopo" da `proposal.md` e do `design.md`.
 | P-15 | ideia | Wi-Fi e Bluetooth | Se chegar, revisar o `GET_STATUS` por UDP local usado pelo `logd` e o Core Updater (hoje oculto: os cores do buildbot são glibc e não rodam no musl) |
 | P-16 | ideia | Hardware adicional | Segundo slot de cartão do R36S, outras revisões do R36S, GA36 com A23 |
 | P-17 | ideia | Miniaturas e wallpaper por sistema | |
+| P-22 | ideia | **Imagem de debug separada da imagem final** | Pedido do usuário (2026-11-10). Hoje uma imagem só carrega as ferramentas de diagnóstico (`usbutils`, `pciutils`, `alsa-utils`, `r36os-devmem`, debugfs, rastreio detalhado do `logd`, `hwinfo` completo). **Ideia:** um perfil de build `debug` (ex.: `r36os build ga36 --debug`) com as ferramentas, o rastreio e o retrato completo do hardware, e uma imagem final enxuta, só com o necessário para jogar e com o `logd` reduzido a eventos e métricas. Exige: lista de pacotes por perfil (`rootfs/packages-debug.txt`), nome do perfil na versão da imagem (`os-release`) e nos logs, testes que garantam que a imagem final não leva as ferramentas, e decidir se o kernel de debug muda (debugfs, `CONFIG_DYNAMIC_DEBUG`) |
 
 ## 3. Adiadas desta change (tarefas do grupo 12)
 
