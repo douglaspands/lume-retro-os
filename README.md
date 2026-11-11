@@ -1,12 +1,18 @@
 # Lume Retro OS
 
-Distro mínima baseada em **Alpine Linux** com **RetroArch** para consoles portáteis:
+Distro mínima baseada em **Alpine Linux** com **RetroArch** para consoles portáteis. O build
+gera duas imagens:
 
-| Alvo | Aparelho | SoC | Estado |
-|---|---|---|---|
-| `ga36` | GA36-MB V1.2 (clone do R36S) | Allwinner A33, armv7 | validado no aparelho ([guia](docs/BRINGUP-GA36.md)) |
-| `r36s` | R36S "V5" | Rockchip RK3326, aarch64 | planejado (pendência P-27) |
-| `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
+- **`console`**: um único cartão que inicia no GA36 e no R36S, sem regravar. Os dois
+  consoles usam a mesma `ROMS` (jogos, saves e configuração), e cada um sobe o próprio
+  sistema (camada de hardware);
+- **`vm`**: a VM de teste.
+
+| Camada | Imagem | Aparelho | SoC | Estado |
+|---|---|---|---|---|
+| `ga36` | `console` | GA36-MB V1.2 (clone do R36S) | Allwinner A33, armv7 | validado no aparelho ([guia](docs/BRINGUP-GA36.md)) |
+| `r36s` | `console` | R36S "V5" | Rockchip RK3326, aarch64 | em desenvolvimento (change `r36s-single-card`) |
+| `vm` | `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
 
 O sistema sobe direto no menu do RetroArch (Ozone), sem login, com a raiz somente leitura
 (`SYSTEM` em squashfs) e uma partição de jogos `ROMS` em exFAT, criada pelo `r36os flash` (ou
@@ -15,21 +21,33 @@ no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome intern
 ## Requisitos
 
 - Linux com `podman` (rootless) e [`uv`](https://docs.astral.sh/uv/); Python 3.14 via `uv`;
-- para os alvos ARM, `qemu-user` registrado no binfmt (os pacotes são compilados sob emulação);
+- para a imagem `console`, `qemu-user` registrado no binfmt para armv7 e aarch64 (os pacotes
+  das duas camadas são compilados sob emulação);
 - espaço em disco: o cache fica fora do repositório, em `~/.cache/r36os` (kernel, U-Boot,
   distfiles, ccache), e os artefatos em `out/`.
 
 Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em Alpine.
 
-**GA36: área de boot do aparelho.** O GA36 sobe pelo bootloader do próprio fabricante
-(boot0 e U-Boot da Allwinner), que é binário fechado e não está no repositório. Na primeira
-vez, faça um dump dos primeiros 128 MiB do cartão que veio com o aparelho e aponte a
-variável para ele; o build extrai a área de boot para o cache e confere o SHA256:
+**Bootloaders dos aparelhos.** Cada console sobe pelo bootloader do próprio fabricante, que
+é binário fechado e não está no repositório:
+
+- GA36: boot0 e U-Boot da Allwinner, nos primeiros 128 MiB do cartão original;
+- R36S: `idbloader`, `uboot.img` e `trust.img` da Rockchip, nos primeiros 16 MiB do cartão
+  original.
+
+Na primeira vez, faça uma cópia do cartão que veio com cada aparelho e aponte as variáveis
+para elas. O build extrai as áreas de boot para o cache (`~/.cache/r36os/vendor/`), confere
+o SHA256 e, daí em diante, não precisa mais das variáveis. A cópia do R36S pode ser a
+imagem inteira do cartão, crua ou comprimida (`.img.zst`):
 
 ```sh
-sudo dd if=/dev/sdX of=ga36-boot-area.img bs=1M count=128   # cartão original do aparelho
-R36OS_GA36_FACTORY=ga36-boot-area.img uv run r36os build ga36
+sudo dd if=/dev/sdX of=ga36-boot-area.img bs=1M count=128   # cartão original do GA36
+sudo dd if=/dev/sdY of=r36s-card.img bs=1M count=16          # cartão original do R36S
+R36OS_GA36_FACTORY=ga36-boot-area.img R36OS_R36S_FACTORY=r36s-card.img uv run r36os build console
 ```
+
+Só os cartões de fábrica medidos são aceitos (o SHA256 de outro cartão é recusado com uma
+mensagem que explica o motivo).
 
 ## Uso rápido
 
@@ -38,9 +56,11 @@ uv run r36os build vm              # gera a imagem da VM
 uv run r36os vm                    # roda a VM em janela (--headless: serial no terminal)
 uv run r36os test-vm               # teste de aceitação completo da VM
 
-uv run r36os build ga36            # gera a imagem do GA36
-uv run r36os build ga36 --lang pt_BR   # idioma de fábrica do menu (padrão: en)
-uv run r36os build --all           # vm + test-vm, depois os consoles (só liberados se a vm passar)
+uv run r36os build console         # gera o cartão único do GA36 e do R36S (as duas camadas, uma depois da outra)
+uv run r36os build console --lang pt_BR   # idioma de fábrica do menu (padrão: en)
+uv run r36os build --all           # vm, test-vm e depois console (só liberada se a vm passar)
+
+uv run r36os pkg r36s retroarch    # recompila um pacote de aports/ para uma camada (ga36, r36s, vm)
 ```
 
 Idiomas aceitos em `--lang`: `en` (padrão), `pt_BR`, `pt_PT`, `es`, `fr`, `de`, `it`.
@@ -49,29 +69,32 @@ O usuário pode trocar o idioma no menu do RetroArch, e a escolha é guardada no
 ## Versões das imagens
 
 Cada build recebe um timestamp (`AAAAMMDD-HHMMSS`) e é guardado em
-`out/images/<alvo>/<timestamp>/`:
+`out/images/<imagem>/<timestamp>/`:
 
 ```
-out/images/ga36/20261109-214233/
-  ga36-20261109-214233.img.zst   imagem do cartão (zstd)
-  manifest.txt                   pacotes e versões
-  build.json                     commit, idioma, kernel e patches, U-Boot, Alpine, tamanhos
+out/images/console/20261109-214233/
+  console-20261109-214233.img.zst  imagem do cartão (zstd)
+  manifest-ga36.txt                pacotes e versões de cada sistema
+  manifest-r36s.txt                (na vm, um manifest.txt só)
+  build.json                       commit, idioma, Alpine, tamanhos, cada camada (kernel,
+                                   patches, tamanho do SYSTEM) e os bootloaders de fábrica
   SHA256SUMS
-out/images/ga36/latest -> 20261109-214233
+out/images/console/latest -> 20261109-214233
 ```
 
-O mesmo timestamp está em `BOOT/VERSION` (no PC) e em `/etc/os-release` (`BUILD_ID`).
+O mesmo timestamp está em `BOOT/VERSION` (no PC) e em `/etc/os-release` (`BUILD_ID`) dos dois
+sistemas.
 
 ## Gravar o cartão
 
 Rode num terminal (a escrita usa `sudo`, que pede a senha):
 
 ```sh
-uv run r36os flash ga36 /dev/sdX --full     # cartão todo (o padrão): imagem + ROMS no resto
-uv run r36os flash ga36 /dev/sdX            # o mesmo que --full
-uv run r36os flash ga36 /dev/sdX --update   # atualização: preserva jogos, saves e configurações
-uv run r36os flash ga36 /dev/sdX --build 20261109-214233   # um build específico
-uv run r36os eject /dev/sdX                 # ejetar com segurança (sync, desmonta e desliga)
+uv run r36os flash console /dev/sdX --full     # cartão todo (o padrão): imagem + ROMS no resto
+uv run r36os flash console /dev/sdX            # o mesmo que --full
+uv run r36os flash console /dev/sdX --update   # atualização: preserva jogos, saves e configurações
+uv run r36os flash console /dev/sdX --build 20261109-214233   # um build específico
+uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, desmonta e desliga)
 ```
 
 - O comando só aceita discos removíveis, desmonta as partições, pede para digitar o nome
@@ -82,24 +105,30 @@ uv run r36os eject /dev/sdX                 # ejetar com segurança (sync, desmo
   Dá para copiar os jogos logo depois, antes do primeiro boot. No fim, o `fsck.exfat -n`
   confere a partição criada.
 - `--update` grava só a área de boot e a partição `BOOT`; a tabela de partições e a `ROMS`
-  não são tocadas. Ele recusa cartões que não foram gravados com uma imagem do mesmo alvo
-  (por exemplo, um cartão com o layout antigo, em que a `BOOT` começava em 16 MiB).
+  não são tocadas. Ele recusa cartões com outro layout (por exemplo, um cartão da `vm` ou
+  um com o layout antigo, em que a `BOOT` começava em 16 MiB) e pede a gravação completa.
+- **Cartão do GA36 gravado antes da imagem `console`:** ele já tem o layout do cartão único
+  (a mesma assinatura e a `BOOT` no mesmo lugar). `flash console /dev/sdX --update`
+  transforma ele num cartão que inicia nos dois consoles, com os jogos e os saves intactos.
 - Para descobrir o dispositivo: `lsblk -o NAME,SIZE,TRAN,RM,MODEL,LABEL`.
 
 ## O cartão
 
 | Região | Conteúdo |
 |---|---|
-| início do cartão | bootloader. No GA36: os 128 MiB do fabricante, com o nosso kernel no setor 172032 |
-| `BOOT` (FAT32, 1 GiB) | `SYSTEM`, `VERSION`, DTBs; na VM também kernel, initramfs e `extlinux/`; no GA36 as imagens de boot dos dois painéis em `android-boot/` |
-| `ROMS` (exFAT, resto do cartão) | `roms/<sistema>/`, `bios/`, `saves/`, `states/`, `system/` (configurações), `logs/`, `LEIA-ME.txt` |
+| início do cartão | bootloaders. Na `console`: os 128 MiB com as cadeias de fábrica dos dois consoles (boot0 do GA36 encolhido para 24 KiB, `idbloader`, `uboot.img` e `trust.img` do R36S, U-Boot do GA36) e o nosso kernel do GA36 no setor 172032. Na `vm`: SYSLINUX nos primeiros 16 MiB |
+| `BOOT` (FAT32, 1 GiB) | `VERSION`. Na `console`: `boot.ini` (lido pelo U-Boot do R36S), `ga36/` (`SYSTEM`, DTBs e as imagens de boot dos dois painéis em `android-boot/`) e `r36s/` (`SYSTEM`, kernel e DTB). Na `vm`: `SYSTEM`, kernel, initramfs e `extlinux/` |
+| `ROMS` (exFAT, resto do cartão) | `roms/<sistema>/`, `bios/`, `saves/`, `states/`, `system/` (configurações), `logs/`, `LEIA-ME.txt`: a mesma nos dois consoles |
 
 - Os jogos vão em `ROMS/roms/<sistema>/` pelo PC; as listas são geradas no boot.
 - **Restaurar a configuração de fábrica:** apagar a pasta `ROMS/system/`.
 - **Logs** (sempre em inglês): `ROMS/logs/`. Formato em [docs/LOGS.md](docs/LOGS.md).
 - **GA36, painel:** há duas variantes de tela; a imagem usa a 1 (a do firmware de fábrica).
-  A imagem de boot da 2 fica em `BOOT/android-boot/android-boot-panel2.img` (gravá-la no
-  setor 172032 troca o painel).
+  A imagem de boot da 2 fica em `BOOT/ga36/android-boot/android-boot-panel2.img` (gravá-la
+  no setor 172032 troca o painel).
+- **Trocar de console:** basta passar o cartão de um aparelho para o outro. Os saves
+  (`.srm`) passam entre eles; os *save states* podem não passar, porque o GA36 é armv7 e o
+  R36S é aarch64.
 - **Leitor de cartão:** o leitor USB `14cd:125d` ("Mass Storage Device") corrompe o cartão em
   gravações pequenas: grava o próprio comando USB (assinatura `USBC`) no lugar dos dados,
   como no primeiro setor da `ROMS` ou no FSINFO da `BOOT`. O `r36os flash` avisa quando
@@ -131,7 +160,7 @@ VM: `test-vm` da mesma build, 69 de 69 checagens):
 ## Estrutura
 
 ```
-board/<alvo>/     DTS, extlinux.conf, configs do kernel e do U-Boot, serial, pacotes de hardware
+board/<camada>/   DTS, extlinux.conf, configs do kernel e do U-Boot, serial, pacotes de hardware
 kernel/patches/   patches do kernel (bindings e os drivers do painel e do controle do GA36)
 aports/           pacotes Alpine locais (RetroArch, cores, Mesa da VM); mudanças em *.patch
 rootfs/           lista de pacotes, overlay e configuração do sistema
@@ -173,8 +202,9 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
   goodluckOS (GPL-2.0), e os patches do kernel seguem a GPL-2.0, como o próprio Linux.
 - Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
   um); os patches desses pacotes seguem a licença do projeto que modificam.
-- O bootloader do fabricante do GA36 (boot0 e U-Boot da Allwinner) é binário fechado e
-  **não é distribuído**: cada um o extrai do cartão original do próprio aparelho
-  (`R36OS_GA36_FACTORY`).
+- Os bootloaders dos fabricantes (boot0 e U-Boot da Allwinner no GA36; `idbloader`,
+  `uboot.img` e `trust.img` da Rockchip no R36S) são binários fechados e **não são
+  distribuídos**: cada um os extrai do cartão original do próprio aparelho
+  (`R36OS_GA36_FACTORY` e `R36OS_R36S_FACTORY`).
 - Nenhuma ROM, BIOS ou jogo comercial faz parte do repositório; as ROMs de teste da VM
   são geradas pelo build.
