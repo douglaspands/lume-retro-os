@@ -7,7 +7,7 @@ import struct
 
 import pytest
 
-from r36os import bootimg, build, kpatch, vendor
+from r36os import bootarea, bootimg, build, kpatch, vendor
 from r36os.image import BOOT_SECTORS, boot_start
 from r36os.paths import REPO_ROOT
 
@@ -32,7 +32,7 @@ def test_android_boot_image_matches_mkbootimg_layout():
 
 def test_kernel_cmdline_and_boot_options():
     tty, baud = (BOARD / "serial").read_text().split()
-    disk = (BOARD / "disk-id").read_text().strip()
+    disk = bootarea.DISK_ID  # the console image signature
     cmdline = re.search(r'^CONFIG_CMDLINE="(.*)"$', FRAGMENT, re.M).group(1)
     assert f"root=PARTUUID={disk}-01" in cmdline and "rootwait" in cmdline
     # debug serial and the panel; tty1 last becomes /dev/console
@@ -48,7 +48,7 @@ def test_kernel_cmdline_and_boot_options():
 
 def test_layout_keeps_vendor_area():
     # BOOT after the 128 MiB vendor area; the boot image fits in the "boot" partition
-    assert boot_start("ga36") == vendor.AREA_SECTORS == 262144
+    assert boot_start("console") == vendor.AREA_SECTORS == 262144
     assert vendor.ANDROID_BOOT_SECTOR + vendor.ANDROID_BOOT_MAX // 512 <= vendor.AREA_SECTORS
     assert boot_start("vm") == 32768 and BOOT_SECTORS == 2 * 1024 * 1024
     assert set(build.ANDROID_BOOT["ga36"]) == {"panel1", "panel2"}

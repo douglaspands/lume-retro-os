@@ -1,4 +1,4 @@
-"""Writing the card: `r36os flash <target> <device> [--update] [--build <timestamp>] [--eject]`.
+"""Writing the card: `r36os flash <image> <device> [--update] [--build <timestamp>] [--eject]`.
 
 Two modes:
 
@@ -11,12 +11,14 @@ Two modes:
 - `--update`: writes only the boot area (from 8 KiB to BOOT) and the BOOT partition.
   Sector 0 (the partition table) and ROMS (games, saves, settings, logs) are not
   touched. It only accepts a card whose partition 1 has the same start, size and disk
-  signature as the image, that is, a card written before with an image of this target.
+  signature as the image, that is, a card written before with an image of this layout.
+  The console image keeps the layout of the older ga36 image, so a GA36 card written
+  before becomes a single card for both consoles with `flash console <device> --update`.
 
 Pass `--eject` to safely unmount and power off the device after writing and verification.
 
 
-The image comes from out/images/<target>/<timestamp>/ (default: `latest`). Before
+The image comes from out/images/<image>/<timestamp>/ (default: `latest`). Before
 writing, the command checks that the device is a removable disk, unmounts its partitions
 and asks for confirmation; after writing, it reads back and compares the SHA256 of what
 was written. Writing uses `sudo dd`, so run it in a terminal (sudo asks for the password).
@@ -40,7 +42,7 @@ from r36os import lang
 from r36os.archive import images_dir
 from r36os.image import BOOT_SECTORS, boot_start
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
-from r36os.targets import Target
+from r36os.targets import ImageTarget
 
 _ENV = dict(os.environ, LC_ALL="C", LANG="C")
 
@@ -80,21 +82,27 @@ class Mbr:
         return cls(disk_id, start, size, p1[4], p2[4] != 0)
 
 
+FULL_WRITE_HINT = ("this card needs a full write (without --update), which erases ROMS: "
+                   "copy your games and saves to the PC first")
+
+
 def check_update(image: Mbr, card: Mbr) -> None:
     """Update mode only works on a card whose partition 1 matches the image."""
     if card.disk_id != image.disk_id:
         raise FlashError(f"disk signature {card.disk_id:08x} differs from the image "
-                         f"({image.disk_id:08x}): the card was not written with this target")
+                         f"({image.disk_id:08x}), so the card has another layout; "
+                         f"{FULL_WRITE_HINT}")
     if (card.p1_start, card.p1_sectors) != (image.p1_start, image.p1_sectors):
         raise FlashError(f"card partition 1 at {card.p1_start}+{card.p1_sectors} sectors, "
-                         f"the image uses {image.p1_start}+{image.p1_sectors}")
+                         f"the image uses {image.p1_start}+{image.p1_sectors}; "
+                         f"{FULL_WRITE_HINT}")
 
 
-def update_regions(target: Target | str) -> list[tuple[int, int]]:
+def update_regions(target: ImageTarget | str) -> list[tuple[int, int]]:
     """(offset, bytes) written in update mode: boot area and BOOT. Never sector 0.
 
-    The boot area goes from 8 KiB to the start of BOOT: the bootloader (16 MiB by default)
-    or, on the GA36, the vendor area with the Android boot image (128 MiB).
+    The boot area goes from 8 KiB to the start of BOOT: the bootloader (16 MiB on the vm)
+    or, on the console, the 128 MiB of both factory chains with the Android boot image.
     """
     boot_offset = boot_start(target) * SECTOR
     return [(BOOTLOADER_START, boot_offset - BOOTLOADER_START), (boot_offset, BOOT_BYTES)]
@@ -221,7 +229,7 @@ def _create_roms(device: str, img: Path, language: str) -> None:
                          f"{r.returncode}): {r.stdout.strip()} {r.stderr.strip()}")
 
 
-def find_image(target: Target, build: str = "latest") -> Path:
+def find_image(target: ImageTarget, build: str = "latest") -> Path:
     d = images_dir(target) / build
     found = sorted(d.glob(f"{target.name}-*.img.zst")) if d.is_dir() else []
     if len(found) != 1:
@@ -379,7 +387,7 @@ def _rereadpt(device: str) -> None:
                    env=_ENV, check=False)
 
 
-def flash(target: Target, device: str, update: bool = False, build: str = "latest",
+def flash(target: ImageTarget, device: str, update: bool = False, build: str = "latest",
           yes: bool = False, eject: bool = False) -> int:
     zst = find_image(target, build)
     desc = _check_device(device)
@@ -453,7 +461,7 @@ def main_eject(device: str) -> int:
         return 1
 
 
-def main_flash(target: Target, device: str, update: bool, build: str, yes: bool,
+def main_flash(target: ImageTarget, device: str, update: bool, build: str, yes: bool,
                eject: bool = False) -> int:
     try:
         return flash(target, device, update, build, yes, eject)

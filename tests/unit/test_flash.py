@@ -4,10 +4,10 @@ import struct
 
 import pytest
 
-from r36os import flash
-from r36os.image import BOOT_SECTORS, boot_start
+from r36os import bootarea, flash
+from r36os.image import BOOT_SECTORS, boot_start, disk_id
 
-BOOT_START = boot_start("ga36")  # 128 MiB: after the vendor area
+BOOT_START = boot_start("console")  # 128 MiB: after the boot area of both consoles
 
 
 def _mbr(disk_id=0x4C554D32, start=BOOT_START, size=BOOT_SECTORS, p2=False) -> bytes:
@@ -30,21 +30,32 @@ def test_parse_mbr():
         flash.Mbr.parse(bytes(512))
 
 
-def test_update_accepts_card_from_same_target_with_roms():
-    flash.check_update(flash.Mbr.parse(_mbr()), flash.Mbr.parse(_mbr(p2=True)))
+def test_console_layout_is_the_old_ga36_one():
+    # a card written with the ga36 image (before the console image) had signature
+    # 4c554d32 and BOOT at 262144+2097152: the console image keeps both
+    assert disk_id("console") == bootarea.DISK_ID == "4c554d32"
+    assert BOOT_START == 262144
+    assert disk_id("vm") == "4c554d33"
+
+
+def test_update_accepts_card_written_with_the_old_ga36_image():
+    old_ga36_card = _mbr(disk_id=0x4C554D32, start=262144, size=2 * 1024 * 1024, p2=True)
+    console_image = _mbr(disk_id=int(disk_id("console"), 16), start=BOOT_START)
+    flash.check_update(flash.Mbr.parse(console_image), flash.Mbr.parse(old_ga36_card))
 
 
 @pytest.mark.parametrize("card", [
-    _mbr(disk_id=0x4C554D33),                 # image of another target (vm)
+    _mbr(disk_id=0x4C554D33, start=32768),     # card written with the vm image
+    _mbr(disk_id=0x4C554D33),                  # another signature
     _mbr(start=2048),                          # another system (different layout)
     _mbr(size=BOOT_SECTORS // 2),
 ])
-def test_update_refuses_other_layouts(card):
-    with pytest.raises(flash.FlashError):
+def test_update_refuses_other_layouts_asking_for_a_full_write(card):
+    with pytest.raises(flash.FlashError, match="needs a full write"):
         flash.check_update(flash.Mbr.parse(_mbr()), flash.Mbr.parse(card))
 
 
-@pytest.mark.parametrize("target", ["ga36", "vm"])
+@pytest.mark.parametrize("target", ["console", "vm"])
 def test_update_never_writes_sector0_nor_roms(target):
     start = boot_start(target)
     regions = flash.update_regions(target)
@@ -55,36 +66,38 @@ def test_update_never_writes_sector0_nor_roms(target):
     assert end == (start + BOOT_SECTORS) * 512               # nothing past BOOT (ROMS)
 
 
-def test_ga36_update_rewrites_vendor_area_and_android_boot():
-    from r36os import vendor
+def test_console_update_rewrites_both_chains_and_android_boot():
+    from r36os import r36s_vendor, vendor
 
-    (off, length), _ = flash.update_regions("ga36")
-    assert off <= 16 * 512                                   # boot0
+    (off, length), _ = flash.update_regions("console")
+    assert off <= 16 * 512                                   # shrunk boot0
+    assert all(off <= r.start * 512 and r.end * 512 <= off + length
+               for r in r36s_vendor.REGIONS)                 # R36S chain
     assert off + length >= (vendor.ANDROID_BOOT_SECTOR * 512 + vendor.ANDROID_BOOT_MAX)
 
 
 def test_find_image(tmp_path, monkeypatch):
-    from r36os.targets import get_target
+    from r36os.targets import get_image
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    with pytest.raises(flash.FlashError):
-        flash.find_image(get_target("ga36"))
-    d = tmp_path / "images/ga36/20261109-214233"
+    with pytest.raises(flash.FlashError, match="r36os build console"):
+        flash.find_image(get_image("console"))
+    d = tmp_path / "images/console/20261109-214233"
     d.mkdir(parents=True)
-    (d / "ga36-20261109-214233.img.zst").write_bytes(b"x")
-    (tmp_path / "images/ga36/latest").symlink_to("20261109-214233")
-    assert flash.find_image(get_target("ga36")).name == "ga36-20261109-214233.img.zst"
+    (d / "console-20261109-214233.img.zst").write_bytes(b"x")
+    (tmp_path / "images/console/latest").symlink_to("20261109-214233")
+    assert flash.find_image(get_image("console")).name == "console-20261109-214233.img.zst"
 
 
 def test_cli_parser_eject_flag():
     from r36os.cli import _parser
 
     p = _parser()
-    args = p.parse_args(["flash", "ga36", "/dev/sdc", "--eject", "--update"])
+    args = p.parse_args(["flash", "console", "/dev/sdc", "--eject", "--update"])
     assert args.eject is True
     assert args.update is True
 
-    args_no_eject = p.parse_args(["flash", "ga36", "/dev/sdc"])
+    args_no_eject = p.parse_args(["flash", "console", "/dev/sdc"])
     assert args_no_eject.eject is False
 
 
@@ -92,10 +105,10 @@ def test_cli_parser_full_flag_is_the_default_and_excludes_update():
     from r36os.cli import _parser
 
     p = _parser()
-    assert p.parse_args(["flash", "ga36", "/dev/sdc", "--full"]).update is False
-    assert p.parse_args(["flash", "ga36", "/dev/sdc"]).update is False
+    assert p.parse_args(["flash", "console", "/dev/sdc", "--full"]).update is False
+    assert p.parse_args(["flash", "console", "/dev/sdc"]).update is False
     with pytest.raises(SystemExit):
-        p.parse_args(["flash", "ga36", "/dev/sdc", "--full", "--update"])
+        p.parse_args(["flash", "console", "/dev/sdc", "--full", "--update"])
 
 
 def test_eject_calls_udisksctl_power_off(monkeypatch):

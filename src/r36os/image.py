@@ -1,38 +1,44 @@
 """Stage 4: card image (MBR + FAT32 BOOT), with no root and no loop mount.
 
-Default layout (vm, r36s): 0-16 MiB free for the bootloader; partition 1 `BOOT` (FAT32,
-1 GiB) at sector 32768. GA36 (D5): the first 128 MiB are the vendor boot area (boot0,
-U-Boot, softw411 table, env) with our Android boot image at sector 172032, and `BOOT`
-starts at sector 262144. Partition 2 (`ROMS`) is created on the first boot.
+vm: 0-16 MiB free for the bootloader; partition 1 `BOOT` (FAT32, 1 GiB) at sector 32768.
+console (design D2): the first 128 MiB are the boot area of both consoles (bootarea.py:
+GA36 vendor area with the shrunk boot0, the R36S factory chain and our Android boot image
+at sector 172032), and `BOOT` starts at sector 262144. Partition 2 (`ROMS`) is created by
+`flash` or on the first boot.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from r36os import version
+from r36os import bootarea, version
 from r36os.container import Container, ensure_builder
 from r36os.paths import REPO_ROOT
 from r36os.rootfs import target_out
-from r36os.targets import TARGETS, Target
+from r36os.targets import TARGETS, ImageTarget, Target
 
 BOOT_START = 32768  # 512 B sectors = 16 MiB (default)
 BOOT_SECTORS = 2 * 1024 * 1024  # 1 GiB
 IMAGE_SECTORS = BOOT_START + BOOT_SECTORS
 
-# Targets with a vendor bootloader: BOOT starts after its area (128 MiB)
-VENDOR_BOOT_START = {"ga36": 262144}
+# Images with a vendor boot area: BOOT starts after it (128 MiB). The console keeps the
+# start and the disk signature of the GA36 cards written before, so `--update` works on them
+VENDOR_BOOT_START = {"console": bootarea.AREA_SECTORS}
+DISK_ID = {"console": bootarea.DISK_ID}
 
 KERNEL_NAME = {"vm": "vmlinuz", "r36s": "Image", "ga36": "zImage"}
 
 
-def boot_start(target: Target | str) -> int:
+def boot_start(target: Target | ImageTarget | str) -> int:
     name = target if isinstance(target, str) else target.name
     return VENDOR_BOOT_START.get(name, BOOT_START)
 
 
-def disk_id(target: Target) -> str:
-    return (REPO_ROOT / "board" / target.name / "disk-id").read_text().strip()
+def disk_id(target: Target | ImageTarget | str) -> str:
+    name = target if isinstance(target, str) else target.name
+    if name in DISK_ID:
+        return DISK_ID[name]
+    return (REPO_ROOT / "board" / name / "disk-id").read_text().strip()
 
 
 _IMAGE = """
@@ -77,8 +83,9 @@ _GA36_RAW = """dd if=/vendor/ga36-factory-128M.bin of=$W/disk.img bs=512 skip=1 
 dd if=/out/kernel/android-boot-panel1.img of=$W/disk.img bs=512 seek={android} conv=notrunc status=none"""
 
 
-def build_image(target: Target, bootloader_fat: str = "", bootloader_raw: str = "",
-                v: version.BuildVersion | None = None, language: str = "en") -> Path:
+def build_image(target: Target, v: version.BuildVersion | None = None,
+                language: str = "en") -> Path:
+    """The vm image (out/vm/vm.img)."""
     out = target_out(target)
     # BOOT/VERSION: the build on the card, readable on a PC (D15)
     (out / "VERSION").unlink(missing_ok=True)
@@ -87,18 +94,9 @@ def build_image(target: Target, bootloader_fat: str = "", bootloader_raw: str = 
             version.boot_version_file(target.name, v) + f"language: {language}\n")
     volumes = {out: "/out", REPO_ROOT / "board" / target.name: "/board"}
     start = boot_start(target)
-    if target.name == "vm":
-        fat_files, bootloader_fat, bootloader_raw = _VM_FILES, _VM_FAT, _VM_RAW
-    elif target.name == "ga36":
-        from r36os import vendor
-
-        area = vendor.vendor_area()
-        volumes[area.parent] = "/vendor"
-        fat_files = _GA36_FILES
-        bootloader_raw = _GA36_RAW.format(area=vendor.AREA_SECTORS - 1,
-                                          android=vendor.ANDROID_BOOT_SECTOR)
-    else:
-        raise NotImplementedError(f"the {target.name} image is not defined yet")
+    if target.name != "vm":
+        raise ValueError(f"{target.name} is a hardware layer: its image is the console one")
+    fat_files, bootloader_fat, bootloader_raw = _VM_FILES, _VM_FAT, _VM_RAW
     script = _IMAGE.format(
         boot_bytes=BOOT_SECTORS * 512,
         boot_start=start,
@@ -113,3 +111,11 @@ def build_image(target: Target, bootloader_fat: str = "", bootloader_raw: str = 
     # Building the image does not depend on the target arch: always the x86_64 builder.
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
     return out / f"{target.name}.img"
+
+
+def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
+    """The console image (out/console/console.img) from the ga36 and r36s layers.
+
+    BOOT with one folder per console and the combined boot area: tasks 5.2 and 5.3.
+    """
+    raise NotImplementedError("the console image is assembled in tasks 5.2 and 5.3")

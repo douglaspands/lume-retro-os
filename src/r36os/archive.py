@@ -1,13 +1,15 @@
-"""Archive of the built images (D15): each build goes to out/images/<target>/<timestamp>/.
+"""Archive of the built images (D15): each build goes to out/images/<image>/<timestamp>/.
 
-    out/images/ga36/20261109-214233/
-      ga36-20261109-214233.img.zst   card image, compressed (zstd)
-      manifest.txt                   rootfs packages and versions
-      build.json                     timestamp, commit, kernel, bootloader, Alpine, sizes
-      SHA256SUMS                     of the uncompressed image and of the .zst
-    out/images/ga36/latest -> 20261109-214233
+    out/images/console/20261109-214233/
+      console-20261109-214233.img.zst  card image, compressed (zstd)
+      manifest-ga36.txt                rootfs packages and versions of each system
+      manifest-r36s.txt                (the vm has a single manifest.txt)
+      build.json                       timestamp, commit, layers (kernel, patches, SYSTEM
+                                       size), bootloaders, Alpine, sizes
+      SHA256SUMS                       of the uncompressed image and of the .zst
+    out/images/console/latest -> 20261109-214233
 
-Write it to a card: `uv run r36os flash <target> /dev/sdX`.
+Write it to a card: `uv run r36os flash <image> /dev/sdX`.
 """
 
 from __future__ import annotations
@@ -18,13 +20,13 @@ import shutil
 from pathlib import Path
 
 from r36os.paths import ensure_dir, out_dir
-from r36os.targets import Target
+from r36os.targets import ImageTarget, Target
 from r36os.version import BuildVersion
 
 CHUNK = 1 << 22  # 4 MiB
 
 
-def images_dir(target: Target) -> Path:
+def images_dir(target: ImageTarget | Target) -> Path:
     return out_dir() / "images" / target.name
 
 
@@ -45,14 +47,21 @@ def _compress(src: Path, dest: Path) -> tuple[str, str]:
     return h_raw.hexdigest(), h_zst.hexdigest()
 
 
-def archive_image(target: Target, img: Path, v: BuildVersion, info: dict | None = None) -> Path:
-    """Keep the image of this build with its manifest, build.json and sums; update `latest`."""
+def archive_image(target: ImageTarget | Target, img: Path, v: BuildVersion,
+                  info: dict | None = None, manifests: dict[str, Path] | None = None) -> Path:
+    """Keep the image of this build with its manifests, build.json and sums; update `latest`.
+
+    `manifests` maps the archived name to the manifest of each system (default: the
+    manifest.txt next to the image).
+    """
     dest = ensure_dir(images_dir(target) / v.build_id)
     name = f"{target.name}-{v.build_id}.img"
     sha_raw, sha_zst = _compress(img, dest / f"{name}.zst")
-    manifest = img.parent / "manifest.txt"
-    if manifest.exists():
-        shutil.copy(manifest, dest / "manifest.txt")
+    if manifests is None:
+        manifests = {"manifest.txt": img.parent / "manifest.txt"}
+    for archived, manifest in manifests.items():
+        if manifest.exists():
+            shutil.copy(manifest, dest / archived)
     build = {
         "target": target.name,
         **v.as_dict(),

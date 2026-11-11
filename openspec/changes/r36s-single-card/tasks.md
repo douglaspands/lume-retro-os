@@ -13,9 +13,9 @@
 
 ## 3. Alvo `console` na CLI, no build e no flash
 
-- [ ] 3.1 `targets`/`cli`: alvos de imagem `console` e `vm`; `ga36` e `r36s` viram camadas internas; alvo desconhecido lista `console` e `vm`. Verificação: `tests/unit/test_targets.py` atualizado.
-- [ ] 3.2 `build console`: as duas camadas em sequência, um `VERSION` e um timestamp por build, `build.json` com as duas camadas (kernel, patches, `system_bytes`, bootloaders), arquivo em `out/images/console/<timestamp>/`; a ordem `--all` passa a ser `vm` → `test-vm` → `console`. Verificação: testes de `version`/`release` atualizados.
-- [ ] 3.3 `flash console`: assinatura `4c554d32` e `BOOT` em 262144 como constantes da imagem (sai o `board/r36s/disk-id`); `--update` aceita um cartão gravado com a imagem `ga36` antiga e recusa outros layouts com a mensagem de gravação completa. Verificação: `tests/unit/test_flash.py` com MBR sintético de cartão `ga36` (aceito) e de `vm` (recusado).
+- [x] 3.1 `targets`/`cli`: alvos de imagem `console` e `vm`; `ga36` e `r36s` viram camadas internas; alvo desconhecido lista `console` e `vm`. Verificação: `tests/unit/test_targets.py` atualizado.
+- [x] 3.2 `build console`: as duas camadas em sequência, um `VERSION` e um timestamp por build, `build.json` com as duas camadas (kernel, patches, `system_bytes`, bootloaders), arquivo em `out/images/console/<timestamp>/`; a ordem `--all` passa a ser `vm` → `test-vm` → `console`. Verificação: testes de `version`/`release` atualizados.
+- [x] 3.3 `flash console`: assinatura `4c554d32` e `BOOT` em 262144 como constantes da imagem (sai o `board/r36s/disk-id`); `--update` aceita um cartão gravado com a imagem `ga36` antiga e recusa outros layouts com a mensagem de gravação completa. Verificação: `tests/unit/test_flash.py` com MBR sintético de cartão `ga36` (aceito) e de `vm` (recusado).
 - [ ] 3.4 Atualizar o `README.md` (uso: `build console`, `flash console`, `R36OS_R36S_FACTORY`, migração de cartões do GA36 com `--update`). Verificação: os comandos documentados existem na ajuda da CLI (`r36os --help`).
 
 ## 4. Kernel e device tree do R36S

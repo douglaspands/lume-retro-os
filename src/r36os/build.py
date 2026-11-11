@@ -1,21 +1,48 @@
-"""Build pipeline of a target (D2)."""
+"""Build pipeline (D2): each hardware layer up to its SYSTEM, then the image.
+
+`build vm` builds the vm layer and its image. `build console` (design D1) builds the ga36
+and r36s layers one after the other (never in parallel), with one version for both, and
+then the single card image with both systems.
+"""
 
 from __future__ import annotations
 
-from r36os import bootimg, kernel, lang, rootfs, uboot, version
+from r36os import bootimg, image, kernel, lang, rootfs, uboot, version
 from r36os.archive import archive_image
-from r36os.image import build_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
-from r36os.targets import Target
+from r36os.targets import TARGETS, ImageTarget, Target
 
 
-def build_target(target: Target, rebuild_packages: bool = False,
-                 language: str = lang.DEFAULT) -> None:
+def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
+                       language: str = lang.DEFAULT) -> None:
     lang.retro_language(language)  # validate before any stage
+    v = version.current()  # one timestamp per build, in every stage and layer (D15)
+    print(f"build {img_target.name} {v.build_id} (language {language})", flush=True)
+    layers = {}
+    for name in img_target.layers:
+        target = TARGETS[name]
+        print(f"layer {name} ({target.alpine_arch})", flush=True)
+        build_layer(target, v, language, rebuild_packages)
+        layers[name] = _layer_info(target)
+    if img_target.name == "vm":
+        img = image.build_image(TARGETS["vm"], v=v, language=language)
+        info = {**layers["vm"], "alpine": _alpine()}
+        manifests = {"manifest.txt": img.parent / "manifest.txt"}
+    else:
+        img = image.build_console_image(v, language=language)
+        info = {"alpine": _alpine(), "layers": layers, "bootloaders": console_bootloaders()}
+        manifests = {f"manifest-{n}.txt": rootfs.target_out(TARGETS[n]) / "manifest.txt"
+                     for n in img_target.layers}
+    # image archived with the timestamp in out/images/<image>/
+    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests)
+    print(f"ok: {img}\narchived: {dest}")
+
+
+def build_layer(target: Target, v: version.BuildVersion, language: str,
+                rebuild_packages: bool = False) -> None:
+    """Packages, kernel, initramfs and SYSTEM of one hardware layer in out/<layer>/."""
     out = rootfs.target_out(target)
-    v = version.current()  # one timestamp per build, in every stage (D15)
-    print(f"build {target.name} {v.build_id} (language {language})", flush=True)
     console = target.name in kernel.KERNEL_TARGETS
     # [2] local packages (only those missing from the repository, unless rebuilding)
     ensure_key(target)
@@ -31,30 +58,39 @@ def build_target(target: Target, rebuild_packages: bool = False,
     # [3] rootfs (with the stage 1 modules), manifest and SYSTEM
     tar = rootfs.build_rootfs(target, v, language)
     rootfs.make_system(target, tar, out / "SYSTEM")
-    # [4] initramfs (VM: it carries modules from the rootfs) and image
+    # [4] VM: the initramfs carries modules from the rootfs
     if not console:
         build_initramfs(target)
-    img = build_image(target, v=v, language=language)
-    # image archived with the timestamp in out/images/<target>/
-    dest = archive_image(target, img, v, {**_build_info(target), "language": language})
-    print(f"ok: {img}\narchived: {dest}")
 
 
-def _build_info(target: Target) -> dict:
-    """Build components for build.json."""
+def _alpine() -> str:
     from r36os.container import ALPINE_VERSION
 
-    info: dict = {"alpine": ALPINE_VERSION,
-                  "system_bytes": (rootfs.target_out(target) / "SYSTEM").stat().st_size}
+    return ALPINE_VERSION
+
+
+def _layer_info(target: Target) -> dict:
+    """Components of one layer for build.json."""
+    info: dict = {"system_bytes": (rootfs.target_out(target) / "SYSTEM").stat().st_size}
     release = rootfs.target_out(target) / "kernel" / "release"
     if target.name in kernel.KERNEL_TARGETS and release.exists():
         info["kernel"] = release.read_text().strip()
         info["kernel_patches"] = [p.name for p in kernel.patches()]
     if target.name in uboot.UBOOT_TARGETS:
         info["u_boot"] = uboot.UBOOT_VERSION
-    if target.name in ANDROID_BOOT:
-        info["bootloader"] = "vendor (boot0 + U-Boot 2017, 128 MiB area)"
     return info
+
+
+def console_bootloaders() -> dict:
+    """The factory chains in the console boot area, with the SHA256 they were checked by."""
+    from r36os import r36s_vendor, vendor
+
+    return {
+        "ga36": {"chain": "vendor boot0 (shrunk to 24 KiB) + U-Boot 2017",
+                 "area_sha256": vendor.AREA_SHA256},
+        "r36s": {"chain": "vendor idbloader + uboot.img + trust.img",
+                 "sha256": {r.name: r.sha256 for r in r36s_vendor.REGIONS}},
+    }
 
 
 # target -> (kernel ARCH, folder of the SoC DTS in arch/<arch>/boot/dts/)

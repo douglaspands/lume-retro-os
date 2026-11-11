@@ -1,6 +1,6 @@
 """GA36 kernel config (task 9.4): board/ga36/kernel.config and the generated .config.
 
-The final .config (out/ga36/kernel/config) only exists after `r36os build ga36`; without
+The final .config (out/ga36/kernel/config) only exists after `r36os build console`; without
 it the tests that depend on it are skipped.
 """
 
