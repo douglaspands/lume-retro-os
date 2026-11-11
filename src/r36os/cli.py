@@ -1,4 +1,4 @@
-"""Command line: `r36os build|flash|vm|pkg|test-vm`."""
+"""Command line: `r36os build|flash|eject|vm|pkg|test-vm`."""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ def _parser() -> argparse.ArgumentParser:
     f.add_argument("--eject", action="store_true",
                    help="safely unmount and power off / eject the device after writing")
 
+    e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
+    e.add_argument("device", help="whole card, e.g. /dev/sdc")
 
     v = sub.add_parser("vm", help="run the vm image in QEMU/KVM")
     v.add_argument("--headless", action="store_true", help="no window: serial on the terminal")
@@ -82,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
 
             return main_flash(get_target(args.target), args.device, args.update,
                               args.build, args.yes, args.eject)
+        if args.command == "eject":
+            from r36os.flash import main_eject
+
+            return main_eject(args.device)
         if args.command == "pkg":
             target = get_target(args.target)
             from r36os.packages import build_packages

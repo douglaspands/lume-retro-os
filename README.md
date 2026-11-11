@@ -70,6 +70,7 @@ uv run r36os flash ga36 /dev/sdX --full     # cartão todo (o padrão): imagem +
 uv run r36os flash ga36 /dev/sdX            # o mesmo que --full
 uv run r36os flash ga36 /dev/sdX --update   # atualização: preserva jogos, saves e configurações
 uv run r36os flash ga36 /dev/sdX --build 20261109-214233   # um build específico
+uv run r36os eject /dev/sdX                 # ejetar com segurança (sync, desmonta e desliga)
 ```
 
 - O comando só aceita discos removíveis, desmonta as partições, pede para digitar o nome

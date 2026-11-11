@@ -304,8 +304,11 @@ def _unmount(device: str) -> None:
         subprocess.run(["udisksctl", "unmount", "-b", part], check=True, env=_ENV)
 
 
-def _eject(device: str) -> None:
-    """Safely flush, unmount and power off the device (udisksctl power-off or eject)."""
+def _eject(device: str) -> bool:
+    """Safely flush, unmount and power off the device (udisksctl power-off or eject).
+
+    Returns True when the device was powered off or ejected.
+    """
     try:
         mounts = [line.split()[1] for line in Path("/proc/mounts").read_text().splitlines()
                   if line.startswith(device)]
@@ -322,8 +325,9 @@ def _eject(device: str) -> None:
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         env=_ENV).returncode
     if rc != 0:
-        subprocess.run(["eject", device], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=False, env=_ENV)
+        rc = subprocess.run(["eject", device], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, check=False, env=_ENV).returncode
+    return rc == 0
 
 
 
@@ -399,6 +403,23 @@ def flash(target: Target, device: str, update: bool = False, build: str = "lates
     else:
         print(f"ok: written and verified ({zst.parent.name}). You can remove the card.")
     return 0
+
+
+def main_eject(device: str) -> int:
+    """`r36os eject <device>`: the safe eject of `flash --eject`, on its own (after copying
+    games, for example). Only whole removable disks, as `flash`."""
+    try:
+        desc = _check_device(device)
+        if _eject(device):
+            print(f"ok: {desc} flushed, unmounted and powered off; you can remove the card.")
+            return 0
+        print(f"error: {desc} was flushed and unmounted, but could not be powered off "
+              f"(udisksctl power-off and eject failed); wait a few seconds before removing it",
+              file=sys.stderr)
+        return 1
+    except (FlashError, subprocess.CalledProcessError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 def main_flash(target: Target, device: str, update: bool, build: str, yes: bool,

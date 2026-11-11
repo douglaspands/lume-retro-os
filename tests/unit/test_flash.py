@@ -196,6 +196,26 @@ def test_mount_roms_fails_clearly_when_nothing_mounts(monkeypatch):
         flash._mount_roms("/dev/sdc2", wait=0)
 
 
+def test_eject_command(monkeypatch, capsys):
+    from r36os.cli import _parser, main
+
+    assert _parser().parse_args(["eject", "/dev/sdc"]).device == "/dev/sdc"
+    monkeypatch.setattr(flash, "_check_device", lambda d: f"{d} (card)")
+    monkeypatch.setattr(flash, "_eject", lambda d: True)
+    assert main(["eject", "/dev/sdc"]) == 0
+    assert "powered off" in capsys.readouterr().out
+    monkeypatch.setattr(flash, "_eject", lambda d: False)
+    assert main(["eject", "/dev/sdc"]) == 1
+
+
+def test_eject_refuses_what_is_not_a_removable_disk(monkeypatch):
+    def refuse(d):
+        raise flash.FlashError(f"{d} is not removable")
+
+    monkeypatch.setattr(flash, "_check_device", refuse)
+    assert flash.main_eject("/dev/sda") == 1
+
+
 def test_wipe_disk_and_rereadpt(monkeypatch):
     commands = []
 
