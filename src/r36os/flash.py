@@ -317,7 +317,9 @@ def _eject(device: str) -> bool:
     except OSError:
         pass
     _unmount(device)
-    subprocess.run(["sudo", "blockdev", "--flushbufs", device],
+    # extra flush only if sudo needs no password (cached by a flash just before): never
+    # prompts. Unmounting and udisksctl power-off already flush everything without root.
+    subprocess.run(["sudo", "-n", "blockdev", "--flushbufs", device],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                    env=_ENV, check=False)
     subprocess.run(["sync"], env=_ENV, check=False)

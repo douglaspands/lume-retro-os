@@ -110,6 +110,8 @@ def test_eject_calls_udisksctl_power_off(monkeypatch):
     monkeypatch.setattr("subprocess.run", mock_run)
     flash._eject("/dev/sdc")
     assert any("udisksctl" in c and "power-off" in c and "/dev/sdc" in c for c in commands)
+    # eject never asks for a password: any sudo in it is non-interactive (-n)
+    assert all("-n" in c for c in commands if c and c[0] == "sudo")
 
 
 def test_roms_takes_the_rest_of_the_card_from_the_first_mib_after_boot():
