@@ -16,11 +16,12 @@ APKBUILD = (APORT / "APKBUILD").read_text()
 SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
-           "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch"]
+           "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
+           "0007-config-autosave.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
-           "configuration.h", "retroarch.c"]
+           "configuration.h", "retroarch.c", "runloop.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -89,6 +90,15 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert reset.index("config_set_defaults(") < reset.index("config_load_distro_defaults();")
     assert 'getenv("LUME_RETROARCH_DEFAULTS")' in (tmp_path / "configuration.c").read_text()
     assert "bool config_load_distro_defaults(void);" in (tmp_path / "configuration.h").read_text()
+    # 0007: menu changes and the volume keys mark the config dirty; the main loop saves it
+    handler = (tmp_path / "menu/menu_setting.c").read_text().split(
+        "static void general_write_handler(rarch_setting_t *setting)", 1)[1][:400]
+    assert "config_mark_dirty();" in handler
+    assert "config_mark_dirty();" in command.split("void command_event_set_volume(", 1)[1][:2000]
+    assert "config_autosave_tick(current_time);" in (tmp_path / "runloop.c").read_text()
+    cfg = (tmp_path / "configuration.c").read_text()
+    tick = cfg.split("void config_autosave_tick(int64_t now)", 1)[1].split("\n}\n", 1)[0]
+    assert "RUNLOOP_FLAG_OVERRIDES_ACTIVE" in tick and "config_save_on_exit" in tick
 
 
 def test_volume_curve_steps_and_cap():
