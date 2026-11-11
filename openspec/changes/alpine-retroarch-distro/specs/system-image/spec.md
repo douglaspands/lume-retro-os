@@ -2,15 +2,15 @@
 
 ## Purpose
 
-Define as imagens de cartão geradas para cada alvo (R36S, GA36 e VM), o layout de partições e como o sistema é empacotado nelas.
+Define as imagens de cartão geradas para cada alvo desta versão (GA36 e VM), o layout de partições e como o sistema é empacotado nelas. O alvo `r36s` fica reservado para a change do R36S (pendência P-27).
 
 ## ADDED Requirements
 
 ### Requirement: Uma imagem por alvo a partir da mesma base
-O build MUST gerar uma imagem para cada alvo: `r36s` (aarch64), `ga36` (armv7) e `vm` (x86_64). As três MUST usar a mesma versão do Alpine, a mesma lista de pacotes de userland, a mesma configuração e os mesmos cores. Só a camada de hardware MUST variar: kernel, DTBs, bootloader e firmware.
+O build MUST gerar uma imagem para cada alvo desta versão: `ga36` (armv7) e `vm` (x86_64). As duas MUST usar a mesma versão do Alpine, a mesma lista de pacotes de userland, a mesma configuração e os mesmos cores. Só a camada de hardware MUST variar: kernel, DTBs, bootloader e firmware.
 
-#### Scenario: Mesma lista de pacotes nos três alvos
-- **WHEN** as três imagens são geradas no mesmo build
+#### Scenario: Mesma lista de pacotes nos dois alvos
+- **WHEN** as duas imagens são geradas no mesmo build
 - **THEN** o manifesto de pacotes de userland de cada uma lista os mesmos nomes e versões, exceto os pacotes declarados como camada de hardware
 
 #### Scenario: Alvo desconhecido
@@ -18,18 +18,18 @@ O build MUST gerar uma imagem para cada alvo: `r36s` (aarch64), `ga36` (armv7) e
 - **THEN** o build falha antes de gerar qualquer arquivo e lista os alvos válidos
 
 ### Requirement: Tabela de partições MBR com BOOT FAT32
-A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, rótulo `BOOT`, 1 GiB, começando em 16 MiB. Os primeiros 16 MiB MUST ficar livres de partições, reservados ao bootloader de cada alvo.
+A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, rótulo `BOOT`, 1 GiB. A área antes da `BOOT` MUST ficar livre de partições, reservada ao bootloader do alvo: 16 MiB na VM (a `BOOT` começa no setor 32768) e 128 MiB no GA36, a área de boot do fabricante (a `BOOT` começa no setor 262144).
 
 #### Scenario: Layout da imagem recém-gerada
-- **WHEN** a tabela de partições de qualquer imagem gerada é lida
-- **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT`, começa no setor 32768 (16 MiB) e tem 1 GiB
+- **WHEN** a tabela de partições de uma imagem gerada é lida
+- **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT` e 1 GiB, começando no setor 32768 na `vm` e no setor 262144 no `ga36`
 
 ### Requirement: Conteúdo da partição BOOT
-A partição `BOOT` MUST conter o kernel do alvo, o initramfs, a configuração de boot no formato extlinux (`extlinux/extlinux.conf`), os DTBs do alvo (só nos consoles) e o arquivo de sistema `SYSTEM`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
+A partição `BOOT` MUST conter o arquivo de sistema `SYSTEM` e o `VERSION` do build. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). No GA36, o kernel com o DTB anexado e o initramfs embutido vai na imagem de boot Android (setor 172032), e a `BOOT` MUST conter os DTBs em `dtbs/` e as imagens de boot dos dois painéis em `android-boot/`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
 
 #### Scenario: Arquivos presentes na BOOT
 - **WHEN** a partição `BOOT` de uma imagem gerada é listada
-- **THEN** existem o kernel, o `initramfs`, `extlinux/extlinux.conf` e `SYSTEM`, sem pasta `logs/`, e nos alvos `r36s` e `ga36` também `dtbs/` com os DTBs do console
+- **THEN** existem `SYSTEM` e `VERSION`, sem pasta `logs/`; na `vm` também o kernel, o `initramfs` e `extlinux/extlinux.conf`; no `ga36` também `dtbs/` e `android-boot/` com as imagens dos painéis 1 e 2
 
 ### Requirement: Sistema como arquivo squashfs
 O sistema de arquivos raiz MUST ser entregue como um único arquivo squashfs chamado `SYSTEM` dentro da `BOOT`, com no máximo 768 MiB, para sobrar espaço na `BOOT` para uma atualização.
@@ -39,15 +39,11 @@ O sistema de arquivos raiz MUST ser entregue como um único arquivo squashfs cha
 - **THEN** `SYSTEM` é um squashfs válido de até 768 MiB e o build falha se esse limite for ultrapassado
 
 ### Requirement: Bootloader na área reservada
-Nos consoles, o build MUST gravar o bootloader na área antes de 16 MiB, no offset que a ROM de boot do SoC exige: R36S com `idbloader` no setor 64 e `u-boot.itb` no setor 16384; GA36 com U-Boot sunxi (SPL incluso) em 8 KiB. Na VM, MUST gravar um bootloader que leia o mesmo `extlinux.conf`.
-
-#### Scenario: Bootloader do R36S
-- **WHEN** a imagem `r36s` é gerada
-- **THEN** os bytes a partir do setor 64 são o `idbloader` e os bytes a partir do setor 16384 são o `u-boot.itb`, ambos do mesmo build
+No GA36, o build MUST gravar nos primeiros 128 MiB a área de boot do fabricante (boot0 e U-Boot da Allwinner, lidos da imagem de fábrica indicada por `R36OS_GA36_FACTORY` e conferidos por SHA256, fora do git) e, no setor 172032, a imagem de boot Android do painel 1. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline do GA36 fica para depois (tarefa 12.2).
 
 #### Scenario: Bootloader do GA36
 - **WHEN** a imagem `ga36` é gerada
-- **THEN** os bytes a partir de 8 KiB são o U-Boot sunxi com SPL, e a tabela MBR do setor 0 continua intacta
+- **THEN** a área de 8 KiB até a `BOOT` é igual à da imagem de fábrica, exceto a imagem de boot no setor 172032, e a tabela MBR do setor 0 é a nossa
 
 #### Scenario: Bootloader da VM
 - **WHEN** a imagem `vm` sobe no QEMU com firmware BIOS
@@ -61,8 +57,8 @@ O build MUST rodar dentro de containers rootless e não instalar nada no host se
 - **THEN** o manifesto de pacotes e versões das duas imagens é idêntico
 
 ### Requirement: Tamanho mínimo do cartão
-A imagem MUST caber em um cartão de 4 GB, deixando ao menos 2 GB para a partição de jogos criada no primeiro boot.
+A imagem MUST caber em um cartão de 4 GB, deixando ao menos 2 GB para a partição de jogos, criada pelo `r36os flash` com todo o resto do cartão (ou no primeiro boot, se faltar).
 
 #### Scenario: Cartão de 4 GB
-- **WHEN** a imagem é gravada em um cartão de 4 GB e o primeiro boot termina
+- **WHEN** a imagem é gravada em um cartão de 4 GB com `r36os flash --full`
 - **THEN** a partição de jogos tem pelo menos 2 GB livres

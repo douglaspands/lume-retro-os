@@ -1,5 +1,7 @@
 # Design
 
+> **Escopo reduzido (2026-11-11):** a change entrega o GA36 e a VM. O R36S "V5" saiu do escopo, a pedido do usuário, para uma change própria (pendência P-27). As decisões sobre o R36S neste documento (kernel, DTS, U-Boot, `r36os-padmerge`, serial, riscos) e o Apêndice A ficam como referência para essa change e não são verificadas nesta.
+
 ## Context
 
 O repositório está vazio (só governança e OpenSpec), então tudo é construído do zero. Os dados de hardware necessários foram copiados para os apêndices deste documento, a partir de fontes públicas:
@@ -263,7 +265,7 @@ Usuário `game` (uid 1000) sem senha e sem login interativo. `root` sem senha s�
 Não há instalação anterior para migrar. A sequência de liberação de cada build:
 
 1. Gerar a imagem `vm` e rodar o teste de aceitação.
-2. Só depois gerar e marcar como liberadas as imagens `r36s` e `ga36`.
+2. Só depois gerar e marcar como liberada a imagem `ga36` (e a `r36s`, quando a change do R36S existir, P-27).
 3. A primeira subida em cada console é manual, com adaptador serial, seguindo as checagens do resumo de hardware.
 
 Para voltar atrás, basta regravar o cartão com a build anterior. Restaurar a fábrica é apagar `ROMS/system/`.

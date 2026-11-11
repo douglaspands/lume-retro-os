@@ -6,12 +6,14 @@ Não existe hoje uma distro leve, com kernel mainline, que sirva ao mesmo tempo 
 
 ## What Changes
 
+> **Escopo reduzido (2026-11-11):** esta change entrega o **GA36** (Allwinner A33, `armv7`) e a **VM** (`x86_64`). O R36S "V5" saiu do escopo a pedido do usuário, porque a change ficou grande demais, e virou a pendência P-27 de `docs/PENDENCIAS.md`, para uma change própria. A base continua pensada para ele: mesma lista de pacotes e layout, e o alvo `r36s` (`board/r36s/`) segue no código sem imagem. O que aparece abaixo sobre o R36S descreve o objetivo da distro, não o que esta change verifica.
+
 - **Três alvos com a mesma base Alpine:** R36S oficial (RK3326, `aarch64`), clone GA36-MB V1.2 (Allwinner A33, `armv7`) e uma VM de teste (`x86_64`). A mesma lista de pacotes, configuração e layout de cartão em todos. Só muda a camada de hardware: kernel, DTB e bootloader.
 - **Kernel mainline (LTS) nos dois consoles**, com device trees próprios escritos para ele. Os dados de hardware (pinos, painel, joypad, bateria, áudio) foram copiados para o `design.md`, a partir de fontes públicas: os DTBs de fábrica da coleção dArkOSRE-R36 e o projeto goodluckOS (GPL-2.0). DTBs de fábrica não vão para o cartão.
-- **Variantes desta versão:** R36S "V5" e GA36-MB V1.2 com os painéis 1 e 2. A variante é escolhida pela entrada padrão do `extlinux.conf`, editável no PC.
+- **Variantes desta versão:** GA36-MB V1.2 com os painéis 1 e 2 (o painel 1 é o padrão; a imagem de boot do painel 2 fica em `BOOT/android-boot/`). O R36S "V5" vai com a P-27.
 - **Cartão com 2 partições (MBR):**
   - `BOOT`, FAT32 de 1 GiB: kernel, initramfs, DTBs, `extlinux.conf` e o sistema como arquivo `SYSTEM` (squashfs).
-  - `ROMS`, exFAT com o resto do cartão: criada no primeiro boot. Guarda jogos, BIOS, saves, estados, a configuração persistente em `system/` e os logs em `logs/`.
+  - `ROMS`, exFAT com o resto do cartão: criada pelo `r36os flash` (ou no primeiro boot, se faltar). Guarda jogos, BIOS, saves, estados, a configuração persistente em `system/` e os logs em `logs/`.
 - **Sistema imutável:** `SYSTEM` somente leitura, com camada gravável em RAM. Só persiste uma lista explícita: configuração do RetroArch, fuso horário e hostname. Restaurar a fábrica é apagar `ROMS/system/`; atualizar é trocar o arquivo `SYSTEM`.
 - **Boot verboso nesta change:** mensagens do kernel e dos serviços na tela, um resumo de hardware antes do frontend e o log de cada boot em `ROMS/logs/boot/`. Não há splash.
 - **Logs de diagnóstico para decisões futuras:** a cada boot, um retrato do hardware (CPU, clock, memória, temperatura, bateria, armazenamento, vídeo, áudio e controles). Durante o uso, métricas periódicas (temperatura, frequência, ocupação, memória e bateria, no menu ou em jogo) e eventos com sucesso ou falha (serviços, frontend, jogos, desligamento abrupto). Todos os logs do sistema ficam centralizados em `ROMS/logs/`, legível no PC: apagar essa pasta limpa tudo, e ela é recriada no boot seguinte. A gravação é em lote e com rotação, para não encher o cartão nem pesar no desempenho.
@@ -20,13 +22,13 @@ Não existe hoje uma distro leve, com kernel mainline, que sirva ao mesmo tempo 
 - **Frontend inicial = RetroArch**, num serviço de sessão genérico que sobe direto, sem login. Usa o menu padrão do RetroArch (**Ozone**) com os assets oficiais (`retroarch-assets`), menu completo (sem modo kiosk) e escala legível a 640x480. Sair do RetroArch desliga o console, e o item "Sair" do menu passa a se chamar "Desligar".
 - **Validação contínua por VM:** a imagem `x86_64` usa o mesmo layout e o mesmo fluxo de boot. Um teste automatizado de aceitação na VM é condição para liberar as imagens dos consoles.
 
-**Fora do escopo** (próximas changes): splash de boot, tema visual próprio (Lume), Lume Console (frontend próprio), atualização A/B, Wi-Fi e Bluetooth, overclock, otimizações específicas do A33 (flags Cortex-A7 nos pacotes, `snes9x2005_plus` no armv7, governor, zram, latência de áudio e curva de bateria medidas; nesta change os padrões são avaliados primeiro), segundo slot de cartão do R36S, outras revisões do R36S, GA36 com A23, miniaturas e wallpaper por sistema.
+**Fora do escopo** (próximas changes): splash de boot, tema visual próprio (Lume), Lume Console (frontend próprio), atualização A/B, Wi-Fi e Bluetooth, overclock, otimizações específicas do A33 (flags Cortex-A7 nos pacotes, o `snes9x2005_plus` compilado para o A33, governor, zram, latência de áudio e curva de bateria medidas; nesta change o `snes9x2005_plus` entra com o build padrão e os padrões são avaliados primeiro), **o suporte ao R36S "V5" (P-27)**, segundo slot de cartão do R36S, outras revisões do R36S, GA36 com A23, miniaturas e wallpaper por sistema.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `system-image`: as imagens por alvo (`r36s`, `ga36`, `vm`), o layout de partições, o `SYSTEM` squashfs e a área do bootloader.
+- `system-image`: as imagens por alvo (`ga36` e `vm`; `r36s` reservado para a P-27), o layout de partições, o `SYSTEM` squashfs e a área do bootloader.
 - `boot-runtime`: o fluxo de boot com raiz imutável, a criação e verificação da `ROMS`, a persistência seletiva, o boot verboso, o resumo de hardware e os logs.
 - `device-support`: o suporte de hardware de cada console (kernel mainline, device trees, variantes, vídeo, controle, áudio, bateria e serial).
 - `game-library`: o contrato de pastas, o catálogo de sistemas e cores, as listas de jogos e o tratamento de saves.

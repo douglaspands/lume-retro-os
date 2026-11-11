@@ -7,10 +7,10 @@ Garante que toda build possa ser validada numa VM x86_64 local antes de ir para 
 ## ADDED Requirements
 
 ### Requirement: VM equivalente aos consoles
-A imagem `vm` MUST usar o mesmo layout de partições, o mesmo `extlinux.conf`, o mesmo fluxo de boot (initramfs, `SYSTEM`, camada em RAM, criação da `ROMS`), os mesmos serviços, os mesmos cores e a mesma configuração do RetroArch dos consoles. Só kernel, bootloader e drivers (incluindo o Mesa com virgl da VM) MUST mudar.
+A imagem `vm` MUST usar o mesmo layout da `BOOT` e da `ROMS`, o mesmo fluxo de boot (initramfs, `SYSTEM`, camada em RAM, criação da `ROMS`), os mesmos serviços, os mesmos cores e a mesma configuração do RetroArch do console. Só kernel, bootloader (e a área reservada a ele antes da `BOOT`) e drivers (incluindo o Mesa com virgl da VM) MUST mudar.
 
 #### Scenario: Diferenças restritas ao hardware
-- **WHEN** os manifestos das imagens `vm` e `r36s` do mesmo build são comparados
+- **WHEN** os manifestos das imagens `vm` e `ga36` do mesmo build são comparados
 - **THEN** as diferenças se limitam a pacotes da camada de hardware e à arquitetura
 
 ### Requirement: Execução local da VM
@@ -57,7 +57,7 @@ O projeto MUST ter um teste automatizado que, a partir de uma imagem `vm` recém
 Os jogos usados no teste MUST ter licença que permita redistribuição, ou ser gerados pelo próprio build, e MUST NOT ir para as imagens dos consoles.
 
 #### Scenario: Imagem de console sem conteúdo de teste
-- **WHEN** a partição `BOOT` e o `SYSTEM` da imagem `r36s` são inspecionados
+- **WHEN** a partição `BOOT` e o `SYSTEM` da imagem `ga36` são inspecionados
 - **THEN** não contêm nenhum jogo de teste
 
 ### Requirement: Validação antes de liberar uma build de console
@@ -65,4 +65,4 @@ Uma build de console MUST ser liberada apenas se o teste de aceitação da image
 
 #### Scenario: VM reprovada bloqueia o console
 - **WHEN** o teste de aceitação da VM falha num build
-- **THEN** as imagens `r36s` e `ga36` desse build não são marcadas como liberadas
+- **THEN** a imagem `ga36` desse build não é marcada como liberada

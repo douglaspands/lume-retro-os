@@ -93,18 +93,12 @@
 
 ## 10. R36S "V5" (RK3326)
 
-- [ ] 10.1 Adicionar ao `panel-sitronix-st7703` (em `kernel/patches/`) a variante do painel do R36S V5 com a sequência e os atrasos dos Apêndices A e C; verificar que o kernel arm64 compila e que o teste de host compara a sequência com o Apêndice C
-- [ ] 10.2 Escrever `board/r36s/dts/rk3326-r36s-v5.dts` (painel, luz de fundo, `gpio-keys`, `adc-joystick` sobre `io-channel-mux`, RK817 com codec, carregador e `simple-battery` com a curva OCV, LEDs, SD, `cpu-supply` e as OPPs e zonas térmicas do `rk3326.dtsi` mainline sem alteração); verificar com `dtc` e `dt-validate` sem erros e com teste que compara pinos e códigos com o Apêndice A
-- [ ] 10.3 Implementar o `r36os-padmerge` (C, uinput, "R36S Gamepad") e empacotá-lo; verificar com teste na VM usando dispositivos `uinput` falsos que botões e eixos de dois dispositivos saem num único controle
-- [ ] 10.4 Criar `board/r36s/kernel.config` (LTS, fbcon e drivers de boot embutidos, panfrost, DSI Rockchip, RK817, SARADC, iio-mux, `cpufreq-dt` com o governor padrão do kernel e o thermal da Rockchip) e compilar `Image`, DTB e módulos no container de cross; verificar que os artefatos aparecem em `out/r36s/`
-- [ ] 10.5 Compilar o U-Boot a partir do `odroid-go2_defconfig` (com o blob de DDR do `rkbin` registrado com hash, se necessário) e gravar `idbloader` no setor 64 e `u-boot.itb` no setor 16384; verificar por teste os offsets na imagem
-- [ ] 10.6 Criar `board/r36s/extlinux.conf` (entrada padrão R36S V5, serial `ttyS2` a 1500000 no U-Boot e no kernel, `tty1`) e gerar `r36s.img`; verificar com teste o layout e a presença do DTB
-- [ ] 10.7 Criar a autoconfiguração do "R36S Gamepad" (F1 = Select, F2 = Start, F3 = L3, F4 = R3, F5 = Fn, a confirmar) e escrever `docs/BRINGUP-R36S.md`; verificar o checklist na primeira subida real: painel, botões (incluindo a ordem de F1-F5), analógicos, áudio com alto-falante, bateria e desligamento
+Movido para a pendência **P-27** de `docs/PENDENCIAS.md` em 2026-11-11, a pedido do usuário: a change ficou grande demais, e o R36S terá change própria (a forma de implementar será conversada antes). Os itens 10.1 a 10.7 (painel ST7703, DTS, `r36os-padmerge`, kernel, U-Boot, `extlinux.conf`/`r36s.img` e autoconfiguração) estão resumidos lá; as decisões do R36S e o Apêndice A do `design.md` ficam como referência.
 
 ## 11. Integração e liberação
 
 - [x] 11.1 Implementar a regra de liberação: `uv run r36os build --all` gera e testa a `vm` primeiro e só marca `r36s`/`ga36` como liberadas se o `test-vm` passar; verificar com um defeito injetado na VM que as imagens de console não são marcadas
-- [ ] 11.2 Verificar com teste a paridade entre os manifestos `vm`, `r36s` e `ga36` do mesmo build (diferenças só em pacotes de hardware e na arquitetura) e que todos os cores do catálogo estão nos três
+- [ ] 11.2 Verificar com teste a paridade entre os manifestos `vm` e `ga36` do mesmo build (diferenças só em pacotes de hardware e na arquitetura) e que todos os cores do catálogo estão nos dois (a paridade com o `r36s` vai com a P-27)
 - [ ] 11.3 Rodar o `test-vm` completo numa build limpa e registrar no `README.md` o tempo de boot até o frontend, o tamanho do `SYSTEM` e as instruções para gravar o cartão e restaurar a fábrica; verificar que um cartão de 4 GB fica com pelo menos 2 GB livres na `ROMS`
 
 - [x] 11.4 Versionar as imagens (D15): timestamp do build em `/etc/os-release` (`BUILD_ID`) e em `BOOT/VERSION`, e cada imagem arquivada em `out/images/<alvo>/<timestamp>/` com `.img.zst`, `manifest.txt`, `build.json` e `SHA256SUMS`; verificar com teste o formato do identificador, o conteúdo dos arquivos e que a imagem arquivada descomprime igual à original
