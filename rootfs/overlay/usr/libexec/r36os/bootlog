@@ -12,6 +12,8 @@ FALLBACK_KEEP=10
 write_log() {  # destino
 	{
 		echo "== Lume Retro OS: boot $(boot_n) ($(date '+%Y-%m-%d %H:%M:%S %Z'))"
+		# the single card boots on both consoles and their logs share ROMS/logs/
+		echo "== console: $(board)"
 		echo "== boot_id: $(cat /proc/sys/kernel/random/boot_id)"
 		echo "== cmdline: $(cat /proc/cmdline)"
 		echo

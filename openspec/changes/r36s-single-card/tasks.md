@@ -43,8 +43,8 @@
 
 ## 7. Logs dos dois consoles
 
-- [ ] 7.1 O log de boot e o `events.log` registram o console no início de cada boot; a numeração continua única na `ROMS`. Verificação: `tests/logs/test_logs.sh` com dois boots de consoles diferentes.
-- [ ] 7.2 Atualizar `docs/LOGS.md` (os dois consoles na mesma `ROMS/logs/`, como saber de qual console é cada log). Verificação: `tests/unit/test_logs_doc.py` passa.
+- [x] 7.1 O log de boot e o `events.log` registram o console no início de cada boot; a numeração continua única na `ROMS`. Verificação: `tests/logs/test_logs.sh` com dois boots de consoles diferentes.
+- [x] 7.2 Atualizar `docs/LOGS.md` (os dois consoles na mesma `ROMS/logs/`, como saber de qual console é cada log). Verificação: `tests/unit/test_logs_doc.py` passa.
 
 ## 8. Documentação do R36S e pendências
 

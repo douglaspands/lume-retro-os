@@ -414,6 +414,21 @@ restore >/dev/null 2>&1
 check "language: a build with another language keeps the menu choice" 'grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg && grep -q "^user_language = \"3\"$" $PERSIST_SYS/retroarch/retroarch.cfg'
 check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" rootfs/overlay/usr/libexec/r36os/persist'
 
+### Single card (r36s-single-card, task 7.1): boots on the GA36, the R36S and the GA36
+### again share ROMS/logs/ with one boot sequence, and each boot names its console
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR/.boot"
+for console in ga36 r36s ga36; do
+	echo "$console" > "$W/board"
+	BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+done
+starts=$(sed -n 's/^[^ ]* \([0-9]*\) boot OK started: \([a-z0-9]*\) .*/\1 \2/p' "$LOGS_DIR/events.log" | tr '\n' ' ')
+check "single card: three boots in one sequence, each with its console" '[ "$starts" = "1 ga36 2 r36s 3 ga36 " ]'
+check "single card: the counter is shared on ROMS" '[ "$(cat "$LOGS_DIR/.boot")" = 3 ]'
+check "single card: the boot log header names the console" \
+	'grep -q "echo \"== console: \$(board)\"" rootfs/overlay/usr/libexec/r36os/bootlog'
+check "single card: the hardware snapshot names the board" \
+	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
+
 rm -rf "$W"
 echo "falhas: $FAILS"
 [ $FAILS -eq 0 ]

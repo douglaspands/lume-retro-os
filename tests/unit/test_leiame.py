@@ -20,3 +20,13 @@ def test_psx_bios_names_and_hle():
 
 def test_factory_reset_explained():
     assert "Apague esta pasta" in leiame.render()
+
+
+def test_single_card_explained():
+    # r36s-single-card, task 5.4: the same card on both consoles; .srm saves carry over,
+    # save states may not (armv7 and aarch64)
+    text = leiame.render()
+    assert "o mesmo cartão inicia no GA36 e no R36S" in text
+    assert "saves (.srm) funcionam nos dois" in text
+    assert "save states podem não" in text and "armv7" in text and "aarch64" in text
+    assert "cada log diz em qual console" in text

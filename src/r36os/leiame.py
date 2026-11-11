@@ -28,6 +28,12 @@ Pastas:
 Fuso horário e nome do aparelho: crie system/etc/timezone (ex.: America/Sao_Paulo)
 e system/etc/hostname com o valor desejado.
 
+Um cartão, dois consoles: o mesmo cartão inicia no GA36 e no R36S, sem regravar.
+Os dois usam esta partição: jogos, BIOS, saves e configuração passam de um console
+para o outro. Os saves (.srm) funcionam nos dois; os save states podem não
+funcionar no outro console (o GA36 é armv7 e o R36S é aarch64). Os logs dos dois
+ficam juntos em logs/, e cada log diz em qual console foi gerado.
+
 Sistemas
 --------
 """

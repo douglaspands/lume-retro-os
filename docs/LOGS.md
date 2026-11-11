@@ -32,6 +32,21 @@ ROMS/logs/
 `hw/boot-12.txt`, `metrics/boot-12.csv`, `trace/boot-12.log` e `frontend/boot-12.log`
 são do mesmo boot.
 
+**Cartão único (GA36 e R36S):** o mesmo cartão inicia nos dois consoles, e os dois
+gravam na mesma `ROMS/logs/`. A numeração dos boots é uma só: se o cartão iniciou no
+GA36 (boot 12), depois no R36S (13) e de novo no GA36 (14), os três logs ficam lado a
+lado, sem um sobrescrever o outro. Para saber de qual console é cada boot:
+
+- `boot/boot-<n>.log`: a segunda linha do cabeçalho, `== console: ga36` ou
+  `== console: r36s`;
+- `hw/boot-<n>.txt`: o campo `board`;
+- `events.log`: o evento `boot OK started: <console> kernel <versão> ...`, gravado no
+  início de cada boot. Para ver só os boots de um console:
+  `grep "boot OK started: r36s" events.log`.
+
+A arquitetura também diferencia: o campo `kernel` do `hw/boot-<n>.txt` traz a versão e
+a máquina (`armv7l` no GA36, `aarch64` no R36S).
+
 **Sem a partição de jogos** (por exemplo, quando a partição 2 não é exFAT), os logs
 ficam só na RAM, e o log de boot vai para `BOOT/logs/boot-<n>.log` (os 10 mais recentes),
 porque é justamente o caso que precisa de diagnóstico. O log do frontend que falhou vai

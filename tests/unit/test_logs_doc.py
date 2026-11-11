@@ -97,6 +97,15 @@ def test_menu_language_choice_survives_builds():
     assert "nem por um build com outro idioma" in doc
 
 
+def test_single_card_logs_documented():
+    # r36s-single-card (task 7.2): both consoles share ROMS/logs/ and each log names its console
+    bootlog = (LIBEXEC / "bootlog").read_text()
+    assert 'echo "== console: $(board)"' in bootlog and "`== console: r36s`" in DOC
+    assert 'event boot OK "started: $(board) ' in LOGD and "boot OK started: <console>" in DOC
+    assert "numeração dos boots é uma só" in DOC
+    assert 'kv board "$(board)"' in (LIBEXEC / "hwinfo").read_text() and "o campo `board`" in DOC
+
+
 def test_conf_defaults_documented():
     # lines of LOGS_CONF_DEFAULT (the last one closes the string with ')
     defaults = dict(re.findall(r"^([a-z_]+)=([0-9]+)'?$", LOGS_SH, re.M))
