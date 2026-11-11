@@ -188,7 +188,15 @@ repositório, com o crédito no lugar:
 - **[Imagem custom para o clone do R36S (r/R36SBrasil)](https://www.reddit.com/r/R36SBrasil/comments/1xr9zfp/lan%C3%A7amento_imagem_custom_para_clone_do_r36s_placa/)**:
   tópico da comunidade usado como referência para configurar o GA36.
 - **[dArkOSRE-R36](https://github.com/southoz/dArkOSRE-R36)**: os dados do hardware do R36S
-  (Apêndice A do design), referência para o suporte futuro (P-27).
+  (Apêndice A do design da change `alpine-retroarch-distro`), base do device tree do R36S.
+- **Cartão de fábrica do R36S** (um ArkOS para o "R36S V5"): a cadeia de boot do aparelho
+  (`idbloader` e `trust.img` da Rockchip e o U-Boot da linha Hardkernel, que lê o
+  `boot.ini`) e o device tree de fábrica, de onde vieram a sequência do painel e os valores
+  do PMIC. A cadeia é binário fechado e **não é distribuída**: o build a extrai da cópia do
+  cartão do próprio aparelho (`R36OS_R36S_FACTORY`).
+- **Device trees mainline do Odroid Go2/Go3 (Hardkernel) e do GameForce Chi** (Chris
+  Morgan): a estrutura do `board/r36s/dts/rk3326-r36s-v5.dts` (mesmo RK3326, analógicos
+  sobre `io-channel-mux` e painel ST7703) segue a deles.
 - **[Alpine Linux](https://alpinelinux.org/)**, **[RetroArch e libretro](https://www.retroarch.com/)**
   e o **Linux mainline**: a base de tudo; os pacotes locais de `aports/` partem dos APKBUILDs do
   Alpine, e as mudanças no RetroArch e nos cores ficam em patches numerados.

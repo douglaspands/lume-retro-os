@@ -49,7 +49,7 @@
 ## 8. Documentação do R36S e pendências
 
 - [ ] 8.1 `docs/BRINGUP-R36S.md`: cadeia de boot de fábrica, `boot.ini`, layout do cartão único, checagens de hardware e o que foi medido no aparelho. Verificação: o documento cita as tarefas 1.1 e 4.4 com os resultados.
-- [ ] 8.2 `docs/PENDENCIAS.md`: P-21 e P-27 apontando para esta change; pendência nova para o U-Boot mainline do R36S; Agradecimentos do `README.md` com a origem da cadeia de fábrica do R36S. Verificação: os IDs novos são únicos e o arquivo segue o formato da tabela.
+- [x] 8.2 `docs/PENDENCIAS.md`: P-21 e P-27 apontando para esta change; pendência nova para o U-Boot mainline do R36S; Agradecimentos do `README.md` com a origem da cadeia de fábrica do R36S. Verificação: os IDs novos são únicos e o arquivo segue o formato da tabela.
 
 ## 9. Verificação nos dois aparelhos
 
