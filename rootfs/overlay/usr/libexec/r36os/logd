@@ -225,8 +225,15 @@ trace_display() {
 		echo "regs $f"
 		head -n 80 "$f" | sed 's/^/  /'
 	done
-	grep -E 'tcon|dsi|mipi|pll-video|pll-mipi|gpu|mbus' /sys/kernel/debug/clk/clk_summary 2>/dev/null |
-		head -n 40 | sed 's/^/clk /'
+	grep -E 'tcon|dsi|mipi|pll-video|pll-mipi|gpu|mbus|pll-audio|i2s|codec|dma' /sys/kernel/debug/clk/clk_summary 2>/dev/null |
+		head -n 60 | sed 's/^/clk /'
+	# audio path (task 9.8): DAI and codec registers, to see whether the DAC FIFO and its
+	# DMA request are enabled while the DMA controller shows no interrupt
+	for f in /sys/kernel/debug/regmap/*dai*/registers /sys/kernel/debug/regmap/*codec*/registers; do
+		[ -r "$f" ] || continue
+		echo "regs $f"
+		head -n 40 "$f" | sed 's/^/  /'
+	done
 }
 
 # Detailed process snapshot (threads, kernel stack, device descriptors, interrupts, display
