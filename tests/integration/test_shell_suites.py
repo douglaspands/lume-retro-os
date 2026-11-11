@@ -17,6 +17,7 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
     "tests/playlists/test_playlists.sh",  # 6.2
     "tests/logs/test_logs.sh",            # 5.5
     "tests/audio/test_mixer.sh",          # 9.8
+    "tests/audio/test_jack.sh",           # r36s-single-card 6.6
 ])
 def test_shell_suite(script):
     cmd = Container(

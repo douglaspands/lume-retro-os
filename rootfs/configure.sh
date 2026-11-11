@@ -43,4 +43,8 @@ done
 for s in r36os-padmerge; do
 	if [ -f "/etc/init.d/$s" ]; then add "$s" default; fi
 done
+# Board services that live in the common overlay
+case "$BOARD" in
+r36s) add r36os-jack default ;;
+esac
 for s in killprocs mount-ro savecache; do add "$s" shutdown; done

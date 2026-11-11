@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# R36S: the RK817 playback mux follows the headphone jack (speaker or headphones).
+# Enabled only on the R36S (rootfs/configure.sh).
+
+description="Switch the R36S audio between speaker and headphones"
+supervisor="supervise-daemon"
+command="/usr/libexec/r36os/jack"
+respawn_delay=2
+respawn_max=5
+
+depend() {
+	need alsa
+	after r36os-mixer
+	before frontend
+}
