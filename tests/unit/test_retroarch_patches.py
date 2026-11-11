@@ -17,11 +17,11 @@ SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
-           "0007-config-autosave.patch"]
+           "0007-config-autosave.patch", "0008-audio-headroom.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
-           "configuration.h", "retroarch.c", "runloop.c"]
+           "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -99,6 +99,10 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     cfg = (tmp_path / "configuration.c").read_text()
     tick = cfg.split("void config_autosave_tick(int64_t now)", 1)[1].split("\n}\n", 1)[0]
     assert "RUNLOOP_FLAG_OVERRIDES_ACTIVE" in tick and "config_save_on_exit" in tick
+    # 0008: every volume change goes through audio_set_float, which keeps 3 dB headroom
+    drv = (tmp_path / "audio/audio_driver.c").read_text()
+    assert "#define LUME_AUDIO_HEADROOM_DB (-3.0f)" in drv
+    assert "DB_TO_GAIN(val + LUME_AUDIO_HEADROOM_DB)" in drv
 
 
 def test_volume_curve_steps_and_cap():
