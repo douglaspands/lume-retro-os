@@ -11,7 +11,7 @@ gera duas imagens:
 | Camada | Imagem | Aparelho | SoC | Estado |
 |---|---|---|---|---|
 | `ga36` | `console` | GA36-MB V1.2 (clone do R36S) | Allwinner A33, armv7 | validado no aparelho ([guia](docs/BRINGUP-GA36.md)) |
-| `r36s` | `console` | R36S "V5" | Rockchip RK3326, aarch64 | em desenvolvimento (change `r36s-single-card`) |
+| `r36s` | `console` | R36S "V5" | Rockchip RK3326, aarch64 | em desenvolvimento (change `r36s-single-card`, [guia](docs/BRINGUP-R36S.md)) |
 | `vm` | `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
 
 O sistema sobe direto no menu do RetroArch (Ozone), sem login, com a raiz somente leitura
@@ -150,6 +150,7 @@ VM: `test-vm` da mesma build, 69 de 69 checagens):
 ## Documentação
 
 - [docs/BRINGUP-GA36.md](docs/BRINGUP-GA36.md): gravar, subir e conferir o GA36
+- [docs/BRINGUP-R36S.md](docs/BRINGUP-R36S.md): cadeia de boot de fábrica, cartão único e conferência do R36S
 - [docs/PENDENCIAS.md](docs/PENDENCIAS.md): o que falta, para decidir as próximas changes
 - [docs/VM.md](docs/VM.md): VM, atalhos de teclado e leitura do teste de aceitação
 - [docs/LOGS.md](docs/LOGS.md): logs de diagnóstico
