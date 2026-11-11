@@ -145,6 +145,39 @@ def test_ga36_refresh_rate_matches_panel_mode():
     assert abs(value - hz) < 1e-5
 
 
+def test_r36s_refresh_rate_matches_panel_mode():
+    # the R36S panel mode is in the ST7703 variant (kernel patch 0010)
+    patch = (REPO_ROOT / "kernel/patches/0010-drm-panel-sitronix-st7703-add-R36S-V5-panel.patch").read_text()
+    mode = patch.split("r36s_v5_mode = {", 1)[1].split("};", 1)[0]
+    field = {k: eval(v, {"__builtins__": {}})  # noqa: S307 (numbers and + only)
+             for k, v in re.findall(r"\+\s*\.(clock|htotal|vtotal)\s*= ([0-9 +]+),", mode)}
+    hz = field["clock"] * 1000 / (field["htotal"] * field["vtotal"])
+    r36s = (SHARE / "retroarch-r36s.cfg").read_text()
+    value = float(re.search(r'^video_refresh_rate = "([\d.]+)"', r36s, re.M).group(1))
+    assert abs(value - hz) < 1e-5 and round(value, 2) == 59.02
+
+
+def test_fixed_keys_are_the_same_on_both_consoles():
+    # frontend-session (single card): a key fixed for one console must have a fixed value on
+    # the other, or the value written on one card start would leak to the other console
+    keys = {board: set(re.findall(r"^(\w+) = ", (SHARE / f"retroarch-{board}.cfg").read_text(), re.M))
+            for board in ("ga36", "r36s")}
+    assert keys["ga36"] == keys["r36s"], keys
+    consoles = {p.stem.removeprefix("retroarch-") for p in SHARE.glob("retroarch-*.cfg")} - {"lume"}
+    assert consoles == {"ga36", "r36s"}
+
+
+def test_single_card_each_console_gets_its_own_refresh_rate(tmp_path):
+    # the same user config on the ROMS, started on the GA36, the R36S and the GA36 again
+    _, cfg, _ = _frontend(tmp_path, "ga36", 'user_language = "4"\n')
+    assert 'video_refresh_rate = "55.687557"' in cfg
+    _, cfg, _ = _frontend(tmp_path, "r36s")
+    assert 'video_refresh_rate = "59.021554"' in cfg and "55.687557" not in cfg
+    assert 'user_language = "4"' in cfg                     # the user's choice goes along
+    _, cfg, _ = _frontend(tmp_path, "ga36")
+    assert 'video_refresh_rate = "55.687557"' in cfg and "59.021554" not in cfg
+
+
 def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: str | None = None):
     """Run the frontend script with a fake retroarch. Returns (args, user cfg, defaults cfg)."""
     bin_dir = tmp_path / "bin"
