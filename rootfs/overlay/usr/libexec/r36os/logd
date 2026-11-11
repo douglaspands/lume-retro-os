@@ -276,10 +276,35 @@ trace_snapshot() {  # pid
 	rm -f "$tmp"
 }
 
+# Audio stalls reported by RetroArch (patch 0003: the ALSA write waits at most 500 ms and
+# then drops audio). Only the part of the frontend log not read yet is scanned
+# (AUDIO_LOG_POS, in bytes); a log that shrank (a new frontend run) is read from the start.
+# Each new "stalled" or "consuming again" line becomes one event.
+AUDIO_LOG_POS=0
+audio_watch() {
+	local size new
+	size=$(_size "$FRONTEND_LOG_FILE")
+	[ "$size" -ge "$AUDIO_LOG_POS" ] || AUDIO_LOG_POS=0
+	[ "$size" -gt "$AUDIO_LOG_POS" ] || return 0
+	new=$(tail -c +$((AUDIO_LOG_POS + 1)) "$FRONTEND_LOG_FILE" 2>/dev/null |
+		grep -oE '\[ALSA\] Playback (stalled|consuming again)')
+	AUDIO_LOG_POS=$size
+	printf '%s\n' "$new" | while IFS= read -r l; do
+		case "$l" in
+			*stalled) event audio FAIL "playback stalled: the sound device stopped consuming, the game keeps running without sound; see frontend/boot-$(boot_n).log" ;;
+			*again) event audio OK "playback consuming again, sound resumed" ;;
+		esac
+	done
+	return 0
+}
+
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang
 trace_sample() {
 	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
+	# scan before trimming; after a trim everything kept was already read
+	audio_watch
 	frontend_log_trim "$FRONTEND_LOG_FILE"
+	AUDIO_LOG_POS=$(_size "$FRONTEND_LOG_FILE")
 	trace_kernel
 	vb=$(vblank_count)
 	# GPU clock in MHz (devfreq): shows whether it changed when a game started

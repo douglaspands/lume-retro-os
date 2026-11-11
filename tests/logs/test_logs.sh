@@ -175,6 +175,26 @@ FE_STATE=stopped
 trace_sample
 check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log | grep -q "fe=stopped pid=-"'
 
+### logd: audio stalls reported by RetroArch (patch 0003) become events
+AUDIO_LOG_POS=0
+rm -f "$LOGS_RAM"/events.pending "$LOGS_DIR"/events*.log
+echo "[INFO] [Core] Using content: x.gba" > "$FRONTEND_LOG"
+audio_watch; logs_flush
+check "audio: no stall line, no audio event" '! grep -q " audio " $LOGS_DIR/events.log 2>/dev/null'
+echo "[ERROR] [ALSA] Playback stalled: no room in the buffer after 500 ms (hw_ptr not moving)." >> "$FRONTEND_LOG"
+audio_watch; audio_watch; logs_flush
+check "audio: a stall becomes one failure event, not one per sample" '[ "$(grep -c " audio FAIL playback stalled" $LOGS_DIR/events.log)" = 1 ]'
+echo "[INFO] [ALSA] Playback consuming again, audio resumed." >> "$FRONTEND_LOG"
+audio_watch; logs_flush
+check "audio: the resume becomes an OK event" 'grep -q " audio OK playback consuming again" $LOGS_DIR/events.log'
+echo "[ERROR] [ALSA] Playback stalled: no room in the buffer after 500 ms (hw_ptr not moving)." > "$FRONTEND_LOG"
+audio_watch; logs_flush
+check "audio: a new frontend log (shorter) is read from the start" '[ "$(grep -c " audio FAIL playback stalled" $LOGS_DIR/events.log)" = 2 ]'
+audio_watch; logs_flush
+check "audio: lines already read are not reported again" '[ "$(grep -c " audio FAIL playback stalled" $LOGS_DIR/events.log)" = 2 ]'
+: > "$FRONTEND_LOG"
+AUDIO_LOG_POS=0
+
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
 	HANG=0 PREV_PID="" PREV_TICKS="" PREV_VB="" RECOVER_N=0 NOANS=0 DEEP_N=0 PREV_STATE=""

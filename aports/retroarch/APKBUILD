@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=103
+pkgrel=104
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -17,6 +17,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	config.patch
 	0001-quit-shuts-down.patch
 	0002-shut-down-asks-confirmation.patch
+	0003-alsa-bounded-write-wait.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -29,6 +30,10 @@ options="!check" # No tests
 # 0002: o item "Desligar" do menu pede confirmação (selecionar duas vezes em até 3 s),
 # seguindo o quit_press_twice, e a mensagem "Pressione novamente..." passa a dizer desligar.
 # Só o item do menu muda: o atalho e o comando de rede QUIT (self-test) não mudam.
+# 0003: the ALSA driver waits at most 500 ms for room in the playback buffer
+# (upstream waits forever). A device that stops consuming used to freeze the whole
+# frontend on the first audio write of a game (GA36, task 9.8); now the game keeps
+# running without sound and the log says "[ALSA] Playback stalled".
 
 build() {
 	./configure \
@@ -71,4 +76,5 @@ sha512sums="
 723e64620e5239b09aff0725a4c25655b4c3b8b3f0fe130998099d84373c3e6a20766cfe8052c4cdeebb7969007c8a9c970982522be11dd12f525ad7df236f3e  config.patch
 28ca3218b39d03bc82fc7d31ef354a9f3087c7466a136b217797d5a5e2390e4ec96dcc1ec62ccf0e0d5e8e5e5ceb479b5541d05172a0840dc65f2b91767ab708  0001-quit-shuts-down.patch
 e58fe7de31cac03f049ae95b3f8792d2b1d94c87d44f170955e0e2708a7e159b535b7534d62ec95ad30fcb3561501bdd030c8f9e30a6330e5f152873c9f7b7c2  0002-shut-down-asks-confirmation.patch
+b420163e9b26435ff2b65d2fac6203610f12c28e81b4acb7cac502a316f24dd22b1ea6ac6659e691e9f16c335633c5242b959b4c7701c0923747192155ee1683  0003-alsa-bounded-write-wait.patch
 "

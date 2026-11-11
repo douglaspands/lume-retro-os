@@ -1,0 +1,79 @@
+From: Lume Retro OS
+Subject: [PATCH] alsa: bounded wait for room in the playback buffer
+
+In blocking mode the ALSA driver waits for room in the playback buffer with
+snd_pcm_wait(pcm, -1), a poll() with no timeout. If the device stops
+consuming (no codec clock, stuck DMA) the main thread sleeps forever and the
+whole frontend freezes on the first audio write of a game. That happened on
+the GA36 (A33) when the codec mixer path was off: the stream stayed RUNNING
+with hw_ptr stuck at 32.
+
+The wait is now bounded to 500 ms. On a timeout the rest of the write is
+dropped and the driver logs once that playback stalled. While stalled it only
+checks for room without waiting, so the game keeps running without sound.
+When the device consumes again, the driver logs it and plays as before.
+Healthy devices free a period every few milliseconds and never reach the
+timeout.
+
+--- a/audio/drivers/alsa.c
++++ b/audio/drivers/alsa.c
+@@ -296,12 +296,20 @@
+ };
+ #endif
+
++/* Longest wait for room in the playback buffer. A healthy device frees a
++ * period every few milliseconds; a device that does not consume (no clock,
++ * stuck DMA) would otherwise block the main thread forever. */
++#define ALSA_WRITE_TIMEOUT_MS 500
++
+ typedef struct alsa
+ {
+    snd_pcm_t *pcm;
+    alsa_stream_info_t stream_info;
+    bool nonblock;
+    bool is_paused;
++   /* The device stopped consuming: audio is dropped without waiting until
++    * there is room in the buffer again. */
++   bool stalled;
+ } alsa_t;
+
+ static bool alsa_use_float(void *data)
+@@ -408,7 +416,11 @@
+       while (size)
+       {
+          snd_pcm_sframes_t frames;
+-         int rc = snd_pcm_wait(alsa->pcm, -1);
++         /* Bounded wait: once the device is known to be stalled, only
++          * check for room without waiting, so the frontend keeps running
++          * (without sound) instead of sleeping forever in poll(). */
++         int rc = snd_pcm_wait(alsa->pcm,
++               alsa->stalled ? 0 : ALSA_WRITE_TIMEOUT_MS);
+
+          if (rc == -EPIPE || rc == -ESTRPIPE || rc == -EINTR)
+          {
+@@ -417,6 +429,25 @@
+             continue;
+          }
+
++         if (rc == 0)
++         {
++            /* No room in the buffer: drop the rest of this write. */
++            if (!alsa->stalled)
++            {
++               RARCH_ERR("[ALSA] Playback stalled: no room in the buffer after %d ms "
++                     "(hw_ptr not moving). Dropping audio until the device "
++                     "consumes again.\n", ALSA_WRITE_TIMEOUT_MS);
++               alsa->stalled = true;
++            }
++            break;
++         }
++
++         if (alsa->stalled)
++         {
++            RARCH_LOG("[ALSA] Playback consuming again, audio resumed.\n");
++            alsa->stalled = false;
++         }
++
+          frames = snd_pcm_writei(alsa->pcm, buf, size);
+
+          if (frames == -EPIPE || frames == -EINTR || frames == -ESTRPIPE)
