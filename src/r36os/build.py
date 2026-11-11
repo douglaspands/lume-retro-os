@@ -57,7 +57,7 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
         build_console_kernel(target)
     # [3] rootfs (with the stage 1 modules), manifest and SYSTEM
     tar = rootfs.build_rootfs(target, v, language)
-    rootfs.make_system(target, tar, out / "SYSTEM")
+    rootfs.make_system(target, tar, out / "SYSTEM", rootfs.system_limit_mib(target))
     # [4] VM: the initramfs carries modules from the rootfs
     if not console:
         build_initramfs(target)

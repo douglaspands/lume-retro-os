@@ -197,6 +197,69 @@ def test_assemble_lists_conflicting_sectors():
         bootarea.assemble(bytes(ga36), _r36s_regions())
 
 
+# --- console BOOT (D5, task 5.2) ------------------------------------------------------
+
+MiB = 2**20
+
+
+def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB):
+    return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
+            "r36s/Image": image, "r36s/rk3326-r36s-v5.dtb": 60_000,
+            "ga36/dtbs/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
+            "ga36/android-boot/android-boot-panel1.img": 12 * MiB,
+            "ga36/android-boot/android-boot-panel2.img": 12 * MiB}
+
+
+def test_console_boot_files_layout(tmp_path):
+    from r36os import image
+
+    files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
+    assert {"boot.ini", "ga36/SYSTEM", "r36s/SYSTEM", "r36s/Image",
+            "r36s/rk3326-r36s-v5.dtb"} <= set(files)
+    assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
+    (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
+    (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
+    (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
+    files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
+    assert "ga36/dtbs/a.dtb" in files and "ga36/android-boot/android-boot-panel2.img" in files
+
+
+def test_console_boot_within_limits():
+    from r36os import image
+
+    image.check_console_boot(_boot_sizes())
+    image.check_console_boot(_boot_sizes(ga36_system=448 * MiB, r36s_system=448 * MiB,
+                                         image=20 * MiB))
+
+
+@pytest.mark.parametrize("which", ["ga36", "r36s"])
+def test_console_boot_refuses_system_above_448_mib(which):
+    from r36os import image
+
+    sizes = _boot_sizes(**{f"{which}_system": 448 * MiB + 1})
+    with pytest.raises(image.ConsoleImageError, match=f"{which}/SYSTEM.*448 MiB"):
+        image.check_console_boot(sizes)
+
+
+def test_console_boot_needs_64_mib_free():
+    from r36os import image
+
+    with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
+        image.check_console_boot(_boot_sizes(ga36_system=440 * MiB, r36s_system=440 * MiB,
+                                             image=60 * MiB))
+
+
+def test_boot_ini_loads_the_r36s_kernel_and_dtb():
+    from r36os import image
+
+    ini = (image.REPO_ROOT / "board/r36s/boot.ini").read_text()
+    assert ini.startswith("odroidgoa-uboot-config\n")   # the header the factory U-Boot wants
+    assert "load mmc 1:1 ${loadaddr} r36s/Image" in ini
+    assert f"load mmc 1:1 ${{dtb_loadaddr}} r36s/{image.R36S_DTB}" in ini
+    assert "booti ${loadaddr} - ${dtb_loadaddr}" in ini      # no uInitrd: built in
+    assert "bootargs" not in ini.replace("no bootargs", "")  # CMDLINE_FORCE in the kernel
+
+
 @pytest.mark.skipif(not _CACHED.exists(), reason="GA36 factory area not in the cache")
 def test_real_ga36_area_has_room_for_the_r36s_chain():
     data = _CACHED.read_bytes()
