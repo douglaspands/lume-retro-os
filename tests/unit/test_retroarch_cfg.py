@@ -61,9 +61,21 @@ def test_ga36_has_no_keyboard_enable_hotkey():
     # keyboard keys) until it is held; the GA36 has no keyboard. The VM keeps right Shift.
     assert 'input_enable_hotkey = "rshift"' in CFG
     ga36 = (SHARE / "retroarch-ga36.cfg").read_text()
-    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey"]
+    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey", "video_refresh_rate"]
     assert 'input_enable_hotkey = "nul"' in ga36
     assert not (SHARE / "retroarch-vm.cfg").exists()
+
+
+def test_ga36_refresh_rate_matches_panel_mode():
+    # RetroArch assumes 60 Hz; the GA36 panel runs slower, and a wrong rate starves the
+    # audio buffer (crackle). The value must follow the kernel panel mode.
+    patch = (REPO_ROOT / "kernel/patches/0005-drm-panel-add-GA36-MB-JD9366-panels.patch").read_text()
+    mode = patch.split("jd9366_mode = {", 1)[1].split("};", 1)[0]
+    field = {k: int(v) for k, v in re.findall(r"\.(clock|htotal|vtotal) = (\d+)", mode)}
+    hz = field["clock"] * 1000 / (field["htotal"] * field["vtotal"])
+    ga36 = (SHARE / "retroarch-ga36.cfg").read_text()
+    value = float(re.search(r'^video_refresh_rate = "([\d.]+)"', ga36, re.M).group(1))
+    assert abs(value - hz) < 1e-5
 
 
 def _appendconfig(tmp_path, board: str | None) -> str:

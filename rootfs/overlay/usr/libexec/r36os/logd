@@ -431,9 +431,12 @@ sample() {
 		fi
 	done
 	for p in $POLICIES; do line="$line,$(( $(cat "$p/scaling_cur_freq" 2>/dev/null || echo 0) / 1000 ))"; done
-	# Ocupação por núcleo: diferença de /proc/stat desde a amostra anterior
+	# Per-core load: /proc/stat difference since the previous sample. The read stream must be
+	# closed before writing: awk keys streams by file name, so without close() the write goes
+	# to the read-only stream, fails silently, stat.prev keeps the first sample and the
+	# columns become the average since boot.
 	cpus=$(awk -v prev="$LOGS_RAM/stat.prev" '
-		BEGIN { while ((getline l < prev) > 0) { split(l, a, " "); pt[a[1]] = a[2]; pi[a[1]] = a[3] } }
+		BEGIN { while ((getline l < prev) > 0) { split(l, a, " "); pt[a[1]] = a[2]; pi[a[1]] = a[3] }; close(prev) }
 		/^cpu[0-9]/ { tot = 0; for (i = 2; i <= NF; i++) tot += $i; idle = $5 + $6
 			out = out sprintf(",%.0f", (tot - pt[$1]) > 0 ? 100 * (1 - (idle - pi[$1]) / (tot - pt[$1])) : 0)
 			now = now $1 " " tot " " idle "\n" }
