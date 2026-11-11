@@ -4,7 +4,8 @@
  *
  * Port of ga36mb.dtsi / ga36mb-a33.dtsi from goodluckOS (GPL-2.0,
  * github.com/CodeZombie/goodluckOS, commit 8d676e2327a6) to Linux 6.18 LTS,
- * with the values of appendix B of the design (openspec/changes/alpine-retroarch-distro).
+ * with the values of appendix B of the design
+ * (openspec/changes/archive/2026-11-11-alpine-retroarch-distro).
  *
  * Differences from goodluckOS:
  *  - A on PE13 and B on PE12 (goodluckOS has them swapped);

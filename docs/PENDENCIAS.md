@@ -8,8 +8,12 @@ consultar aqui.**
 O que **não** entra aqui:
 
 - Correções, investigações e ajustes da change ativa: vão para o `tasks.md` dela
-  (`openspec/changes/alpine-retroarch-distro/tasks.md`), que é a fonte de verdade.
+  (`openspec/changes/<change>/tasks.md`), que é a fonte de verdade.
 - Tarefas já planejadas: continuam no `tasks.md`.
+
+Sem change ativa desde 2026-11-11: a `alpine-retroarch-distro` (o sistema base no GA36 e
+na VM) foi arquivada em `openspec/changes/archive/2026-11-11-alpine-retroarch-distro/`.
+As prioridades da próxima change saem desta lista.
 
 Como usar:
 
@@ -19,7 +23,7 @@ Como usar:
 - Pendência nova encontrada em qualquer conversa entra aqui **só se** exigir change
   própria, com ID novo, estado e evidência. Caso contrário, vira tarefa no `tasks.md`.
 
-Atualizado em 2026-11-10.
+Atualizado em 2026-11-11.
 
 ## 1. Changes decididas, esperando para serem propostas
 

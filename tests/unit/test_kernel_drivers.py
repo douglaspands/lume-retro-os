@@ -12,7 +12,7 @@ import re
 from r36os import kpatch
 from r36os.paths import REPO_ROOT
 
-DESIGN = (REPO_ROOT / "openspec/changes/alpine-retroarch-distro/design.md").read_text()
+DESIGN = (REPO_ROOT / "openspec/changes/archive/2026-11-11-alpine-retroarch-distro/design.md").read_text()
 PANEL = kpatch.new_file(kpatch.find("0005-"), "drivers/gpu/drm/panel/panel-ga36mb-jd9366.c")
 GAMEPAD_PATCH = kpatch.find("0006-")
 GAMEPAD = kpatch.new_file(GAMEPAD_PATCH, "drivers/input/joystick/ga36mb-gamepad.c")
