@@ -26,8 +26,12 @@ def _parser() -> argparse.ArgumentParser:
     f = sub.add_parser("flash", help="write a built image to the card (run it in a terminal)")
     f.add_argument("target", help=f"target: {', '.join(TARGETS)}")
     f.add_argument("device", help="whole card, e.g. /dev/sdc")
-    f.add_argument("--update", action="store_true",
-                   help="write only the boot area and BOOT, keeping ROMS (games and saves)")
+    mode = f.add_mutually_exclusive_group()
+    mode.add_argument("--full", action="store_true",
+                      help="write the whole card (the default): image, then ROMS on all the "
+                           "space left after BOOT, with the default folders and config")
+    mode.add_argument("--update", action="store_true",
+                      help="write only the boot area and BOOT, keeping ROMS (games and saves)")
     f.add_argument("--build", default="latest", metavar="TIMESTAMP",
                    help="build from out/images/<target>/ (default: latest)")
     f.add_argument("--yes", action="store_true", help="do not ask for confirmation")

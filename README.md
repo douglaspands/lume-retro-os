@@ -66,7 +66,8 @@ O mesmo timestamp está em `BOOT/VERSION` (no PC) e em `/etc/os-release` (`BUILD
 Rode num terminal (a escrita usa `sudo`, que pede a senha):
 
 ```sh
-uv run r36os flash ga36 /dev/sdX            # primeira vez: grava tudo (apaga o cartão)
+uv run r36os flash ga36 /dev/sdX --full     # cartão todo (o padrão): imagem + ROMS no resto
+uv run r36os flash ga36 /dev/sdX            # o mesmo que --full
 uv run r36os flash ga36 /dev/sdX --update   # atualização: preserva jogos, saves e configurações
 uv run r36os flash ga36 /dev/sdX --build 20261109-214233   # um build específico
 ```

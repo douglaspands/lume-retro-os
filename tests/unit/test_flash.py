@@ -88,6 +88,16 @@ def test_cli_parser_eject_flag():
     assert args_no_eject.eject is False
 
 
+def test_cli_parser_full_flag_is_the_default_and_excludes_update():
+    from r36os.cli import _parser
+
+    p = _parser()
+    assert p.parse_args(["flash", "ga36", "/dev/sdc", "--full"]).update is False
+    assert p.parse_args(["flash", "ga36", "/dev/sdc"]).update is False
+    with pytest.raises(SystemExit):
+        p.parse_args(["flash", "ga36", "/dev/sdc", "--full", "--update"])
+
+
 def test_eject_calls_udisksctl_power_off(monkeypatch):
     commands = []
 
