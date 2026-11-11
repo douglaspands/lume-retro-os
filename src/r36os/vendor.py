@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import struct
 from pathlib import Path
 
 from r36os.paths import cache_dir, ensure_dir
@@ -35,8 +36,49 @@ AREA_SHA256 = "c915f899c4e110ad7d1ad35efa853708ab9d5a127ddb18c5118f0716803f607a"
 ENV_VAR = "R36OS_GA36_FACTORY"
 
 
+BOOT0_SECTOR = 16
+BOOT0_FACTORY_SIZE = 32 * 1024   # sectors 16-79 on the factory card
+BOOT0_SHRUNK_SIZE = 24 * 1024    # sectors 16-63: the R36S idbloader starts at sector 64
+EGON_STAMP = 0x5F0A6C39          # checksum field value while the checksum is computed
+
+
 class VendorAreaError(RuntimeError):
     pass
+
+
+def egon_checksum(boot0: bytes) -> int:
+    """eGON checksum: 32-bit sum of all words, with the checksum field (0x0C) = stamp."""
+    if len(boot0) % 4:
+        raise VendorAreaError("boot0 size is not a multiple of 4")
+    words = list(struct.unpack(f"<{len(boot0) // 4}I", boot0))
+    words[3] = EGON_STAMP
+    return sum(words) & 0xFFFFFFFF
+
+
+def shrink_boot0(area: bytearray) -> None:
+    """Shrink the factory boot0 at sector 16 to 24 KiB in place (design D3).
+
+    The factory boot0 declares 32 KiB, but its code ends before 24 KiB and the rest is
+    0xFF. Sectors 64-79 are needed by the R36S idbloader, so the header gets size 24576
+    and a recomputed checksum; only sectors 16-63 keep boot0 data.
+    """
+    start = BOOT0_SECTOR * SECTOR
+    if bytes(area[start + 4:start + 12]) != b"eGON.BT0":
+        raise VendorAreaError("no eGON.BT0 boot0 at sector 16")
+    size = struct.unpack_from("<I", area, start + 0x10)[0]
+    if size != BOOT0_FACTORY_SIZE:
+        raise VendorAreaError(f"boot0 declares {size} bytes, expected {BOOT0_FACTORY_SIZE}")
+    tail = bytes(area[start + BOOT0_SHRUNK_SIZE:start + BOOT0_FACTORY_SIZE])
+    if tail != b"\xff" * len(tail):
+        raise VendorAreaError(
+            "boot0 has code past its first 24 KiB, so it does not fit before the R36S "
+            "idbloader at sector 64; this factory boot0 cannot be shrunk")
+    struct.pack_into("<I", area, start + 0x10, BOOT0_SHRUNK_SIZE)
+    boot0 = bytes(area[start:start + BOOT0_SHRUNK_SIZE])
+    struct.pack_into("<I", area, start + 0x0C, egon_checksum(boot0))
+    # sectors 64-79 no longer belong to boot0: zero them for the R36S chain
+    area[start + BOOT0_SHRUNK_SIZE:start + BOOT0_FACTORY_SIZE] = bytes(
+        BOOT0_FACTORY_SIZE - BOOT0_SHRUNK_SIZE)
 
 
 def area_digest(data: bytes) -> str:
