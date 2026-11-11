@@ -218,6 +218,36 @@ def test_eject_refuses_what_is_not_a_removable_disk(monkeypatch):
     assert flash.main_eject("/dev/sda") == 1
 
 
+def _fake_usb_card(sys_root, vendor, product):
+    # /sys/block/sdc/device -> .../usb1/1-7/1-7:1.0/host0/target0:0:0/0:0:0:0, as on the PC
+    usb = sys_root / "devices/pci0000:00/usb1/1-7"
+    scsi = usb / "1-7:1.0/host0/target0:0:0/0:0:0:0"
+    scsi.mkdir(parents=True)
+    (usb / "idVendor").write_text(vendor + "\n")
+    (usb / "idProduct").write_text(product + "\n")
+    (sys_root / "block/sdc").mkdir(parents=True)
+    (sys_root / "block/sdc/device").symlink_to(scsi)
+
+
+def test_flash_warns_about_the_reader_that_corrupts_cards(tmp_path):
+    _fake_usb_card(tmp_path, "14cd", "125d")
+    assert flash.usb_reader_ids("/dev/sdc", tmp_path) == ("14cd", "125d")
+    warning = flash.reader_warning("/dev/sdc", tmp_path)
+    assert "14cd:125d" in warning and "USBC" in warning and "/dev/sdc2" in warning
+
+
+def test_flash_does_not_warn_about_other_readers(tmp_path):
+    _fake_usb_card(tmp_path, "0bda", "0109")
+    assert flash.reader_warning("/dev/sdc", tmp_path) is None
+
+
+def test_reader_ids_of_a_non_usb_disk(tmp_path):
+    (tmp_path / "devices/platform/mmc0").mkdir(parents=True)
+    (tmp_path / "block/mmcblk0").mkdir(parents=True)
+    (tmp_path / "block/mmcblk0/device").symlink_to(tmp_path / "devices/platform/mmc0")
+    assert flash.usb_reader_ids("/dev/mmcblk0", tmp_path) is None
+
+
 def test_wipe_disk_and_rereadpt(monkeypatch):
     commands = []
 

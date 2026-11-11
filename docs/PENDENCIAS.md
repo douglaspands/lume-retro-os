@@ -100,6 +100,7 @@ Vêm da seção "Fora do escopo" da `proposal.md` e do `design.md`.
 |---|---|---|---|
 | P-18 | aberta | Reativar o PSP (PPSSPP) | Tarefa 12.1: `aports/libretro-ppsspp` pronto, mas com `arch=""`. Avaliar o desempenho na Mali-400 (só GLES2) |
 | P-19 | bloqueada | U-Boot mainline no GA36 | Tarefa 12.2: o build compila, mas o aparelho não deu sinal de vida. Hoje o GA36 usa o boot0 e o U-Boot do fabricante. Diagnosticar com FEL (`sunxi-fel`) ou com LEDs |
+| P-28 | ideia | Mecanismo único de rotação de logs | Tarefa 12.3: hoje a rotação é uma só função (`logs_rotate` em `logs.sh`), mas cada log novo exige editar quatro lugares (`LOG_TYPES`, o teto no `_drain`, a ordem de remoção e o `docs/LOGS.md`), e os logs em RAM (`/var/log/rc.log`, syslog) ficam sem limite. Proposta: uma tabela declarativa de políticas (nome, caminho, teto em bytes, retenção por boots ou pelo fim do arquivo, ordem de remoção no teto geral) lida por funções genéricas, que passam a valer também para `ROMS/logs/`, `BOOT/logs/` (sem ROMS) e `/var/log/` (RAM). Sem `logrotate`: não há agendador no console, e os logs são numerados por boot, gravados em lote e protegem o boot atual. Verificar com os testes de shell atuais passando sem mudança e com um teste que varre onde o sistema escreve e falha se achar um arquivo sem política |
 
 ## 4. Movidas para o `tasks.md` da change ativa
 

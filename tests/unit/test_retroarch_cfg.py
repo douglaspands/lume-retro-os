@@ -39,6 +39,7 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "menu_show_core_updater", "input_menu_toggle_gamepad_combo", "input_quit_gamepad_combo",
         "quit_press_twice", "input_exit_emulator", "input_exit_emulator_btn",
         "input_exit_emulator_axis", "input_enable_hotkey", "ozone_font_scale",
+        "core_info_cache_enable", "midi_driver",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -75,6 +76,20 @@ def test_readable_on_small_screen_and_user_adjustable():
     assert not [k for k in _keys(CFG) if k.startswith("ozone_font_scale_factor")]
     assert "menu_scale_factor" not in _keys(CFG)
     assert not re.search(r'^ozone_font_scale = ', FACTORY, re.M)
+
+
+def test_no_recurring_errors_from_core_info_cache_and_midi():
+    # task 9.11: the info dir is read-only and there is no ALSA sequencer on the consoles
+    assert 'core_info_cache_enable = "false"' in CFG
+    assert 'midi_driver = "null"' in CFG
+
+
+def test_sysctl_override_keeps_only_keys_every_kernel_has():
+    # task 9.11: Alpine's 00-alpine.conf sets network and bpf keys the console kernel lacks;
+    # a file of the same name in /etc/sysctl.d replaces it (OpenRC sysctl service)
+    conf = (REPO_ROOT / "rootfs/overlay/etc/sysctl.d/00-alpine.conf").read_text()
+    keys = re.findall(r"^([a-z_.]+)\s*=", conf, re.M)
+    assert keys == ["kernel.panic", "fs.protected_hardlinks", "fs.protected_symlinks"]
 
 
 def test_menu_buttons_not_swapped():

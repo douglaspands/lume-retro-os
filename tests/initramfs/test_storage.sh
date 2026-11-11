@@ -76,6 +76,23 @@ check "outro-fs: conteúdo intacto" '[ "$(p2_md5 "$IMG4")" = "$MD5" ]'
 check "outro-fs: tabela intacta" '[ "$(part_field "$IMG4" 2 type)" = 83 ]'
 check "outro-fs: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
 
+### 4b. p2 corrupted by the faulty USB reader: a USB command block ("USBC") in its first
+### sector. Not formatted either, and the log names the cause (task 11.5)
+IMG4B=$W/usbc.img
+mkimg "$IMG4B" 1200M
+printf 'start=2129920, type=7\n' | sfdisk -q --append "$IMG4B"
+with_part "$IMG4B" 2 sh -c 'mkfs.exfat -L ROMS "$0" >/dev/null'
+printf 'USBC\001\002\003\004' | dd of="$IMG4B" bs=512 seek=2129920 conv=notrunc 2>/dev/null
+MD5=$(p2_md5 "$IMG4B")
+: > "$MKFS_LOG"
+check "usbc: signature detected" '[ "$(fs_type_at "$IMG4B" 2129920)" = usbc ]'
+check "usbc: decision usbc" '[ "$(decide_p2 "$IMG4B")" = usbc ]'
+R=$(setup_storage "$IMG4B" 2>"$W/log4b")
+check "usbc: no ROMS" '[ -z "$R" ]'
+check "usbc: log names the card reader" 'grep -q "USB command block" "$W/log4b" && grep -q "card reader" "$W/log4b"'
+check "usbc: content untouched" '[ "$(p2_md5 "$IMG4B")" = "$MD5" ]'
+check "usbc: mkfs not called" '[ ! -s "$MKFS_LOG" ]'
+
 ### 5. p2 vazia (sem sistema de arquivos): também não formata
 IMG5=$W/empty.img
 mkimg "$IMG5" 1200M

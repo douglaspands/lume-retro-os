@@ -42,6 +42,12 @@ def test_fragment_enables_thermal_sensor_and_gpu_cooling():
     assert opts.get("CONFIG_DEVFREQ_THERMAL") == "y"
 
 
+def test_fragment_gives_the_overlay_upper_layer_xattrs():
+    # the root overlay's upper layer is a tmpfs: without xattrs the kernel logs
+    # "overlayfs: failed to set xattr on upper" on every boot (task 9.11)
+    assert _options(FRAGMENT).get("CONFIG_TMPFS_XATTR") == "y"
+
+
 def test_own_drivers_are_the_patched_files():
     patches = "".join(p.read_text() for p in (REPO_ROOT / "kernel/patches").glob("*.patch"))
     for f in OWN_DRIVER_FILES:

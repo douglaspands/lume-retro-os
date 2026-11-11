@@ -284,6 +284,33 @@ def _sudo_write(img: Path, device: str, offset: int, length: int) -> None:
          "conv=notrunc,fsync", "status=progress"], check=True, env=_ENV)
 
 
+# USB card readers known to corrupt cards: the 14cd:125d ("Mass Storage Device") wrote
+# its own USB command blocks ("USBC") into small writes (ROMS boot sector, BOOT FSINFO).
+BAD_READERS = {("14cd", "125d"): "writes USB commands (\"USBC\") into small writes"}
+
+
+def usb_reader_ids(device: str, sys_root: Path = Path("/sys")) -> tuple[str, str] | None:
+    """(idVendor, idProduct) of the USB device behind a block device, or None (not USB)."""
+    node = (sys_root / "block" / Path(device).name / "device").resolve()
+    for parent in [node, *node.parents]:
+        vendor, product = parent / "idVendor", parent / "idProduct"
+        if vendor.is_file() and product.is_file():
+            return vendor.read_text().strip().lower(), product.read_text().strip().lower()
+        if parent == sys_root:
+            break
+    return None
+
+
+def reader_warning(device: str, sys_root: Path = Path("/sys")) -> str | None:
+    """Warning text when the card sits in a reader known to corrupt cards."""
+    ids = usb_reader_ids(device, sys_root)
+    if ids in BAD_READERS:
+        return (f"warning: the card reader {ids[0]}:{ids[1]} is known to corrupt cards "
+                f"({BAD_READERS[ids]}); use another reader if you can, and check the card "
+                f"afterwards (sudo fsck.exfat -n {_part_node(device, 2)})")
+    return None
+
+
 def _check_device(device: str) -> str:
     """A whole, removable disk; return a description for the confirmation."""
     name = Path(device).name
@@ -359,6 +386,8 @@ def flash(target: Target, device: str, update: bool = False, build: str = "lates
     mode = "UPDATE (boot area + BOOT; ROMS kept)" if update else \
         "FULL (erases the whole card, including ROMS, then creates an empty ROMS)"
     print(f"image: {zst}\ncard:  {desc}\nmode:  {mode}")
+    if warning := reader_warning(device):
+        print(warning)
     if not yes:
         answer = input(f"Type the device name ({Path(device).name}) to confirm: ")
         if answer.strip() != Path(device).name:

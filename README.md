@@ -99,6 +99,23 @@ uv run r36os eject /dev/sdX                 # ejetar com segurança (sync, desmo
 - **GA36, painel:** há duas variantes de tela; a imagem usa a 1 (a do firmware de fábrica).
   A imagem de boot da 2 fica em `BOOT/android-boot/android-boot-panel2.img` (gravá-la no
   setor 172032 troca o painel).
+- **Leitor de cartão:** o leitor USB `14cd:125d` ("Mass Storage Device") corrompe o cartão em
+  gravações pequenas: grava o próprio comando USB (assinatura `USBC`) no lugar dos dados,
+  como no primeiro setor da `ROMS` ou no FSINFO da `BOOT`. O `r36os flash` avisa quando
+  identifica esse leitor, e o boot registra a causa quando acha a `ROMS` com essa
+  assinatura. Use outro leitor; um cartão afetado se recupera com `fsck.exfat` ou
+  gravando de novo com `--full`.
+
+### Números desta versão
+
+Medidos em 2026-11-11 (GA36: imagem `20261111-131212` e os boots anteriores no aparelho;
+VM: `test-vm` da mesma build, 69 de 69 checagens):
+
+| | GA36 | VM |
+|---|---|---|
+| Do kernel ao frontend | 19 a 22 s | 2,9 s |
+| `SYSTEM` (squashfs) | 270 MiB | 302 MiB |
+| `ROMS` num cartão de 4 GB | cerca de 2,6 GiB (o cartão menos 128 MiB do fabricante e 1 GiB da `BOOT`) | cerca de 2,7 GiB |
 
 ## Documentação
 
