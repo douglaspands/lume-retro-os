@@ -125,13 +125,39 @@ def test_variants(name, compatible):
 
 
 @pytest.mark.parametrize("forbidden", [
-    "opp-", "opp_table", "operating-points", "thermal-zones", "trips", "cooling-maps",
-    "polling-delay", "#cooling-cells", "&ths",
+    "cpu0_opp_table", "opp-table-cpu", "operating-points", "thermal-zones", "trips",
+    "cooling-maps", "polling-delay", "#cooling-cells", "&ths",
 ])
 def test_mainline_cpu_thermal_untouched(forbidden):
-    # OPPs and thermal zones come from sun8i-a33.dtsi unchanged (up to 1008 MHz)
+    # CPU OPPs and thermal zones come from sun8i-a33.dtsi unchanged (up to 1008 MHz)
     for src in ALL_SOURCES:
         assert forbidden not in _code(src)
+
+
+GPU_OPPS = ("144000000", "240000000", "384000000")   # sun8i-a33.dtsi, unchanged
+
+
+def test_gpu_supply_is_vdd_sys():
+    # task 9.10: the Mali sits on vdd-sys (dcdc2), 1.10 V as in the factory firmware
+    assert _node("mali").strip() == "mali-supply = <&reg_dcdc2>;"
+    assert 'regulator-name = "vdd-sys"' in _node("reg_dcdc2")
+
+
+def test_dcdc2_voltage_cannot_change():
+    # no voltage range on dcdc2: the GPU OPP requests can only confirm the current
+    # voltage, so vdd-sys (the whole system domain) never moves with the GPU clock
+    dcdc2 = _node("reg_dcdc2")
+    assert "regulator-min-microvolt" not in dcdc2
+    assert "regulator-max-microvolt" not in dcdc2
+
+
+def test_gpu_opps_only_gain_the_same_voltage():
+    table = _node("mali_opp_table")
+    opps = re.findall(r"opp-(\d+) \{\s*([^}]*)\}", table)
+    assert [hz for hz, _ in opps] == list(GPU_OPPS)          # no new or removed frequency
+    for hz, body in opps:
+        assert body.strip() == "opp-microvolt = <1100000 1000000 1200000>;", hz
+        assert "opp-hz" not in body
 
 
 def test_memory_is_512mib_fallback():

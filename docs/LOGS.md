@@ -90,6 +90,7 @@ Uma linha por evento:
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
 | `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
 | `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos) |
+| `audio` | o dispositivo de som parou de consumir e o jogo segue sem som (`FAIL`, linha `[ALSA] Playback stalled` do RetroArch, patch 0003); o som voltou (`OK`) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
 | `temperature` | zona acima do limite passivo (`FAIL`); de volta 5 °C abaixo (`OK`) |

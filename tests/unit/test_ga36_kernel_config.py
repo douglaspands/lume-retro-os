@@ -34,6 +34,14 @@ def test_fragment_keeps_mainline_cpufreq_and_thermal():
     assert KERNEL_TARGETS["ga36"][2] == "sunxi_defconfig"
 
 
+def test_fragment_enables_thermal_sensor_and_gpu_cooling():
+    # the A33 THS is driven by the GPADC IIO driver (SUN8I_THERMAL covers newer SoCs), and
+    # the GPU is a cooling device only with DEVFREQ_THERMAL (tasks 9.8 follow-up and 9.10)
+    opts = _options(FRAGMENT)
+    assert opts.get("CONFIG_SUN4I_GPADC") == "y"
+    assert opts.get("CONFIG_DEVFREQ_THERMAL") == "y"
+
+
 def test_own_drivers_are_the_patched_files():
     patches = "".join(p.read_text() for p in (REPO_ROOT / "kernel/patches").glob("*.patch"))
     for f in OWN_DRIVER_FILES:

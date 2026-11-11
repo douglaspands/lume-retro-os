@@ -14,9 +14,10 @@ from r36os.paths import REPO_ROOT, cache_dir
 APORT = REPO_ROOT / "aports/retroarch"
 APKBUILD = (APORT / "APKBUILD").read_text()
 SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
-PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch"]
+PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
+           "0003-alsa-bounded-write-wait.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
-           "intl/msg_hash_es.h"]
+           "intl/msg_hash_es.h", "audio/drivers/alsa.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -39,7 +40,7 @@ def test_confirmation_patch_only_touches_the_menu_item_and_the_message():
     assert "generic_action_ok_command(CMD_EVENT_QUIT)" in text
     assert "MSG_PRESS_AGAIN_TO_QUIT" in text
     files = re.findall(r"^\+\+\+ b/(\S+)", text, re.M)
-    assert files == TOUCHED
+    assert files == TOUCHED[:4]
     # the message is reworded in the three shipped languages
     assert "Press again to shut down..." in text
     assert "Pressione novamente para desligar..." in text
@@ -64,3 +65,17 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert '"Press again to shut down..."' in (tmp_path / "intl/msg_hash_us.h").read_text()
     # 0001 is still in effect after 0002
     assert '"Desligar"' in (tmp_path / "intl/msg_hash_pt_br.h").read_text()
+    # 0003: the playback wait is bounded, the untimed wait is gone
+    alsa = (tmp_path / "audio/drivers/alsa.c").read_text()
+    assert "snd_pcm_wait(alsa->pcm, -1)" not in alsa
+    assert "alsa->stalled ? 0 : ALSA_WRITE_TIMEOUT_MS" in alsa
+
+
+def test_alsa_patch_only_bounds_the_playback_wait():
+    text = (APORT / PATCHES[2]).read_text()
+    assert re.findall(r"^\+\+\+ b/(\S+)", text, re.M) == ["audio/drivers/alsa.c"]
+    assert "#define ALSA_WRITE_TIMEOUT_MS 500" in text
+    assert "[ALSA] Playback stalled" in text                 # logd turns it into an event
+    assert "[ALSA] Playback consuming again" in text
+    # the microphone wait (mic->pcm) is not touched
+    assert "mic->pcm" not in text

@@ -1,24 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * GA36-MB V1.2 (Allwinner A33), parte comum às duas variantes de painel.
+ * GA36-MB V1.2 (Allwinner A33), the part shared by both panel variants.
  *
- * Port do ga36mb.dtsi / ga36mb-a33.dtsi do goodluckOS (GPL-2.0,
- * github.com/CodeZombie/goodluckOS, commit 8d676e2327a6) para o Linux 6.18 LTS,
- * com os valores do Apêndice B do design (openspec/changes/alpine-retroarch-distro).
+ * Port of ga36mb.dtsi / ga36mb-a33.dtsi from goodluckOS (GPL-2.0,
+ * github.com/CodeZombie/goodluckOS, commit 8d676e2327a6) to Linux 6.18 LTS,
+ * with the values of appendix B of the design (openspec/changes/alpine-retroarch-distro).
  *
- * Diferenças em relação ao goodluckOS:
- *  - A em PE13 e B em PE12 (o goodluckOS os tem trocados);
- *  - OPPs, zonas térmicas e o sensor (ths) ficam como no sun8i-a33.dtsi mainline,
- *    sem alteração (CPU até 1008 MHz nesta versão);
- *  - o painel é escolhido pelo compatible, um por variante, sem "panel-id";
- *  - brilho padrão 80 (nível 8), como no firmware de fábrica;
- *  - nó memory de 512 MiB como no goodluckOS, só como reserva: o U-Boot do fabricante
- *    passa a memória real por ATAG, e o ARM_ATAG_DTB_COMPAT do kernel a escreve aqui;
- *  - mmc1 (PG) desligado; mmc0 é o cartão de boot;
- *  - uart1_pg_pins vem do sun8i-a23-a33.dtsi e não é redefinido;
- *  - nomes e propriedades aceitos pelos bindings do 6.18: o nó do controle se
- *    chama "mcu", a AXP não leva system-power-controller (o driver já corta a
- *    energia) e o D-PHY não leva vcc-supply.
+ * Differences from goodluckOS:
+ *  - A on PE13 and B on PE12 (goodluckOS has them swapped);
+ *  - the CPU OPPs, the thermal zones and the sensor (ths) stay as in the mainline
+ *    sun8i-a33.dtsi (CPU up to 1008 MHz in this version); the GPU only gains its
+ *    supply and the matching opp-microvolt (task 9.10, see &mali below);
+ *  - the panel is chosen by compatible, one per variant, without "panel-id";
+ *  - default brightness 80 (level 8), as in the factory firmware;
+ *  - a 512 MiB memory node as in goodluckOS, only as a fallback: the vendor U-Boot
+ *    passes the real memory by ATAG and the kernel's ARM_ATAG_DTB_COMPAT writes it here;
+ *  - mmc1 (PG) off; mmc0 is the boot card;
+ *  - uart1_pg_pins comes from sun8i-a23-a33.dtsi and is not redefined;
+ *  - names and properties accepted by the 6.18 bindings: the gamepad node is
+ *    "mcu", the AXP has no system-power-controller (the driver already cuts the
+ *    power) and the D-PHY has no vcc-supply.
  */
 
 #include "sun8i-a33.dtsi"
@@ -278,6 +279,33 @@
 &reg_dcdc2 {
 	regulator-always-on;
 	regulator-name = "vdd-sys";
+};
+
+/*
+ * GPU supply (task 9.10). On the A33 the Mali-400 sits on vdd-sys (dcdc2), the rail of the
+ * whole system domain; the factory firmware runs the GPU up to 408 MHz at 1.10 V on it
+ * (docs/referencia/ga36-emuelec/gpu.md). With mali-supply the OPP core requires
+ * opp-microvolt on every OPP, so each GPU OPP asks for the same 1.10 V (range 1.00-1.20 V).
+ * dcdc2 has no voltage range in this DTS, so the kernel may not change it: the request
+ * only confirms the current voltage and vdd-sys never moves with the GPU clock. The GPU
+ * frequencies (144, 240, 384 MHz) stay as in sun8i-a33.dtsi; the CPU OPPs are untouched.
+ */
+&mali {
+	mali-supply = <&reg_dcdc2>;
+};
+
+&mali_opp_table {
+	opp-144000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
+
+	opp-240000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
+
+	opp-384000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
 };
 
 &reg_dcdc3 {
