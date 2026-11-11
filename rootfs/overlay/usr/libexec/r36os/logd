@@ -246,6 +246,12 @@ trace_deep() {  # pid
 		case "$r" in /dev/*) echo "fd ${f##*/} $r" ;; esac
 	done
 	echo "loadavg $(cat /proc/loadavg 2>/dev/null)"
+	# Playback streams: RetroArch waits in poll() with no timeout for room in the ALSA
+	# buffer, so a stream whose hw_ptr does not move (no DMA interrupt) also freezes it.
+	for f in /proc/asound/card*/pcm*p/sub*/status /proc/asound/card*/pcm*p/sub*/hw_params; do
+		[ -r "$f" ] || continue
+		sed "s|^|alsa ${f#/proc/asound/} |" "$f" 2>/dev/null
+	done
 	sed 's/^/irq /' "$INTERRUPTS_FILE"
 	trace_display
 	echo "=== end of snapshot"
