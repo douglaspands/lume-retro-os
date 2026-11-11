@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=105
+pkgrel=106
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -20,6 +20,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0003-alsa-bounded-write-wait.patch
 	0004-status-frame-count.patch
 	0005-volume-percent-steps.patch
+	0006-reset-to-distro-defaults.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -40,6 +41,8 @@ options="!check" # No tests
 # (",frames=<n>" at the end), so r36os-logd records the game FPS (task 9.13).
 # 0005: the volume keys move a 0-100% level in 5% steps (perceptual curve), capped at
 # 0 dB; the volume widget shows only the percent, and the menu volume stops at 0 dB.
+# 0006: "Reset to Default Config" also loads $LUME_RETROARCH_DEFAULTS (factory config +
+# fixed keys, written by the frontend script), so a reset lands on the distro defaults.
 
 build() {
 	./configure \
@@ -85,4 +88,5 @@ e58fe7de31cac03f049ae95b3f8792d2b1d94c87d44f170955e0e2708a7e159b535b7534d62ec95a
 b420163e9b26435ff2b65d2fac6203610f12c28e81b4acb7cac502a316f24dd22b1ea6ac6659e691e9f16c335633c5242b959b4c7701c0923747192155ee1683  0003-alsa-bounded-write-wait.patch
 87be0110f889b6885d38d1291902305c4713ddd3d8fe51a7172689bf1990566a9a5272e5dc7063861151322001844483619075b363f6e7d1fdd5c9f16a86965b  0004-status-frame-count.patch
 30670d702c566a0a57da3cb13350c9f8239df859c7b15ffa285afd6b35726ab18a621ded94844777087de196d3733d1f3982b3e59d88e55ec85f509dc58cfaf8  0005-volume-percent-steps.patch
+b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2b7d1c5650d364cd42e1379a522e8f44033e27627282851f5  0006-reset-to-distro-defaults.patch
 "

@@ -269,7 +269,10 @@ phase_second() {
 }
 
 phase_third() {
-	check factory-reset 'cmp -s /storage/system/retroarch/retroarch.cfg /usr/share/r36os/factory/retroarch/retroarch.cfg'
+	# the frontend script appends the fixed keys to the user config (none of them is in the
+	# factory file), so the card config starts with the factory file, whole and unchanged
+	local fac=/usr/share/r36os/factory/retroarch/retroarch.cfg
+	check factory-reset 'head -n "$(grep -c "" $fac)" /storage/system/retroarch/retroarch.cfg | cmp -s - $fac'
 	check factory-keeps-games '[ -f "$STATE_ROM" ] && ls /storage/states/nes/*.state >/dev/null 2>&1'
 	mkdir -p /storage/system/etc
 	echo "America/Sao_Paulo" > /storage/system/etc/timezone

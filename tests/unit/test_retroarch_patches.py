@@ -16,10 +16,11 @@ APKBUILD = (APORT / "APKBUILD").read_text()
 SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
-           "0005-volume-percent-steps.patch"]
+           "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
-           "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c"]
+           "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
+           "configuration.h", "retroarch.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -82,6 +83,12 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert '" dB"' not in widget and "+%.1f dB" not in widget
     assert "pow(10, new_volume / 40)" in widget
     assert "list, list_info, -80, 0, 1.0, true, true);" in (tmp_path / "menu/menu_setting.c").read_text()
+    # 0006: the reset loads the distro defaults right after RetroArch's built-in ones
+    ra = (tmp_path / "retroarch.c").read_text()
+    reset = ra.split("case CMD_EVENT_MENU_RESET_TO_DEFAULT_CONFIG:", 1)[1].split("break;", 1)[0]
+    assert reset.index("config_set_defaults(") < reset.index("config_load_distro_defaults();")
+    assert 'getenv("LUME_RETROARCH_DEFAULTS")' in (tmp_path / "configuration.c").read_text()
+    assert "bool config_load_distro_defaults(void);" in (tmp_path / "configuration.h").read_text()
 
 
 def test_volume_curve_steps_and_cap():

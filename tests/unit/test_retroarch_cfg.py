@@ -110,33 +110,80 @@ def test_ga36_refresh_rate_matches_panel_mode():
     assert abs(value - hz) < 1e-5
 
 
-def _appendconfig(tmp_path, board: str | None) -> str:
-    """Run the frontend script with a fake retroarch and return its --appendconfig."""
+def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: str | None = None):
+    """Run the frontend script with a fake retroarch. Returns (args, user cfg, defaults cfg)."""
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "retroarch"
-    fake.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do\n'
-                    '  [ "$1" = --appendconfig ] && { echo "$2"; exit 0; }\n  shift\ndone\n')
+    fake.write_text('#!/bin/sh\necho "$@"\necho "defaults=$LUME_RETROARCH_DEFAULTS"\n')
     fake.chmod(0o755)
     board_file = tmp_path / "board"
     if board is not None:
         board_file.write_text(board + "\n")
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path),
-           "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE)}
+    home = tmp_path / "home"
+    cfg = home / ".config/retroarch/retroarch.cfg"
+    if user_cfg is not None:
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(user_cfg)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(exist_ok=True)
+    extra_file = tmp_path / "extra.cfg"
+    if extra is not None:
+        extra_file.write_text(extra)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
+           "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE),
+           "R36OS_EXTRA_CFG": str(extra_file)}
     r = subprocess.run(["sh", str(FRONTEND)], env=env, capture_output=True, text=True, check=True)
-    return r.stdout.strip()
+    defaults = run_dir / "retroarch-defaults.cfg"
+    return r.stdout, cfg.read_text(), defaults.read_text() if defaults.exists() else None
 
 
-def test_frontend_appends_the_board_config_after_the_common_one(tmp_path):
-    assert _appendconfig(tmp_path, "ga36") == f"{SHARE}/retroarch-lume.cfg|{SHARE}/retroarch-ga36.cfg"
+def test_frontend_writes_fixed_keys_into_the_user_config_without_appendconfig(tmp_path):
+    # --appendconfig made RetroArch reload the config from disk on every core init (opening
+    # and closing a game), throwing away menu changes not yet saved
+    user = ('menu_scale_factor = "0.800000"\nvideo_driver = "vulkan"\n'
+            'ozone_font_scale = "0"\nozone_font_scale_factor_global = "1.500000"\n')
+    args, cfg, _ = _frontend(tmp_path, "ga36", user)
+    assert "--appendconfig" not in args and "--config" in args
+    lines = cfg.splitlines()
+    assert 'menu_scale_factor = "0.800000"' in lines             # user choice kept
+    assert 'ozone_font_scale_factor_global = "1.500000"' in lines
+    assert 'video_driver = "gl"' in lines and 'video_driver = "vulkan"' not in lines
+    assert 'ozone_font_scale = "1"' in lines and 'ozone_font_scale = "0"' not in lines
+    assert lines.index('video_driver = "gl"') == 1               # replaced in place
+    assert 'input_enable_hotkey = "nul"' in lines                # the board file wins
+    assert 'video_refresh_rate = "55.687557"' in lines
+    assert sum(1 for line in lines if line.startswith("input_enable_hotkey ")) == 1
 
 
-def test_frontend_without_board_config_only_appends_the_common_one(tmp_path):
-    assert _appendconfig(tmp_path, "vm") == f"{SHARE}/retroarch-lume.cfg"
+def test_frontend_merge_is_stable_across_starts(tmp_path):
+    _, first, _ = _frontend(tmp_path, "ga36", 'menu_driver = "xmb"\n')
+    _, second, _ = _frontend(tmp_path, "ga36")
+    assert first == second
 
 
-def test_frontend_without_board_file_only_appends_the_common_one(tmp_path):
-    assert _appendconfig(tmp_path, None) == f"{SHARE}/retroarch-lume.cfg"
+def test_frontend_without_board_config_uses_only_the_common_keys(tmp_path):
+    _, cfg, _ = _frontend(tmp_path, "vm", "")
+    assert 'input_enable_hotkey = "rshift"' in cfg and "video_refresh_rate" not in cfg
+
+
+def test_frontend_without_board_file_or_user_config(tmp_path):
+    _, cfg, _ = _frontend(tmp_path, None)
+    assert 'video_driver = "gl"' in cfg and 'input_enable_hotkey = "rshift"' in cfg
+
+
+def test_frontend_extra_config_wins_last(tmp_path):
+    _, cfg, _ = _frontend(tmp_path, "ga36", "", extra='quit_press_twice = "false"\n')
+    assert 'quit_press_twice = "false"' in cfg and 'quit_press_twice = "true"' not in cfg
+
+
+def test_reset_defaults_are_the_factory_config_with_the_fixed_keys(tmp_path):
+    # RetroArch patch 0006: "Reset to Default Config" loads $LUME_RETROARCH_DEFAULTS
+    args, _, defaults = _frontend(tmp_path, "ga36", 'ozone_font_scale_factor_global = "2.000000"\n')
+    assert f"defaults={tmp_path}/run/retroarch-defaults.cfg" in args
+    assert 'ozone_font_scale_factor_global = "1.200000"' in defaults   # factory, not the user's
+    assert 'input_volume_up = "volumeup"' in defaults
+    assert 'ozone_font_scale = "1"' in defaults and 'video_refresh_rate = "55.687557"' in defaults
 
 
 def test_menu_has_no_transparency():

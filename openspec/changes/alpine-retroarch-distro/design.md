@@ -176,20 +176,21 @@ loop:
 ```
 
 - Para virar mestre do DRM sem root, o caminho preferido é o `seatd` (pacote do Alpine) com libseat. Se o RetroArch do Alpine não usar libseat no KMS, o frontend recebe a capability necessária no wrapper. Ver Riscos.
-- O RetroArch roda com `--appendconfig /usr/share/r36os/retroarch-lume.cfg` (o nome é o do sistema, não de um tema). A configuração do usuário continua separada da configuração fixa da distro.
+- A configuração fixa da distro fica em `/usr/share/r36os/retroarch-lume.cfg` (o nome é o do sistema, não de um tema) e, por placa, em `retroarch-<placa>.cfg`. O script do frontend grava essas chaves no `retroarch.cfg` do usuário a cada início: a linha do usuário é trocada no lugar, e o resto do arquivo fica intacto. *Alternativa descartada (2026-11-11):* `--appendconfig`. O RetroArch trata a configuração anexada como um override e recarrega a configuração do disco a cada inicialização de core (`config_load_override`, `runloop.c`), o que inclui abrir e fechar um jogo; o ajuste feito no menu, que só vai para o disco quando o RetroArch sai, se perdia.
+- "Reset to Default Config" volta aos padrões da distro, não só aos do RetroArch: o patch `0006-reset-to-distro-defaults.patch` carrega `$LUME_RETROARCH_DEFAULTS` depois do `config_set_defaults`, e o script do frontend gera esse arquivo (configuração de fábrica + chaves fixas) no diretório de runtime do usuário.
 
 ### D11. Menu padrão do RetroArch (Ozone)
 
-- Sem tema próprio nesta change: o menu é o Ozone, com os assets oficiais do pacote `retroarch-assets` do Alpine em `/usr/share/libretro/assets/`. A autoconfiguração de controles comuns vem do `retroarch-joypad-autoconfig` (`/usr/share/libretro/autoconfig`); os arquivos dos controles dos consoles entram no mesmo diretório. O teclado da VM é mapeado no próprio `retroarch-lume.cfg` (`input_player1_*`).
+- Sem tema próprio nesta change: o menu é o Ozone, com os assets oficiais do pacote `retroarch-assets` do Alpine em `/usr/share/libretro/assets/`. A autoconfiguração de controles comuns vem do `retroarch-joypad-autoconfig` (`/usr/share/libretro/autoconfig`); os arquivos dos controles dos consoles entram no mesmo diretório. O teclado da VM é mapeado na configuração de fábrica do usuário (`input_player1_*`).
   - *Alternativa descartada:* o tema Lume no XMB (ícones, fonte e wallpaper gerados no build). Ficou para uma change futura, junto com o Lume Console.
-- O `retroarch-lume.cfg` contém só o que a distro precisa:
+- O `retroarch-lume.cfg` contém só o que mantém o sistema de pé (o resto é padrão de fábrica do usuário, em `factory/retroarch/retroarch.cfg`, e o ajuste feito no menu persiste no cartão):
   - vídeo e entrada: `video_driver = gl`, contexto `kms`, `alsa`, `udev`;
-  - pastas do contrato de jogos;
-  - menu: `menu_driver = ozone`. O idioma de fábrica (`user_language`, do `--lang` do build) e a legibilidade numa tela de 3,5" a 640x480 (`menu_scale_factor = 1.5`, `ozone_font_scale_factor_global = 1.2`) ficam na configuração de fábrica do usuário (`factory/retroarch/retroarch.cfg`), porque no `--appendconfig` venceriam o ajuste feito no menu;
+  - pastas do contrato de jogos e o comando de rede (logs);
+  - a escala de fonte do Ozone em Global (`ozone_font_scale = 1`): a 640x480 o Ozone limita o layout, e só a fonte muda o tamanho do texto; o fator (`ozone_font_scale_factor_global`, padrão 1,2) é do usuário;
   - menu completo, sem modo kiosk. A exceção é o Core Updater, oculto porque os cores do buildbot são compilados para glibc e não rodam no Alpine (musl);
-  - atalhos: `menu_pause_libretro = true`; Start + Select abre o menu (`input_menu_toggle_gamepad_combo = 4`); no teclado da VM, Shift direito (Select) + S também abre; nenhuma combinação encerra o RetroArch.
+  - atalhos: Start + Select abre o menu (`input_menu_toggle_gamepad_combo = 4`); nenhuma combinação encerra o RetroArch. São padrões do usuário: `menu_driver = ozone`, `menu_pause_libretro = true`, o idioma de fábrica (`user_language`, do `--lang` do build), as teclas de volume e o teclado da VM (Shift direito (Select) + S também abre o menu).
 - O pacote `retroarch` local troca o rótulo "Sair do RetroArch" por "Desligar" (en, pt_BR e es), porque sair desliga o console (D10). O patch `0002-shut-down-asks-confirmation.patch` faz o item pedir confirmação por segurança: é preciso selecioná-lo duas vezes em até 3 s, e a primeira só mostra "Pressione novamente para desligar...". Segue o `quit_press_twice` (ligado no `retroarch-lume.cfg`); o atalho e o comando de rede `QUIT` não mudam, e o self-test desliga a confirmação só para si.
-- Sem transparência no menu (hardware simples, Mali-400): `menu_framebuffer_opacity`, `menu_wallpaper_opacity`, `menu_header_opacity`, `menu_footer_opacity` e `video_msg_bgcolor_opacity` em 1.0 e `menu_rgui_transparency` desligado, no `retroarch-lume.cfg` (fixos, para valerem também em cartões que já têm configuração salva).
+- Sem transparência no menu (hardware simples, Mali-400): `menu_framebuffer_opacity`, `menu_wallpaper_opacity`, `menu_header_opacity`, `menu_footer_opacity` e `video_msg_bgcolor_opacity` em 1.0 e `menu_rgui_transparency` desligado, como padrão de fábrica do usuário (cartões com configuração salva já têm esses valores, gravados pelo RetroArch).
 
 ### D12. VM
 

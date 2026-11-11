@@ -1,14 +1,53 @@
 #!/bin/sh
-# RetroArch frontend: the user config (persisted) + the distro's fixed config.
-# Appended in order: retroarch-lume.cfg (all boards), retroarch-<board>.cfg if it exists,
-# and /run/r36os/retroarch-extra.cfg if it exists (used by the self-test).
-# BOARD_FILE and R36OS_SHARE only change for the tests.
+# RetroArch frontend: the user config (persisted) with the distro's fixed keys written into
+# it before every start. Fixed files, in order (a later one wins): retroarch-lume.cfg (all
+# boards), retroarch-<board>.cfg if it exists, and /run/r36os/retroarch-extra.cfg if it
+# exists (used by the self-test).
+#
+# Why not --appendconfig: RetroArch treats an appended config like an override and reloads
+# the whole configuration from disk on every core init (config_load_override, runloop.c),
+# which includes opening a game and closing it (back to the menu core). A setting changed
+# in the menu lives only in memory until RetroArch saves on exit, so that reload threw it
+# away. Merged into the user config, there is no override and nothing is reloaded.
+#
+# RetroArch's "Reset to Default Config" loads LUME_RETROARCH_DEFAULTS after its built-in
+# defaults (aports/retroarch patch 0006): the factory user config with the fixed keys
+# merged in, written to the user's runtime dir (RAM) on every start.
+# BOARD_FILE, R36OS_SHARE and R36OS_EXTRA_CFG only change for the tests.
 SHARE=${R36OS_SHARE:-/usr/share/r36os}
+EXTRA=${R36OS_EXTRA_CFG:-/run/r36os/retroarch-extra.cfg}
+USER_CFG=$HOME/.config/retroarch/retroarch.cfg
+DEFAULTS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-defaults.cfg
 CFGS=$SHARE/retroarch-lume.cfg
 BOARD=$(cat "${BOARD_FILE:-/etc/r36os/board}" 2>/dev/null)
-[ -n "$BOARD" ] && [ -f "$SHARE/retroarch-$BOARD.cfg" ] && CFGS="$CFGS|$SHARE/retroarch-$BOARD.cfg"
-[ -f /run/r36os/retroarch-extra.cfg ] && CFGS="$CFGS|/run/r36os/retroarch-extra.cfg"
+[ -n "$BOARD" ] && [ -f "$SHARE/retroarch-$BOARD.cfg" ] && CFGS="$CFGS $SHARE/retroarch-$BOARD.cfg"
+[ -f "$EXTRA" ] && CFGS="$CFGS $EXTRA"
+
+# Writes the fixed keys into the user config: a fixed key replaces the user's line in
+# place, a missing one is appended, every other line is kept as it is.
+merge_fixed() {  # user_cfg fixed_cfg...
+	local user=$1
+	shift
+	mkdir -p "${user%/*}"
+	[ -f "$user" ] || : > "$user"
+	awk '
+		function key(l) { if (match(l, /^[A-Za-z0-9_]+[ \t]*=/)) { k = substr(l, 1, RLENGTH - 1); sub(/[ \t]+$/, "", k); return k } return "" }
+		FILENAME != USER { k = key($0); if (k != "") { if (!(k in fixed)) order[++n] = k; fixed[k] = $0 } next }
+		{ k = key($0); if (k != "" && (k in fixed)) { if (!(k in done)) print fixed[k]; done[k] = 1 } else print }
+		END { for (i = 1; i <= n; i++) if (!(order[i] in done)) print fixed[order[i]] }
+	' USER="$user" "$@" "$user" > "$user.tmp.$$" && mv -f "$user.tmp.$$" "$user"
+}
+
+# shellcheck disable=SC2086
+merge_fixed "$USER_CFG" $CFGS
+# distro defaults for the reset: factory config + fixed keys (skipped if the runtime dir
+# is not writable; the reset then behaves as upstream)
+if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
+	# shellcheck disable=SC2086
+	merge_fixed "$DEFAULTS" $CFGS
+	export LUME_RETROARCH_DEFAULTS="$DEFAULTS"
+fi
+[ -n "${R36OS_MERGE_ONLY:-}" ] && exit 0
 exec retroarch \
-	--config "$HOME/.config/retroarch/retroarch.cfg" \
-	--appendconfig "$CFGS" \
+	--config "$USER_CFG" \
 	--verbose "$@"

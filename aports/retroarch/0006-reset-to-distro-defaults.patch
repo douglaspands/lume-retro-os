@@ -1,0 +1,66 @@
+From: Lume Retro OS
+Subject: [PATCH] configuration: reset to defaults lands on the distro defaults
+
+"Reset to Default Config" (Settings > Configuration) sets every setting to
+RetroArch's built-in default. On the consoles this loses the distribution's
+defaults (menu font scale, volume keys, no menu transparency) and even its
+drivers and folders until the next start.
+
+After the built-in defaults, the reset now also loads the file named by the
+LUME_RETROARCH_DEFAULTS environment variable (the frontend script points it
+to the factory config merged with the fixed keys). Without the variable the
+reset behaves as upstream.
+
+--- a/configuration.c
++++ b/configuration.c
+@@ -4800,6 +4800,17 @@
+    return true;
+ }
+
++bool config_load_distro_defaults(void)
++{
++   const char *path = getenv("LUME_RETROARCH_DEFAULTS");
++
++   if (string_is_empty(path) || !path_is_valid(path))
++      return false;
++
++   RARCH_LOG("[Config] Loading distribution defaults: \"%s\".\n", path);
++   return config_load_file(global_get_ptr(), path, config_st);
++}
++
+ /**
+  * config_unload_override:
+  *
+--- a/configuration.h
++++ b/configuration.h
+@@ -1292,6 +1292,18 @@
+ bool config_unload_override(void);
+
+ /**
++ * config_load_distro_defaults:
++ *
++ * Lume: loads the distribution's default settings over the current ones,
++ * from the file named by the LUME_RETROARCH_DEFAULTS environment variable.
++ * Called after a reset to defaults, so the reset lands on the distro's
++ * defaults instead of RetroArch's built-in ones.
++ *
++ * Returns: false if the variable is unset or the file cannot be read.
++ */
++bool config_load_distro_defaults(void);
++
++/**
+  * config_load_remap:
+  *
+  * Tries to append game-specific and core-specific remap files.
+--- a/retroarch.c
++++ b/retroarch.c
+@@ -4641,6 +4641,9 @@
+ #endif
+       case CMD_EVENT_MENU_RESET_TO_DEFAULT_CONFIG:
+          config_set_defaults(global_get_ptr());
++         /* Lume: land on the distribution's defaults, not only on
++          * RetroArch's built-in ones. */
++         config_load_distro_defaults();
+          break;
+       case CMD_EVENT_MENU_SAVE_CURRENT_CONFIG:
+ #if !defined(HAVE_DYNAMIC)
