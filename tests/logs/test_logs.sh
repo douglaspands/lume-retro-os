@@ -178,6 +178,7 @@ check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log |
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
 	HANG=0 PREV_PID="" PREV_TICKS="" PREV_VB="" RECOVER_N=0 NOANS=0 DEEP_N=0 PREV_STATE=""
+	KICK_N=0 KICK_WROTE="" SNAPPED=""
 	rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
 }
 # vblank counter from a fake /proc/interrupts: per-CPU counts of the lcd controller line
@@ -242,6 +243,75 @@ done
 check "hang: no CPU but a moving vblank is not a hang" 'kill -0 $FAKE 2>/dev/null && ! grep -q " hung" $LOGS_DIR/events.log 2>/dev/null'
 kill -9 "$FAKE" 2>/dev/null
 wait "$FAKE" 2>/dev/null
+
+### logd: re-enabling the masked TCON vblank interrupt (a fake r36os-devmem)
+# The register is the file $FAKE_REG. Writing it with FAKE_IRQ set "fires" the pending
+# interrupt: the vblank counter in the fake /proc/interrupts moves.
+cat > "$W/bin/fakedevmem" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$FAKE_LOG"
+if [ $# -ge 2 ]; then
+	echo "$2" > "$FAKE_REG"
+	[ -n "$FAKE_IRQ" ] && printf '171:       %s          0 GIC-0 118 Level     1c0c000.lcd-controller\n' "$FAKE_IRQ" > "$FAKE_INTERRUPTS"
+fi
+printf '0x%08x\n' "$(cat "$FAKE_REG")"
+EOF
+chmod +x "$W/bin/fakedevmem"
+export FAKE_REG="$W/reg" FAKE_LOG="$W/devmem.log" FAKE_INTERRUPTS="$W/interrupts"
+DEVMEM_BIN="$W/bin/fakedevmem"
+frozen_tcon() {  # <GINT0 value> <irq after the write, or empty>
+	echo "$1" > "$W/reg"
+	: > "$W/devmem.log"
+	printf '171:       100          0 GIC-0 118 Level     1c0c000.lcd-controller\n' > "$W/interrupts"
+	FAKE_IRQ="$2"
+	export FAKE_IRQ
+	reset_hang
+	printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$W/bin/retroarch"
+	"$W/bin/retroarch" &
+	FAKE=$!
+	sleep 1
+	FE_STATE=no_answer
+}
+check "kick: the base address comes from the interrupt name" '[ "$(tcon_base)" = 0x1c0c000 ]'
+
+# masked interrupts + an effective write: the display runs again and RetroArch is NOT killed
+RECOVER_MAX=2
+frozen_tcon 0x00000a00 4000
+trace_sample; trace_sample
+check "kick: masked vblank is re-enabled and the process keeps running" 'kill -0 $FAKE 2>/dev/null && grep -q "frontend OK recovery: re-enabled the masked display vblank interrupt; retroarch pid $FAKE runs again" $LOGS_DIR/events.log && ! grep -q " hung" $LOGS_DIR/events.log'
+check "kick: reads GINT0 (base + 4) and writes it with the three enable bits set" 'grep -qx "0x1c0c004" $W/devmem.log && grep -qx "0x1c0c004 0xc8000a00" $W/devmem.log && [ "$(cat $W/reg)" = 0xc8000a00 ]'
+check "kick: the snapshot taken before the kick is on the card" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "tcon GINT0 0x00000a00 masked: wrote 0xc8000a00" $LOGS_DIR/trace/boot-7.log'
+kill -9 "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null
+
+# interrupts already enabled (the healthy 0xc8000200): nothing is written, the old recovery runs
+frozen_tcon 0xc8000200 4000
+trace_sample; trace_sample; trace_sample
+wait "$FAKE" 2>/dev/null
+check "kick: enabled interrupts are left alone and the hang falls back to the kill" '! grep -qE "^0x1c0c004 0x" $W/devmem.log && grep -q " hung: blocked" $LOGS_DIR/events.log && ! kill -0 $FAKE 2>/dev/null'
+
+# masked, but the write does not bring the display back: falls back to the kill
+frozen_tcon 0x00000a00 ""
+trace_sample; trace_sample; trace_sample
+wait "$FAKE" 2>/dev/null
+check "kick: an ineffective write falls back to the kill" 'grep -qx "0x1c0c004 0xc8000a00" $W/devmem.log && grep -q " hung: blocked" $LOGS_DIR/events.log && ! kill -0 $FAKE 2>/dev/null && [ "$KICK_N" = 1 ]'
+
+# no tool installed (the VM, other consoles): the old behaviour
+DEVMEM_BIN="$W/bin/does-not-exist"
+frozen_tcon 0x00000a00 4000
+trace_sample; trace_sample; trace_sample
+wait "$FAKE" 2>/dev/null
+check "kick: without the tool the hang is recovered by the kill" 'grep -q " hung: blocked" $LOGS_DIR/events.log && ! kill -0 $FAKE 2>/dev/null && [ ! -s $W/devmem.log ]'
+
+# kick limit reached: no more attempts
+DEVMEM_BIN="$W/bin/fakedevmem"
+KICK_MAX=0
+frozen_tcon 0x00000a00 4000
+trace_sample; trace_sample; trace_sample
+wait "$FAKE" 2>/dev/null
+check "kick: KICK_MAX=0 never touches the register" '[ ! -s $W/devmem.log ] && grep -q " hung: blocked" $LOGS_DIR/events.log'
+KICK_MAX=5
+DEVMEM_BIN=r36os-devmem
 INTERRUPTS_FILE=/proc/interrupts
 FE_STATE=stopped
 

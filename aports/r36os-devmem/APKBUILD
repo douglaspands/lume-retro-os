@@ -1,0 +1,26 @@
+# Lume Retro OS: read or write one 32-bit hardware register through /dev/mem.
+# Used by r36os-logd to re-enable the display controller vblank interrupt when a frozen
+# game leaves it masked (task 9.8). Only the GA36 (armv7, Allwinner A33) has that problem,
+# so the package is built for armv7 only and listed in board/ga36/hw-packages.txt.
+pkgname=r36os-devmem
+pkgver=1.0
+pkgrel=0
+pkgdesc="Read or write one 32-bit hardware register through /dev/mem (Lume Retro OS)"
+url="https://example.invalid"
+arch="armv7"
+license="GPL-2.0-or-later"
+options="!check" # tested with a regular file instead of /dev/mem (tests/unit)
+source="devmem.c"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -o r36os-devmem devmem.c
+}
+
+package() {
+	install -Dm755 r36os-devmem "$pkgdir"/usr/bin/r36os-devmem
+}
+
+sha512sums="
+c846bbcdcb3818eb4cf16f51d15922913352c2956efa7bae77aefd3abedf7917592dca371a6d89247a2a3edf2a98ee9da4faaf4230af4e176d3e4c2ca8ecd8a8  devmem.c
+"

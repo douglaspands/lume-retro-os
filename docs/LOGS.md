@@ -164,10 +164,23 @@ Além disso:
   máximo 3 recuperações por boot (`RECOVER_MAX`; com 0 só registra). A sessão conta a morte
   como uma falha do frontend (`terminated with error (code 137)`), e 3 falhas em 60 s
   param o reinício.
+- **Reabilitar o vblank antes de matar (só no GA36).** No primeiro sinal de bloqueio (5 a 8 s),
+  se o console tem controlador de vídeo, o `logd` grava o instantâneo e lê o registrador
+  `TCON_GINT0` (base do `lcd-controller` + 4) com o `r36os-devmem`. Um console saudável tem
+  `0xc8000200` ali. Nos congelamentos vistos, o valor era `0x00000a00`: as três habilitações
+  de interrupção (bits 31, 30 e 27) zeradas, com a flag `TRI_FINISH` pendente, então o page
+  flip que o RetroArch espera nunca é entregue. Se as habilitações estiverem zeradas, o `logd`
+  liga os três bits (`0xc8000000`) e espera até 3 s o contador `vblank` voltar a subir. Se
+  subir, o RetroArch continua **sem ser morto** (`frontend OK recovery: re-enabled the masked
+  display vblank interrupt`). Se as habilitações já estiverem ligadas, ou a escrita não
+  resolver, segue o caminho de antes: travamento declarado em 10 s e processo morto. No
+  máximo 5 reabilitações por boot (`KICK_MAX`). No `trace/` ficam as linhas `tcon GINT0 ...`
+  com o valor lido e o escrito.
 - O instantâneo também grava o estado do vídeo: `sysfs` do conector (`status`, `enabled`,
   `dpms`) e da luz de fundo, `debugfs` do DRM (`state`, o estado atômico, e `clients`, quem
-  é o master), os registradores do controlador de vídeo e do DSI (`regs`, do regmap) e os
-  clocks de TCON, DSI, PLLs de vídeo e GPU (`clk`).
+  é o master), os registradores do controlador de vídeo, do DSI e do DE (frontend e backend)
+  (`regs`, do regmap) e os clocks de TCON, DSI, PLLs de vídeo e GPU (`clk`). O instantâneo é
+  montado num arquivo na RAM e gravado de uma vez (antes levava 11 s na A33).
 - Ao declarar o congelamento, o `events.log` ganha `frontend FAIL retroarch pid <pid>
   alive but no answer for 15s`, e a descarga no cartão é imediata. Enquanto o estado muda
   ou não há resposta, a descarga acontece a cada amostra, porque um aparelho congelado

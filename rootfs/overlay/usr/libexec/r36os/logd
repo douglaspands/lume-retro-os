@@ -128,14 +128,63 @@ DEEP_MAX=6          # detailed snapshots per boot
 NOANS_LIMIT=3       # consecutive samples without an answer (15 s) before declaring it
 HANG_LIMIT=2        # consecutive samples blocked with no CPU and no vblank (10 s)
 RECOVER_MAX=${RECOVER_MAX:-3}   # times per boot the hung frontend is killed (0 = only log)
+KICK_MAX=${KICK_MAX:-5}         # times per boot the TCON vblank interrupt is re-enabled
+KICK_N=0 KICK_WROTE="" SNAPPED=""
 FRONTEND_LOG_FILE=${FRONTEND_LOG:-/var/log/frontend.log}
 INTERRUPTS_FILE=${INTERRUPTS_FILE:-/proc/interrupts}
+DEVMEM_BIN=${DEVMEM_BIN:-r36os-devmem}   # reads/writes one 32-bit register (GA36 only)
+# TCON_GINT0 (offset 4): VBLANK_ENABLE(0) bit 31, VBLANK_ENABLE(1) bit 30, TCON0_TRI_FINISH_ENABLE
+# bit 27. A healthy console shows 0xc8000200 there; a frozen one showed 0x00000a00 (all three
+# masked, a TRI_FINISH flag pending) while RetroArch waited for a page flip.
+TCON_VBLANK_MASK=0xC8000000
 
 # Sum of the display controller interrupts (the vblank counter); empty when there is no
 # such device (the VM). A frozen display stops this counter.
 vblank_count() {
 	awk '/lcd-controller|tcon/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; found = 1 }
 		END { if (found) print s + 0 }' "$INTERRUPTS_FILE" 2>/dev/null
+}
+
+# Physical base of the display controller (TCON) from its name in /proc/interrupts, for
+# example "1c0c000.lcd-controller" -> 0x1c0c000. Empty when there is none (the VM).
+tcon_base() {
+	awk '/lcd-controller/ { name = $NF; sub(/\..*/, "", name); print "0x" name; exit }' \
+		"$INTERRUPTS_FILE" 2>/dev/null
+}
+
+# When the TCON has its vblank interrupts masked, a page flip waits forever (the flag is
+# pending but nothing wakes RetroArch). Re-enabling the three bits lets the pending flag
+# raise the interrupt and complete the flip. Returns 0 if the vblank counter moved again.
+# Sets KICK_WROTE when it actually wrote the register.
+tcon_kick() {
+	local base reg cur new vb0 vb1 i
+	KICK_WROTE=""
+	command -v "$DEVMEM_BIN" >/dev/null 2>&1 || return 1
+	base=$(tcon_base)
+	[ -n "$base" ] || return 1
+	reg=$(printf '0x%x' $((base + 4)))
+	cur=$("$DEVMEM_BIN" "$reg" 2>/dev/null) || return 1
+	if [ $((cur & TCON_VBLANK_MASK)) -ne 0 ]; then
+		trace "tcon GINT0 $cur: vblank interrupts are enabled, nothing to re-enable"
+		return 1
+	fi
+	new=$(printf '0x%08x' $((cur | TCON_VBLANK_MASK)))
+	vb0=$(vblank_count)
+	"$DEVMEM_BIN" "$reg" "$new" >/dev/null 2>&1 || return 1
+	KICK_WROTE=1
+	trace "tcon GINT0 $cur masked: wrote $new to $reg"
+	i=0
+	while [ $i -lt 3 ]; do
+		sleep 1
+		vb1=$(vblank_count)
+		if [ "$vb1" != "$vb0" ]; then
+			trace "tcon vblank moving again ($vb0 -> $vb1)"
+			return 0
+		fi
+		i=$((i + 1))
+	done
+	trace "tcon vblank still stalled 3 s after re-enabling it"
+	return 1
 }
 
 # New kernel messages since the previous sample (what came before is in the boot log)
@@ -153,48 +202,61 @@ trace_kernel() {
 # clients (who is master) from debugfs, the display controller / DSI registers and clocks.
 # Tells whether the CRTC is still active and the controller still enabled when it freezes.
 trace_display() {
-	local f l
+	local f
 	mountpoint -q /sys/kernel/debug 2>/dev/null || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 	for f in /sys/class/drm/card*-*/status /sys/class/drm/card*-*/enabled /sys/class/drm/card*-*/dpms \
 		/sys/class/backlight/*/brightness /sys/class/backlight/*/bl_power; do
-		[ -r "$f" ] && trace "sysfs $f $(cat "$f" 2>/dev/null)"
+		[ -r "$f" ] && echo "sysfs $f $(cat "$f" 2>/dev/null)"
 	done
 	for f in /sys/kernel/debug/dri/*/state /sys/kernel/debug/dri/*/clients; do
 		[ -r "$f" ] || continue
-		trace "debugfs $f"
-		head -n 60 "$f" | while IFS= read -r l; do trace "  $l"; done
+		echo "debugfs $f"
+		head -n 60 "$f" | sed 's/^/  /'
 	done
-	trace "regmaps: $(ls /sys/kernel/debug/regmap 2>/dev/null | tr '\n' ' ')"
+	echo "regmaps: $(ls /sys/kernel/debug/regmap 2>/dev/null | tr '\n' ' ')"
 	for f in /sys/kernel/debug/regmap/*lcd-controller*/registers /sys/kernel/debug/regmap/*tcon*/registers \
-		/sys/kernel/debug/regmap/*dsi*/registers; do
+		/sys/kernel/debug/regmap/*dsi*/registers /sys/kernel/debug/regmap/*display-backend*/registers \
+		/sys/kernel/debug/regmap/*display-frontend*/registers; do
 		[ -r "$f" ] || continue
-		trace "regs $f"
-		head -n 80 "$f" | while IFS= read -r l; do trace "  $l"; done
+		echo "regs $f"
+		head -n 80 "$f" | sed 's/^/  /'
 	done
 	grep -E 'tcon|dsi|mipi|pll-video|pll-mipi|gpu|mbus' /sys/kernel/debug/clk/clk_summary 2>/dev/null |
-		head -n 40 | while IFS= read -r l; do trace "clk $l"; done
+		head -n 40 | sed 's/^/clk /'
 }
 
 # Detailed process snapshot (threads, kernel stack, device descriptors, interrupts, display
-# state): shows where RetroArch is stuck.
+# state): shows where RetroArch is stuck. Prints the lines; trace_snapshot stores them.
 trace_deep() {  # pid
-	local pid="$1" t l f r
-	trace "=== snapshot of retroarch pid $pid (frontend $FE_STATE)"
+	local pid="$1" t f r
+	echo "=== snapshot of retroarch pid $pid (frontend $FE_STATE)"
 	grep -E '^(State|Threads|VmRSS|VmSwap|voluntary_ctxt_switches|nonvoluntary_ctxt_switches)' \
-		"/proc/$pid/status" 2>/dev/null | while IFS= read -r l; do trace "status $l"; done
+		"/proc/$pid/status" 2>/dev/null | sed 's/^/status /'
 	for t in /proc/$pid/task/*; do
 		[ -d "$t" ] || continue
-		trace "thread ${t##*/} $(cat "$t/comm" 2>/dev/null) state=$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null) wchan=$(cat "$t/wchan" 2>/dev/null)"
-		head -n 12 "$t/stack" 2>/dev/null | while IFS= read -r l; do trace "  stack ${t##*/} $l"; done
+		echo "thread ${t##*/} $(cat "$t/comm" 2>/dev/null) state=$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null) wchan=$(cat "$t/wchan" 2>/dev/null)"
+		head -n 12 "$t/stack" 2>/dev/null | sed "s/^/  stack ${t##*/} /"
 	done
 	for f in /proc/$pid/fd/*; do
 		r=$(readlink "$f" 2>/dev/null)
-		case "$r" in /dev/*) trace "fd ${f##*/} $r" ;; esac
+		case "$r" in /dev/*) echo "fd ${f##*/} $r" ;; esac
 	done
-	trace "loadavg $(cat /proc/loadavg 2>/dev/null)"
-	while IFS= read -r l; do trace "irq $l"; done < "$INTERRUPTS_FILE"
+	echo "loadavg $(cat /proc/loadavg 2>/dev/null)"
+	sed 's/^/irq /' "$INTERRUPTS_FILE"
 	trace_display
-	trace "=== end of snapshot"
+	echo "=== end of snapshot"
+}
+
+# Stores a snapshot in trace.pending in one go: the lines are built in a RAM file with few
+# processes and stamped once (one trace() call per line took 11 s on the A33, which is
+# too long when a frozen console may be switched off any second).
+trace_snapshot() {  # pid
+	local tmp="$LOGS_RAM/snapshot.tmp"
+	[ "$(_size "$LOGS_RAM/trace.pending")" -lt "$TRACE_MAX_BYTES" ] || return 0
+	mkdir -p "$LOGS_RAM"
+	trace_deep "$1" > "$tmp" 2>/dev/null
+	sed "s/^/$(date '+%H:%M:%S') /" "$tmp" >> "$LOGS_RAM/trace.pending"
+	rm -f "$tmp"
 }
 
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang
@@ -234,11 +296,32 @@ trace_sample() {
 			HANG=0
 		fi
 		PREV_PID=$pid PREV_TICKS=$ticks PREV_VB=$vb
-		if [ "$HANG" -eq "$HANG_LIMIT" ]; then
-			event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+		[ "$HANG" -eq 0 ] && SNAPPED=""
+		# First blocked sample on a console with a display controller: take the snapshot
+		# (the evidence) and try to re-enable the masked vblank interrupt before giving
+		# up on the process. It is harmless when the interrupt is not masked.
+		if [ "$HANG" -eq 1 ] && [ -n "$vb" ]; then
 			if [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
 				DEEP_N=$((DEEP_N + 1))
-				trace_deep "$pid"
+				trace_snapshot "$pid"
+				SNAPPED=1
+			fi
+			if [ "$KICK_N" -lt "$KICK_MAX" ]; then
+				if tcon_kick; then
+					[ -n "$KICK_WROTE" ] && KICK_N=$((KICK_N + 1))
+					event frontend OK "recovery: re-enabled the masked display vblank interrupt; retroarch pid $pid runs again (kick $KICK_N of $KICK_MAX)"
+					HANG=0 PREV_TICKS="" PREV_VB=$(vblank_count)
+					logs_flush
+				elif [ -n "$KICK_WROTE" ]; then
+					KICK_N=$((KICK_N + 1))
+				fi
+			fi
+		fi
+		if [ "$HANG" -eq "$HANG_LIMIT" ]; then
+			event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+			if [ -z "$SNAPPED" ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_snapshot "$pid"
 			fi
 			if [ "$RECOVER_N" -lt "$RECOVER_MAX" ]; then
 				RECOVER_N=$((RECOVER_N + 1))
@@ -256,7 +339,7 @@ trace_sample() {
 			# Snapshot when the freeze is declared and then every 6 samples
 			if [ "$NOANS" -ge "$NOANS_LIMIT" ] && [ $(( (NOANS - NOANS_LIMIT) % 6 )) -eq 0 ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
 				DEEP_N=$((DEEP_N + 1))
-				trace_deep "$pid"
+				trace_snapshot "$pid"
 			fi
 		else
 			[ "$NOANS" -ge "$NOANS_LIMIT" ] && event frontend OK "retroarch answering again after $((NOANS * LOG_INTERVAL))s"
