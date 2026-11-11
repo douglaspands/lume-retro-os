@@ -38,7 +38,7 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "libretro_info_path", "assets_directory", "network_cmd_enable", "network_cmd_port",
         "menu_show_core_updater", "input_menu_toggle_gamepad_combo", "input_quit_gamepad_combo",
         "quit_press_twice", "input_exit_emulator", "input_exit_emulator_btn",
-        "input_exit_emulator_axis", "input_enable_hotkey",
+        "input_exit_emulator_axis", "input_enable_hotkey", "ozone_font_scale",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -56,11 +56,12 @@ def test_readable_on_small_screen_and_user_adjustable():
     # Ozone caps its layout at a third of the width (sidebar 408 px * scale <= 640 / 3), so
     # at 640x480 menu_scale_factor stops mattering at ~0.55; the text grows with the global
     # font factor, which only applies with ozone_font_scale = 1 (numeric; "true" reads as 0).
-    assert 'ozone_font_scale = "1"' in FACTORY
+    # The mode is fixed to Global (it kept turning itself off); the factor stays the user's.
+    assert re.search(r'^ozone_font_scale = "1"$', CFG, re.M)
     assert 'ozone_font_scale_factor_global = "1.200000"' in FACTORY
-    assert "menu_scale_factor" not in CFG
-    assert "ozone_font_scale" not in CFG
-    assert not re.search(r'^ozone_font_scale = "(true|false)"', FACTORY, re.M)
+    assert not [k for k in _keys(CFG) if k.startswith("ozone_font_scale_factor")]
+    assert "menu_scale_factor" not in _keys(CFG)
+    assert not re.search(r'^ozone_font_scale = ', FACTORY, re.M)
 
 
 def test_no_quit_combo_and_menu_pauses():
