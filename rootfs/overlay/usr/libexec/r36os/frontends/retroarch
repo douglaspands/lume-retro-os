@@ -1,7 +1,12 @@
 #!/bin/sh
-# Frontend RetroArch: configuração do usuário (persistida) + configuração fixa da distro.
-# /run/r36os/retroarch-extra.cfg, se existir, entra por último (usado pelo self-test).
-CFGS=/usr/share/r36os/retroarch-lume.cfg
+# RetroArch frontend: the user config (persisted) + the distro's fixed config.
+# Appended in order: retroarch-lume.cfg (all boards), retroarch-<board>.cfg if it exists,
+# and /run/r36os/retroarch-extra.cfg if it exists (used by the self-test).
+# BOARD_FILE and R36OS_SHARE only change for the tests.
+SHARE=${R36OS_SHARE:-/usr/share/r36os}
+CFGS=$SHARE/retroarch-lume.cfg
+BOARD=$(cat "${BOARD_FILE:-/etc/r36os/board}" 2>/dev/null)
+[ -n "$BOARD" ] && [ -f "$SHARE/retroarch-$BOARD.cfg" ] && CFGS="$CFGS|$SHARE/retroarch-$BOARD.cfg"
 [ -f /run/r36os/retroarch-extra.cfg ] && CFGS="$CFGS|/run/r36os/retroarch-extra.cfg"
 exec retroarch \
 	--config "$HOME/.config/retroarch/retroarch.cfg" \

@@ -1,6 +1,7 @@
 """Fixed RetroArch configuration (retroarch-lume.cfg = system name, not a theme name)."""
 
 import re
+import subprocess
 
 from r36os.paths import REPO_ROOT
 
@@ -40,6 +41,58 @@ def test_no_quit_combo_and_menu_pauses():
     assert 'quit_press_twice = "true"' in CFG
     selftest_init = (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-selftest").read_text()
     assert 'quit_press_twice = \\"false\\"' in selftest_init or 'quit_press_twice = "false"' in selftest_init
+
+
+SHARE = REPO_ROOT / "rootfs/overlay/usr/share/r36os"
+FRONTEND = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/frontends/retroarch"
+
+
+def test_volume_buttons_are_bound():
+    # the volume buttons are KEY_VOLUMEUP/DOWN, "volumeup"/"volumedown" in RetroArch;
+    # upstream binds volume to the keypad +/-
+    assert 'input_volume_up = "volumeup"' in CFG
+    assert 'input_volume_down = "volumedown"' in CFG
+    # not in the user config: there it could be lost, here it wins on every start
+    assert "input_volume" not in FACTORY
+
+
+def test_ga36_has_no_keyboard_enable_hotkey():
+    # a keyboard enable-hotkey key blocks every keyboard hotkey (the volume buttons are
+    # keyboard keys) until it is held; the GA36 has no keyboard. The VM keeps right Shift.
+    assert 'input_enable_hotkey = "rshift"' in CFG
+    ga36 = (SHARE / "retroarch-ga36.cfg").read_text()
+    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey"]
+    assert 'input_enable_hotkey = "nul"' in ga36
+    assert not (SHARE / "retroarch-vm.cfg").exists()
+
+
+def _appendconfig(tmp_path, board: str | None) -> str:
+    """Run the frontend script with a fake retroarch and return its --appendconfig."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "retroarch"
+    fake.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do\n'
+                    '  [ "$1" = --appendconfig ] && { echo "$2"; exit 0; }\n  shift\ndone\n')
+    fake.chmod(0o755)
+    board_file = tmp_path / "board"
+    if board is not None:
+        board_file.write_text(board + "\n")
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path),
+           "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE)}
+    r = subprocess.run(["sh", str(FRONTEND)], env=env, capture_output=True, text=True, check=True)
+    return r.stdout.strip()
+
+
+def test_frontend_appends_the_board_config_after_the_common_one(tmp_path):
+    assert _appendconfig(tmp_path, "ga36") == f"{SHARE}/retroarch-lume.cfg|{SHARE}/retroarch-ga36.cfg"
+
+
+def test_frontend_without_board_config_only_appends_the_common_one(tmp_path):
+    assert _appendconfig(tmp_path, "vm") == f"{SHARE}/retroarch-lume.cfg"
+
+
+def test_frontend_without_board_file_only_appends_the_common_one(tmp_path):
+    assert _appendconfig(tmp_path, None) == f"{SHARE}/retroarch-lume.cfg"
 
 
 def test_menu_has_no_transparency():
