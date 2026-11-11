@@ -94,7 +94,7 @@ def console_bootloaders() -> dict:
 
 
 # target -> (kernel ARCH, folder of the SoC DTS in arch/<arch>/boot/dts/)
-DTS_VENDOR = {"ga36": ("arm", "allwinner")}
+DTS_VENDOR = {"ga36": ("arm", "allwinner"), "r36s": ("arm64", "rockchip")}
 # targets with the vendor bootloader: one Android boot image per panel (appended DTB)
 ANDROID_BOOT = {"ga36": {"panel1": "sun8i-a33-ga36-mb-v1.2-panel1.dtb",
                          "panel2": "sun8i-a33-ga36-mb-v1.2-panel2.dtb"}}
