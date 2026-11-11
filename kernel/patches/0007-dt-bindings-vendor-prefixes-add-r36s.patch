@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Wed, 11 Nov 2026 19:48:54 -0300
+Subject: [PATCH 07/10] dt-bindings: vendor-prefixes: add r36s
+
+Prefix for the R36S handheld game console (unbranded, Rockchip RK3326).
+
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index a74dd92..123c81f 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1313,6 +1313,8 @@ patternProperties:
+     description: QNAP Systems, Inc.
+   "^quanta,.*":
+     description: Quanta Computer Inc.
++  "^r36s,.*":
++    description: R36S handheld game console (unbranded)
+   "^radxa,.*":
+     description: Radxa
+   "^raidsonic,.*":
