@@ -124,15 +124,29 @@ CPU.
 | Origem | Valor |
 |---|---|
 | Manual | DDR3/DDR3L, 16 bits, até 2 GB, duas *ranks*, escala dinâmica de frequência (seção 2.2.3, p. 14) |
-| Fábrica GA36 | 552 MHz, mínimo de 168 MHz pelo devfreq `dsm` |
-| Nosso GA36 hoje | `pll-ddr1` 1080 MHz, `dram` 270 MHz, `mbus` 400 MHz. A DRAM é configurada pelo boot0 de fábrica e o Linux não a altera |
+| FEX de fábrica (`[dram_para]`, área de boot) | `dram_clk = 552`, `dram_type = 3` (DDR3), `dram_odt_en = 1`, `dram_zq = 0x3bbb`, `dram_para1 = 0x10f20200`, `dram_mr0..3 = 0x1840 0x40 0x8 0x0`, `dram_tpr0..2 = 0x48a192 0x1b1b18d 0x76052`, `dram_tpr12 = 168`, `dram_tpr13 = 0x10900` |
+| Fábrica GA36 em uso | devfreq `dsm` (`sunxi-ddrfreq`) de 168 a 552 MHz, 552 MHz na medição |
+| Nosso GA36 hoje | `pll-ddr1` 1080 MHz, `dram` 270 MHz, `mbus` 400 MHz, fixos: o boot0 de fábrica configura a DRAM e o mainline não tem devfreq de DRAM para o A33 |
 | Fex Guide | `dram_clk` em MHz, múltiplo de 24 |
 
-**Pergunta em aberto:** o `dram` de 270 MHz do nosso kernel contra os 552 MHz da fábrica.
-Pode ser só convenção (relógio do controlador contra relógio da memória, ou 1080 / 2 = 540
-de taxa efetiva), ou a memória pode estar mais lenta que na fábrica, o que pesaria no
-desempenho (P-10). Conferir no registrador `DRAM_CFG_REG` (0x0F4) e no `PLL_DDR1` antes de
-concluir.
+**Como ler os clocks da DRAM** (análise de 2026-11-10):
+
+- O `dram` de 270 MHz é o **controlador**, não a memória. No A33 o PLL da DRAM roda a
+  2× o clock da memória e o controlador a PLL / 4, ou seja, metade da memória (U-Boot
+  2025.10, `arch/arm/mach-sunxi/dram_sun8i_a33.c`, linha 18: `DRAM_CLK_MUL 2`,
+  `DRAM_CLK_DIV 4`). O driver do Linux confirma: `dram = pll-ddr / (M + 1)`, com M de
+  `DRAM_CFG_REG` 0x0F4 (`ccu-sun8i-a33.c`, linha 391), e 1080 / 4 = 270.
+- Pelo que o Linux mostra, a memória roda a **1080 / 2 = 540 MHz**, contra os 552 MHz que
+  o FEX pede (PLL de 1104 MHz = 24 × 46). Hipótese provável: o boot0 programa N = 45 com
+  **sigma-delta** (ajuste fracionário em `PLL_DDR1_PAT_CTRL_REG0/1`, 0x2AC e 0x2B0) para
+  chegar a 1104 MHz, e o driver `ccu_mult` do Linux lê só o N. O U-Boot mainline também
+  liga o sigma-delta no PLL da DRAM do A33 (`DRAM_SIGMA_DELTA_ENABLE 1`). **Não
+  confirmado:** ler no aparelho `PLL_DDR1_CTRL_REG` (0x04C), os dois registradores de
+  padrão e `DRAM_CFG_REG` (0x0F4) com o `r36os-devmem`. Na pior hipótese, a memória
+  roda 2% abaixo da fábrica (540 contra 552 MHz), o que não muda o desempenho de forma
+  perceptível.
+- Diferente da fábrica, a nossa DRAM **não varia** com a carga: fica sempre perto do
+  máximo. Bom para o desempenho, um pouco pior para a bateria em repouso. Pendência P-23.
 
 ## 5. Temperaturas
 
