@@ -163,6 +163,39 @@ def test_populate_roms_has_the_default_folders_and_factory_config(tmp_path):
     assert 'user_language = "0"' in (tmp_path / "system/retroarch/retroarch.cfg").read_text()
 
 
+def test_mount_roms_takes_the_desktop_automount_that_won_the_race(monkeypatch):
+    # what happened on 2026-11-11: the desktop automounted the fresh ROMS, our udisksctl
+    # mount failed with "already mounted" and the folders were never created
+    calls = {"mp": 0}
+
+    def fake_mountpoint(node):
+        calls["mp"] += 1
+        return "/run/media/u/ROMS" if calls["mp"] > 3 else None
+
+    class Ret:
+        returncode = 1
+        stdout = ""
+        stderr = "Error mounting /dev/sdc2: already mounted"
+
+    monkeypatch.setattr(flash, "_mountpoint", fake_mountpoint)
+    monkeypatch.setattr(flash.subprocess, "run", lambda *a, **k: Ret())
+    monkeypatch.setattr(flash.time, "sleep", lambda s: None)
+    assert flash._mount_roms("/dev/sdc2", wait=0) == "/run/media/u/ROMS"
+
+
+def test_mount_roms_fails_clearly_when_nothing_mounts(monkeypatch):
+    class Ret:
+        returncode = 1
+        stdout = ""
+        stderr = "Error mounting /dev/sdc2: bad superblock"
+
+    monkeypatch.setattr(flash, "_mountpoint", lambda node: None)
+    monkeypatch.setattr(flash.subprocess, "run", lambda *a, **k: Ret())
+    monkeypatch.setattr(flash.time, "sleep", lambda s: None)
+    with pytest.raises(flash.FlashError, match="bad superblock"):
+        flash._mount_roms("/dev/sdc2", wait=0)
+
+
 def test_wipe_disk_and_rereadpt(monkeypatch):
     commands = []
 

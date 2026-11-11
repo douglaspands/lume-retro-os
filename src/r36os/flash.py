@@ -160,6 +160,31 @@ def _mountpoint(node: str) -> str | None:
     return None
 
 
+def _mount_roms(node: str, wait: float = 5.0) -> str:
+    """Mount point of the new ROMS, mounting it if the desktop did not.
+
+    Right after formatting, the desktop (udisks) often automounts the new partition by
+    itself; a mount of ours racing with it fails with "already mounted". So: let udev
+    settle, take the automount if it shows up, and only then mount it ourselves (a failed
+    mount is fine if the automount won the race meanwhile).
+    """
+    subprocess.run(["udevadm", "settle", "--timeout=10"], check=False, env=_ENV,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + wait
+    while (mp := _mountpoint(node)) is None and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if mp is not None:
+        return mp
+    r = subprocess.run(["udisksctl", "mount", "-b", node, "--no-user-interaction"],
+                       capture_output=True, text=True, env=_ENV)
+    for _ in range(25):
+        if (mp := _mountpoint(node)) is not None:
+            return mp
+        time.sleep(0.2)
+    raise FlashError(f"could not mount {node} to create the folders: "
+                     f"{(r.stdout + r.stderr).strip() or 'not mounted'}")
+
+
 def _create_roms(device: str, img: Path, language: str) -> None:
     """Partition 2 (exFAT, label ROMS) on the rest of the card, with folders and config."""
     with img.open("rb") as f:
@@ -182,11 +207,7 @@ def _create_roms(device: str, img: Path, language: str) -> None:
     _unmount(device)
     subprocess.run(["sudo", "mkfs.exfat", "-L", "ROMS", node], check=True,
                    stdout=subprocess.DEVNULL, env=_ENV)
-    mp = _mountpoint(node)
-    if mp is None:
-        out = subprocess.run(["udisksctl", "mount", "-b", node, "--no-user-interaction"],
-                             check=True, capture_output=True, text=True, env=_ENV).stdout
-        mp = _mountpoint(node) or out.strip().rsplit(" at ", 1)[-1].rstrip(".")
+    mp = _mount_roms(node)
     populate_roms(Path(mp), language)
     subprocess.run(["sync", "-f", mp], check=False, env=_ENV)
     subprocess.run(["udisksctl", "unmount", "-b", node], check=True,
