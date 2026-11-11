@@ -144,6 +144,24 @@ openspec/         planejamento (proposta, design, specs e tarefas)
 Upstream (kernel, U-Boot, aports, RetroArch) fica intocado e fixado por versão e sha256;
 toda mudança entra como patch numerado.
 
+## Agradecimentos
+
+O Lume Retro OS é autocontido: o build não baixa nem depende de nada destes projetos. Eles
+serviram de inspiração e de referência, e o que foi aproveitado está copiado no próprio
+repositório, com o crédito no lugar:
+
+- **[goodluckOS](https://github.com/CodeZombie/goodluckOS)** (GPL-2.0): os drivers do painel
+  JD9366 e do controle serial do GA36 (`kernel/patches/0005` e `0006`) e a base do device
+  tree (`board/ga36/dts/`) são port do trabalho dele.
+- **Firmware de fábrica do GA36** (baseado no EmuELEC): medições, ajustes de áudio, bateria
+  e cores registrados em `docs/referencia/ga36-emuelec/`, que guiaram decisões como o core
+  de SNES e o volume.
+- **[dArkOSRE-R36](https://github.com/southoz/dArkOSRE-R36)**: os dados do hardware do R36S
+  (Apêndice A do design), referência para o suporte futuro (P-27).
+- **[Alpine Linux](https://alpinelinux.org/)**, **[RetroArch e libretro](https://www.retroarch.com/)**
+  e o **Linux mainline**: a base de tudo; os pacotes locais de `aports/` partem dos APKBUILDs do
+  Alpine, e as mudanças no RetroArch e nos cores ficam em patches numerados.
+
 ## Licença
 
 O Lume Retro OS é distribuído sob a **GNU General Public License, versão 2** (somente a
