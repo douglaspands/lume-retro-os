@@ -1,0 +1,150 @@
+#!/bin/sh
+# Prepara o som do R36S no boot (feature 46-audio):
+#  1. Decide o modo: "corrigido", ou "original" se existir o arquivo vazio
+#     r36-audio-original na raiz da p1 (R36-ROMS, pelo PC). O modo vai para
+#     /run/r36-audio.modo, que o audio-ganho lê. A p1 é montada pelo mount_romfs.sh
+#     dentro do emuelec-autostart: o script espera a montagem (até 20 s) em vez de
+#     ordenar o serviço depois dele, o que trava o boot. Sem p1, segue em "corrigido".
+#  2. Folga no buffer do RetroArch (pipocos): no retroarch.cfg da p8, audio_latency
+#     "64" -> "96" e audio_resampler_quality "2" -> "1", só enquanto estiverem no valor
+#     de fábrica (um valor escolhido pelo usuário no menu é respeitado). No modo
+#     original faz o inverso. Nenhuma outra linha do arquivo muda.
+#  3. Reaplica o Speaker Function como o sistema faz (h2w/state). Só com o arquivo vazio
+#     r36-diagnostico na raiz da p1, grava também no r36-audio.log os controles do mixer,
+#     a interface de registradores do driver do codec e o que mudou. Não escreve em
+#     registrador; só lê. Sem a chave não há leitura de diagnóstico nem log.
+#  4. Chama o audio-ganho aplica (volume salvo e mudo), com o resultado no log.
+# O log é escrito de uma vez no fim, substituindo o do boot anterior; sem a chave o
+# log antigo da p1 fica como está. O script termina sempre com código 0 e nunca trava
+# o boot.
+# R36_ROOT fica vazio no aparelho; os testes apontam para um diretório temporário.
+
+ROOT="${R36_ROOT:-}"
+RACFG="$ROOT/storage/.config/retroarch/retroarch.cfg"
+OFF="$ROOT/storage/roms/r36-audio-original"
+LOG="$ROOT/storage/roms/r36-audio.log"
+DIAG="$ROOT/storage/roms/r36-diagnostico"
+MODO_ARQ="$ROOT/run/r36-audio.modo"
+SYS="$ROOT/sys"
+GANHO="$(dirname "$0")/audio-ganho"
+TMPLOG="${TMPDIR:-/tmp}/r36-audio.$$"
+
+registro() { [ -n "$LOGA" ] && printf '%s\n' "$1" >> "$TMPLOG"; return 0; }
+secao() { [ -n "$LOGA" ] && printf '\n== %s ==\n' "$1" >> "$TMPLOG"; return 0; }
+# valores de um controle do mixer, numa linha
+ctl() { amixer cget "name=$1" 2>&1 | sed -n 's/.*: values=//p' | tr '\n' ' ' | sed 's/ *$//'; }
+
+: > "$TMPLOG" || exit 0
+trap 'rm -f "$TMPLOG" "$RACFG.r36tmp"' EXIT
+
+# 1. p1 e modo
+MONTADA=
+if [ -z "$ROOT" ]; then
+    i=0
+    until mountpoint -q /storage/roms 2>/dev/null; do
+        [ "$i" -ge 20 ] && break
+        sleep 1
+        i=$((i + 1))
+    done
+    mountpoint -q /storage/roms 2>/dev/null && MONTADA=sim
+elif [ -d "$ROOT/storage/roms" ]; then
+    MONTADA=sim
+fi
+LOGA=
+if [ -n "$MONTADA" ] && [ -e "$DIAG" ]; then LOGA=sim; fi
+MODO=corrigido
+if [ -e "$OFF" ]; then MODO=original; fi
+mkdir -p "$(dirname "$MODO_ARQ")" 2>/dev/null
+printf '%s\n' "$MODO" > "$MODO_ARQ" 2>/dev/null
+
+registro "r36-audio-prepara $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+if [ -n "$MONTADA" ]; then
+    registro "modo: $MODO (r36-audio-original $([ "$MODO" = original ] && echo encontrado || echo ausente))"
+else
+    registro "modo: $MODO (p1 nao montada em 20 s: sem leitura da chave r36-audio-original)"
+fi
+
+# 2. Chaves do RetroArch (só o valor exato de fábrica ou o que a correção grava)
+troca_chave() { # chave de para
+    grep -qxF "$1 = \"$2\"" "$RACFG" 2>/dev/null || return 0
+    sed "s|^$1 = \"$2\"\$|$1 = \"$3\"|" "$RACFG" > "$RACFG.r36tmp" &&
+        cat "$RACFG.r36tmp" > "$RACFG" &&
+        registro "retroarch.cfg: $1 \"$2\" -> \"$3\""
+    rm -f "$RACFG.r36tmp"
+}
+secao "retroarch.cfg"
+if [ -f "$RACFG" ]; then
+    if [ "$MODO" = original ]; then
+        troca_chave audio_latency 96 64
+        troca_chave audio_resampler_quality 1 2
+    else
+        troca_chave audio_latency 64 96
+        troca_chave audio_resampler_quality 2 1
+    fi
+    registro "$(grep -E '^(audio_driver|audio_latency|audio_resampler|audio_resampler_quality|audio_sync|audio_rate_control|video_threaded) ' "$RACFG" | tr '\n' ';')"
+else
+    registro "retroarch.cfg ausente (p8 sem o arquivo): chaves de audio nao alteradas"
+fi
+
+# 3. Diagnóstico (só com a chave r36-diagnostico na p1)
+REGS=
+if [ -n "$LOGA" ]; then
+    secao "amixer contents"
+    amixer contents >> "$TMPLOG" 2>&1 || registro "amixer indisponivel ou sem controles"
+
+    secao "interface de registradores do driver (audio_reg*)"
+    REGS=$(find "$SYS/devices" "$SYS/class" "$SYS/module" -name 'audio_reg*' 2>/dev/null)
+    if [ -z "$REGS" ]; then
+        registro "nenhum arquivo audio_reg* em /sys: sem interface de registradores"
+    else
+        printf '%s\n' "$REGS" | while IFS= read -r arq; do
+            registro "${arq#"$ROOT"}:"
+            head -c 8192 "$arq" >> "$TMPLOG" 2>&1 || registro "(leitura recusada)"
+        done
+    fi
+
+    secao "busybox devmem (plano B)"
+    if busybox --list 2>/dev/null | grep -qx devmem; then
+        registro "busybox tem o applet devmem"
+    else
+        registro "busybox sem o applet devmem"
+    fi
+fi
+
+secao "Speaker Function"
+ESTADO=$(cat "$SYS/class/switch/h2w/state" 2>/dev/null)
+case "$ESTADO" in
+    1|2) SF=spk ;;
+    *) SF=headset ;;
+esac
+if [ -n "$LOGA" ]; then
+    registro "h2w/state: ${ESTADO:-?} -> Speaker Function $SF"
+    registro "antes: speaker volume control=$(ctl 'speaker volume control') headphone volume control=$(ctl 'headphone volume control') Speaker Function=$(ctl 'Speaker Function')"
+    if [ -n "$REGS" ]; then
+        printf '%s\n' "$REGS" | while IFS= read -r arq; do
+            registro "dump antes (${arq#"$ROOT"}):"
+            head -c 8192 "$arq" >> "$TMPLOG" 2>&1
+        done
+    fi
+fi
+amixer cset name='Speaker Function' "$SF" > /dev/null 2>&1
+if [ -n "$LOGA" ]; then
+    registro "depois: speaker volume control=$(ctl 'speaker volume control') headphone volume control=$(ctl 'headphone volume control') Speaker Function=$(ctl 'Speaker Function')"
+    if [ -n "$REGS" ]; then
+        printf '%s\n' "$REGS" | while IFS= read -r arq; do
+            registro "dump depois (${arq#"$ROOT"}):"
+            head -c 8192 "$arq" >> "$TMPLOG" 2>&1
+        done
+    fi
+fi
+
+# 4. Volume salvo e mudo
+secao "audio-ganho aplica"
+if [ -x "$GANHO" ]; then
+    "$GANHO" aplica >> "$TMPLOG" 2>&1
+else
+    registro "audio-ganho ausente: volume nao aplicado"
+fi
+
+[ -n "$LOGA" ] && cat "$TMPLOG" > "$LOG" 2>/dev/null
+exit 0

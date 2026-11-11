@@ -1,41 +1,62 @@
 #!/bin/sh
-# Grava o log deste boot em BOOT/logs/boot-<n>.log (kernel + serviços + resumo de
-# hardware) e mantém só os 10 mais recentes. A BOOT fica gravável só durante a escrita.
+# Log deste boot (kernel + serviços + resumo de hardware) em ROMS/logs/boot/boot-<n>.log,
+# com o contador de boot comum a todos os logs (D14) e keep_boots do logs.conf.
+# Sem ROMS, vai para BOOT/logs/ (mantendo 10), gravável só durante a escrita.
+# Também registra os eventos de fim de boot: serviços com falha e tempo até o frontend.
 # Roda pelo inittab (::once:) depois do runlevel default, quando o rc.log está completo.
 . /usr/libexec/r36os/lib.sh
-KEEP=10
-DIR=/boot/logs
+. /usr/libexec/r36os/logs.sh
+FALLBACK_DIR=/boot/logs
+FALLBACK_KEEP=10
 
-mountpoint -q /boot || exit 0
-mount -o remount,rw /boot || { log "ERRO: não foi possível gravar o log de boot"; exit 1; }
-mkdir -p "$DIR"
+write_log() {  # destino
+	{
+		echo "== Lume Retro OS: boot $(boot_n) ($(date '+%Y-%m-%d %H:%M:%S %Z'))"
+		echo "== boot_id: $(cat /proc/sys/kernel/random/boot_id)"
+		echo "== cmdline: $(cat /proc/cmdline)"
+		echo
+		echo "== kernel (dmesg)"
+		dmesg
+		echo
+		echo "== services (OpenRC)"
+		cat /var/log/rc.log 2>/dev/null
+		echo
+		echo "== hardware summary"
+		cat "$R36OS_RUN/hwsummary" 2>/dev/null
+	} > "$1"
+}
 
-nums() { ls "$DIR" 2>/dev/null | sed -n 's/^boot-\([0-9][0-9]*\)\.log$/\1/p' | sort -n; }
-last=$(nums | tail -n 1)
-n=$(( ${last:-0} + 1 ))
-tmp="$DIR/.boot-$n.tmp"
-{
-	echo "== Lume Retro OS: boot $n ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
-	echo "== cmdline: $(cat /proc/cmdline)"
-	echo
-	echo "== kernel (dmesg)"
-	dmesg
-	echo
-	echo "== serviços (OpenRC)"
-	cat /var/log/rc.log 2>/dev/null
-	echo
-	echo "== resumo de hardware"
-	cat "$R36OS_RUN/hwsummary" 2>/dev/null
-} > "$tmp"
-fsync "$tmp" 2>/dev/null
-mv -f "$tmp" "$DIR/boot-$n.log"
+# Eventos de fim de boot
+sed -n 's/.*ERROR: \([^ ]*\) failed to start.*/\1/p' /var/log/rc.log 2>/dev/null | sort -u |
+	while read -r svc; do event service FAIL "$svc failed to start (see boot/boot-$(boot_n).log)"; done
+t=$(dmesg | sed -n 's/^\[ *\([0-9.]*\)\] lume: frontend started.*/\1/p' | head -n 1)
+if [ -n "$t" ]; then
+	event boot OK "completed: frontend in ${t}s from kernel"
+else
+	event boot FAIL "completed without frontend starting"
+fi
 
-set -- $(nums)
-while [ $# -gt $KEEP ]; do
-	rm -f "$DIR/boot-$1.log"
-	shift
-done
-sync
-mount -o remount,ro /boot
-echo "$DIR/boot-$n.log" > "$R36OS_RUN/bootlog"
-log "log de boot: BOOT/logs/boot-$n.log"
+logs_conf
+tmp=$R36OS_RUN/bootlog.tmp
+write_log "$tmp"
+if logs_on_disk; then
+	dst="$LOGS_DIR/boot/boot-$(boot_n).log"
+	atomic_copy "$tmp" "$dst"
+	rm -f "$tmp"
+	logs_flush
+else
+	# Sem ROMS: BOOT/logs/, com numeração própria
+	mountpoint -q /boot || exit 0
+	mount -o remount,rw /boot || { log "ERROR: failed to write boot log"; exit 1; }
+	mkdir -p "$FALLBACK_DIR"
+	last=$(ls "$FALLBACK_DIR" 2>/dev/null | sed -n 's/^boot-\([0-9][0-9]*\)\.log$/\1/p' | sort -n | tail -n 1)
+	dst="$FALLBACK_DIR/boot-$(( ${last:-0} + 1 )).log"
+	atomic_copy "$tmp" "$dst"
+	rm -f "$tmp"
+	set -- $(ls "$FALLBACK_DIR" | sed -n 's/^boot-\([0-9][0-9]*\)\.log$/\1/p' | sort -n)
+	while [ $# -gt $FALLBACK_KEEP ]; do rm -f "$FALLBACK_DIR/boot-$1.log"; shift; done
+	sync
+	mount -o remount,ro /boot
+fi
+echo "$dst" > "$R36OS_RUN/bootlog"
+log "boot log: $dst"

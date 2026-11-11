@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # Self-test de aceitação da VM: só age com r36os.selftest=1 no cmdline do kernel.
 
-description="Self-test de aceitação (VM)"
+description="Acceptance self-test (VM)"
 
 depend() {
 	need localmount
@@ -11,18 +11,28 @@ depend() {
 
 start() {
 	grep -qw "r36os.selftest=1" /proc/cmdline || return 0
-	ebegin "Self-test: montando o disco TESTDATA"
+	ebegin "Self-test: mounting TESTDATA disk"
 	local dev
 	dev=$(findfs LABEL=TESTDATA 2>/dev/null)
 	mkdir -p /run/r36os/testdata
 	if [ -z "$dev" ] || ! mount -t vfat -o rw,sync "$dev" /run/r36os/testdata; then
-		eend 1 "disco TESTDATA ausente"
+		eend 1 "TESTDATA disk missing"
 		return 1
 	fi
-	# Comandos de rede (GET_STATUS, SAVE_STATE, QUIT) só no self-test
-	printf 'network_cmd_enable = "true"\nnetwork_cmd_port = "55355"\n' > /run/r36os/retroarch-extra.cfg
+	# Comandos de rede (GET_STATUS, SAVE_STATE, QUIT): já ligados no retroarch-lume.cfg
+	# (logs de diagnóstico); repetidos aqui para o self-test não depender disso
+	# quit_press_twice off: the test quits with the QUIT command, which would otherwise
+	# need two presses (the console default asks for confirmation to shut down)
+	printf 'network_cmd_enable = "true"\nnetwork_cmd_port = "55355"\nquit_press_twice = "false"\n' > /run/r36os/retroarch-extra.cfg
 	chmod 644 /run/r36os/retroarch-extra.cfg
 	start-stop-daemon --start --background --make-pidfile --pidfile /run/r36os-selftest.pid \
 		--exec /usr/libexec/r36os/selftest -- run
+	# Falha forçada uma vez (teste dos eventos de serviço): o self-test roda mesmo assim
+	if [ -f /run/r36os/testdata/fail-service ]; then
+		rm -f /run/r36os/testdata/fail-service
+		sync
+		eend 1 "failure forced by self-test"
+		return 1
+	fi
 	eend $?
 }

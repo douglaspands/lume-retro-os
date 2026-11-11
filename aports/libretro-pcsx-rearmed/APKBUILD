@@ -15,11 +15,16 @@ options="!check" # No tests
 
 case "$CARCH" in
 aarch64) _make_opts="DYNAREC=ari64" ;;
-armv7) _make_opts="DYNAREC=ari64 HAVE_NEON=1 BUILTIN_GPU=neon ARCH=arm" ;;
+# Só neste core, no armv7 (o resto dos pacotes fica nos padrões do Alpine):
+#  -marm: o gcc do Alpine armv7 gera Thumb-2 por padrão, e o dynarec ARM recusa
+#         compilar com funções Thumb ("#error the dynarec is incompatible with Thumb");
+#  -mfpu=neon: o padrão do Alpine armv7 é vfpv3-d16, sem NEON, e a GPU NEON do core
+#         (o renderizador padrão dele em ARMv7) não compila sem isso. O A33 tem NEON.
+armv7) _make_opts="DYNAREC=ari64 HAVE_NEON=1 BUILTIN_GPU=neon ARCH=arm"; _cflags="-marm -mfpu=neon" ;;
 esac
 
 build() {
-	make -f Makefile.libretro $_make_opts
+	CFLAGS="$CFLAGS $_cflags" make -f Makefile.libretro $_make_opts
 }
 
 package() {

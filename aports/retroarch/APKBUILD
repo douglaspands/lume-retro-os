@@ -1,11 +1,11 @@
 # Baseado em community/retroarch do Alpine v3.24 (Bart Ribbers, David Demelier).
 # Variante do Lume Retro OS: só KMS/DRM + EGL + GLES 2, udev e ALSA.
-# Sem X11, Wayland, Qt, SDL2, PulseAudio, FFmpeg e Vulkan, e sem depender do
-# retroarch-assets completo (o tema Lume traz os próprios assets).
+# Sem X11, Wayland, Qt, SDL2, PulseAudio, FFmpeg e Vulkan. Assets e autoconfiguração
+# de controles entram como pacotes separados em rootfs/packages.txt.
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=100
+pkgrel=108
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -15,10 +15,40 @@ makedepends="linux-headers mesa-dev libdrm-dev zlib-dev alsa-lib-dev eudev-dev
 	freetype-dev"
 source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v$pkgver.tar.gz
 	config.patch
+	0001-quit-shuts-down.patch
+	0002-shut-down-asks-confirmation.patch
+	0003-alsa-bounded-write-wait.patch
+	0004-status-frame-count.patch
+	0005-volume-percent-steps.patch
+	0006-reset-to-distro-defaults.patch
+	0007-config-autosave.patch
+	0008-audio-headroom.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
 options="!check" # No tests
+
+# 0001: sair do RetroArch desliga o console (r36os-session), então o item "Sair" vira
+# "Desligar" em inglês (us), português do Brasil (pt_br) e espanhol (es, o único espanhol
+# do RetroArch; "Apagar" vale para a América Latina e a Espanha). Se o upstream mudar
+# esse texto, o patch deixa de aplicar e o build para.
+# 0002: o item "Desligar" do menu pede confirmação (selecionar duas vezes em até 3 s),
+# seguindo o quit_press_twice, e a mensagem "Pressione novamente..." passa a dizer desligar.
+# Só o item do menu muda: o atalho e o comando de rede QUIT (self-test) não mudam.
+# 0003: the ALSA driver waits at most 500 ms for room in the playback buffer
+# (upstream waits forever). A device that stops consuming used to freeze the whole
+# frontend on the first audio write of a game (GA36, task 9.8); now the game keeps
+# running without sound and the log says "[ALSA] Playback stalled".
+# 0004: the GET_STATUS network command also returns the video frame counter
+# (",frames=<n>" at the end), so r36os-logd records the game FPS (task 9.13).
+# 0005: the volume keys move a 0-100% level in 5% steps (perceptual curve), capped at
+# 0 dB; the volume widget shows only the percent, and the menu volume stops at 0 dB.
+# 0006: "Reset to Default Config" also loads $LUME_RETROARCH_DEFAULTS (factory config +
+# fixed keys, written by the frontend script), so a reset lands on the distro defaults.
+# 0007: the main config is saved one second after the last change in the menu (or volume
+# keys), not only on a clean quit, so a crash or a forced restart keeps the settings.
+# 0008: a fixed 3 dB headroom under the volume setting: 100% stays clean on the GA36
+# speaker (it was harsh on loud passages at 0 dB).
 
 build() {
 	./configure \
@@ -59,4 +89,12 @@ package() {
 sha512sums="
 59057d3fff3bec3bcb01143a270c3b9e74d148a2f1caa413d52f3533af94564576d2fce6f6273b5c79d11904ef670a6bf7c2c328fe3534a05d160e8a49b9daa1  retroarch-1.22.2.tar.gz
 723e64620e5239b09aff0725a4c25655b4c3b8b3f0fe130998099d84373c3e6a20766cfe8052c4cdeebb7969007c8a9c970982522be11dd12f525ad7df236f3e  config.patch
+28ca3218b39d03bc82fc7d31ef354a9f3087c7466a136b217797d5a5e2390e4ec96dcc1ec62ccf0e0d5e8e5e5ceb479b5541d05172a0840dc65f2b91767ab708  0001-quit-shuts-down.patch
+e58fe7de31cac03f049ae95b3f8792d2b1d94c87d44f170955e0e2708a7e159b535b7534d62ec95ad30fcb3561501bdd030c8f9e30a6330e5f152873c9f7b7c2  0002-shut-down-asks-confirmation.patch
+b420163e9b26435ff2b65d2fac6203610f12c28e81b4acb7cac502a316f24dd22b1ea6ac6659e691e9f16c335633c5242b959b4c7701c0923747192155ee1683  0003-alsa-bounded-write-wait.patch
+87be0110f889b6885d38d1291902305c4713ddd3d8fe51a7172689bf1990566a9a5272e5dc7063861151322001844483619075b363f6e7d1fdd5c9f16a86965b  0004-status-frame-count.patch
+30670d702c566a0a57da3cb13350c9f8239df859c7b15ffa285afd6b35726ab18a621ded94844777087de196d3733d1f3982b3e59d88e55ec85f509dc58cfaf8  0005-volume-percent-steps.patch
+b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2b7d1c5650d364cd42e1379a522e8f44033e27627282851f5  0006-reset-to-distro-defaults.patch
+898468d28e727b30b3f41824a04304b425c46a9c8447e6eb4eb3f9c36959489ab11ca52507c82e7b8831a0ec55b41af732fc54dd68d42cf730e1282be45c8e6e  0007-config-autosave.patch
+585eefb36dfdda44019e99145ef9bbb1c3a6d29673d2ad1f116cc1dfd5ee864ff54ed222f5c55c1662719bc4f48cae6aceeb6b62a1c954cde612366873a76b57  0008-audio-headroom.patch
 "

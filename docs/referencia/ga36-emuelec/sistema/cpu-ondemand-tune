@@ -1,0 +1,37 @@
+#!/bin/sh
+# R36: afina o governor ondemand (sobe cedo, desce devagar, piso de frequência).
+# Só age com o governor ondemand; com outro governor (ex.: performance) não toca em nada.
+# Chamado pelo /usr/bin/cpufreq (boot) e pelo emuelecRunEmu.sh após cada normperf,
+# porque no kernel 4.9 do A33 a troca performance -> ondemand reinicializa os tunables.
+#
+# Valores: up_threshold 30, sampling_down_factor 10, scaling_min_freq 600000 kHz.
+# Tunables: global em cpufreq/ondemand ou por cpufreq/policy*; o que não existe é ignorado.
+# Pendente de conferir no aparelho: scaling_available_governors e ondemand/sampling_rate.
+#
+# Com o argumento "jogo" (só a chamada da abertura do jogo no emuelecRunEmu.sh), grava também
+# a cena 0 da DRAM, a mesma do maxperf. Sem argumento (boot e saída) a DRAM não é tocada:
+# o normperf já deixou a cena 1 para o menu.
+#
+# R36_CPU_SYS e R36_DRAM_SCENE permitem apontar para árvores falsas (testes).
+
+SYS="${R36_CPU_SYS:-/sys/devices/system/cpu}"
+DIR="$SYS/cpufreq"
+DRAM_SCENE="${R36_DRAM_SCENE:-/sys/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/scene}"
+
+GOV=$(cat "$SYS/cpu0/cpufreq/scaling_governor" 2>/dev/null)
+[ "$GOV" = "ondemand" ] || exit 0
+
+for t in "$DIR"/ondemand "$DIR"/policy*/ondemand "$DIR"/policy*/; do
+  [ -e "$t/up_threshold" ] && echo 30 > "$t/up_threshold"
+  [ -e "$t/sampling_down_factor" ] && echo 10 > "$t/sampling_down_factor"
+done
+
+for f in "$SYS"/cpu[0-9]*/cpufreq/scaling_min_freq; do
+  [ -e "$f" ] && echo 600000 > "$f"
+done
+
+if [ "$1" = "jogo" ] && [ -e "$DRAM_SCENE" ]; then
+  echo 0 > "$DRAM_SCENE"
+fi
+
+exit 0

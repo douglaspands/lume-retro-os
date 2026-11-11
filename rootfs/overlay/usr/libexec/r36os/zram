@@ -1,0 +1,45 @@
+#!/bin/sh
+# Compressed swap in ZRAM with 50% physical RAM and highest priority (32767).
+# Non-fatal: boot continues without swap if anything fails.
+
+TAG=r36os-zram
+DEV=/dev/zram0
+SYS=/sys/block/zram0
+
+fail() {
+	logger -t "$TAG" "zram not enabled: $1"
+	exit 0
+}
+
+if grep -q "^$DEV " /proc/swaps 2>/dev/null; then
+	logger -t "$TAG" "$DEV already active in /proc/swaps"
+	exit 0
+fi
+
+# 1. Load zram module if /dev/zram0 does not exist yet
+if [ ! -b "$DEV" ]; then
+	modprobe zram num_devices=1 2>/dev/null || true
+fi
+
+# 2. Check if block device and sysfs exist
+[ -b "$DEV" ] && [ -w "$SYS/disksize" ] || fail "$DEV or $SYS/disksize not found"
+
+# 3. Select lz4 compressor if available in comp_algorithm
+if [ -w "$SYS/comp_algorithm" ] && grep -qw "lz4" "$SYS/comp_algorithm" 2>/dev/null; then
+	echo lz4 > "$SYS/comp_algorithm" 2>/dev/null || true
+fi
+
+# 4. Read MemTotal from /proc/meminfo and set disksize to 50% of MemTotal
+KIB=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+[ -n "$KIB" ] || fail "MemTotal not found in /proc/meminfo"
+BYTES=$((KIB * 1024 / 2))
+
+echo "$BYTES" > "$SYS/disksize" 2>/dev/null || fail "failed to write $SYS/disksize"
+
+# 5. Format and enable swap with highest priority (32767)
+mkswap "$DEV" >/dev/null 2>&1 || fail "mkswap $DEV failed"
+swapon -p 32767 "$DEV" 2>/dev/null || fail "swapon $DEV failed"
+
+logger -t "$TAG" "zram active: $DEV with $((BYTES / 1048576)) MiB, priority 32767"
+exit 0
+

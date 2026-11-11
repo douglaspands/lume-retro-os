@@ -1,4 +1,4 @@
-"""Cliente QMP mínimo (socket unix) para controlar a VM nos testes."""
+"""Minimal QMP client (unix socket) to drive the VM in the tests."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class QMP:
         while True:
             line = self.file.readline()
             if not line:
-                raise ConnectionError("QMP fechado")
+                raise ConnectionError("QMP closed")
             msg = json.loads(line)
             if "event" not in msg:
                 return msg
@@ -48,7 +48,7 @@ class QMP:
         return resp.get("return", {})
 
     def send_keys(self, *keys: str, hold_ms: int = 200) -> None:
-        """Pressiona as teclas juntas (nomes qcode: 'x', 'ret', 'up', 'shift'...)."""
+        """Press the keys together (qcode names: 'x', 'ret', 'up', 'shift'...)."""
         self.cmd("send-key", keys=[{"type": "qcode", "data": k} for k in keys],
                  **{"hold-time": hold_ms})
 

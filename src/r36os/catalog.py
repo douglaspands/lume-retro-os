@@ -1,6 +1,6 @@
-"""Catálogo de sistemas (`/usr/share/r36os/systems.json`) e sua validação.
+"""System catalog (`/usr/share/r36os/systems.json`) and its validation.
 
-O esquema está documentado em docs/CATALOG.md.
+The schema is documented in docs/CATALOG.md.
 """
 
 from __future__ import annotations
@@ -22,48 +22,48 @@ def load(path: Path = CATALOG) -> dict:
 
 
 def validate(cat: dict) -> list[str]:
-    """Lista de erros de esquema (vazia se o catálogo é válido)."""
+    """Schema errors (empty if the catalog is valid)."""
     errs: list[str] = []
     if cat.get("schema") != 1:
-        errs.append("schema deve ser 1")
+        errs.append("schema must be 1")
     cores = cat.get("cores")
     if not isinstance(cores, dict) or not cores:
-        errs.append("cores deve ser um objeto não vazio")
+        errs.append("cores must be a non-empty object")
         cores = {}
     for name, c in cores.items():
         if set(c) != {"package", "file"}:
-            errs.append(f"core {name}: campos devem ser package e file")
+            errs.append(f"core {name}: fields must be package and file")
         elif c["file"] != f"{name}_libretro.so":
-            errs.append(f"core {name}: file deve ser {name}_libretro.so")
+            errs.append(f"core {name}: file must be {name}_libretro.so")
     systems = cat.get("systems")
     if not isinstance(systems, list) or not systems:
-        return errs + ["systems deve ser uma lista não vazia"]
+        return errs + ["systems must be a non-empty list"]
     seen_ids, seen_names = set(), set()
     required = {"id", "name", "extensions", "core", "core_by_arch", "alt_cores", "bios"}
     for s in systems:
         sid = s.get("id", "?")
         if set(s) != required:
-            errs.append(f"{sid}: campos {sorted(set(s) ^ required)} inválidos")
+            errs.append(f"{sid}: invalid fields {sorted(set(s) ^ required)}")
             continue
         if not _ID.match(sid):
-            errs.append(f"{sid}: id deve ser [a-z0-9]+")
+            errs.append(f"{sid}: id must be [a-z0-9]+")
         if sid in seen_ids or s["name"] in seen_names:
-            errs.append(f"{sid}: id ou nome repetido")
+            errs.append(f"{sid}: repeated id or name")
         seen_ids.add(sid)
         seen_names.add(s["name"])
         if "/" in s["name"]:
-            errs.append(f"{sid}: nome não pode ter '/' (vira nome de arquivo .lpl)")
+            errs.append(f"{sid}: name cannot have '/' (it becomes an .lpl file name)")
         exts = s["extensions"]
         if not exts or not all(isinstance(e, str) and _EXT.match(e) for e in exts):
-            errs.append(f"{sid}: extensões devem ser minúsculas, sem ponto")
+            errs.append(f"{sid}: extensions must be lowercase, without a dot")
         for core in core_refs(s):
             if core not in cores:
-                errs.append(f"{sid}: core {core} não está em cores")
+                errs.append(f"{sid}: core {core} is not in cores")
         if not set(s["core_by_arch"]) <= ARCHES:
-            errs.append(f"{sid}: arquitetura desconhecida em core_by_arch")
+            errs.append(f"{sid}: unknown architecture in core_by_arch")
         for b in s["bios"]:
             if set(b) != {"files", "required", "note"} or not b["files"]:
-                errs.append(f"{sid}: bios mal formada")
+                errs.append(f"{sid}: malformed bios")
     return errs
 
 

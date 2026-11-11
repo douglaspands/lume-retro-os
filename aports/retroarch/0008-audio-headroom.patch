@@ -1,0 +1,38 @@
+From: Lume Retro OS
+Subject: [PATCH] audio: fixed 3 dB headroom under the volume setting
+
+On the GA36 the sound of a game was harsh on loud passages through the
+speaker, with the volume at 100% (0 dB): at full scale the resampler's
+overshoot is clipped in the float to integer conversion, and the console's
+small speaker amplifier is driven to its limit.
+
+The gain applied to the core's audio is now the volume setting minus a
+fixed 3 dB headroom, in audio_set_float, the one place every volume change
+goes through (config load, menu, volume keys). The user's scale does not
+change (100% is still the top); the loudest output is 3 dB lower and stays
+clean.
+
+--- a/audio/audio_driver.c
++++ b/audio/audio_driver.c
+@@ -86,6 +86,9 @@
+  /* Converts decibels to voltage gain. Returns voltage gain value. */
+ #define DB_TO_GAIN(db) (powf(10.0f, (db) / 20.0f))
+
++/* Lume: headroom applied under every volume setting (see audio_set_float) */
++#define LUME_AUDIO_HEADROOM_DB (-3.0f)
++
+ audio_driver_t audio_null = {
+    NULL, /* init */
+    NULL, /* write */
+@@ -1796,7 +1799,10 @@
+    switch (action)
+    {
+       case AUDIO_ACTION_VOLUME_GAIN:
+-         audio_driver_st.volume_gain        = DB_TO_GAIN(val);
++         /* Lume: fixed headroom below the user volume, so full volume
++          * (0 dB) still leaves room for resampler overshoot and does not
++          * overdrive the console's small speaker amplifier. */
++         audio_driver_st.volume_gain        = DB_TO_GAIN(val + LUME_AUDIO_HEADROOM_DB);
+          break;
+       case AUDIO_ACTION_MIXER_VOLUME_GAIN:
+ #ifdef HAVE_AUDIOMIXER

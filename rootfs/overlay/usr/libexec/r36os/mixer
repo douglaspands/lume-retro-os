@@ -1,0 +1,44 @@
+#!/bin/sh
+# Default mixer of each board, applied at every boot before the frontend. The ALSA state
+# is not persisted (/ is an overlay on RAM), so each boot starts from the driver defaults.
+#
+# GA36 (A33, mainline sun8i-codec): the driver boots with the AIF1 -> DAC path switched
+# off ("AIF1 Slot 0 Digital DAC") and "AIF1 DA0" at 0. DAPM then sees no complete path
+# to an output and keeps the codec AIF1 clock gated and in reset. The codec is the I2S
+# bit-clock master, so the DAI FIFO never drains, the DMA stops after the first FIFO fill
+# (hw_ptr stays at 32) and RetroArch blocks forever in snd_pcm_wait() as soon as a game
+# writes audio: that was the "game freezes" of task 9.8.
+#
+# Environment for the tests: BOARD_FILE (default /etc/r36os/board), AMIXER (default amixer).
+BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
+AMIXER=${AMIXER:-amixer}
+board=$(cat "$BOARD_FILE" 2>/dev/null)
+rc=0
+
+set_ctl() {  # <card> <simple control> <value...>
+	local card="$1" ctl="$2"
+	shift 2
+	if "$AMIXER" -c "$card" -q sset "$ctl" "$@" >/dev/null 2>&1; then
+		echo "mixer: $ctl = $*"
+	else
+		echo "mixer: FAILED to set $ctl = $* on card $card"
+		rc=1
+	fi
+}
+
+case "$board" in
+	ga36)
+		c=GA36MB
+		set_ctl "$c" 'AIF1 Slot 0 Digital DAC' on
+		# digital volumes: -120 dB + 0.75 dB per step, so 160 = 0 dB
+		set_ctl "$c" 'AIF1 DA0' 160
+		set_ctl "$c" 'DAC' 160 on
+		set_ctl "$c" 'Headphone Source' DAC
+		set_ctl "$c" 'Headphone' on
+		set_ctl "$c" 'Speaker' on
+		;;
+	*)
+		echo "mixer: no defaults for board '${board:-unknown}'"
+		;;
+esac
+exit "$rc"

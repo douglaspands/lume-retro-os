@@ -1,0 +1,74 @@
+From: Douglas Panhota <douglaspands@gmail.com>
+Subject: [PATCH] dt-bindings: display: panel: add GA36-MB JD9366 panels
+
+The two 640x480 DSI panel variants (JD9366) of the GA36-MB V1.2.
+---
+diff --git a/Documentation/devicetree/bindings/display/panel/ga36mb,jd9366.yaml b/Documentation/devicetree/bindings/display/panel/ga36mb,jd9366.yaml
+new file mode 100644
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/ga36mb,jd9366.yaml
+@@ -0,0 +1,62 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/ga36mb,jd9366.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: GA36-MB 640x480 DSI panels with the Jadard JD9366 controller
++
++maintainers:
++  - Douglas Panhota <douglaspands@gmail.com>
++
++description: |
++  3.5" 640x480 MIPI-DSI panels (2 lanes) used on the GA36-MB V1.2 handheld.
++  The two known variants share the controller but need different
++  initialization sequences, so each one has its own compatible.
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    enum:
++      - ga36mb,jd9366-panel1
++      - ga36mb,jd9366-panel2
++
++  reg:
++    maxItems: 1
++
++  power-supply: true
++
++  reset-gpios: true
++
++  backlight: true
++
++  port: true
++
++required:
++  - compatible
++  - reg
++  - power-supply
++  - reset-gpios
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    dsi {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        panel@0 {
++            compatible = "ga36mb,jd9366-panel1";
++            reg = <0>;
++            power-supply = <&reg_dc1sw>;
++            reset-gpios = <&pio 7 7 GPIO_ACTIVE_LOW>;
++            backlight = <&backlight>;
++        };
++    };
++
++...
+-- 
+2.0

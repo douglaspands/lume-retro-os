@@ -1,7 +1,7 @@
-"""Initramfs próprio e mínimo (D6): busybox estático, sfdisk/exFAT estáticos, init.
+"""Our own minimal initramfs (D6): static busybox, static sfdisk/exFAT, init.
 
-Na VM também leva os módulos de boot do linux-virt; nos consoles esses drivers são
-embutidos no kernel.
+On the VM it also carries the linux-virt boot modules; on the consoles those drivers are
+built into the kernel (and the initramfs itself is built into the kernel too).
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def module_name(path: str) -> str:
 
 
 def resolve_modules(dep_text: str, builtin_text: str, wanted: list[str]) -> list[str]:
-    """Caminhos (relativos ao dir do kernel) em ordem de carga, dependências primeiro."""
+    """Paths (relative to the kernel dir) in load order, dependencies first."""
     deps: dict[str, list[str]] = {}
     by_name: dict[str, str] = {}
     for line in dep_text.splitlines():
@@ -60,7 +60,7 @@ def resolve_modules(dep_text: str, builtin_text: str, wanted: list[str]) -> list
         if name in by_name:
             visit(by_name[name])
         elif name not in builtin:
-            raise KeyError(f"módulo {name} não existe no kernel")
+            raise KeyError(f"module {name} does not exist in the kernel")
     return order
 
 
@@ -69,13 +69,13 @@ def _read_list(path: Path) -> list[str]:
 
 
 def stage_modules(rootfs_tar: Path, wanted: list[str], dest: Path) -> list[str]:
-    """Copia os módulos (descomprimidos) para dest/lib/modules e devolve a ordem de carga."""
+    """Copy the (decompressed) modules to dest/lib/modules and return the load order."""
     with tarfile.open(rootfs_tar) as tar:
         names = tar.getnames()
         kdirs = sorted({n.split("/")[3] for n in names
                         if n.startswith("./lib/modules/") and n.count("/") >= 4})
         if len(kdirs) != 1:
-            raise RuntimeError(f"esperado um kernel em /lib/modules, achei {kdirs}")
+            raise RuntimeError(f"expected one kernel in /lib/modules, found {kdirs}")
         base = f"./lib/modules/{kdirs[0]}/"
 
         def read(rel: str) -> bytes:
@@ -102,7 +102,8 @@ mkdir -p $S/bin $S/sbin $S/proc $S/sys $S/dev $S/tmp $S/boot $S/lower $S/rw $S/n
 cp /bin/busybox.static $S/bin/busybox
 cp /usr/lib/r36os/initramfs/bin/* $S/bin/
 cd $S
-find . | sort | cpio -o -H newc -R 0:0 --quiet | gzip -9n > /out/initramfs
+find . | sort | cpio -o -H newc -R 0:0 --quiet > /out/initramfs.cpio
+gzip -9n < /out/initramfs.cpio > /out/initramfs
 """
 
 

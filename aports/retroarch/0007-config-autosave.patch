@@ -1,0 +1,115 @@
+From: Lume Retro OS
+Subject: [PATCH] configuration: save the main config shortly after a change
+
+RetroArch saves the main config only when it quits cleanly (with
+config_save_on_exit). A setting changed in the menu lives in memory until
+then, so a crash, a hung core killed by the system or a power cut loses it,
+and the next start comes back without the user's look and settings.
+
+A changed setting (the menu write handler, and the volume keys) now marks
+the config dirty. The main loop saves it once no change came for one
+second, so holding a slider gives one save, not one per step. The same
+rules as the save on exit apply: only with config_save_on_exit, never while
+an override is active, no notification on screen.
+
+--- a/configuration.c
++++ b/configuration.c
+@@ -4800,6 +4800,45 @@
+    return true;
+ }
+
++/* Lume: autosave of the main config. A setting changed in the menu used to live only in
++ * memory until RetroArch quit cleanly, so a crash or a forced restart lost it. A change
++ * now marks the config dirty, and the main loop saves it once nothing changed for
++ * LUME_AUTOSAVE_DELAY_USEC (one save after a slider is held, not one per step). */
++#define LUME_AUTOSAVE_DELAY_USEC 1000000
++static bool lume_config_change_pending      = false;
++static bool lume_config_save_armed          = false;
++static int64_t lume_config_last_change      = 0;
++
++void config_mark_dirty(void)
++{
++   lume_config_change_pending = true;
++}
++
++void config_autosave_tick(int64_t now)
++{
++   settings_t *settings = config_st;
++
++   if (lume_config_change_pending)
++   {
++      lume_config_change_pending = false;
++      lume_config_save_armed     = true;
++      lume_config_last_change    = now;
++      return;
++   }
++   if (!lume_config_save_armed
++         || now - lume_config_last_change < LUME_AUTOSAVE_DELAY_USEC)
++      return;
++   lume_config_save_armed = false;
++   /* Same rules as the save on exit: only with config_save_on_exit, and never while
++    * an override is active (its values do not belong in the main config). */
++   if (     !settings->bools.config_save_on_exit
++         || (runloop_get_flags() & RUNLOOP_FLAG_OVERRIDES_ACTIVE)
++         || path_is_empty(RARCH_PATH_CONFIG))
++      return;
++   if (config_save_file(path_get(RARCH_PATH_CONFIG)))
++      RARCH_LOG("[Config] Autosaved: \"%s\".\n", path_get(RARCH_PATH_CONFIG));
++}
++
+ bool config_load_distro_defaults(void)
+ {
+    const char *path = getenv("LUME_RETROARCH_DEFAULTS");
+--- a/configuration.h
++++ b/configuration.h
+@@ -1304,6 +1304,16 @@
+ bool config_load_distro_defaults(void);
+
+ /**
++ * config_mark_dirty / config_autosave_tick:
++ *
++ * Lume: a changed setting marks the main config dirty; the main loop calls the tick
++ * every frame, and the config is saved once no change came for one second. So a
++ * crash or a forced restart does not lose what was set in the menu.
++ */
++void config_mark_dirty(void);
++void config_autosave_tick(int64_t now);
++
++/**
+  * config_load_remap:
+  *
+  * Tries to append game-specific and core-specific remap files.
+--- a/command.c
++++ b/command.c
+@@ -1198,6 +1198,7 @@
+    level            = MIN(level, 100.0f);
+    new_volume       = lume_volume_level_to_db(level);
+    configuration_set_float(settings, settings->floats.audio_volume, new_volume);
++   config_mark_dirty();
+    _len             = strlcpy(msg, msg_hash_to_str(MSG_AUDIO_VOLUME),
+          sizeof(msg));
+    _len            += strlcpy(msg + _len, ": ", sizeof(msg) - _len);
+--- a/runloop.c
++++ b/runloop.c
+@@ -7214,6 +7214,9 @@
+    bsv_movie_dequeue_next(input_st);
+ #endif
+
++   /* Lume: save the main config shortly after a setting changed */
++   config_autosave_tick(current_time);
++
+    if (runloop_st->frame_time.callback)
+    {
+       /* Updates frame timing if frame timing callback is in use by the core.
+--- a/menu/menu_setting.c
++++ b/menu/menu_setting.c
+@@ -8191,6 +8191,9 @@
+    if (!setting)
+       return;
+
++   /* Lume: saved to disk shortly after (config_autosave_tick) */
++   config_mark_dirty();
++
+    rarch_cmd                    = write_handler_get_cmd(setting);
+
+    switch (setting->enum_idx)

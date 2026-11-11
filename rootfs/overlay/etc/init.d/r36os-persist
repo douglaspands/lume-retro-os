@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # Persistência seletiva da configuração do RetroArch em ROMS/system (D7).
 
-description="Persistência da configuração em ROMS/system"
+description="Configuration persistence in ROMS/system"
 command=/usr/libexec/r36os/persist
 command_args="watch"
 command_background=yes

@@ -1,0 +1,406 @@
+From f85f26cb6e48ebe6676d894ec7a14507d571cc8a Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Mon, 9 Nov 2026 21:10:16 -0300
+Subject: [PATCH 6/6] Input: add GA36-MB built-in gamepad
+
+GPIO buttons plus the analog sticks microcontroller on a UART (serdev, 9600 baud), as one input device. The handshake follows the vendor udt_joystick.ko module. Port of the goodluckOS driver (GPL, commit 8d676e2327a6).
+---
+ drivers/input/joystick/Kconfig                |  11 +
+ drivers/input/joystick/Makefile               |   1 +
+ drivers/input/joystick/ga36mb-gamepad-proto.h | 108 ++++++++
+ drivers/input/joystick/ga36mb-gamepad.c       | 237 ++++++++++++++++++
+ 4 files changed, 357 insertions(+)
+ create mode 100644 drivers/input/joystick/ga36mb-gamepad-proto.h
+ create mode 100644 drivers/input/joystick/ga36mb-gamepad.c
+
+diff --git a/drivers/input/joystick/Kconfig b/drivers/input/joystick/Kconfig
+index 7755e5b..889ab6c 100644
+--- a/drivers/input/joystick/Kconfig
++++ b/drivers/input/joystick/Kconfig
+@@ -74,6 +74,17 @@ config JOYSTICK_COBRA
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called cobra.
+ 
++config JOYSTICK_GA36MB
++	tristate "GA36-MB built-in gamepad"
++	depends on OF && SERIAL_DEV_BUS
++	help
++	  Say Y here to use the built-in controls of the GA36-MB V1.2
++	  handheld: GPIO buttons plus the analog sticks microcontroller on a
++	  UART, presented as one input device.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ga36mb-gamepad.
++
+ config JOYSTICK_GF2K
+ 	tristate "Genius Flight2000 Digital joysticks and gamepads"
+ 	select GAMEPORT
+diff --git a/drivers/input/joystick/Makefile b/drivers/input/joystick/Makefile
+index 9976f59..74bb091 100644
+--- a/drivers/input/joystick/Makefile
++++ b/drivers/input/joystick/Makefile
+@@ -15,6 +15,7 @@ obj-$(CONFIG_JOYSTICK_COBRA)		+= cobra.o
+ obj-$(CONFIG_JOYSTICK_DB9)		+= db9.o
+ obj-$(CONFIG_JOYSTICK_FSIA6B)		+= fsia6b.o
+ obj-$(CONFIG_JOYSTICK_GAMECON)		+= gamecon.o
++obj-$(CONFIG_JOYSTICK_GA36MB)		+= ga36mb-gamepad.o
+ obj-$(CONFIG_JOYSTICK_GF2K)		+= gf2k.o
+ obj-$(CONFIG_JOYSTICK_GRIP)		+= grip.o
+ obj-$(CONFIG_JOYSTICK_GRIP_MP)		+= grip_mp.o
+diff --git a/drivers/input/joystick/ga36mb-gamepad-proto.h b/drivers/input/joystick/ga36mb-gamepad-proto.h
+new file mode 100644
+index 0000000..b6e00b1
+--- /dev/null
++++ b/drivers/input/joystick/ga36mb-gamepad-proto.h
+@@ -0,0 +1,108 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Protocol of the analog sticks microcontroller of the GA36-MB: packet parser and
++ * handshake, as plain C so a host test can compile it without the kernel.
++ *
++ * Written from the vendor module udt_joystick.ko and checked against the goodluckOS
++ * driver; the vendor module wins on a difference.
++ *
++ * The microcontroller sends 8-byte packets at 9600 baud: A7 10 <?> LX LY RX RY 00. The
++ * two sticks are mounted mirrored, so the left stick is inverted. It only sends stick
++ * data after a handshake: the host writes A6 01 00 R1 R2 R3 (three random bytes, vendor
++ * encry_rw(0)), the microcontroller answers inside the packet bytes 3..6, and the host
++ * then writes the keepalive A6 01 01 01 01 01 once (vendor encry_rw(1)).
++ */
++#ifndef GA36MB_GAMEPAD_PROTO_H
++#define GA36MB_GAMEPAD_PROTO_H
++
++#ifdef __KERNEL__
++#include <linux/types.h>
++#else
++#include <stdbool.h>
++#include <stdint.h>
++typedef uint8_t u8;
++#endif
++
++#define GP_BAUD			9600
++#define GP_PACKET_LEN		8
++#define GP_SYNC0		0xA7
++#define GP_SYNC1		0x10
++#define GP_HANDSHAKE_LEN	6
++#define GP_HANDSHAKE_RETRIES	3	/* vendor encry_retry limit */
++
++static const u8 gp_keepalive[GP_HANDSHAKE_LEN] = { 0xA6, 0x01, 0x01, 0x01, 0x01, 0x01 };
++
++struct gp_axes {
++	u8 lx, ly, rx, ry;	/* 0..255, rest near 128, already corrected for the mounting */
++};
++
++struct gp_parser {
++	u8 packet[GP_PACKET_LEN];
++	int idx;
++};
++
++/* Handshake: A6 01 00 followed by the three random bytes of the challenge. */
++static inline void gp_make_handshake(u8 out[GP_HANDSHAKE_LEN], const u8 random[3])
++{
++	out[0] = 0xA6;
++	out[1] = 0x01;
++	out[2] = 0x00;
++	out[3] = random[0];
++	out[4] = random[1];
++	out[5] = random[2];
++}
++
++/*
++ * The microcontroller encodes the challenge in the answer (vendor jk_keys_poll): with
++ * k = byte 6 of the packet, R1 = ((b3 ^ k ^ 0x5A) - 1), R2 = ((b4 ^ k ^ 0x5A) - 2),
++ * R3 = ((b5 ^ k ^ 0x5A) - 3), each modulo 256.
++ */
++static inline bool gp_answer_matches(const u8 packet[GP_PACKET_LEN],
++				     const u8 handshake[GP_HANDSHAKE_LEN])
++{
++	u8 k = packet[6];
++
++	return handshake[3] == (u8)((packet[3] ^ k ^ 0x5A) - 1) &&
++	       handshake[4] == (u8)((packet[4] ^ k ^ 0x5A) - 2) &&
++	       handshake[5] == (u8)((packet[5] ^ k ^ 0x5A) - 3);
++}
++
++static inline void gp_reset(struct gp_parser *p)
++{
++	p->idx = 0;
++}
++
++/*
++ * Feed one received byte. Returns true when it completes a valid packet; `axes` is then
++ * filled and the raw packet is left in p->packet. Bad headers and a wrong last byte are
++ * dropped and the parser resynchronizes on the next A7.
++ */
++static inline bool gp_feed(struct gp_parser *p, u8 byte, struct gp_axes *axes)
++{
++	p->packet[p->idx] = byte;
++
++	if (p->idx == 0 && byte != GP_SYNC0)
++		return false;
++
++	if (p->idx == 1 && byte != GP_SYNC1) {
++		p->idx = byte == GP_SYNC0 ? 1 : 0;
++		if (p->idx)
++			p->packet[0] = GP_SYNC0;
++		return false;
++	}
++
++	if (++p->idx < GP_PACKET_LEN)
++		return false;
++
++	p->idx = 0;
++	if (p->packet[7] != 0x00)
++		return false;
++
++	axes->lx = 255 - p->packet[3];	/* left stick mounted inverted (vendor: 18 - axis) */
++	axes->ly = 255 - p->packet[4];
++	axes->rx = p->packet[5];
++	axes->ry = p->packet[6];
++	return true;
++}
++
++#endif /* GA36MB_GAMEPAD_PROTO_H */
+diff --git a/drivers/input/joystick/ga36mb-gamepad.c b/drivers/input/joystick/ga36mb-gamepad.c
+new file mode 100644
+index 0000000..b683871
+--- /dev/null
++++ b/drivers/input/joystick/ga36mb-gamepad.c
+@@ -0,0 +1,237 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * GA36-MB gamepad: the buttons wired to GPIOs and the two analog sticks read by a
++ * secondary microcontroller over a UART, presented as one input device.
++ *
++ * Copyright (C) Jeremy Clark (goodluckOS, https://github.com/CodeZombie/goodluckOS,
++ * kernel/drivers/ga36mb-gamepad.c, commit 8d676e2327a6, MODULE_LICENSE("GPL"); the
++ * upstream file has no copyright header, this one adds it).
++ *
++ * Lume Retro OS changes: the GPIO buttons are one table; the handshake follows the
++ * vendor module udt_joystick.ko (random challenge, retries with a timeout, a single
++ * keepalive), and a stick board that never answers is not an error (the buttons keep
++ * working); polling and the handshake run only while the input device is open; the
++ * packet parser is plain C in ga36mb-gamepad-proto.h, compiled by a host test.
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/property.h>
++#include <linux/random.h>
++#include <linux/serdev.h>
++#include <linux/workqueue.h>
++
++#include "ga36mb-gamepad-proto.h"
++
++#define GP_POLL_DEFAULT_MS	16
++#define GP_POLL_MIN_MS		4
++#define GP_POLL_MAX_MS		100
++#define GP_ANSWER_TIMEOUT_MS	300	/* wait for the stick board after each handshake */
++
++struct gp_button {
++	const char *gpio;	/* device tree property: <gpio>-gpios */
++	u16 code;
++};
++
++static const struct gp_button gp_buttons[] = {
++	{ "dpad-up", BTN_DPAD_UP }, { "dpad-down", BTN_DPAD_DOWN },
++	{ "dpad-left", BTN_DPAD_LEFT }, { "dpad-right", BTN_DPAD_RIGHT },
++	{ "btn-a", BTN_A }, { "btn-b", BTN_B }, { "btn-x", BTN_X }, { "btn-y", BTN_Y },
++	{ "btn-rb", BTN_TR }, { "btn-rt", BTN_TR2 }, { "btn-lb", BTN_TL }, { "btn-lt", BTN_TL2 },
++	{ "btn-thumbr", BTN_THUMBR }, { "btn-thumbl", BTN_THUMBL },
++	{ "btn-start", BTN_START }, { "btn-select", BTN_SELECT }, { "btn-fn", BTN_MODE },
++};
++
++struct gamepad {
++	struct input_dev *idev;
++	struct serdev_device *serdev;
++	struct gpio_desc *gpio[ARRAY_SIZE(gp_buttons)];	/* NULL: button not declared */
++
++	struct delayed_work poll_work;
++	struct delayed_work handshake_work;
++	unsigned int poll_ms;
++
++	struct gp_parser parser;
++	u8 handshake[GP_HANDSHAKE_LEN];
++	unsigned int tries;
++	bool answered;
++};
++
++static void gamepad_poll(struct work_struct *work)
++{
++	struct gamepad *gp = container_of(work, struct gamepad, poll_work.work);
++	size_t i;
++
++	for (i = 0; i < ARRAY_SIZE(gp_buttons); i++)
++		if (gp->gpio[i])
++			input_report_key(gp->idev, gp_buttons[i].code,
++					 gpiod_get_value_cansleep(gp->gpio[i]));
++	input_sync(gp->idev);
++
++	schedule_delayed_work(&gp->poll_work, msecs_to_jiffies(gp->poll_ms));
++}
++
++static void gamepad_handshake(struct work_struct *work)
++{
++	struct gamepad *gp = container_of(work, struct gamepad, handshake_work.work);
++	u8 random[3];
++
++	if (gp->answered)
++		return;
++
++	if (gp->tries >= GP_HANDSHAKE_RETRIES) {
++		dev_warn(&gp->serdev->dev,
++			 "the stick board does not answer: sticks unavailable, buttons still work\n");
++		return;
++	}
++
++	get_random_bytes(random, sizeof(random));
++	gp_make_handshake(gp->handshake, random);
++	gp->tries++;
++	serdev_device_write_buf(gp->serdev, gp->handshake, sizeof(gp->handshake));
++	schedule_delayed_work(&gp->handshake_work, msecs_to_jiffies(GP_ANSWER_TIMEOUT_MS));
++}
++
++static size_t gamepad_receive_buf(struct serdev_device *serdev, const u8 *buf, size_t count)
++{
++	struct gamepad *gp = serdev_device_get_drvdata(serdev);
++	struct gp_axes axes;
++	size_t i;
++
++	for (i = 0; i < count; i++) {
++		if (!gp_feed(&gp->parser, buf[i], &axes))
++			continue;
++
++		if (!gp->answered) {
++			gp->answered = true;
++			dev_info(&serdev->dev, "stick board answered after %u handshake(s), answer %s\n",
++				 gp->tries,
++				 gp_answer_matches(gp->parser.packet, gp->handshake) ?
++				 "verified" : "not verified");
++			serdev_device_write_buf(serdev, gp_keepalive, sizeof(gp_keepalive));
++		}
++
++		input_report_abs(gp->idev, ABS_X, axes.lx);
++		input_report_abs(gp->idev, ABS_Y, axes.ly);
++		input_report_abs(gp->idev, ABS_RX, axes.rx);
++		input_report_abs(gp->idev, ABS_RY, axes.ry);
++		input_sync(gp->idev);
++	}
++	return count;
++}
++
++static const struct serdev_device_ops gamepad_serdev_ops = {
++	.receive_buf = gamepad_receive_buf,
++	.write_wakeup = serdev_device_write_wakeup,
++};
++
++/* Polling and the handshake run only while a program has the device open. */
++static int gamepad_open(struct input_dev *idev)
++{
++	struct gamepad *gp = input_get_drvdata(idev);
++
++	gp->tries = 0;
++	gp->answered = false;
++	gp_reset(&gp->parser);
++	schedule_delayed_work(&gp->poll_work, 0);
++	schedule_delayed_work(&gp->handshake_work, 0);
++	return 0;
++}
++
++static void gamepad_close(struct input_dev *idev)
++{
++	struct gamepad *gp = input_get_drvdata(idev);
++
++	cancel_delayed_work_sync(&gp->handshake_work);
++	cancel_delayed_work_sync(&gp->poll_work);
++}
++
++static int gamepad_probe(struct serdev_device *serdev)
++{
++	struct device *dev = &serdev->dev;
++	struct gamepad *gp;
++	u32 interval = GP_POLL_DEFAULT_MS;
++	size_t i;
++	int err;
++
++	gp = devm_kzalloc(dev, sizeof(*gp), GFP_KERNEL);
++	if (!gp)
++		return -ENOMEM;
++
++	gp->serdev = serdev;
++	if (!device_property_read_u32(dev, "poll-interval-ms", &interval))
++		interval = clamp_t(u32, interval, GP_POLL_MIN_MS, GP_POLL_MAX_MS);
++	gp->poll_ms = interval;
++	INIT_DELAYED_WORK(&gp->poll_work, gamepad_poll);
++	INIT_DELAYED_WORK(&gp->handshake_work, gamepad_handshake);
++
++	gp->idev = devm_input_allocate_device(dev);
++	if (!gp->idev)
++		return -ENOMEM;
++	gp->idev->name = "GA36-MB Gamepad";
++	gp->idev->id.bustype = BUS_HOST;
++	gp->idev->open = gamepad_open;
++	gp->idev->close = gamepad_close;
++	input_set_drvdata(gp->idev, gp);
++
++	input_set_abs_params(gp->idev, ABS_X, 0, 255, 15, 2);
++	input_set_abs_params(gp->idev, ABS_Y, 0, 255, 15, 2);
++	input_set_abs_params(gp->idev, ABS_RX, 0, 255, 15, 2);
++	input_set_abs_params(gp->idev, ABS_RY, 0, 255, 15, 2);
++
++	/* A button not declared in the device tree is ignored, not an error */
++	for (i = 0; i < ARRAY_SIZE(gp_buttons); i++) {
++		gp->gpio[i] = devm_gpiod_get_optional(dev, gp_buttons[i].gpio, GPIOD_IN);
++		if (IS_ERR(gp->gpio[i]))
++			return dev_err_probe(dev, PTR_ERR(gp->gpio[i]), "cannot get the %s GPIO\n",
++					     gp_buttons[i].gpio);
++		if (gp->gpio[i])
++			input_set_capability(gp->idev, EV_KEY, gp_buttons[i].code);
++	}
++
++	serdev_device_set_drvdata(serdev, gp);
++	serdev_device_set_client_ops(serdev, &gamepad_serdev_ops);
++	err = devm_serdev_device_open(dev, serdev);
++	if (err)
++		return dev_err_probe(dev, err, "cannot open the serial port of the stick board\n");
++	serdev_device_set_baudrate(serdev, GP_BAUD);
++	serdev_device_set_flow_control(serdev, false);
++
++	err = input_register_device(gp->idev);
++	if (err)
++		return dev_err_probe(dev, err, "cannot register the input device\n");
++
++	dev_info(dev, "GA36-MB gamepad registered, polling every %u ms while open\n", gp->poll_ms);
++	return 0;
++}
++
++static void gamepad_remove(struct serdev_device *serdev)
++{
++	struct gamepad *gp = serdev_device_get_drvdata(serdev);
++
++	cancel_delayed_work_sync(&gp->handshake_work);
++	cancel_delayed_work_sync(&gp->poll_work);
++}
++
++static const struct of_device_id gamepad_of_match[] = {
++	{ .compatible = "ga36mb,ga36-gamepad" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, gamepad_of_match);
++
++static struct serdev_device_driver ga36mb_gamepad_driver = {
++	.driver = {
++		.name = "ga36mb-gamepad",
++		.of_match_table = gamepad_of_match,
++	},
++	.probe = gamepad_probe,
++	.remove = gamepad_remove,
++};
++module_serdev_device_driver(ga36mb_gamepad_driver);
++
++MODULE_AUTHOR("Jeremy Clark");
++MODULE_DESCRIPTION("GA36-MB built-in gamepad");
++MODULE_LICENSE("GPL");

@@ -1,0 +1,55 @@
+From: Lume Retro OS
+Subject: [PATCH] intl: label "Quit" as "Shut Down" (en, pt_BR, es)
+
+On Lume Retro OS, quitting RetroArch powers the console off (r36os-session),
+so the menu item says so. Only the languages the system ships messages for
+are changed; the others keep the upstream text.
+
+--- a/intl/msg_hash_us.h
++++ b/intl/msg_hash_us.h
+@@ -211,11 +211,11 @@
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH,
+-   "Quit"
++   "Shut Down"
+    )
+ MSG_HASH(
+    MENU_ENUM_SUBLABEL_QUIT_RETROARCH,
+-   "Quit RetroArch application. Configuration save on exit is enabled."
++   "Save pending data and turn off the console."
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_CLOUD_SYNC_SYNC_NOW,
+--- a/intl/msg_hash_pt_br.h
++++ b/intl/msg_hash_pt_br.h
+@@ -203,11 +203,11 @@
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH,
+-   "Sair"
++   "Desligar"
+    )
+ MSG_HASH(
+    MENU_ENUM_SUBLABEL_QUIT_RETROARCH,
+-   "Fecha o RetroArch.\n\"Salvar configuração ao sair\" está ativado."
++   "Grava o que estiver pendente e desliga o console."
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_CLOUD_SYNC_SYNC_NOW,
+--- a/intl/msg_hash_es.h
++++ b/intl/msg_hash_es.h
+@@ -211,11 +211,11 @@
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH,
+-   "Cerrar RetroArch"
++   "Apagar"
+    )
+ MSG_HASH(
+    MENU_ENUM_SUBLABEL_QUIT_RETROARCH,
+-   "Abandona la aplicación RetroArch. La opción «Guardar configuración al salir» está activada."
++   "Guarda lo pendiente y apaga la consola."
+    )
+ MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_CLOUD_SYNC_SYNC_NOW,

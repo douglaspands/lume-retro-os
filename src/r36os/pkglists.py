@@ -1,4 +1,4 @@
-"""Leitura das listas de pacotes (comum e por alvo)."""
+"""Package lists (common and per target)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from r36os.targets import Target
 
 COMMON = REPO_ROOT / "rootfs/packages.txt"
 
-# Padrões que caracterizam a camada de hardware: nunca podem estar na lista comum.
+# Patterns of the hardware layer: they can never be in the common list.
 HARDWARE_PATTERNS = (
-    "linux-*",  # kernels e firmware (linux-virt, linux-lts, linux-firmware-*)
+    "linux-*",  # kernels and firmware (linux-virt, linux-lts, linux-firmware-*)
     "*-firmware*",
     "u-boot*",
     "syslinux",

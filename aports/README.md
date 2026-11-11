@@ -26,8 +26,8 @@ Como faltava GLES, há um `aports/retroarch` local (1.22.2-**r100**, para vencer
 pacote do Alpine) com `--enable-kms --enable-egl --enable-opengles --enable-udev
 --enable-alsa --enable-freetype` e `--disable-x11 --disable-wayland --disable-qt
 --disable-sdl2 --disable-pulse --disable-ffmpeg --disable-vulkan`. Depende só de
-`libretro-core-info`: os assets vêm do tema Lume e a autoconfiguração dos
-controles vem da própria distro.
+`libretro-core-info`; `retroarch-assets` e `retroarch-joypad-autoconfig` do Alpine
+entram pela lista de pacotes.
 
 `--features` do pacote local: UDEV, OpenGLES, EGL, KMS, ALSA e FreeType = yes; sem
 X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm`,
@@ -37,7 +37,7 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 
 | Pacote | Origem | Commit |
 |---|---|---|
-| libretro-snes9x2010 | novo | `fe690dd3` |
+| libretro-snes9x2005-plus | novo, o core de SNES de fábrica do GA36 (build padrão, `USE_BLARGG_APU=1`; substitui o snes9x2010 desde 2026-11-11) | `fd45b0e0` |
 | libretro-snes9x | testing (edge) | `229933ea` |
 | libretro-genesis-plus-gx | testing (edge) | `b72b8c96` |
 | libretro-picodrive | testing, atualizado + submódulos | `1890c293` |
@@ -45,7 +45,11 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | libretro-mame2003-plus | novo | `4f6b3b46` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
 
-Os cores `fceumm`, `nestopia`, `gambatte`, `mgba` e `gpsp` vêm do Alpine v3.24.
+Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba` não entra
+nesta versão: o GBA usa o `gpsp` em todos os alvos.
+
+O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
+do catálogo nesta versão (pendência 12.1 do `tasks.md`).
 
 Ajustes para o musl:
 

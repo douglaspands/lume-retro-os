@@ -1,0 +1,25 @@
+#!/bin/sh
+# Ativa swap em zram com metade da RAM e prioridade máxima (acima dos 10000
+# do swapfile do LibreELEC). Nunca falha: o boot segue sem zram se algo der errado.
+
+TAG=r36-zram-swap
+DEV=/dev/zram0
+SYS=/sys/block/zram0
+
+falha() {
+  logger -t "$TAG" "zram não ativado: $1"
+  exit 0
+}
+
+[ -b "$DEV" ] && [ -w "$SYS/disksize" ] || falha "$DEV inexistente"
+
+KIB=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+[ -n "$KIB" ] || falha "MemTotal não encontrado em /proc/meminfo"
+BYTES=$((KIB * 1024 / 2))
+
+echo "$BYTES" > "$SYS/disksize" 2>/dev/null || falha "não foi possível gravar $SYS/disksize"
+mkswap "$DEV" >/dev/null 2>&1 || falha "mkswap $DEV falhou"
+swapon -p 32767 "$DEV" 2>/dev/null || falha "swapon $DEV falhou"
+
+logger -t "$TAG" "zram ativo: $DEV com $((BYTES / 1048576)) MiB, prioridade 32767"
+exit 0

@@ -1,0 +1,30 @@
+# Lume Retro OS local package (not in Alpine).
+# Snes9x 1.43 with the blargg SPC700/APU (USE_BLARGG_APU=1, "plus"): the SNES core of the
+# GA36 factory firmware, light enough for the A33. Default upstream build (Makefile
+# platform unix, -O2); a Cortex-A7 build with the flags of
+# docs/referencia/ga36-emuelec/cores/snes9x2005_plus/ is left for a future change.
+# The commit is the one the factory firmware used (EmuELEC v4.7 PKG_VERSION).
+pkgname=libretro-snes9x2005-plus
+pkgver=0_git20220725
+pkgrel=0
+_commit="fd45b0e055bce6cff3acde77414558784e93e7d0"
+pkgdesc="Super Nintendo core for libretro (Snes9x 1.43 with the blargg APU)"
+url="https://github.com/libretro/snes9x2005"
+arch="all"
+license="custom"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/snes9x2005/archive/$_commit.tar.gz"
+builddir="$srcdir/snes9x2005-$_commit"
+options="!check" # No tests
+
+build() {
+	make -f Makefile USE_BLARGG_APU=1
+}
+
+package() {
+	install -Dm644 snes9x2005_plus_libretro.so "$pkgdir"/usr/lib/libretro/snes9x2005_plus_libretro.so
+	install -Dm644 copyright "$pkgdir"/usr/share/licenses/$pkgname/copyright
+}
+sha512sums="
+891eb4563676a27b95efc37e8754ab80a497bdb40ab48171c1d80b669af1fbb9dc2bd2ce6f9a98c282f7f9fb32b923fc6c3278a3bcf11848e815d78270141a3e  libretro-snes9x2005-plus-fd45b0e055bce6cff3acde77414558784e93e7d0.tar.gz
+"

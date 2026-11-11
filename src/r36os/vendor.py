@@ -1,0 +1,67 @@
+"""GA36 vendor bootloader (D5): the boot area of the factory card.
+
+The GA36 is only proven to boot with the vendor chain (Allwinner boot0 and U-Boot 2017),
+the one used by the factory firmware and by goodluckOS. It takes the first 128 MiB of
+the card:
+
+| sector | contents                                                         |
+|--------|------------------------------------------------------------------|
+| 16     | boot0 (eGON.BT0)                                                 |
+| ~38192 | vendor U-Boot 2017                                               |
+| 40960  | Allwinner partition table (softw411), read by the U-Boot         |
+| 73728  | "bootloader" FAT (script.bin, logo)                              |
+| 139264 | U-Boot env                                                       |
+| 172032 | "boot": Android boot image loaded by the U-Boot (here, ours)     |
+
+These binaries are closed and stay out of git: the build reads them from the factory
+image (or a dump of the original card) given in R36OS_GA36_FACTORY, keeps the 128 MiB in
+the cache and checks the SHA256 (without sector 0, the MBR, which is always ours).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+
+from r36os.paths import cache_dir, ensure_dir
+
+SECTOR = 512
+AREA_SECTORS = 262144            # 128 MiB
+ANDROID_BOOT_SECTOR = 172032     # "boot" partition of the softw411 table
+ANDROID_BOOT_MAX = 65536 * SECTOR  # 32 MiB
+# SHA256 of sectors 1..262143 of "R36S GA36-MB V1.2-20260416 - Emuelec - No ROMS"
+AREA_SHA256 = "c915f899c4e110ad7d1ad35efa853708ab9d5a127ddb18c5118f0716803f607a"
+ENV_VAR = "R36OS_GA36_FACTORY"
+
+
+class VendorAreaError(RuntimeError):
+    pass
+
+
+def area_digest(data: bytes) -> str:
+    return hashlib.sha256(data[SECTOR:AREA_SECTORS * SECTOR]).hexdigest()
+
+
+def vendor_area() -> Path:
+    """The 128 MiB vendor area in the cache, extracted from the factory image if needed."""
+    dest = ensure_dir(cache_dir() / "vendor") / "ga36-factory-128M.bin"
+    if not dest.exists():
+        src = os.environ.get(ENV_VAR)
+        if not src or not Path(src).is_file():
+            raise VendorAreaError(
+                f"the GA36 vendor boot area is missing. Point {ENV_VAR} to the factory image "
+                "(or a dump of the first 128 MiB of the original card) and run again")
+        with open(src, "rb") as f:
+            data = f.read(AREA_SECTORS * SECTOR)
+        if len(data) != AREA_SECTORS * SECTOR or area_digest(data) != AREA_SHA256:
+            raise VendorAreaError(f"{src}: the boot area does not match the known GA36 one")
+        tmp = dest.with_suffix(".part")
+        tmp.write_bytes(data)
+        tmp.replace(dest)
+    data = dest.read_bytes()
+    if area_digest(data) != AREA_SHA256:
+        raise VendorAreaError(f"{dest}: unexpected SHA256; delete it and extract it again")
+    if data[16 * SECTOR + 4:16 * SECTOR + 12] != b"eGON.BT0":
+        raise VendorAreaError(f"{dest}: no boot0 at sector 16")
+    return dest

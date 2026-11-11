@@ -11,7 +11,7 @@ network_cmd_enable = "true"
 network_cmd_port = "55355"
 savestate_directory = "/tmp/states"
 EOF
-ROM="/roms/roms/nes/Teste NES.nes"
+ROM="/roms/roms/nes/Test NES.nes"
 retroarch --appendconfig /tmp/null.cfg -L /usr/lib/libretro/fceumm_libretro.so --verbose "$ROM" > /tmp/ra1.log 2>&1 &
 pid=$!
 sleep 3

@@ -1,0 +1,575 @@
+#!/bin/sh
+# r36os-logd (D14): logs de diagnóstico em ROMS/logs/.
+#
+#   logd start  contador de boot, desligamento anterior (limpo ou abrupto), logs.conf
+#               com os padrões e eventos do boot (ROMS, kernel)
+#   logd run    laço: retrato do hardware (uma vez), métricas a cada interval s e
+#               descarga em lote a cada flush s
+#   logd flush  descarga imediata (usada pelo self-test e pela sessão)
+#   logd stop   descarga final e marcador de desligamento limpo
+. "${LOGD_LIBDIR:-/usr/libexec/r36os}/lib.sh"
+. "${LOGD_LIBDIR:-/usr/libexec/r36os}/logs.sh"
+
+CLEAN_MARK=$LOGS_DIR/.clean
+COUNTER=$LOGS_DIR/.boot
+
+cmd_start() {
+	local prev n
+	mkdir -p "$LOGS_RAM"
+	n=0
+	if logs_on_disk; then
+		mkdir -p "$LOGS_DIR/boot" "$LOGS_DIR/hw" "$LOGS_DIR/metrics" "$LOGS_DIR/trace" "$LOGS_DIR/frontend"
+		if [ ! -f "$LOGS_CONF" ]; then
+			mkdir -p "$(dirname "$LOGS_CONF")"
+			printf '%s\n' "$LOGS_CONF_DEFAULT" > "$LOGS_CONF"
+		fi
+		prev=$(tr -cd '0-9' < "$COUNTER" 2>/dev/null)
+		n=$(( ${prev:-0} + 1 ))
+		echo "$n" > "$COUNTER.tmp" && fsync "$COUNTER.tmp" 2>/dev/null && mv -f "$COUNTER.tmp" "$COUNTER"
+		echo "$n" > "$LOGS_RAM/boot-n"
+		if [ -n "$prev" ]; then
+			if [ -f "$CLEAN_MARK" ]; then
+				event shutdown OK "previous clean (boot $prev)"
+			else
+				event shutdown FAIL "previous abrupt (boot $prev): power loss or crash"
+			fi
+		fi
+		rm -f "$CLEAN_MARK"
+	else
+		echo 0 > "$LOGS_RAM/boot-n"
+		event logs FAIL "no ROMS: logs in RAM only for this boot"
+	fi
+	logs_conf
+	event boot OK "started: $(board) kernel $(uname -r) boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+
+	# ROMS (mensagens do initramfs no dmesg)
+	dmesg | sed -n 's/.*lume: \(ROMS partition created.*\)/\1/p' | while read -r l; do event roms OK "$l"; done
+	dmesg | sed -n 's/.*lume: ROMS checked: \(.*\)/\1/p' | while read -r l; do event roms OK "checked: $l"; done
+	dmesg | sed -n 's/.*lume: \(ERROR.*\)/\1/p' | while read -r l; do event boot FAIL "$l"; done
+	# Erros do kernel neste boot (nível err ou pior): contagem e os 3 primeiros
+	local errs
+	errs=$(dmesg -l err,crit,alert,emerg 2>/dev/null)
+	if [ -n "$errs" ]; then
+		event kernel FAIL "$(echo "$errs" | wc -l) error message(s); first: $(echo "$errs" | head -n 3 | sed 's/^\[[^]]*\] *//' | tr '\n' '|')"
+	else
+		event kernel OK "no error messages"
+	fi
+	logs_flush
+}
+
+# Colunas variáveis do CSV, descobertas uma vez por boot
+ZONES="" POLICIES="" CPUS="" BAT=""
+discover() {
+	local z p c ps
+	for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && ZONES="$ZONES $z"; done
+	for p in /sys/devices/system/cpu/cpufreq/policy*; do [ -r "$p/scaling_cur_freq" ] && POLICIES="$POLICIES $p"; done
+	CPUS=$(sed -n 's/^cpu\([0-9][0-9]*\) .*/\1/p' /proc/stat | tr '\n' ' ')
+	for ps in /sys/class/power_supply/*; do
+		[ "$(cat "$ps/type" 2>/dev/null)" = Battery ] && { BAT=$ps; break; }
+	done
+	{
+		printf 'time,uptime_s'
+		for z in $ZONES; do printf ',temp_%s_c' "$(cat "$z/type" 2>/dev/null | tr -c 'a-zA-Z0-9_\n' '_')"; done
+		for p in $POLICIES; do printf ',freq_%s_mhz' "${p##*/}"; done
+		for c in $CPUS; do printf ',cpu%s_pct' "$c"; done
+		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal\n'
+	} > "$LOGS_RAM/metrics.header"
+}
+
+# Primeiro trip passivo de cada zona (°C), para o evento de temperatura
+passive_trip() {  # zona
+	local t
+	for t in "$1"/trip_point_*_type; do
+		[ "$(cat "$t" 2>/dev/null)" = passive ] || continue
+		echo $(( $(cat "${t%_type}_temp") / 1000 ))
+		return
+	done
+}
+
+# Estado do frontend pelo comando de rede local (GET_STATUS)
+FE_STATE="" FE_CORE="" FE_CONTENT="" FE_FRAMES=""
+frontend_state() {
+	local r st rest
+	FE_CORE="" FE_CONTENT="" FE_FRAMES=""
+	if ! pidof retroarch >/dev/null 2>&1; then
+		# outro frontend instalado em /usr/libexec/r36os/frontends/, ou nenhum
+		if pgrep -f /usr/libexec/r36os/frontends/ >/dev/null 2>&1; then
+			FE_STATE=other
+		else
+			FE_STATE=stopped
+		fi
+		return
+	fi
+	r=$(printf GET_STATUS | nc -u -w1 127.0.0.1 55355 2>/dev/null)
+	set -- $r
+	st=${2:-}
+	case "$st" in
+	PLAYING|PAUSED)
+		FE_STATE=game
+		[ "$st" = PAUSED ] && FE_STATE=paused
+		rest=${r#GET_STATUS $st }
+		FE_CORE=${rest%%,*}
+		rest=${rest#*,}
+		FE_CONTENT=${rest%,crc32=*}
+		# video frame counter (aports/retroarch patch 0004); absent on older builds
+		case "$r" in *,frames=*)
+			FE_FRAMES=${r##*,frames=}
+			FE_FRAMES=$(printf '%s' "$FE_FRAMES" | tr -cd '0-9') ;;
+		esac
+		;;
+	CONTENTLESS) FE_STATE=menu ;;
+	*) FE_STATE=no_answer ;;
+	esac
+}
+
+csv_field() { printf '%s' "$1" | tr ',\n' ';;'; }
+
+# Frontend trace (trace/boot-<n>.log): one line per sample with the RetroArch process
+# state, the new kernel messages and, when it stops answering, a detailed snapshot. It
+# tells WHERE a freeze happened. It also detects a hung frontend (blocked, no CPU and no
+# display vblank) and recovers from it by killing it, so the session restarts it.
+KMSG_SEEN=0 NOANS=0 DEEP_N=0 PREV_STATE="" PREV_PID="" PREV_TICKS="" PREV_VB="" HANG=0 RECOVER_N=0
+DEEP_MAX=6          # detailed snapshots per boot
+NOANS_LIMIT=3       # consecutive samples without an answer (15 s) before declaring it
+HANG_LIMIT=2        # consecutive samples blocked with no CPU and no vblank (10 s)
+RECOVER_MAX=${RECOVER_MAX:-3}   # times per boot the hung frontend is killed (0 = only log)
+KICK_MAX=${KICK_MAX:-5}         # times per boot the TCON vblank interrupt is re-enabled
+KICK_N=0 KICK_WROTE="" SNAPPED=""
+# PID whose vblank interrupt was re-enabled. Its display runs again, so a moving vblank no
+# longer proves it lives: if it stays blocked with no CPU it is hung all the same (the GA36
+# image 214119 showed it: the vblank came back, RetroArch never woke up and was never killed).
+KICKED_PID=""
+FRONTEND_LOG_FILE=${FRONTEND_LOG:-/var/log/frontend.log}
+INTERRUPTS_FILE=${INTERRUPTS_FILE:-/proc/interrupts}
+DEVMEM_BIN=${DEVMEM_BIN:-r36os-devmem}   # reads/writes one 32-bit register (GA36 only)
+# TCON_GINT0 (offset 4): VBLANK_ENABLE(0) bit 31, VBLANK_ENABLE(1) bit 30, TCON0_TRI_FINISH_ENABLE
+# bit 27. A healthy console shows 0xc8000200 there; a frozen one showed 0x00000a00 (all three
+# masked, a TRI_FINISH flag pending) while RetroArch waited for a page flip.
+TCON_VBLANK_MASK=0xC8000000
+
+# Sum of the display controller interrupts (the vblank counter); empty when there is no
+# such device (the VM). A frozen display stops this counter.
+vblank_count() {
+	awk '/lcd-controller|tcon/ { for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; found = 1 }
+		END { if (found) print s + 0 }' "$INTERRUPTS_FILE" 2>/dev/null
+}
+
+# Physical base of the display controller (TCON) from its name in /proc/interrupts, for
+# example "1c0c000.lcd-controller" -> 0x1c0c000. Empty when there is none (the VM).
+tcon_base() {
+	awk '/lcd-controller/ { name = $NF; sub(/\..*/, "", name); print "0x" name; exit }' \
+		"$INTERRUPTS_FILE" 2>/dev/null
+}
+
+# When the TCON has its vblank interrupts masked, a page flip waits forever (the flag is
+# pending but nothing wakes RetroArch). Re-enabling the three bits lets the pending flag
+# raise the interrupt and complete the flip. Returns 0 if the vblank counter moved again.
+# Sets KICK_WROTE when it actually wrote the register.
+tcon_kick() {
+	local base reg cur new vb0 vb1 i
+	KICK_WROTE=""
+	command -v "$DEVMEM_BIN" >/dev/null 2>&1 || return 1
+	base=$(tcon_base)
+	[ -n "$base" ] || return 1
+	reg=$(printf '0x%x' $((base + 4)))
+	cur=$("$DEVMEM_BIN" "$reg" 2>/dev/null) || return 1
+	if [ $((cur & TCON_VBLANK_MASK)) -ne 0 ]; then
+		trace "tcon GINT0 $cur: vblank interrupts are enabled, nothing to re-enable"
+		return 1
+	fi
+	new=$(printf '0x%08x' $((cur | TCON_VBLANK_MASK)))
+	vb0=$(vblank_count)
+	"$DEVMEM_BIN" "$reg" "$new" >/dev/null 2>&1 || return 1
+	KICK_WROTE=1
+	trace "tcon GINT0 $cur masked: wrote $new to $reg"
+	i=0
+	while [ $i -lt 3 ]; do
+		sleep 1
+		vb1=$(vblank_count)
+		if [ "$vb1" != "$vb0" ]; then
+			trace "tcon vblank moving again ($vb0 -> $vb1)"
+			return 0
+		fi
+		i=$((i + 1))
+	done
+	trace "tcon vblank still stalled 3 s after re-enabling it"
+	return 1
+}
+
+# New kernel messages since the previous sample (what came before is in the boot log)
+trace_kernel() {
+	local total
+	total=$(dmesg | wc -l)
+	[ "$total" -ge "$KMSG_SEEN" ] || KMSG_SEEN=0   # o buffer do kernel girou
+	if [ "$total" -gt "$KMSG_SEEN" ]; then
+		dmesg | tail -n +$((KMSG_SEEN + 1)) | while IFS= read -r l; do trace "k $l"; done
+	fi
+	KMSG_SEEN=$total
+}
+
+# State of the display pipeline: connector and backlight sysfs, the DRM atomic state and
+# clients (who is master) from debugfs, the display controller / DSI registers and clocks.
+# Tells whether the CRTC is still active and the controller still enabled when it freezes.
+trace_display() {
+	local f
+	mountpoint -q /sys/kernel/debug 2>/dev/null || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+	for f in /sys/class/drm/card*-*/status /sys/class/drm/card*-*/enabled /sys/class/drm/card*-*/dpms \
+		/sys/class/backlight/*/brightness /sys/class/backlight/*/bl_power; do
+		[ -r "$f" ] && echo "sysfs $f $(cat "$f" 2>/dev/null)"
+	done
+	for f in /sys/kernel/debug/dri/*/state /sys/kernel/debug/dri/*/clients; do
+		[ -r "$f" ] || continue
+		echo "debugfs $f"
+		head -n 60 "$f" | sed 's/^/  /'
+	done
+	echo "regmaps: $(ls /sys/kernel/debug/regmap 2>/dev/null | tr '\n' ' ')"
+	for f in /sys/kernel/debug/regmap/*lcd-controller*/registers /sys/kernel/debug/regmap/*tcon*/registers \
+		/sys/kernel/debug/regmap/*dsi*/registers /sys/kernel/debug/regmap/*display-backend*/registers \
+		/sys/kernel/debug/regmap/*display-frontend*/registers; do
+		[ -r "$f" ] || continue
+		echo "regs $f"
+		head -n 80 "$f" | sed 's/^/  /'
+	done
+	grep -E 'tcon|dsi|mipi|pll-video|pll-mipi|gpu|mbus|pll-audio|i2s|codec|dma' /sys/kernel/debug/clk/clk_summary 2>/dev/null |
+		head -n 60 | sed 's/^/clk /'
+	# audio path (task 9.8): DAI and codec registers, to see whether the DAC FIFO and its
+	# DMA request are enabled while the DMA controller shows no interrupt
+	for f in /sys/kernel/debug/regmap/*dai*/registers /sys/kernel/debug/regmap/*codec*/registers; do
+		[ -r "$f" ] || continue
+		echo "regs $f"
+		head -n 40 "$f" | sed 's/^/  /'
+	done
+}
+
+# Detailed process snapshot (threads, kernel stack, device descriptors, interrupts, display
+# state): shows where RetroArch is stuck. Prints the lines; trace_snapshot stores them.
+trace_deep() {  # pid
+	local pid="$1" t f r
+	echo "=== snapshot of retroarch pid $pid (frontend $FE_STATE)"
+	grep -E '^(State|Threads|VmRSS|VmSwap|voluntary_ctxt_switches|nonvoluntary_ctxt_switches)' \
+		"/proc/$pid/status" 2>/dev/null | sed 's/^/status /'
+	for t in /proc/$pid/task/*; do
+		[ -d "$t" ] || continue
+		echo "thread ${t##*/} $(cat "$t/comm" 2>/dev/null) state=$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null) wchan=$(cat "$t/wchan" 2>/dev/null)"
+		head -n 12 "$t/stack" 2>/dev/null | sed "s/^/  stack ${t##*/} /"
+	done
+	for f in /proc/$pid/fd/*; do
+		r=$(readlink "$f" 2>/dev/null)
+		case "$r" in /dev/*) echo "fd ${f##*/} $r" ;; esac
+	done
+	echo "loadavg $(cat /proc/loadavg 2>/dev/null)"
+	# Playback streams: RetroArch waits in poll() with no timeout for room in the ALSA
+	# buffer, so a stream whose hw_ptr does not move (no DMA interrupt) also freezes it.
+	for f in /proc/asound/card*/pcm*p/sub*/status /proc/asound/card*/pcm*p/sub*/hw_params; do
+		[ -r "$f" ] || continue
+		sed "s|^|alsa ${f#/proc/asound/} |" "$f" 2>/dev/null
+	done
+	sed 's/^/irq /' "$INTERRUPTS_FILE"
+	trace_display
+	echo "=== end of snapshot"
+}
+
+# Stores a snapshot in trace.pending in one go: the lines are built in a RAM file with few
+# processes and stamped once (one trace() call per line took 11 s on the A33, which is
+# too long when a frozen console may be switched off any second).
+trace_snapshot() {  # pid
+	local tmp="$LOGS_RAM/snapshot.tmp"
+	[ "$(_size "$LOGS_RAM/trace.pending")" -lt "$TRACE_MAX_BYTES" ] || return 0
+	mkdir -p "$LOGS_RAM"
+	trace_deep "$1" > "$tmp" 2>/dev/null
+	sed "s/^/$(date '+%H:%M:%S') /" "$tmp" >> "$LOGS_RAM/trace.pending"
+	rm -f "$tmp"
+}
+
+# Audio stalls reported by RetroArch (patch 0003: the ALSA write waits at most 500 ms and
+# then drops audio). Only the part of the frontend log not read yet is scanned
+# (AUDIO_LOG_POS, in bytes); a log that shrank (a new frontend run) is read from the start.
+# Each new "stalled" or "consuming again" line becomes one event.
+AUDIO_LOG_POS=0
+audio_watch() {
+	local size new
+	size=$(_size "$FRONTEND_LOG_FILE")
+	[ "$size" -ge "$AUDIO_LOG_POS" ] || AUDIO_LOG_POS=0
+	[ "$size" -gt "$AUDIO_LOG_POS" ] || return 0
+	new=$(tail -c +$((AUDIO_LOG_POS + 1)) "$FRONTEND_LOG_FILE" 2>/dev/null |
+		grep -oE '\[ALSA\] Playback (stalled|consuming again)')
+	AUDIO_LOG_POS=$size
+	printf '%s\n' "$new" | while IFS= read -r l; do
+		case "$l" in
+			*stalled) event audio FAIL "playback stalled: the sound device stopped consuming, the game keeps running without sound; see frontend/boot-$(boot_n).log" ;;
+			*again) event audio OK "playback consuming again, sound resumed" ;;
+		esac
+	done
+	return 0
+}
+
+# One line per sample + detection of "RetroArch alive but not answering" and of a hang
+trace_sample() {
+	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
+	# scan before trimming; after a trim everything kept was already read
+	audio_watch
+	frontend_log_trim "$FRONTEND_LOG_FILE"
+	AUDIO_LOG_POS=$(_size "$FRONTEND_LOG_FILE")
+	trace_kernel
+	vb=$(vblank_count)
+	# GPU clock in MHz (devfreq): shows whether it changed when a game started
+	for f in "${GPU_DEVFREQ_DIR:-/sys/class/devfreq}"/*gpu*/cur_freq; do
+		[ -r "$f" ] && gpu=$(( $(cat "$f" 2>/dev/null || echo 0) / 1000000 )) && break
+	done
+	pid=$(pidof retroarch 2>/dev/null | cut -d' ' -f1)
+	if [ -z "$pid" ]; then
+		trace "fe=$FE_STATE pid=- gpu_mhz=$gpu vblank=$vb"
+		NOANS=0 HANG=0 PREV_PID="" PREV_TICKS=""
+	else
+		set -- $(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null)
+		st=${1:-?} utime=${12:-0} stime=${13:-0} threads=${18:-0}
+		ticks=$((utime + stime))
+		line="st=$st utime=$utime stime=$stime threads=$threads"
+		for t in /proc/$pid/task/*; do
+			[ -d "$t" ] || continue
+			th="$th ${t##*/}:$(sed 's/^.*) //; s/ .*//' "$t/stat" 2>/dev/null):$(cat "$t/wchan" 2>/dev/null)"
+		done
+		for f in /proc/$pid/fd/*; do
+			r=$(readlink "$f" 2>/dev/null)
+			case "$r" in /dev/dri/*) dri=$((dri + 1)) ;; esac
+		done
+		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu vblank=$vb tasks=$th"
+		# Hung = same process, (almost) no CPU used since the last sample and the display
+		# vblank counter not moving. A frontend that is only loading a big game uses CPU.
+		# After a kick only the CPU counts (see KICKED_PID).
+		if [ "$pid" = "$PREV_PID" ] && [ -n "$PREV_TICKS" ] && [ "$ticks" -le $((PREV_TICKS + 2)) ] &&
+			{ [ -z "$vb" ] || [ "$vb" = "$PREV_VB" ] || [ "$pid" = "$KICKED_PID" ]; }; then
+			HANG=$((HANG + 1))
+		else
+			HANG=0
+			# the kicked process used CPU again: it really woke up
+			[ "$pid" = "$KICKED_PID" ] && [ -n "$PREV_TICKS" ] && KICKED_PID=""
+		fi
+		PREV_PID=$pid PREV_TICKS=$ticks PREV_VB=$vb
+		[ "$HANG" -eq 0 ] && SNAPPED=""
+		# First blocked sample on a console with a display controller: take the snapshot
+		# (the evidence) and try to re-enable the masked vblank interrupt before giving
+		# up on the process. It is harmless when the interrupt is not masked.
+		if [ "$HANG" -eq 1 ] && [ -n "$vb" ]; then
+			if [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_snapshot "$pid"
+				SNAPPED=1
+			fi
+			if [ "$KICK_N" -lt "$KICK_MAX" ]; then
+				if tcon_kick; then
+					[ -n "$KICK_WROTE" ] && KICK_N=$((KICK_N + 1))
+					event frontend OK "recovery: re-enabled the masked display vblank interrupt; the display runs again, watching retroarch pid $pid (kick $KICK_N of $KICK_MAX)"
+					# keep PREV_TICKS: if the process does not use CPU in the next two
+					# samples it is killed like any other hang
+					HANG=0 KICKED_PID=$pid PREV_VB=$(vblank_count)
+					logs_flush
+				elif [ -n "$KICK_WROTE" ]; then
+					KICK_N=$((KICK_N + 1))
+				fi
+			fi
+		fi
+		if [ "$HANG" -eq "$HANG_LIMIT" ]; then
+			if [ "$pid" = "$KICKED_PID" ]; then
+				event frontend FAIL "retroarch pid $pid hung: blocked with no CPU for $((HANG * LOG_INTERVAL))s although the display vblank runs again (state $FE_STATE); see trace/boot-$(boot_n).log"
+			else
+				event frontend FAIL "retroarch pid $pid hung: blocked with no CPU and no display vblank for $((HANG * LOG_INTERVAL))s (state $FE_STATE); see trace/boot-$(boot_n).log"
+			fi
+			if [ -z "$SNAPPED" ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_snapshot "$pid"
+			fi
+			if [ "$RECOVER_N" -lt "$RECOVER_MAX" ]; then
+				RECOVER_N=$((RECOVER_N + 1))
+				logs_flush      # the evidence first, then the kill
+				kill -9 "$pid" 2>/dev/null
+				event frontend OK "recovery $RECOVER_N of $RECOVER_MAX: killed the hung retroarch pid $pid; the session restarts the frontend"
+				PREV_PID=""
+			fi
+		fi
+		if [ "$FE_STATE" = no_answer ]; then
+			NOANS=$((NOANS + 1))
+			if [ "$NOANS" -eq "$NOANS_LIMIT" ]; then
+				event frontend FAIL "retroarch pid $pid alive but no answer for $((NOANS * LOG_INTERVAL))s; see trace/boot-$(boot_n).log"
+			fi
+			# Snapshot when the freeze is declared and then every 6 samples
+			if [ "$NOANS" -ge "$NOANS_LIMIT" ] && [ $(( (NOANS - NOANS_LIMIT) % 6 )) -eq 0 ] && [ "$DEEP_N" -lt "$DEEP_MAX" ]; then
+				DEEP_N=$((DEEP_N + 1))
+				trace_snapshot "$pid"
+			fi
+		else
+			[ "$NOANS" -ge "$NOANS_LIMIT" ] && event frontend OK "retroarch answering again after $((NOANS * LOG_INTERVAL))s"
+			NOANS=0
+		fi
+	fi
+	# Flush at once on every state change and while it is not answering: a frozen console
+	# is usually switched off by hand, and the normal interval would lose the evidence.
+	if [ "$FE_STATE" != "$PREV_STATE" ] || [ "$NOANS" -gt 0 ]; then
+		logs_flush
+	fi
+	PREV_STATE=$FE_STATE
+}
+
+GAME_KEY="" GAME_CORE="" GAME_CONTENT="" GAME_T0=0
+HOT_ZONES="" BAT_LOW=0
+sample() {
+	local now up z t trip p c line mem swap bpct bmv bma bst cpus
+	now=$(date '+%Y-%m-%dT%H:%M:%S')
+	up=$(cut -d' ' -f1 /proc/uptime)
+	line="$now,$up"
+	for z in $ZONES; do
+		t=$(cat "$z/temp" 2>/dev/null)
+		line="$line,$(awk -v t="${t:-0}" 'BEGIN{printf "%.1f", t/1000}')"
+		trip=$(passive_trip "$z")
+		if [ -n "$trip" ] && [ -n "$t" ]; then
+			if [ $((t / 1000)) -ge "$trip" ]; then
+				case " $HOT_ZONES " in *" $z "*) ;; *)
+					HOT_ZONES="$HOT_ZONES $z"
+					event temperature FAIL "$(cat "$z/type") $((t / 1000)) °C, above passive trip of $trip °C" ;;
+				esac
+			elif [ $((t / 1000)) -le $((trip - 5)) ]; then
+				case " $HOT_ZONES " in *" $z "*)
+					HOT_ZONES=$(echo "$HOT_ZONES" | sed "s| $z||")
+					event temperature OK "$(cat "$z/type") back to $((t / 1000)) °C" ;;
+				esac
+			fi
+		fi
+	done
+	for p in $POLICIES; do line="$line,$(( $(cat "$p/scaling_cur_freq" 2>/dev/null || echo 0) / 1000 ))"; done
+	# Per-core load: /proc/stat difference since the previous sample. The read stream must be
+	# closed before writing: awk keys streams by file name, so without close() the write goes
+	# to the read-only stream, fails silently, stat.prev keeps the first sample and the
+	# columns become the average since boot.
+	cpus=$(awk -v prev="$LOGS_RAM/stat.prev" '
+		BEGIN { while ((getline l < prev) > 0) { split(l, a, " "); pt[a[1]] = a[2]; pi[a[1]] = a[3] }; close(prev) }
+		/^cpu[0-9]/ { tot = 0; for (i = 2; i <= NF; i++) tot += $i; idle = $5 + $6
+			out = out sprintf(",%.0f", (tot - pt[$1]) > 0 ? 100 * (1 - (idle - pi[$1]) / (tot - pt[$1])) : 0)
+			now = now $1 " " tot " " idle "\n" }
+		END { printf "%s", now > prev; print out }' /proc/stat)
+	line="$line$cpus"
+	mem=$(awk '/^MemAvailable:/{a=$2} /^SwapTotal:/{st=$2} /^SwapFree:/{sf=$2} END{printf "%d,%d", a/1024, (st-sf)/1024}' /proc/meminfo)
+	line="$line,$mem"
+	bpct="" bmv="" bma="" bst=""
+	if [ -n "$BAT" ]; then
+		bpct=$(cat "$BAT/capacity" 2>/dev/null)
+		bmv=$(( $(cat "$BAT/voltage_now" 2>/dev/null || echo 0) / 1000 ))
+		bma=$(( $(cat "$BAT/current_now" 2>/dev/null || echo 0) / 1000 ))
+		bst=$(cat "$BAT/status" 2>/dev/null)
+		if [ -n "$bpct" ]; then
+			if [ "$bpct" -lt 10 ] && [ $BAT_LOW = 0 ]; then
+				BAT_LOW=1; event battery FAIL "below 10% ($bpct%, $bmv mV, $bst)"
+			elif [ "$bpct" -gt 15 ]; then BAT_LOW=0; fi
+		fi
+	fi
+	line="$line,$bpct,$bmv,$bma,$bst"
+	frontend_state
+	game_track "$up"
+	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT"),$FPS,"
+	[ -n "$GAME_KEY" ] && line="$line$GAME_NOMINAL"
+	echo "$line" >> "$LOGS_RAM/metrics.pending"
+	trace_sample
+}
+
+# Nominal FPS of the running core: the last "Geometry: ... FPS: <n>," line of the frontend
+# log, written by RetroArch when the core loads.
+core_nominal_fps() {
+	grep -o 'Geometry: .* FPS: [0-9.]*' "$FRONTEND_LOG_FILE" 2>/dev/null | tail -n 1 |
+		sed 's/.*FPS: //'
+}
+
+# Game opened/closed (a pause in the menu is still the same game) and the game FPS:
+# frame counter difference (GET_STATUS, patch 0004) over the uptime difference between two
+# samples while the game runs. Two samples in a row below 95% of the nominal FPS give a
+# "slow" event; the first sample back at full speed gives an OK event.
+FPS="" FPS_PREV_FRAMES="" FPS_PREV_T="" GAME_NOMINAL="" SLOW_N=0 SLOW=0
+FPS_SLOW_PCT=95
+game_track() {  # uptime
+	local up=$1 key=""
+	case "$FE_STATE" in game|paused) key="$FE_CORE|$FE_CONTENT" ;; esac
+	if [ "$key" != "$GAME_KEY" ]; then
+		if [ -n "$GAME_KEY" ]; then
+			event game OK "closed: core=$GAME_CORE content=$GAME_CONTENT duration=$(( ${up%.*} - GAME_T0 ))s"
+		fi
+		if [ -n "$key" ]; then
+			GAME_CORE=$FE_CORE GAME_CONTENT=$FE_CONTENT GAME_T0=${up%.*}
+			event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
+		fi
+		GAME_KEY=$key GAME_NOMINAL="" FPS_PREV_FRAMES="" SLOW_N=0 SLOW=0
+	fi
+	FPS=""
+	[ -n "$GAME_KEY" ] && [ -z "$GAME_NOMINAL" ] && GAME_NOMINAL=$(core_nominal_fps)
+	# only while the game runs: paused in the menu, the counter counts menu frames
+	if [ "$FE_STATE" != game ] || [ -z "$FE_FRAMES" ]; then
+		FPS_PREV_FRAMES=""
+		return 0
+	fi
+	if [ -n "$FPS_PREV_FRAMES" ] && [ "$FE_FRAMES" -ge "$FPS_PREV_FRAMES" ]; then
+		FPS=$(awk -v f="$FE_FRAMES" -v pf="$FPS_PREV_FRAMES" -v t="$up" -v pt="$FPS_PREV_T" \
+			'BEGIN { if (t > pt) printf "%.1f", (f - pf) / (t - pt) }')
+	fi
+	FPS_PREV_FRAMES=$FE_FRAMES FPS_PREV_T=$up
+	[ -n "$FPS" ] && [ -n "$GAME_NOMINAL" ] || return 0
+	if awk -v f="$FPS" -v n="$GAME_NOMINAL" -v p="$FPS_SLOW_PCT" 'BEGIN { exit !(f * 100 < n * p) }'; then
+		SLOW_N=$((SLOW_N + 1))
+		if [ "$SLOW_N" -ge 2 ] && [ "$SLOW" = 0 ]; then
+			SLOW=1
+			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL) content=$GAME_CONTENT"
+		fi
+	else
+		SLOW_N=0
+		if [ "$SLOW" = 1 ]; then
+			SLOW=0
+			event game OK "full speed again: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL)"
+		fi
+	fi
+}
+
+# Retrato do hardware deste boot (hw/boot-<n>.txt), depois que o frontend sobe
+hw_snapshot() {
+	local out="$LOGS_RAM/hw.txt" n
+	n=$(boot_n)
+	# espera o frontend (até 60 s) para medir o tempo até ele
+	local i=0
+	while [ $i -lt 60 ] && ! dmesg | grep -q "lume: frontend started"; do sleep 1; i=$((i + 1)); done
+	/usr/libexec/r36os/hwinfo > "$out" 2>&1
+	if logs_on_disk; then atomic_copy "$out" "$LOGS_DIR/hw/boot-$n.txt"; fi
+}
+
+cmd_run() {
+	logs_conf
+	local last_flush=0 now
+	trap 'logs_flush; exit 0' TERM INT
+	if [ "$LOG_ENABLE" = 1 ]; then
+		discover
+		: > "$LOGS_RAM/stat.prev"
+		KMSG_SEEN=$(dmesg | wc -l)
+		hw_snapshot
+	fi
+	while :; do
+		[ "$LOG_ENABLE" = 1 ] && sample
+		now=$(cut -d. -f1 /proc/uptime)
+		if [ $((now - last_flush)) -ge "$LOG_FLUSH" ]; then
+			logs_flush
+			last_flush=$now
+		fi
+		sleep "$LOG_INTERVAL" &
+		wait $!
+	done
+}
+
+cmd_stop() {
+	event shutdown OK "clean"
+	logs_flush
+	logs_on_disk && { : > "$CLEAN_MARK"; fsync "$CLEAN_MARK" 2>/dev/null; sync; }
+	return 0
+}
+
+[ -n "${LOGD_LIB:-}" ] && return 0   # testes: só as funções
+
+case "$1" in
+start) cmd_start ;;
+run) cmd_run ;;
+flush) logs_conf; logs_flush ;;
+stop) cmd_stop ;;
+*) echo "usage: $0 start|run|flush|stop" >&2; exit 2 ;;
+esac

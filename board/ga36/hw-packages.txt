@@ -2,3 +2,6 @@
 # Kernel, DTBs e U-Boot vêm do estágio 1 (cross-compile) e não são pacotes apk:
 # a imagem do kernel vai para a BOOT e os módulos entram direto no SYSTEM.
 # O controle serial é driver de kernel (kernel/patches/), sem daemon em userland.
+
+# Register access for the display freeze recovery (r36os-logd, task 9.8)
+r36os-devmem

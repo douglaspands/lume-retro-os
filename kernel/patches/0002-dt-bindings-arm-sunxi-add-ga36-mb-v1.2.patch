@@ -1,0 +1,22 @@
+From: Douglas Panhota <douglaspands@gmail.com>
+Subject: [PATCH] dt-bindings: arm: sunxi: add GA36-MB V1.2
+
+Board compatible of the GA36-MB V1.2 handheld (Allwinner A33).
+---
+diff --git a/Documentation/devicetree/bindings/arm/sunxi.yaml b/Documentation/devicetree/bindings/arm/sunxi.yaml
+--- a/Documentation/devicetree/bindings/arm/sunxi.yaml
++++ b/Documentation/devicetree/bindings/arm/sunxi.yaml
+@@ -321,6 +321,11 @@
+           - const: friendlyarm,zeropi
+           - const: allwinner,sun8i-h3
+ 
++      - description: GA36-MB V1.2 handheld (A33)
++        items:
++          - const: ga36mb,ga36-mb-v1.2
++          - const: allwinner,sun8i-a33
++
+       - description: Gemei G9 Tablet
+         items:
+           - const: gemei,g9
+-- 
+2.0

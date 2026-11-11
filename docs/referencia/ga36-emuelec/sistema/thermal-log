@@ -1,0 +1,375 @@
+#!/bin/sh
+# Registro térmico (R36S): a cada 5 s anexa uma linha CSV em /storage/roms com
+# temperatura, clock, teto de clock, governor, ocupação por núcleo, cena e clock da
+# DRAM, bateria e o jogo em execução. Só mede: não muda clock, governor nem a DRAM.
+# Uma vez por boot, no primeiro ciclo em que pode gravar, grava também o retrato do
+# sistema em r36-sysinfo.txt (o aparelho não tem Wi-Fi nem SSH).
+# Só busybox. Caminhos configuráveis por ambiente (testes); --once grava uma
+# linha e sai.
+
+PROC=${R36_PROC:-/proc}
+SYS=${R36_SYS:-/sys}
+ROMS=${R36_ROMS:-/storage/roms}
+LOG=${R36_LOG:-$ROMS/r36-thermal.csv}
+LOG1=${LOG%.csv}.1.csv
+SYSINFO=${R36_SYSINFO:-$ROMS/r36-sysinfo.txt}
+LCDBL=${R36_LCDBL:-$SYS/devices/virtual/disp/disp/attr/lcdbl}
+INTERVAL=${R36_INTERVAL:-5}
+ONCE_DELAY=${R36_ONCE_DELAY:-1}
+MAX_BYTES=${R36_MAX_BYTES:-1048576}
+MIN_FREE_KB=${R36_MIN_FREE_KB:-65536}
+TAG=r36-thermal-log
+
+CPUDIR=$SYS/devices/system/cpu
+
+# Primeira linha de um arquivo; vazio se não existir ou falhar.
+rd() {
+  v=
+  [ -r "$1" ] && read -r v <"$1" 2>/dev/null
+  printf '%s' "$v"
+}
+
+# Só dígitos; qualquer outra coisa vira vazio.
+num() {
+  case $1 in
+    ''|*[!0-9]*) printf '' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Como num, mas aceita um '-' inicial (corrente da bateria tem sinal).
+snum() {
+  _s=${1#-}
+  case $_s in
+    ''|*[!0-9]*) printf '' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Zonas térmicas: uma coluna temp_<type> por zona legível.
+ZONES=
+ZCOLS=
+for z in "$SYS"/class/thermal/thermal_zone*; do
+  [ -r "$z/temp" ] || continue
+  t=$(rd "$z/type" | tr -c 'A-Za-z0-9_\n' '_')
+  [ -n "$t" ] || t=${z##*thermal_zone}
+  ZONES="$ZONES$z
+"
+  ZCOLS="$ZCOLS,temp_$t"
+done
+
+HEADER="date,uptime_s,boot${ZCOLS},cpu_mhz,cpu_max_mhz,governor,cpus_online,cpu0,cpu1,cpu2,cpu3,dram_scene,dram_mhz,bat_status,bat_pct,bat_voltage,bat_current,bat_pct_pub,lcdbl,system,emulator,core,rom"
+
+# Bateria: primeira power_supply do tipo Battery.
+BAT=
+for b in "$SYS"/class/power_supply/*; do
+  [ "$(rd "$b/type")" = Battery ] && { BAT=$b; break; }
+done
+
+# Cena da DRAM (A33): o maxperf/normperf escrevem em
+# sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/scene; os caminhos sem devfreq ficam por garantia.
+DRAM=${R36_DRAM_SCENE:-}
+if [ -z "$DRAM" ]; then
+  for f in "$SYS"/devices/platform/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/scene \
+    "$SYS"/devices/platform/sunxi-ddrfreq/dsm/scene \
+    "$SYS"/devices/*/sunxi-ddrfreq/devfreq/sunxi-ddrfreq/dsm/scene \
+    "$SYS"/devices/*/sunxi-ddrfreq/dsm/scene; do
+    [ -r "$f" ] && { DRAM=$f; break; }
+  done
+fi
+
+# Diretório do devfreq da DRAM (pai do dsm/scene), onde ficam cur_freq e afins.
+DRAMDIR=
+[ -n "$DRAM" ] && DRAMDIR=${DRAM%/dsm/scene}
+
+cpu_snapshot() {
+  grep '^cpu[0-9]' "$PROC/stat" 2>/dev/null
+}
+
+# Ocupação (%) de cpu0..cpu3 entre dois snapshots: "a,b,c,d"; núcleo ausente
+# ou sem variação fica vazio.
+cpu_busy() {
+  awk -v prev="$1" -v cur="$2" '
+    function load(text, arr,    n, lines, i, f, k, tot, idle) {
+      n = split(text, lines, "\n")
+      for (i = 1; i <= n; i++) {
+        k = split(lines[i], f, " ")
+        if (k < 5 || f[1] !~ /^cpu[0-9]+$/) continue
+        tot = 0
+        for (j = 2; j <= k && j <= 9; j++) tot += f[j]
+        arr[f[1] ",t"] = tot
+        arr[f[1] ",i"] = f[5] + f[6]
+      }
+    }
+    BEGIN {
+      load(prev, p); load(cur, c)
+      out = ""
+      for (n = 0; n < 4; n++) {
+        k = "cpu" n
+        v = ""
+        if ((k ",t") in p && (k ",t") in c) {
+          dt = c[k ",t"] - p[k ",t"]
+          di = c[k ",i"] - p[k ",i"]
+          if (dt > 0) {
+            v = int(100 * (dt - di) / dt + 0.5)
+            if (v < 0) v = 0
+            if (v > 100) v = 100
+          }
+        }
+        # o awk do busybox 1.32.1 lê um nome seguido de parêntese como chamada de função
+        sep = (n ? "," : "")
+        out = out sep v
+      }
+      print out
+    }'
+}
+
+# "system,emulator,core,rom" do emuelecRunEmu.sh em execução; vazio sem jogo.
+game() {
+  for f in "$PROC"/[0-9]*/cmdline; do
+    [ -r "$f" ] || continue
+    args=$(tr '\0' '\n' <"$f" 2>/dev/null)
+    case $args in
+      *emuelecRunEmu.sh*) ;;
+      *) continue ;;
+    esac
+    out=$(printf '%s\n' "$args" | awk '
+      NR == 1 { first = $0 }
+      NR == 1 && /emuelecRunEmu\.sh$/ { s = 1; next }
+      NR == 2 && first ~ /(^|\/)(ba|a)?sh$/ && /emuelecRunEmu\.sh$/ { s = 2; next }
+      s && NR == s + 1 { rom = $0; sub(/.*\//, "", rom) }
+      s && /^-P/ { sys = substr($0, 3) }
+      s && /^--core=/ { core = substr($0, 8) }
+      s && /^--emulator=/ { emu = substr($0, 12) }
+      END {
+        if (!s) exit 1
+        gsub(/[,"]/, ";", sys); gsub(/[,"]/, ";", emu)
+        gsub(/[,"]/, ";", core); gsub(/[,"]/, ";", rom)
+        print sys "," emu "," core "," rom
+      }') && { printf '%s' "$out"; return; }
+  done
+  printf ',,,'
+}
+
+# Valor de uma chave KEY=valor do uevent; vazio se o arquivo ou a chave não existem.
+uev() {
+  [ -r "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
+}
+
+# Garante um log com o cabeçalho atual; troca o antigo se o formato mudou.
+ensure_log() {
+  if [ -s "$LOG" ]; then
+    read -r first <"$LOG" 2>/dev/null
+    [ "$first" = "$HEADER" ] && return 0
+    mv -f "$LOG" "$LOG1" 2>/dev/null
+  fi
+  [ -e "$LOG" ] || printf '%s\n' "$HEADER" >"$LOG" 2>/dev/null
+}
+
+rotate_if_big() {
+  size=$(stat -c %s "$LOG" 2>/dev/null)
+  size=$(num "$size")
+  if [ -n "$size" ] && [ "$size" -gt "$MAX_BYTES" ]; then
+    mv -f "$LOG" "$LOG1" 2>/dev/null
+    printf '%s\n' "$HEADER" >"$LOG" 2>/dev/null
+  fi
+}
+
+# Pode gravar neste ciclo? ROMs montada e com espaço livre.
+can_write() {
+  mountpoint -q "$ROMS" 2>/dev/null || return 1
+  free=$(df -k "$ROMS" 2>/dev/null | awk 'NR > 1 { f = $4 } END { print f }')
+  free=$(num "$free")
+  [ -n "$free" ] && [ "$free" -ge "$MIN_FREE_KB" ]
+}
+
+# Uma linha "caminho: valor" por arquivo; "(ausente)" se não existe ou não lê.
+si() {
+  if [ -r "$1" ]; then
+    printf '%s: %s\n' "$1" "$(rd "$1")"
+  else
+    printf '%s: (ausente)\n' "$1"
+  fi
+}
+
+# Retrato do sistema: as seções e os itens que o design pede, na ordem de leitura.
+sysinfo_body() {
+  echo "== CPU =="
+  for n in scaling_available_governors scaling_available_frequencies scaling_governor \
+    scaling_min_freq scaling_max_freq scaling_cur_freq cpuinfo_min_freq cpuinfo_max_freq; do
+    si "$CPUDIR/cpu0/cpufreq/$n"
+  done
+  si "$CPUDIR/online"
+  echo "== ondemand =="
+  found=
+  for d in "$CPUDIR"/cpufreq/ondemand "$CPUDIR"/cpufreq/policy*/ondemand; do
+    [ -d "$d" ] || continue
+    found=1
+    for n in up_threshold sampling_down_factor sampling_rate sampling_rate_min \
+      ignore_nice_load io_is_busy powersave_bias; do
+      si "$d/$n"
+    done
+  done
+  [ -n "$found" ] || echo "$CPUDIR/cpufreq/ondemand: (ausente)"
+  echo "== DRAM =="
+  if [ -n "$DRAMDIR" ]; then
+    for n in available_governors governor available_frequencies cur_freq min_freq max_freq; do
+      si "$DRAMDIR/$n"
+    done
+    for f in "$DRAMDIR"/dsm/*; do
+      [ -f "$f" ] && si "$f"
+    done
+  else
+    echo "$SYS/devices/platform/sunxi-ddrfreq: (ausente)"
+  fi
+  echo "== térmico =="
+  found=
+  for z in "$SYS"/class/thermal/thermal_zone*; do
+    [ -d "$z" ] || continue
+    found=1
+    si "$z/type"
+    si "$z/temp"
+    si "$z/policy"
+    for t in "$z"/trip_point_*; do
+      [ -e "$t" ] && si "$t"
+    done
+  done
+  [ -n "$found" ] || echo "$SYS/class/thermal/thermal_zone*: (ausente)"
+  found=
+  for c in "$SYS"/class/thermal/cooling_device*; do
+    [ -d "$c" ] || continue
+    found=1
+    for n in type cur_state max_state; do
+      si "$c/$n"
+    done
+  done
+  [ -n "$found" ] || echo "$SYS/class/thermal/cooling_device*: (ausente)"
+  echo "== bateria =="
+  found=
+  for p in "$SYS"/class/power_supply/*; do
+    [ -r "$p/uevent" ] || continue
+    found=1
+    while IFS= read -r l; do
+      printf '%s/uevent: %s\n' "$p" "$l"
+    done <"$p/uevent"
+  done
+  [ -n "$found" ] || echo "$SYS/class/power_supply/*/uevent: (ausente)"
+  if [ -n "$BAT" ]; then
+    for n in status capacity voltage_now current_now charge_now charge_full \
+      charge_full_design capacity_level; do
+      si "$BAT/$n"
+    done
+  else
+    echo "$SYS/class/power_supply/<Battery>: (ausente)"
+  fi
+  if [ -d "$SYS/class/axppower" ]; then
+    for f in "$SYS"/class/axppower/*; do
+      [ -f "$f" ] && [ -r "$f" ] && si "$f"
+    done
+  else
+    echo "$SYS/class/axppower: (ausente)"
+  fi
+  ax=$(dmesg 2>/dev/null | grep -i axp | tail -n 80)
+  if [ -n "$ax" ]; then
+    printf '%s\n' "$ax" | sed 's/^/dmesg: /'
+  else
+    echo "dmesg (axp): (ausente)"
+  fi
+}
+
+# Grava o retrato uma vez por boot: a primeira linha traz o boot_id, e um arquivo
+# com o mesmo boot_id não é regravado. Arquivo temporário + mv, sem retrato pela metade.
+write_sysinfo() {
+  bid=$(rd "$PROC/sys/kernel/random/boot_id")
+  [ -n "$bid" ] || bid=desconhecido
+  if [ -s "$SYSINFO" ]; then
+    read -r first <"$SYSINFO" 2>/dev/null
+    [ "$first" = "boot_id: $bid" ] && return 0
+  fi
+  tmp=$SYSINFO.tmp
+  {
+    echo "boot_id: $bid"
+    echo "date: $(date '+%F %T')"
+    sysinfo_body
+  } >"$tmp" 2>/dev/null && mv -f "$tmp" "$SYSINFO" 2>/dev/null
+  return 0
+}
+
+sample() {
+  cur=$(cpu_snapshot)
+  busy=$(cpu_busy "$PREV" "$cur")
+  PREV=$cur
+
+  can_write || return 0
+  write_sysinfo
+
+  read -r up _ <"$PROC/uptime" 2>/dev/null
+  up=$(num "${up%%.*}")
+  b=$(rd "$PROC/sys/kernel/random/boot_id")
+  boot=${b%"${b#????????}"}
+
+  temps=
+  while IFS= read -r z; do
+    [ -n "$z" ] || continue
+    t=$(num "$(rd "$z/temp")")
+    [ -n "$t" ] && [ "$t" -gt 1000 ] && t=$((t / 1000))
+    temps="$temps,$t"
+  done <<EOT
+$ZONES
+EOT
+
+  khz=$(num "$(rd "$CPUDIR/cpu0/cpufreq/scaling_cur_freq")")
+  [ -n "$khz" ] && khz=$((khz / 1000))
+  kmax=$(num "$(rd "$CPUDIR/cpu0/cpufreq/scaling_max_freq")")
+  [ -n "$kmax" ] && kmax=$((kmax / 1000))
+  gov=$(rd "$CPUDIR/cpu0/cpufreq/scaling_governor")
+  online=$(rd "$CPUDIR/online")
+  scene=
+  [ -n "$DRAM" ] && scene=$(rd "$DRAM")
+  # cur_freq da DRAM: acima de 10.000.000 é Hz, senão kHz; sai em MHz
+  dmhz=
+  if [ -n "$DRAMDIR" ]; then
+    d=$(num "$(rd "$DRAMDIR/cur_freq")")
+    if [ -n "$d" ]; then
+      if [ "$d" -gt 10000000 ]; then dmhz=$((d / 1000000)); else dmhz=$((d / 1000)); fi
+    fi
+  fi
+  bst=
+  bpct=
+  bmv=
+  bma=
+  bpub=
+  if [ -n "$BAT" ]; then
+    bst=$(rd "$BAT/status")
+    # bat_pct é o do kernel (uevent): o capacity pode estar sobreposto pelo valor publicado
+    bpct=$(num "$(uev "$BAT/uevent" POWER_SUPPLY_CAPACITY)")
+    bpub=$(num "$(rd "$BAT/capacity")")
+    bmv=$(num "$(rd "$BAT/voltage_now")")
+    [ -n "$bmv" ] && bmv=$((bmv / 1000))
+    bma=$(snum "$(rd "$BAT/current_now")")
+    [ -n "$bma" ] && bma=$((bma / 1000))
+  fi
+  lcdbl=$(num "$(rd "$LCDBL")")
+
+  ensure_log
+  rotate_if_big
+  printf '%s,%s,%s%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    "$(date '+%F %T')" "$up" "$boot" "$temps" "$khz" "$kmax" "$gov" "$online" \
+    "$busy" "$scene" "$dmhz" "$bst" "$bpct" "$bmv" "$bma" "$bpub" "$lcdbl" \
+    "$(game)" >>"$LOG" 2>/dev/null
+}
+
+PREV=$(cpu_snapshot)
+
+if [ "$1" = "--once" ]; then
+  sleep "$ONCE_DELAY"
+  sample
+  exit 0
+fi
+
+logger -t "$TAG" "registro iniciado em $LOG a cada ${INTERVAL}s" 2>/dev/null
+while :; do
+  sleep "$INTERVAL"
+  sample
+done

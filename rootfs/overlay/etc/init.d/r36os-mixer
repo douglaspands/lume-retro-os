@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# Default mixer of the board (audio path and volumes) before the frontend.
+# Without it the GA36 codec never clocks and the first game freezes (task 9.8).
+
+description="Default audio mixer of the board"
+
+depend() {
+	after alsa udev-settle
+	before frontend r36os-hwsummary
+}
+
+start() {
+	ebegin "Setting the default audio mixer"
+	/usr/libexec/r36os/mixer
+	eend $?
+}

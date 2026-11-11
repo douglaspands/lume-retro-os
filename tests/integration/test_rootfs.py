@@ -59,7 +59,8 @@ def test_manifest_lists_packages(first_build):
     _, manifest = first_build
     pkgs = rootfs.read_manifest(rootfs.target_out(VM) / "manifest.txt")
     assert manifest.startswith("# arch: x86_64")
-    assert pkgs["retroarch"].endswith("-r100")
+    # the local package wins over Alpine's thanks to a high pkgrel (any value >= 100)
+    assert int(pkgs["retroarch"].rsplit("-r", 1)[1]) >= 100
     assert "linux-virt" in pkgs
     assert "libretro-pcsx-rearmed" in pkgs
 

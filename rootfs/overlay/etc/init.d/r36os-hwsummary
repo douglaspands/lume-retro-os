@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # Resumo de hardware (vídeo, áudio, controle, bateria, ROMS) antes do frontend.
 
-description="Resumo de hardware"
+description="Hardware summary"
 
 depend() {
 	after udev-settle alsa seatd r36os-persist r36os-savesync r36os-playlists
@@ -9,7 +9,7 @@ depend() {
 }
 
 start() {
-	ebegin "Resumo de hardware"
+	ebegin "Hardware summary"
 	/usr/libexec/r36os/hwsummary
 	eend 0
 }

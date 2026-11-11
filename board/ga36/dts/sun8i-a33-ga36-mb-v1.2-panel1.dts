@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * GA36-MB V1.2 (Allwinner A33), painel 1: JD9366 com a sequência do firmware de
+ * fábrica (lcd.ko, Apêndice C do design). Variante padrão do extlinux.conf.
+ */
+
+/dts-v1/;
+#include "sun8i-a33-ga36-mb-v1.2.dtsi"
+
+/ {
+	model = "GA36-MB V1.2 (painel 1)";
+	compatible = "ga36mb,ga36-mb-v1.2", "allwinner,sun8i-a33";
+};
+
+&panel {
+	compatible = "ga36mb,jd9366-panel1";
+};

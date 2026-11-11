@@ -1,0 +1,28 @@
+From: Lume Retro OS
+Subject: [PATCH] command: GET_STATUS reports the video frame counter
+
+The network command GET_STATUS tells the system, core and content of the
+running game. The reply now also carries the video frame counter as a last
+field, ",frames=<n>". r36os-logd asks for the status on every metrics sample
+and computes the game FPS as the counter difference over the time difference,
+so the metrics show whether each core keeps full speed on the console.
+
+The field comes after ",crc32=", so a parser that cuts the content name at
+",crc32=" keeps working.
+
+--- a/command.c
++++ b/command.c
+@@ -1060,8 +1060,12 @@
+       _len    += strlcpy(reply + _len, ",", sizeof(reply) - _len);
+       _len    += strlcpy(reply + _len,
+             path_basename(path_get(RARCH_PATH_BASENAME)), sizeof(reply) - _len);
++      /* Lume: the video frame counter lets a monitor compute the game FPS
++       * (difference between two replies over their time difference). It
++       * comes last so parsers that cut at ",crc32=" keep working. */
+       _len    += snprintf(reply + _len, sizeof(reply) - _len,
+-            ",crc32=%lx\n", (unsigned long)content_get_crc());
++            ",crc32=%lx,frames=%llu\n", (unsigned long)content_get_crc(),
++            (unsigned long long)video_state_get_ptr()->frame_count);
+    }
+    else
+        _len = strlcpy(reply, "GET_STATUS CONTENTLESS", sizeof(reply));

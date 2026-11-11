@@ -28,7 +28,7 @@ check "nes: core fixo fceumm" '[ "$(jq -r ".items[0].core_path" "$O/NES.lpl")" =
 check "nes: ordem alfabética" '[ "$(jq -r ".items[0].label" "$O/NES.lpl")" = "Outro Jogo" ]'
 check "snes: extensão fora do catálogo ignorada, sem lista" '[ ! -e "$O/Super Nintendo.lpl" ]'
 check "psx: sistema vazio sem lista" '[ ! -e "$O/PlayStation.lpl" ]'
-check "gba x86_64: mgba" '[ "$(jq -r ".default_core_path" "$O/Game Boy Advance.lpl")" = /usr/lib/libretro/mgba_libretro.so ]'
+check "gba x86_64: gpsp" '[ "$(jq -r ".default_core_path" "$O/Game Boy Advance.lpl")" = /usr/lib/libretro/gpsp_libretro.so ]'
 check "arcade x86_64: fbneo" '[ "$(jq -r ".items[0].core_path" "$O/Arcade.lpl")" = /usr/lib/libretro/fbneo_libretro.so ]'
 
 ### armv7: core padrão por arquitetura

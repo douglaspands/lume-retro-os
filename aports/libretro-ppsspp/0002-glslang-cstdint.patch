@@ -1,0 +1,16 @@
+From: Lume Retro OS
+Subject: [PATCH] glslang: include <cstdint> in SpvBuilder.h
+
+GCC 15 no longer pulls <cstdint> in transitively, and SpvBuilder.h uses
+uint32_t and friends.
+
+--- a/ext/glslang/SPIRV/SpvBuilder.h
++++ b/ext/glslang/SPIRV/SpvBuilder.h
+@@ -56,6 +56,7 @@
+ }
+
+ #include <algorithm>
++#include <cstdint>
+ #include <map>
+ #include <memory>
+ #include <set>

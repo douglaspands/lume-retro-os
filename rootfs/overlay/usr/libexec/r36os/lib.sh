@@ -76,3 +76,18 @@ watch_tree() {
 note_new_dir() { [ "$1" = n ] && [ -d "$2/$3" ] && : > "$R36OS_RUN/rescan.${WATCH_NAME:-watch}"; return 0; }
 
 board() { cat /etc/r36os/board 2>/dev/null; }
+
+# Idioma das mensagens para o usuário: o user_language do RetroArch (escolhido no menu e
+# persistido pelo r36os-persist). Logs são sempre em inglês. Textos em en, pt e es (os
+# mesmos idiomas do rótulo "Desligar"); os outros idiomas caem no inglês.
+# RETRO_LANGUAGE_*: 3 = espanhol, 7 = português do Brasil, 8 = português de Portugal.
+RA_USER_CFG=${RA_USER_CFG:-/home/game/.config/retroarch/retroarch.cfg}
+RA_FACTORY_CFG=${RA_FACTORY_CFG:-/usr/share/r36os/factory/retroarch/retroarch.cfg}
+ui_lang() {
+	local cfg v=""
+	for cfg in "$RA_USER_CFG" "$RA_FACTORY_CFG"; do
+		v=$(sed -n 's/^user_language *= *"\{0,1\}\([0-9][0-9]*\)"\{0,1\} *$/\1/p' "$cfg" 2>/dev/null | tail -n 1)
+		[ -n "$v" ] && break
+	done
+	case "$v" in 7|8) echo pt ;; 3) echo es ;; *) echo en ;; esac
+}

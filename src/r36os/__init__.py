@@ -1,3 +1,1 @@
-"""r36os: orquestrador do build das imagens e da VM de teste."""
-
-__version__ = "0.1.0"
+"""r36os: orchestrator of the image builds and the test VM."""

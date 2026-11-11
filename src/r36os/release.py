@@ -1,5 +1,5 @@
-"""Regra de liberação (11.1): a vm é gerada e testada primeiro; as imagens dos consoles
-só são marcadas como liberadas se o test-vm do mesmo build passar."""
+"""Release rule (11.1): the vm is built and tested first; the console images are only
+marked as released if the test-vm of the same build passes."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from r36os.targets import TARGETS
 MARKER = "RELEASED"
 
 
-def _build(name: str) -> None:
+def _build(name: str, language: str = "en") -> None:
     from r36os.build import build_target
 
-    build_target(TARGETS[name])
+    build_target(TARGETS[name], language=language)
 
 
 def _test_vm() -> int:
@@ -26,16 +26,19 @@ def _test_vm() -> int:
     return test_vm()
 
 
-def build_all(build=_build, test=_test_vm) -> int:
-    """Gera vm, roda o teste de aceitação e depois os consoles. Devolve 0 se tudo liberado."""
+def build_all(build=None, test=_test_vm, language: str = "en") -> int:
+    """Build the vm, run the acceptance test, then the consoles. Return 0 if all released."""
+    if build is None:
+        def build(name: str) -> None:
+            _build(name, language)
     report: dict = {"started": time.strftime("%Y-%m-%dT%H:%M:%S"), "targets": {}}
-    for name in TARGETS:  # um build novo nunca herda a marca de um anterior
+    for name in TARGETS:  # a new build never inherits the mark of an earlier one
         (target_out(TARGETS[name]) / MARKER).unlink(missing_ok=True)
 
     try:
         build("vm")
         vm_ok = test() == 0
-    except Exception:  # noqa: BLE001 - registra e segue para o relatório
+    except Exception:  # noqa: BLE001 - record it and go on to the report
         traceback.print_exc()
         vm_ok = False
     report["targets"]["vm"] = {"built": True, "test_vm": "PASS" if vm_ok else "FAIL"}
@@ -53,13 +56,13 @@ def build_all(build=_build, test=_test_vm) -> int:
         if entry["released"]:
             ensure_dir(target_out(TARGETS[name]))
             (target_out(TARGETS[name]) / MARKER).write_text(
-                f"liberada: test-vm do mesmo build passou ({report['started']})\n")
+                f"released: the test-vm of the same build passed ({report['started']})\n")
         report["targets"][name] = entry
 
     ensure_dir(out_dir())
     (out_dir() / "release.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     for name, e in report["targets"].items():
-        state = "liberada" if e.get("released") else ("testada" if name == "vm" else "NÃO liberada")
+        state = "released" if e.get("released") else ("tested" if name == "vm" else "NOT released")
         print(f"{name}: {state}")
     released = all(report["targets"][n]["released"] for n in ("r36s", "ga36"))
     return 0 if vm_ok and released else 1

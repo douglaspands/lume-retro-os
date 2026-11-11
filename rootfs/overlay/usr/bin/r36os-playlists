@@ -65,6 +65,6 @@ while IFS="$(printf '\t')" read -r id name core file exts; do
 				crc32: "DETECT", db_name: $db
 			}]
 		}' < "$list" > "$lpl.tmp" && mv -f "$lpl.tmp" "$lpl"
-	echo "lume: lista $name: $(wc -l < "$list") jogo(s), core $core"
+	echo "lume: playlist $name: $(wc -l < "$list") game(s), core $core"
 	rm -f "$list"
 done

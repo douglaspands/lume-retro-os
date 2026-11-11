@@ -42,9 +42,15 @@ part_field() {
 
 has_part() { [ -n "$(part_field "$1" "$2" start)" ]; }
 
-# Tipo do sistema de arquivos pelo setor de boot da partição que começa em $2.
+# File system type from the boot sector of the partition that starts at $2. "usbc": the
+# sector holds a USB Mass Storage command block ("USBC" signature) instead of data, the
+# mark of a faulty USB card reader (14cd:125d) that wrote its commands into the card.
 fs_type_at() {
 	local oem fat32
+	if [ "$(dd if="$1" bs=$SECTOR skip="$2" count=1 2>/dev/null | dd bs=1 count=4 2>/dev/null)" = USBC ]; then
+		echo usbc
+		return
+	fi
 	oem=$(dd if="$1" bs=$SECTOR skip="$2" count=1 2>/dev/null | dd bs=1 skip=3 count=8 2>/dev/null | tr -d '\000')
 	fat32=$(dd if="$1" bs=$SECTOR skip="$2" count=1 2>/dev/null | dd bs=1 skip=82 count=8 2>/dev/null | tr -d '\000')
 	case "$oem" in
@@ -66,7 +72,7 @@ free_start() {
 	echo $(( (s + z + ALIGN - 1) / ALIGN * ALIGN ))
 }
 
-# Decide o que fazer com a partição 2: create | check | foreign | nospace
+# What to do with partition 2: create | check | usbc | foreign | nospace
 decide_p2() {
 	if ! has_part "$1" 2; then
 		local start total
@@ -76,6 +82,7 @@ decide_p2() {
 	fi
 	case "$(fs_type_at "$1" "$(part_field "$1" 2 start)")" in
 	exfat) echo check ;;
+	usbc) echo usbc ;;
 	*) echo foreign ;;
 	esac
 }
@@ -119,9 +126,9 @@ check_roms() {
 	local out rc=0
 	out=$(fsck.exfat -p "$1" 2>&1) || rc=$?
 	case $rc in
-	0) log "ROMS verificada: sem erros" ;;
-	1) log "ROMS verificada: erros corrigidos" ;;
-	*) log "ROMS verificada: erros não corrigidos (código $rc)"; echo "$out" | while read -r l; do log "  $l"; done ;;
+	0) log "ROMS checked: clean" ;;
+	1) log "ROMS checked: errors corrected" ;;
+	*) log "ROMS checked: uncorrected errors (code $rc)"; echo "$out" | while read -r l; do log "  $l"; done ;;
 	esac
 	return 0
 }
@@ -132,12 +139,12 @@ setup_storage() {
 	action=$(decide_p2 "$disk")
 	case "$action" in
 	create)
-		log "primeiro boot: criando a partição ROMS (exFAT) no resto do cartão..."
+		log "first boot: creating ROMS partition (exFAT) on remaining disk space..."
 		if create_p2 "$disk" && with_part "$disk" 2 format_roms; then
-			log "partição ROMS criada"
+			log "ROMS partition created"
 			echo ok
 		else
-			log "ERRO: não foi possível criar a partição ROMS"
+			log "ERROR: failed to create ROMS partition"
 		fi
 		;;
 	check)
@@ -145,10 +152,13 @@ setup_storage() {
 		echo ok
 		;;
 	foreign)
-		log "ERRO: a partição 2 existe mas não é exFAT; nada foi formatado. Seguindo sem ROMS."
+		log "ERROR: partition 2 exists but is not exFAT; nothing formatted. Continuing without ROMS."
+		;;
+	usbc)
+		log "ERROR: the first sector of partition 2 holds a USB command block (\"USBC\") instead of exFAT data: the card was corrupted by a faulty USB card reader on the PC. Nothing formatted; continuing without ROMS. Use another card reader, then repair the partition with fsck.exfat or write the card again (r36os flash --full)."
 		;;
 	nospace)
-		log "ERRO: sem espaço livre para a partição ROMS"
+		log "ERROR: no free space for ROMS partition"
 		;;
 	esac
 }

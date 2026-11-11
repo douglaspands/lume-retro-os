@@ -7,29 +7,33 @@
 #
 # O RetroArch grava em ~game/.config/retroarch, na camada em RAM. Só esta pasta,
 # system/etc/timezone e system/etc/hostname persistem em ROMS/system/.
-. /usr/libexec/r36os/lib.sh
+. "${PERSIST_LIBSH:-/usr/libexec/r36os/lib.sh}"
 
-RAM=/home/game/.config/retroarch
-SYS=/storage/system
+# Os PERSIST_* só são trocados pelos testes.
+RAM=${PERSIST_RAM:-/home/game/.config/retroarch}
+SYS=${PERSIST_SYS:-/storage/system}
 CARD=$SYS/retroarch
-FACTORY=/usr/share/r36os/factory/retroarch
+FACTORY=${PERSIST_FACTORY:-/usr/share/r36os/factory/retroarch}
 DIRTY=$R36OS_RUN/persist.dirty
 DEBOUNCE=2
 
-storage_ok() { mountpoint -q /storage; }
+storage_ok() { mountpoint -q "${PERSIST_MOUNT:-/storage}"; }
 
+# The build language (r36os build --lang) is only the factory default: it reaches a card
+# through the factory config seeded below, on a card with no configuration yet. The menu
+# language the user picks is never overwritten by a later build.
 restore() {
 	mkdir -p "$RAM"
 	if storage_ok; then
 		if [ ! -d "$CARD" ]; then
-			log "configuração de fábrica do RetroArch (ROMS/system/ ausente)"
+			log "factory RetroArch configuration (ROMS/system/ missing)"
 			mirror "$FACTORY" "$CARD"
 			mkdir -p "$SYS/etc"
 			sync
 		fi
 		cp -a "$CARD/." "$RAM/"
 	else
-		log "sem ROMS: configuração de fábrica só em RAM"
+		log "no ROMS: factory configuration in RAM only"
 		cp -a "$FACTORY/." "$RAM/"
 	fi
 	chown -R game:game /home/game/.config
@@ -39,9 +43,9 @@ restore() {
 	if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
 		ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
 		echo "$tz" > /etc/timezone
-		log "fuso horário: $tz"
+		log "timezone: $tz"
 	elif [ -n "$tz" ]; then
-		log "fuso horário desconhecido em system/etc/timezone: $tz"
+		log "unknown timezone in system/etc/timezone: $tz"
 	fi
 	host=$(head -n1 "$SYS/etc/hostname" 2>/dev/null | tr -cd 'A-Za-z0-9-')
 	if [ -n "$host" ]; then
@@ -68,6 +72,8 @@ tick() {
 	return 0
 }
 
+[ -n "${PERSIST_LIB:-}" ] && return 0   # testes: só as funções
+
 case "$1" in
 restore) restore ;;
 flush) flush ;;
@@ -77,5 +83,5 @@ watch)
 	WATCH_NAME=persist
 	watch_tree /usr/libexec/r36os/persist-event wymnd "$RAM"
 	;;
-*) echo "uso: $0 restore|watch|flush" >&2; exit 2 ;;
+*) echo "usage: $0 restore|watch|flush" >&2; exit 2 ;;
 esac

@@ -1,4 +1,4 @@
-"""Execução de containers rootless (podman) para os estágios do build."""
+"""Running rootless containers (podman) for the build stages."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from r36os.paths import REPO_ROOT
 from r36os.targets import Target
 
 ALPINE_VERSION = "3.24"
-CROSS_IMAGE = "r36os-cross"
+CROSS_IMAGE = "localhost/r36os-cross"
 
 
 def builder_image(target: Target) -> str:
-    return f"r36os-builder:{target.alpine_arch}"
+    return f"localhost/r36os-builder:{target.alpine_arch}"
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -30,7 +30,7 @@ def image_exists(name: str) -> bool:
 
 
 def ensure_builder(target: Target) -> str:
-    """Constrói (se faltar) a imagem do builder Alpine para a arquitetura do alvo."""
+    """Build (if missing) the Alpine builder image for the target architecture."""
     name = builder_image(target)
     if not image_exists(name):
         run([
@@ -45,7 +45,9 @@ def ensure_builder(target: Target) -> str:
 def ensure_cross() -> str:
     if not image_exists(CROSS_IMAGE):
         run([
-            "podman", "build", "-t", CROSS_IMAGE,
+            # fixed --platform: with qemu-user in binfmt, the base image tag may point
+            # to an ARM variant pulled by another build
+            "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
             "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
             str(REPO_ROOT / "containers"),
         ])
@@ -54,7 +56,7 @@ def ensure_cross() -> str:
 
 @dataclass
 class Container:
-    """Um `podman run --rm` com volumes. Root no container = usuário do host (rootless)."""
+    """A `podman run --rm` with volumes. Root in the container = host user (rootless)."""
 
     image: str
     platform: str | None = None
@@ -68,8 +70,8 @@ class Container:
         if self.platform:
             cmd += ["--platform", self.platform]
         for host, guest in self.volumes.items():
-            # :z (rótulo SELinux compartilhado): o cache e o repositório são usados
-            # por vários containers ao mesmo tempo; :Z bloquearia os outros.
+            # :z (shared SELinux label): the cache and the repository are used by several
+            # containers at once; :Z would lock the others out.
             cmd += ["-v", f"{host}:{guest}:z"]
         for k, v in self.env.items():
             cmd += ["-e", f"{k}={v}"]

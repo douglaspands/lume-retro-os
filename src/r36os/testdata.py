@@ -1,5 +1,5 @@
-"""Disco de teste da VM (FAT, rótulo TESTDATA): ROMs de teste, lista core -> ROM,
-estado do self-test e resultados. Só existe para a VM (6.4)."""
+"""VM test disk (FAT, label TESTDATA): test ROMs, the core -> ROM list, self-test state
+and results. It exists only for the VM (6.4)."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from r36os.container import Container, ensure_builder
 from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import TARGETS
 
-# Romset livre para uso não comercial, distribuído pelo MAMEDev (mamedev.org/roms):
-# Gridlee (Videa, 1983). Roda no fbneo e no mame2003_plus.
+# Romset free for non-commercial use, distributed by MAMEDev (mamedev.org/roms):
+# Gridlee (Videa, 1983). Runs on fbneo and mame2003_plus.
 GRIDLEE_URL = "https://www.mamedev.org/roms/gridlee/gridlee.zip"
 GRIDLEE_SHA256 = "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e"
 
-# Sistema usado para testar cada core: o primeiro do catálogo que o usa, exceto
-# o mgba, que só aceita GB com o logo do cabeçalho e é testado no GBA.
-CORE_SYSTEM_OVERRIDE = {"mgba": "gba"}
+# System used to test each core: the first one in the catalog that uses it, except for
+# overrides here (mgba, which only accepted GB with the header logo, left the catalog).
+CORE_SYSTEM_OVERRIDE: dict[str, str] = {}
 SIZE_MIB = 64
 
 
@@ -38,7 +38,7 @@ def _fetch(url: str, sha256: str, dest: Path) -> Path:
 
 
 def core_tests(cat: dict | None = None) -> dict[str, tuple[str, str]]:
-    """core -> (sistema, arquivo da ROM de teste relativo ao disco)."""
+    """core -> (system, test ROM file relative to the disk)."""
     cat = cat or catalog.load()
     roms = {s: f"roms/{s}/{name}" for s, (name, _) in testroms.ROMS.items()}
     roms["arcade"] = "roms/arcade/gridlee.zip"
@@ -51,7 +51,7 @@ def core_tests(cat: dict | None = None) -> dict[str, tuple[str, str]]:
 
 
 def build_testdata(dest: Path) -> Path:
-    """Gera o disco FAT de teste em `dest` (sobrescreve)."""
+    """Build the FAT test disk at `dest` (overwrites it)."""
     stage = dest.parent / "testdata-stage"
     shutil.rmtree(stage, ignore_errors=True)
     testroms.write_all(stage)

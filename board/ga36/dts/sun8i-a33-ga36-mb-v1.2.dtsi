@@ -1,0 +1,377 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * GA36-MB V1.2 (Allwinner A33), the part shared by both panel variants.
+ *
+ * Port of ga36mb.dtsi / ga36mb-a33.dtsi from goodluckOS (GPL-2.0,
+ * github.com/CodeZombie/goodluckOS, commit 8d676e2327a6) to Linux 6.18 LTS,
+ * with the values of appendix B of the design
+ * (openspec/changes/archive/2026-11-11-alpine-retroarch-distro).
+ *
+ * Differences from goodluckOS:
+ *  - A on PE13 and B on PE12 (goodluckOS has them swapped);
+ *  - the CPU OPPs, the thermal zones and the sensor (ths) stay as in the mainline
+ *    sun8i-a33.dtsi (CPU up to 1008 MHz in this version); the GPU only gains its
+ *    supply and the matching opp-microvolt (task 9.10, see &mali below);
+ *  - the panel is chosen by compatible, one per variant, without "panel-id";
+ *  - default brightness 80 (level 8), as in the factory firmware;
+ *  - a 512 MiB memory node as in goodluckOS, only as a fallback: the vendor U-Boot
+ *    passes the real memory by ATAG and the kernel's ARM_ATAG_DTB_COMPAT writes it here;
+ *  - mmc1 (PG) off; mmc0 is the boot card;
+ *  - uart1_pg_pins comes from sun8i-a23-a33.dtsi and is not redefined;
+ *  - names and properties accepted by the 6.18 bindings: the gamepad node is
+ *    "mcu", the AXP has no system-power-controller (the driver already cuts the
+ *    power) and the D-PHY has no vcc-supply.
+ */
+
+#include "sun8i-a33.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	aliases {
+		/* ttyS1 = UART2 (PB0/PB1): serial de debug a 115200 */
+		serial0 = &uart1;
+		serial1 = &uart2;
+		mmc0 = &mmc0;
+	};
+
+	chosen {
+		stdout-path = "serial1:115200n8";
+	};
+
+	/*
+	 * Reserva de 512 MiB (há relatos de 512 MiB e de 1 GiB nesta placa). O U-Boot do
+	 * fabricante passa a DRAM real por ATAG_MEM, e o kernel (ARM_ATAG_DTB_COMPAT)
+	 * substitui este valor; sem ATAG, o kernel ainda sobe com 512 MiB.
+	 */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x40000000 0x20000000>;
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 0 50000 0>;	/* PWM0 em PH0, 20 kHz, não invertido */
+		brightness-levels = <0 10 20 30 40 50 60 70 80 90 100>;
+		default-brightness-level = <8>;	/* 80 */
+	};
+
+	bat: battery {
+		compatible = "simple-battery";
+		charge-full-design-microamp-hours = <3000000>;
+		factory-internal-resistance-micro-ohms = <119000>;
+		voltage-max-design-microvolt = <4200000>;
+		voltage-min-design-microvolt = <3300000>;
+	};
+
+	/* vref fixo de 3,0 V do LRADC (botões de volume) */
+	lradc_vref: lradc-vref {
+		compatible = "regulator-fixed";
+		regulator-name = "lradc-vref";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-blue {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&r_pio 0 4 GPIO_ACTIVE_HIGH>;	/* PL4 */
+			default-state = "off";
+		};
+
+		led-red {
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_RED>;
+			gpios = <&pio 6 13 GPIO_ACTIVE_HIGH>;	/* PG13 */
+			default-state = "off";
+		};
+	};
+
+	speaker_amp: audio-amplifier {
+		compatible = "simple-audio-amplifier";
+		enable-gpios = <&pio 7 9 GPIO_ACTIVE_HIGH>;	/* PH9 */
+		sound-name-prefix = "Speaker Amp";
+	};
+};
+
+&codec {
+	status = "okay";
+};
+
+&codec_analog {
+	status = "okay";
+};
+
+&dai {
+	status = "okay";
+};
+
+&sound {
+	status = "okay";
+	simple-audio-card,name = "GA36-MB";
+	simple-audio-card,aux-devs = <&codec_analog>, <&speaker_amp>;
+	simple-audio-card,widgets =
+		"Speaker", "Speaker",
+		"Headphone", "Headphone Jack";
+	/* sem detecção de fone */
+	simple-audio-card,pin-switches = "Speaker";
+	simple-audio-card,routing =
+		"Left DAC", "DACL",
+		"Right DAC", "DACR",
+		"Speaker Amp INL", "HP",
+		"Speaker Amp INR", "HP",
+		"Speaker", "Speaker Amp OUTL",
+		"Speaker", "Speaker Amp OUTR",
+		"Headphone Jack", "HP",
+		"Headphone Jack", "HPCOM";
+};
+
+&lradc {
+	vref-supply = <&lradc_vref>;
+	status = "okay";
+
+	button-200 {
+		label = "Volume Up";
+		linux,code = <KEY_VOLUMEUP>;
+		channel = <0>;
+		voltage = <200000>;
+	};
+
+	button-400 {
+		label = "Volume Down";
+		linux,code = <KEY_VOLUMEDOWN>;
+		channel = <0>;
+		voltage = <400000>;
+	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm0_pin>;
+	status = "okay";
+};
+
+&pio {
+	vcc-pb-supply = <&reg_dcdc1>;
+	vcc-pf-supply = <&reg_dcdc1>;
+	vcc-pg-supply = <&reg_dcdc1>;
+	vcc-ph-supply = <&reg_dcdc1>;
+
+	uart2_pb_pins: uart2-pb-pins {
+		pins = "PB0", "PB1";
+		function = "uart2";
+	};
+};
+
+&de {
+	status = "okay";
+};
+
+&tcon0 {
+	status = "okay";
+};
+
+/* O D-PHY mainline não tem alimentação própria: o dldo3 entra pelo DSI */
+&dphy {
+	status = "okay";
+};
+
+&dsi {
+	vcc-dsi-supply = <&reg_dldo3>;
+	status = "okay";
+
+	/* compatible da variante em cada .dts */
+	panel: panel@0 {
+		reg = <0>;
+		power-supply = <&reg_dc1sw>;
+		reset-gpios = <&pio 7 7 GPIO_ACTIVE_LOW>;	/* PH7 */
+		backlight = <&backlight>;
+	};
+};
+
+/* Controle: analógicos por um microcontrolador em UART1 (PG6/PG7, 9600 baud) e
+ * botões em GPIO, num único dispositivo de entrada (driver em kernel/patches/). */
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pg_pins>;
+	status = "okay";
+
+	/* "mcu": nome de filho de serial aceito pelo binding (serial.yaml) */
+	mcu {
+		compatible = "ga36mb,ga36-gamepad";
+		dpad-up-gpios = <&pio 4 9 GPIO_ACTIVE_LOW>;	/* PE9 */
+		dpad-down-gpios = <&pio 4 8 GPIO_ACTIVE_LOW>;	/* PE8 */
+		dpad-left-gpios = <&pio 4 7 GPIO_ACTIVE_LOW>;	/* PE7 */
+		dpad-right-gpios = <&pio 4 6 GPIO_ACTIVE_LOW>;	/* PE6 */
+		btn-a-gpios = <&pio 4 13 GPIO_ACTIVE_LOW>;	/* PE13 */
+		btn-b-gpios = <&pio 4 12 GPIO_ACTIVE_LOW>;	/* PE12 */
+		btn-x-gpios = <&pio 4 11 GPIO_ACTIVE_LOW>;	/* PE11 */
+		btn-y-gpios = <&pio 4 10 GPIO_ACTIVE_LOW>;	/* PE10 */
+		btn-lb-gpios = <&pio 4 15 GPIO_ACTIVE_LOW>;	/* PE15, L1 */
+		btn-lt-gpios = <&pio 4 14 GPIO_ACTIVE_LOW>;	/* PE14, L2 */
+		btn-rb-gpios = <&pio 4 17 GPIO_ACTIVE_LOW>;	/* PE17, R1 */
+		btn-rt-gpios = <&pio 4 16 GPIO_ACTIVE_LOW>;	/* PE16, R2 */
+		btn-thumbl-gpios = <&pio 1 3 GPIO_ACTIVE_LOW>;	/* PB3, L3 */
+		btn-thumbr-gpios = <&pio 1 2 GPIO_ACTIVE_LOW>;	/* PB2, R3 */
+		btn-start-gpios = <&pio 4 4 GPIO_ACTIVE_LOW>;	/* PE4 */
+		btn-select-gpios = <&pio 4 5 GPIO_ACTIVE_LOW>;	/* PE5 */
+		btn-fn-gpios = <&pio 4 1 GPIO_ACTIVE_LOW>;	/* PE1 */
+	};
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pb_pins>;
+	status = "okay";
+};
+
+/* Cartão de boot: tratado como fixo (o sistema roda dele) */
+&mmc0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc0_pins>;
+	vmmc-supply = <&reg_dcdc1>;
+	bus-width = <4>;
+	non-removable;
+	status = "okay";
+};
+
+&r_rsb {
+	status = "okay";
+
+	axp22x: pmic@3a3 {
+		compatible = "x-powers,axp223";
+		reg = <0x3a3>;
+		interrupt-parent = <&r_intc>;
+		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_LOW>;
+		/*
+		 * Sem system-power-controller: no 6.18 o driver axp20x registra o corte de
+		 * energia no poweroff sempre (exceto na AXP288), e o binding não aceita a
+		 * propriedade. O goodluckOS precisava da antiga
+		 * x-powers,system-power-controller num kernel anterior.
+		 */
+	};
+};
+
+#include "axp223.dtsi"
+
+&battery_power_supply {
+	monitored-battery = <&bat>;
+	status = "okay";
+};
+
+&usb_power_supply {
+	status = "okay";
+};
+
+&cpu0 {
+	cpu-supply = <&reg_dcdc3>;
+};
+
+&reg_dcdc1 {
+	regulator-always-on;
+	regulator-name = "vcc-io";
+};
+
+&reg_dcdc2 {
+	regulator-always-on;
+	regulator-name = "vdd-sys";
+};
+
+/*
+ * GPU supply (task 9.10). On the A33 the Mali-400 sits on vdd-sys (dcdc2), the rail of the
+ * whole system domain; the factory firmware runs the GPU up to 408 MHz at 1.10 V on it
+ * (docs/referencia/ga36-emuelec/gpu.md). With mali-supply the OPP core requires
+ * opp-microvolt on every OPP, so each GPU OPP asks for the same 1.10 V (range 1.00-1.20 V).
+ * dcdc2 has no voltage range in this DTS, so the kernel may not change it: the request
+ * only confirms the current voltage and vdd-sys never moves with the GPU clock. The GPU
+ * frequencies (144, 240, 384 MHz) stay as in sun8i-a33.dtsi; the CPU OPPs are untouched.
+ */
+&mali {
+	mali-supply = <&reg_dcdc2>;
+};
+
+&mali_opp_table {
+	opp-144000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
+
+	opp-240000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
+
+	opp-384000000 {
+		opp-microvolt = <1100000 1000000 1200000>;
+	};
+};
+
+&reg_dcdc3 {
+	regulator-always-on;
+	regulator-min-microvolt = <1040000>;
+	regulator-max-microvolt = <1320000>;
+	regulator-name = "vdd-cpu";
+};
+
+&reg_dcdc5 {
+	regulator-always-on;
+	regulator-name = "vcc-dram";
+};
+
+&reg_dc1sw {
+	regulator-boot-on;
+	regulator-name = "vcc-lcd";
+};
+
+&reg_dldo3 {
+	regulator-min-microvolt = <3000000>;
+	regulator-max-microvolt = <3000000>;
+	regulator-name = "vcc-dsi";
+};
+
+&reg_aldo1 {
+	regulator-always-on;
+	regulator-name = "vcc-aldo1";
+};
+
+&reg_aldo2 {
+	regulator-always-on;
+	regulator-name = "vcc-aldo2";
+};
+
+&reg_aldo3 {
+	regulator-always-on;
+	regulator-name = "vcc-aldo3";
+};
+
+&reg_dc5ldo {
+	regulator-always-on;
+	regulator-name = "vdd-cpus";
+};
+
+&reg_drivevbus {
+	regulator-name = "usb0-vbus";
+	status = "okay";
+};
+
+&usb_otg {
+	dr_mode = "otg";
+	status = "okay";
+};
+
+&usbphy {
+	usb0_id_det-gpios = <&pio 7 8 GPIO_ACTIVE_HIGH>;	/* PH8 */
+	usb0_vbus_power-supply = <&usb_power_supply>;
+	status = "okay";
+};
+
+&ehci0 {
+	status = "okay";
+};
+
+&ohci0 {
+	status = "okay";
+};

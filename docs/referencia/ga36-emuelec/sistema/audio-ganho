@@ -1,0 +1,95 @@
+#!/bin/sh
+# Ponto único do ganho de áudio do R36S (feature 46-audio). Subcomandos:
+#   aplica        lê o volume salvo e ajusta o ganho analógico e o mudo
+#   volume <v>    grava o volume (0..100) e aplica; chamado pelos botões de volume
+# O volume fica em r36-audio.volume (p8, ao lado do emuelec.conf) e também em audio.volume
+# do emuelec.conf; na leitura o arquivo próprio vale mais.
+# Quem muda o caminho de saída (Speaker Function) chama "aplica" logo depois: no boot
+# (audio-prepara), ao abrir e sair de um jogo (emuelecRunEmu.sh) e ao acordar da
+# suspensão (udt_pwr_events.sh).
+#
+# Por que: o ganho de saída é um só, analógico (speaker volume control, 0 a 63; o DAC toca
+# em 0 dB). A base tem dois defeitos: o volume 0 dá speaker volume control = 20 e não
+# silencia, e o audio.volume salvo só vale depois do primeiro toque num botão de volume.
+# A escala acima de 0 é a de fábrica.
+#
+# Modo: "corrigido" ou "original", em /run/r36-audio.modo (escrito pelo audio-prepara).
+# Sem o arquivo, o modo é "original". O mudo do volume 0 só vale no modo "corrigido".
+# R36_ROOT fica vazio no aparelho; os testes apontam para um diretório temporário.
+
+ROOT="${R36_ROOT:-}"
+EMUCONF="$ROOT/storage/.config/emuelec/configs/emuelec.conf"
+VOLARQ="$ROOT/storage/.config/emuelec/configs/r36-audio.volume"
+MODO_ARQ="$ROOT/run/r36-audio.modo"
+CTL_SPK='speaker volume control'
+VOL_PADRAO=29                    # se o emuelec.conf não tiver audio.volume
+
+escala_fabrica() { echo $(( ($1 * 43 + 50) / 100 + 20 )); }
+
+volume_salvo() {
+    # o arquivo próprio vale mais que o emuelec.conf: o EmulationStation regrava o
+    # conf com o audio.volume que tinha na memória ao reiniciar pelo menu
+    v=$(head -n 1 "$VOLARQ" 2>/dev/null)
+    case "$v" in
+        ''|*[!0-9]*) v=$(sed -n 's/^audio\.volume=//p' "$EMUCONF" 2>/dev/null | head -n 1) ;;
+    esac
+    case "$v" in
+        ''|*[!0-9]*) v=$VOL_PADRAO ;;
+    esac
+    [ "$v" -gt 100 ] && v=100
+    echo "$v"
+}
+
+grava_volume() {
+    printf '%s\n' "$1" > "$VOLARQ" 2>/dev/null
+    [ -f "$EMUCONF" ] || return 0
+    if grep -q '^audio\.volume=' "$EMUCONF"; then
+        sed "s|^audio\.volume=.*|audio.volume=$1|" "$EMUCONF" > "$EMUCONF.r36tmp" &&
+            cat "$EMUCONF.r36tmp" > "$EMUCONF"
+        rm -f "$EMUCONF.r36tmp"
+    else
+        # garante quebra de linha no fim antes de acrescentar
+        [ -n "$(tail -c1 "$EMUCONF")" ] && printf '\n' >> "$EMUCONF"
+        printf 'audio.volume=%s\n' "$1" >> "$EMUCONF"
+    fi
+}
+
+analogico() { amixer cset name="$CTL_SPK" "$1" > /dev/null 2>&1; }
+
+aplica() {
+    vol=$(volume_salvo)
+    modo=$(cat "$MODO_ARQ" 2>/dev/null)
+    [ "$modo" = corrigido ] || modo=original
+
+    if [ "$modo" = corrigido ] && [ "$vol" -eq 0 ]; then
+        ganho=0   # mudo
+    else
+        ganho=$(escala_fabrica "$vol")
+    fi
+    analogico "$ganho"
+    echo "audio-ganho: modo=$modo audio.volume=$vol $CTL_SPK=$ganho"
+}
+
+case "$1" in
+    aplica)
+        aplica
+        ;;
+    volume)
+        case "$2" in
+            -[0-9]*) v=0 ;;   # negativo limita em 0
+            ''|*[!0-9]*)
+                echo "uso: audio-ganho volume <0..100>" >&2
+                exit 1
+                ;;
+            *) v=$2 ;;
+        esac
+        [ "$v" -gt 100 ] && v=100
+        grava_volume "$v"
+        aplica
+        ;;
+    *)
+        echo "uso: audio-ganho aplica | volume <0..100>" >&2
+        exit 1
+        ;;
+esac
+exit 0

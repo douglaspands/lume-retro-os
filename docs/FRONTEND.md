@@ -28,11 +28,28 @@ contrato de jogos.
    - **0**: o usuário escolheu sair. A sessão grava o pendente
      (`/usr/libexec/r36os/persist flush`) e desliga o aparelho.
    - **diferente de 0**: falha. A sessão reinicia o frontend; na 3ª falha em 60 s, ela
-     para e deixa na tela o erro e o caminho do log (`BOOT/logs/frontend-erro.log`).
-5. A saída padrão e de erro vão para `/var/log/frontend.log`.
+     para e deixa na tela o erro e o caminho do log (`ROMS/logs/frontend/boot-<n>.log`;
+     só sem partição de jogos, `BOOT/logs/frontend-error.log`).
+5. A saída padrão e de erro vão para `/var/log/frontend.log`, copiado em lote para
+   `ROMS/logs/frontend/boot-<n>.log` (ver [LOGS.md](LOGS.md)). A sessão registra em
+   `ROMS/logs/events.log` cada início, saída e falha do frontend.
 6. Configurações do frontend que devem sobreviver ao reboot precisam ir para
    `/storage/system/<frontend>/` com escrita atômica (temporário + `fsync` + `rename`).
    Só `~/.config/retroarch` é persistido automaticamente pelo `r36os-persist`.
+
+## Idioma
+
+O idioma da interface é o `user_language` do RetroArch, escolhido pelo usuário em
+Configurações → Usuário → Idioma e persistido em `ROMS/system/retroarch/retroarch.cfg`.
+O padrão de fábrica vem do `--lang` do build (`r36os build <alvo> --lang pt_BR`; sem ele,
+inglês) e fica na configuração de fábrica do usuário, não no `retroarch-lume.cfg`, para
+a escolha no menu valer. O idioma do build só chega a cartões novos (sem
+`ROMS/system/retroarch/`), pela configuração de fábrica. A escolha feita no menu nunca é
+sobrescrita, nem por um build com outro idioma: para trocar, use o menu. As mensagens do sistema para o usuário (como a
+tela de falha do frontend) seguem esse valor (`ui_lang` em `lib.sh`), com texto em
+inglês, português e espanhol; os outros idiomas caem no inglês. Os logs são sempre em
+inglês ([LOGS.md](LOGS.md)). Um frontend alternativo que tenha um idioma próprio não
+muda as mensagens do sistema.
 
 ## Exemplo
 
