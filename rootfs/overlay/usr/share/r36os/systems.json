@@ -69,8 +69,8 @@
       "name": "Arcade",
       "extensions": ["zip", "7z"],
       "core": "fbneo",
-      "core_by_arch": {"armv7": "mame2003_plus"},
-      "alt_cores": ["mame2003_plus"],
+      "core_by_arch": {},
+      "alt_cores": [],
       "bios": []
     },
     {
@@ -97,7 +97,6 @@
     "gambatte": {"package": "libretro-gambatte", "file": "gambatte_libretro.so"},
     "gpsp": {"package": "libretro-gpsp", "file": "gpsp_libretro.so"},
     "fbneo": {"package": "libretro-fbneo", "file": "fbneo_libretro.so"},
-    "mame2003_plus": {"package": "libretro-mame2003-plus", "file": "mame2003_plus_libretro.so"},
     "pcsx_rearmed": {"package": "libretro-pcsx-rearmed", "file": "pcsx_rearmed_libretro.so"}
   }
 }

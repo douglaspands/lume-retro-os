@@ -1,12 +1,12 @@
 #!/bin/sh
-# Roda cada ROM de teste (/roms/<sistema>/*) com cada core do catálogo para o
-# sistema, por 600 quadros, com vídeo/áudio/entrada null. Mostra a linha de log
-# que confirma o conteúdo carregado.
+# Runs each test ROM (/roms/<system>/*) with each catalog core of the system for 600
+# frames, with null video, audio and input. Prints the log line that confirms the content
+# was loaded.
 set -u
 cp /keys/r36os.rsa.pub /etc/apk/keys/
 apk add -q -X /repo retroarch jq libretro-fceumm libretro-nestopia libretro-gambatte \
 	libretro-gpsp libretro-snes9x2005-plus libretro-snes9x libretro-genesis-plus-gx \
-	libretro-picodrive libretro-fbneo libretro-mame2003-plus libretro-pcsx-rearmed >/dev/null || exit 1
+	libretro-picodrive libretro-fbneo libretro-pcsx-rearmed >/dev/null || exit 1
 cat > /tmp/null.cfg <<'EOF'
 video_driver = "null"
 audio_driver = "null"

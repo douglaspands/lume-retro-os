@@ -5,7 +5,10 @@ pkgrel=2
 _commit="4f6b3b46a36fa486c4887b0d172bca8c34e670e7"
 pkgdesc="MAME 0.78 com melhorias, core arcade leve para libretro"
 url="https://github.com/libretro/mame2003-plus-libretro"
-arch="all"
+# Disabled (Alpine convention: empty arch) on the user's request (2026-11-11): the arcade
+# uses fbneo on every console. To bring it back: arch="all", libretro-mame2003-plus in
+# rootfs/packages.txt and the core in systems.json.
+arch=""
 license="custom:MAME"
 makedepends="linux-headers"
 source="$pkgname-$_commit.tar.gz::https://github.com/libretro/mame2003-plus-libretro/archive/$_commit.tar.gz"

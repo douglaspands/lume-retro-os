@@ -23,7 +23,11 @@ def test_systems_match_design_table():
     for arch in ("x86_64", "aarch64", "armv7"):
         assert catalog.default_core(by_id["gba"], arch) == "gpsp"
     assert "mgba" not in CAT["cores"]
-    assert catalog.default_core(by_id["arcade"], "armv7") == "mame2003_plus"
+    # arcade: fbneo on every console, so a romset works on both consoles of the single card
+    # (mame2003_plus left out on the user's request, 2026-11-11)
+    for arch in ("x86_64", "aarch64", "armv7"):
+        assert catalog.default_core(by_id["arcade"], arch) == "fbneo"
+    assert "mame2003_plus" not in CAT["cores"]
     assert by_id["psx"]["bios"][0]["files"] == [
         "scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"]
 

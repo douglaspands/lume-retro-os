@@ -48,5 +48,4 @@ libretro-snes9x
 libretro-genesis-plus-gx
 libretro-picodrive
 libretro-fbneo
-libretro-mame2003-plus
 libretro-pcsx-rearmed

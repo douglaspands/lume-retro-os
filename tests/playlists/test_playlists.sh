@@ -35,7 +35,7 @@ check "arcade x86_64: fbneo" '[ "$(jq -r ".items[0].core_path" "$O/Arcade.lpl")"
 O7=$W/out-arm
 $GEN -r "$R" -o "$O7" -a armv7l >/dev/null
 check "gba armv7: gpsp" '[ "$(jq -r ".items[0].core_path" "$O7/Game Boy Advance.lpl")" = /usr/lib/libretro/gpsp_libretro.so ]'
-check "arcade armv7: mame2003_plus" '[ "$(jq -r ".items[0].core_path" "$O7/Arcade.lpl")" = /usr/lib/libretro/mame2003_plus_libretro.so ]'
+check "arcade armv7: fbneo, as on the other consoles" '[ "$(jq -r ".items[0].core_path" "$O7/Arcade.lpl")" = /usr/lib/libretro/fbneo_libretro.so ]'
 check "nes armv7: fceumm (sem troca)" '[ "$(jq -r ".items[0].core_path" "$O7/NES.lpl")" = /usr/lib/libretro/fceumm_libretro.so ]'
 
 ### lista some quando o sistema esvazia; listas do RetroArch ficam
