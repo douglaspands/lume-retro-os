@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 19:00:00 -0300
+Subject: [PATCH] drm/rockchip: dsi: time the lines with the lane rate the PHY runs at
+
+With an external D-PHY the Rockchip glue asks for mode clock x bpp / lanes
+x 10/8 and hands the same figure to the Synopsys host, which counts the
+horizontal timings in lane byte clocks. The Innosilicon PHY of PX30/RK3326
+can only reach 12 MHz / prediv x fbdiv (prediv 1 or 2), so it runs at
+another rate: on the R36S V5 (27 MHz, RGB888, 4 lanes) the host timed the
+lines for 202 Mbps while the PHY ran at 198 Mbps, and every DSI line came
+out 2% longer than the line the VOP sends. The panel woke up and turned the
+display on, but showed a washed out grey screen and its supply whined. The
+vendor kernel uses a rate the PLL reaches exactly (180 Mbps).
+
+Give the Innosilicon PHY a validate op that reports the rate the PLL will
+really run at, and in the glue use that rate (when the PHY can tell) for
+the host timings and log it, and work the D-PHY timings out again for that
+rate: the ones made for the requested rate fail phy_mipi_dphy_config_validate()
+at the lower rate (hs_prepare under 40 ns + 4 UI), phy_configure() then
+returns -EINVAL and the PHY powers on with no PLL setting (lane rate 0 Hz,
+every DSI command times out). Also log the phy_configure() error instead of
+dropping it. PHYs without a validate op keep the old behaviour.
+
+diff --git a/drivers/gpu/drm/rockchip/dw-mipi-dsi-rockchip.c b/drivers/gpu/drm/rockchip/dw-mipi-dsi-rockchip.c
+index 5523911..cb0ed35 100644
+--- a/drivers/gpu/drm/rockchip/dw-mipi-dsi-rockchip.c
++++ b/drivers/gpu/drm/rockchip/dw-mipi-dsi-rockchip.c
+@@ -534,7 +534,10 @@ static void dw_mipi_dsi_phy_power_on(void *priv_data)
+ 		return;
+ 	}
+
+-	phy_configure(dsi->phy, &dsi->phy_opts);
++	ret = phy_configure(dsi->phy, &dsi->phy_opts);
++	if (ret)
++		DRM_DEV_ERROR(dsi->dev, "failed to configure phy: %d\n", ret);
++
+ 	phy_power_on(dsi->phy);
+ }
+
+@@ -587,6 +590,22 @@ dw_mipi_dsi_get_lane_mbps(void *priv_data, const struct drm_display_mode *mode,
+ 		phy_mipi_dphy_get_default_config(mode->clock * 1000 * 10 / 8,
+ 						 bpp, lanes,
+ 						 &dsi->phy_opts.mipi_dphy);
++		/*
++		 * The host line timings are counted in lane byte clocks, so they must
++		 * use the rate the PHY really runs at, not the requested one. The
++		 * D-PHY timings are then worked out again for that rate: the ones made
++		 * for the requested rate fail the PHY check (hs_prepare too short), and
++		 * the PHY would start with no PLL setting at all.
++		 */
++		if (!phy_validate(dsi->phy, PHY_MODE_MIPI_DPHY, 0, &dsi->phy_opts)) {
++			unsigned long long rate = dsi->phy_opts.mipi_dphy.hs_clk_rate;
++
++			phy_mipi_dphy_get_default_config_for_hsclk(rate, lanes,
++								   &dsi->phy_opts.mipi_dphy);
++			target_mbps = DIV_ROUND_CLOSEST_ULL(rate, USEC_PER_SEC);
++			DRM_DEV_INFO(dsi->dev, "lane rate %u Mbps (PHY %llu Hz)\n",
++				     target_mbps, rate);
++		}
+ 		dsi->lane_mbps = target_mbps;
+ 		*lane_mbps = dsi->lane_mbps;
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+index da98564..104ca5c 100644
+--- a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
++++ b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+@@ -683,8 +683,36 @@ static int inno_dsidphy_configure(struct phy *phy,
+ 	return 0;
+ }
+
++/*
++ * The PLL reaches only some rates (12 MHz / prediv * fbdiv from a 24 MHz reference,
++ * prediv 1 or 2), so report the rate it will really run at. The DSI host computes its
++ * line timings in lane byte clocks from this rate: with the requested rate instead
++ * (202.5 MHz for a 27 MHz RGB888 mode on 4 lanes, against 198 MHz from the PLL),
++ * every DSI line is 2% longer than the line the display controller sends.
++ */
++static int inno_dsidphy_validate(struct phy *phy, enum phy_mode mode, int submode,
++				 union phy_configure_opts *opts)
++{
++	struct inno_dsidphy *inno = phy_get_drvdata(phy);
++	typeof(inno->pll) saved = inno->pll;
++	unsigned long rate;
++
++	if (mode != PHY_MODE_MIPI_DPHY)
++		return -EINVAL;
++
++	rate = inno_dsidphy_pll_calc_rate(inno, opts->mipi_dphy.hs_clk_rate);
++	inno->pll = saved;
++	if (!rate)
++		return -EINVAL;
++
++	opts->mipi_dphy.hs_clk_rate = rate;
++
++	return 0;
++}
++
+ static const struct phy_ops inno_dsidphy_ops = {
+ 	.configure = inno_dsidphy_configure,
++	.validate = inno_dsidphy_validate,
+ 	.set_mode = inno_dsidphy_set_mode,
+ 	.power_on = inno_dsidphy_power_on,
+ 	.power_off = inno_dsidphy_power_off,

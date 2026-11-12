@@ -3,24 +3,57 @@ From: Douglas Panhota <douglaspands@gmail.com>
 Date: Wed, 11 Nov 2026 19:49:32 -0300
 Subject: [PATCH] drm/panel: sitronix-st7703: add R36S V5 panel
 
-The 3.5 inch 640x480 panel of the R36S V5 handheld (4 DSI lanes, 27 MHz, 59.02 Hz). The init sequence and the timing come from the factory device tree of the device.
+The 3.5 inch 640x480 panel of the R36S V5 handheld (4 DSI lanes, 27 MHz, 59.02 Hz). The init sequence and the timing come from the factory device tree of the device; the factory kernel runs this same mode (640x480p59, H 640 760 770 890, V 480 497 501 514).
+
+The panel takes its init sequence before the video stream starts, as the factory
+kernel sends it: a panel description can now ask for that (init_in_prepare), and
+prepare then sends the sequence with the DSI host still in command mode
+(prepare_prev_first). With the sequence sent from enable, in video mode, the panel
+woke up but kept a washed out grey screen.
 
 diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7703.c b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
-index 6c348fe..5413b32 100644
+index 6c348fe..0703300 100644
 --- a/drivers/gpu/drm/panel/panel-sitronix-st7703.c
 +++ b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
-@@ -673,6 +673,96 @@ static const struct st7703_panel_desc gameforcechi_desc = {
+@@ -70,6 +70,13 @@ struct st7703_panel_desc {
+ 	unsigned long mode_flags;
+ 	enum mipi_dsi_pixel_format format;
+ 	void (*init_sequence)(struct mipi_dsi_multi_context *dsi_ctx);
++	/*
++	 * Send the init sequence from prepare, with the DSI host still in command
++	 * mode (prepare_prev_first), as the vendor kernels do. In video mode the
++	 * host only fits short low power packets between lines, and some panels
++	 * miss the long ones.
++	 */
++	bool init_in_prepare;
+ };
+ 
+ static inline struct st7703 *panel_to_st7703(struct drm_panel *panel)
+@@ -673,9 +680,111 @@ static const struct st7703_panel_desc gameforcechi_desc = {
  	.init_sequence = gameforcechi_init_sequence,
  };
  
+-static int st7703_enable(struct drm_panel *panel)
 +static void r36s_v5_init_sequence(struct mipi_dsi_multi_context *dsi_ctx)
 +{
 +	/*
 +	 * Init sequence from the factory device tree of the R36S V5
 +	 * (panel-init-sequence of its "simple-panel-dsi" node). The controller
 +	 * answers B9 F1 12 87 to SETEXTC. The factory sequence ends with sleep
-+	 * out and display on, which st7703_enable() sends after this function.
++	 * out and display on, which st7703_init_panel() sends after this function.
++	 *
++	 * The controller needs the 100 ms after reset of the factory device tree
++	 * (reset-delay-ms) before the first command: with only the 15-20 ms of
++	 * st7703_prepare(), the DSI command FIFO filled up on the third command
++	 * (-ETIMEDOUT). Leaving sleep mode before the sequence, as the Gameforce
++	 * Chi does, does not work on this panel: it shows a stain in the middle.
++	 *
++	 * Sent from prepare, before the video stream starts (init_in_prepare):
++	 * with the video running, the panel woke up (short commands) but kept
++	 * a washed out grey screen, the long commands did not take.
 +	 */
++	mipi_dsi_msleep(dsi_ctx, 100);
++
 +	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETEXTC, 0xf1, 0x12, 0x87);
 +	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETDISP, 0x78, 0x04, 0x70);
 +	mipi_dsi_dcs_write_seq_multi(dsi_ctx, ST7703_CMD_SETRGBIF, 0x10, 0x10, 0xfc,
@@ -101,12 +134,60 @@ index 6c348fe..5413b32 100644
 +		      MIPI_DSI_MODE_NO_EOT_PACKET | MIPI_DSI_MODE_LPM,
 +	.format = MIPI_DSI_FMT_RGB888,
 +	.init_sequence = r36s_v5_init_sequence,
++	.init_in_prepare = true,
 +};
 +
- static int st7703_enable(struct drm_panel *panel)
++static int st7703_init_panel(struct st7703 *ctx)
+ {
+-	struct st7703 *ctx = panel_to_st7703(panel);
+ 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
+ 	struct mipi_dsi_multi_context dsi_ctx = {.dsi = dsi};
+ 
+@@ -694,6 +803,16 @@ static int st7703_enable(struct drm_panel *panel)
+ 	return dsi_ctx.accum_err;
+ }
+ 
++static int st7703_enable(struct drm_panel *panel)
++{
++	struct st7703 *ctx = panel_to_st7703(panel);
++
++	if (ctx->desc->init_in_prepare)
++		return 0;
++
++	return st7703_init_panel(ctx);
++}
++
+ static int st7703_disable(struct drm_panel *panel)
  {
  	struct st7703 *ctx = panel_to_st7703(panel);
-@@ -919,6 +1009,7 @@ static const struct of_device_id st7703_of_match[] = {
+@@ -748,6 +867,16 @@ static int st7703_prepare(struct drm_panel *panel)
+ 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+ 	usleep_range(15000, 20000);
+ 
++	if (ctx->desc->init_in_prepare) {
++		ret = st7703_init_panel(ctx);
++		if (ret < 0) {
++			gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++			regulator_disable(ctx->vcc);
++			regulator_disable(ctx->iovcc);
++			return ret;
++		}
++	}
++
+ 	return 0;
+ }
+ 
+@@ -882,6 +1011,9 @@ static int st7703_probe(struct mipi_dsi_device *dsi)
+ 	if (ret)
+ 		return ret;
+ 
++	/* the DSI host must be up (command mode) when prepare sends the sequence */
++	ctx->panel.prepare_prev_first = ctx->desc->init_in_prepare;
++
+ 	drm_panel_add(&ctx->panel);
+ 
+ 	ret = mipi_dsi_attach(dsi);
+@@ -919,6 +1051,7 @@ static const struct of_device_id st7703_of_match[] = {
  	{ .compatible = "gameforce,chi-panel", .data = &gameforcechi_desc },
  	{ .compatible = "powkiddy,rgb10max3-panel", .data = &rgb10max3_panel_desc },
  	{ .compatible = "powkiddy,rgb30-panel", .data = &rgb30panel_desc },

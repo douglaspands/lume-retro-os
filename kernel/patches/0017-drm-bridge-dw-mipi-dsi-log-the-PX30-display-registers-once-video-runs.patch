@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 17:00:00 -0300
+Subject: [PATCH] drm/bridge: dw-mipi-dsi: log the PX30 display registers once video runs
+
+On the R36S V5 the link runs without errors and the panel stays awake, yet
+the screen is grey; the factory kernel (4.4 BSP) drives the same panel at
+the same mode. The way to find the difference is to compare the registers
+of the display path with the ones the factory kernel leaves, which were
+read on the factory system with board/r36s/diag/regdump.sh.
+
+The r36os userland has no /dev/mem reader, so read them here: on a PX30 or
+RK3326 machine, with the first status sample after video starts, log the
+DSI host, D-PHY, VOP, GRF, CRU and PMUCRU words that are not zero as
+"regdump <name> <address> <offset> <value>", the format of the script.
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+index 8589b0d..3c1fda9 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+@@ -12,10 +12,12 @@
+ #include <linux/component.h>
+ #include <linux/debugfs.h>
+ #include <linux/export.h>
++#include <linux/io.h>
+ #include <linux/iopoll.h>
+ #include <linux/math64.h>
+ #include <linux/media-bus-format.h>
+ #include <linux/module.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/reset.h>
+@@ -1087,6 +1089,52 @@ static void dw_mipi_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
+ 	schedule_delayed_work(&dsi->status_work, msecs_to_jiffies(1000));
+ }
+
++/*
++ * PX30/RK3326 display path, logged once video runs as "regdump <name> <address>
++ * <offset> <value>" (non-zero words only), the format of the R36S diagnostic
++ * script board/r36s/diag/regdump.sh, so the registers can be compared line by
++ * line with those of the factory kernel. Only reads.
++ */
++static const struct {
++	const char *name;
++	phys_addr_t base;
++	u32 size;
++} px30_display_regions[] = {
++	{ "dsi",    0xff450000, 0x200 },
++	{ "dphy",   0xff2e0000, 0x400 },
++	{ "vop",    0xff460000, 0x300 },
++	{ "grf",    0xff140000, 0x500 },
++	{ "cru",    0xff2b0000, 0x300 },
++	{ "pmucru", 0xff2bc000, 0x100 },
++};
++
++static void dw_mipi_dsi_px30_regdump(struct dw_mipi_dsi *dsi)
++{
++	unsigned int i;
++	u32 off, val;
++
++	if (!of_machine_is_compatible("rockchip,px30") &&
++	    !of_machine_is_compatible("rockchip,rk3326"))
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(px30_display_regions); i++) {
++		void __iomem *base = ioremap(px30_display_regions[i].base,
++					     px30_display_regions[i].size);
++
++		if (!base)
++			continue;
++		for (off = 0; off < px30_display_regions[i].size; off += 4) {
++			val = readl(base + off);
++			if (val)
++				dev_info(dsi->dev, "regdump %s %#010llx %#06x %#010x\n",
++					 px30_display_regions[i].name,
++					 (unsigned long long)px30_display_regions[i].base + off,
++					 off, val);
++		}
++		iounmap(base);
++	}
++}
++
+ /*
+  * Log the host error status a few times after video starts. INT_ST0 holds the
+  * D-PHY contention and the acknowledge errors reported by the peripheral; INT_ST1
+@@ -1105,6 +1153,9 @@ static void dw_mipi_dsi_status_work(struct work_struct *work)
+ 	dev_info(dsi->dev, "status sample %u: int_st0 0x%06x int_st1 0x%06x phy_status 0x%04x (%u Mbps per lane)\n",
+ 		 dsi->status_samples, st0, st1, phy, dsi->lane_mbps);
+
++	if (dsi->status_samples == 0)
++		dw_mipi_dsi_px30_regdump(dsi);
++
+ 	if (++dsi->status_samples < 3)
+ 		schedule_delayed_work(&dsi->status_work, msecs_to_jiffies(1000));
+ }

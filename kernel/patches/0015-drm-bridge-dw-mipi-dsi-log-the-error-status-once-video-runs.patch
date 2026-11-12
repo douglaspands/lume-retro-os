@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 19:00:00 -0300
+Subject: [PATCH] drm/bridge: dw-mipi-dsi: log the error status once video runs
+
+The host keeps its error flags in two read-to-clear registers that nothing
+reads in video mode, so a link that sends no usable video leaves no trace
+in the boot log. On the R36S V5 the panel answered every command and still
+showed a grey screen.
+
+After the switch to video mode, clear INT_ST0/INT_ST1 and log them three
+times, one second apart, together with PHY_STATUS (PLL lock, lane stop
+states) and the lane rate the host timings use. INT_ST1 bit 7
+(dpi_pld_wr_err) means the pixels from the display controller overflow the
+payload FIFO; INT_ST0 holds D-PHY contention and acknowledge errors.
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+index 3a8442f..8589b0d 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+@@ -19,6 +19,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/reset.h>
++#include <linux/workqueue.h>
+
+ #include <video/mipi_display.h>
+
+@@ -271,6 +272,10 @@ struct dw_mipi_dsi {
+
+ 	struct drm_display_mode mode;
+ 	const struct dw_mipi_dsi_plat_data *plat_data;
++
++	/* samples of the error status once video runs (boot log) */
++	struct delayed_work status_work;
++	unsigned int status_samples;
+ };
+
+ /*
+@@ -960,6 +965,8 @@ static void dw_mipi_dsi_bridge_post_atomic_disable(struct drm_bridge *bridge,
+ 	struct dw_mipi_dsi *dsi = bridge_to_dsi(bridge);
+ 	const struct dw_mipi_dsi_phy_ops *phy_ops = dsi->plat_data->phy_ops;
+
++	cancel_delayed_work_sync(&dsi->status_work);
++
+ 	/*
+ 	 * Switch to command mode before panel-bridge post_disable &
+ 	 * panel unprepare.
+@@ -1072,6 +1079,34 @@ static void dw_mipi_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
+ 	dw_mipi_dsi_set_mode(dsi, MIPI_DSI_MODE_VIDEO);
+ 	if (dsi->slave)
+ 		dw_mipi_dsi_set_mode(dsi->slave, MIPI_DSI_MODE_VIDEO);
++
++	/* clear the read-to-clear status, then sample it while video runs */
++	dsi_read(dsi, DSI_INT_ST0);
++	dsi_read(dsi, DSI_INT_ST1);
++	dsi->status_samples = 0;
++	schedule_delayed_work(&dsi->status_work, msecs_to_jiffies(1000));
++}
++
++/*
++ * Log the host error status a few times after video starts. INT_ST0 holds the
++ * D-PHY contention and the acknowledge errors reported by the peripheral; INT_ST1
++ * holds the timeouts (bits 1:0) and the DPI pixel FIFO overflow (bit 7,
++ * dpi_pld_wr_err: pixels arrive faster than the link sends them). Both clear on
++ * read, so each sample covers the time since the previous one.
++ */
++static void dw_mipi_dsi_status_work(struct work_struct *work)
++{
++	struct dw_mipi_dsi *dsi = container_of(to_delayed_work(work), struct dw_mipi_dsi,
++					       status_work);
++	u32 st0 = dsi_read(dsi, DSI_INT_ST0);
++	u32 st1 = dsi_read(dsi, DSI_INT_ST1);
++	u32 phy = dsi_read(dsi, DSI_PHY_STATUS);
++
++	dev_info(dsi->dev, "status sample %u: int_st0 0x%06x int_st1 0x%06x phy_status 0x%04x (%u Mbps per lane)\n",
++		 dsi->status_samples, st0, st1, phy, dsi->lane_mbps);
++
++	if (++dsi->status_samples < 3)
++		schedule_delayed_work(&dsi->status_work, msecs_to_jiffies(1000));
+ }
+
+ static enum drm_mode_status
+@@ -1222,6 +1257,7 @@ __dw_mipi_dsi_probe(struct platform_device *pdev,
+
+ 	dsi->dev = dev;
+ 	dsi->plat_data = plat_data;
++	INIT_DELAYED_WORK(&dsi->status_work, dw_mipi_dsi_status_work);
+
+ 	if (!plat_data->phy_ops->init || !plat_data->phy_ops->get_lane_mbps ||
+ 	    !plat_data->phy_ops->get_timing) {
+@@ -1294,6 +1330,7 @@ __dw_mipi_dsi_probe(struct platform_device *pdev,
+
+ static void __dw_mipi_dsi_remove(struct dw_mipi_dsi *dsi)
+ {
++	cancel_delayed_work_sync(&dsi->status_work);
+ 	mipi_dsi_host_unregister(&dsi->dsi_host);
+
+ 	pm_runtime_disable(dsi->dev);

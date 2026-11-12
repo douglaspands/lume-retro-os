@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 15:00:00 -0300
+Subject: [PATCH] phy: rockchip: inno-dsidphy: detect PX30S and log the lane rate
+
+PX30S (RK3326S) is a newer revision of PX30 (RK3326) under the same
+compatible, with a 2.5 GHz capable D-PHY that needs the 2.5 GHz timing
+table and the escape clock not inverted. With the 1 GHz table the low
+power commands and reads work but the high speed video does not: on the
+R36S V5 the panel answered every read, woke up and turned the display on,
+and still showed a washed out grey screen.
+
+On a px30/rk3326 machine, read DDR_GRF_CON1 as the vendor kernel does
+(rockchip-cpuinfo.c, bits 15:14 both set on PX30S), log the revision and
+switch to the PX30S settings. Same behaviour as the vendor commit
+b6de31a02254 and the ROCKNIX PX30S support. Also log the lane rate and the
+timing row in use, so the boot log tells what the video link runs at.
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+index 5bfae12..da98564 100644
+--- a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
++++ b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+@@ -18,6 +18,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/reset.h>
++#include <linux/sizes.h>
+ #include <linux/time64.h>
+ 
+ #include <linux/phy/phy.h>
+@@ -469,6 +470,11 @@ static void inno_dsidphy_mipi_mode_enable(struct inno_dsidphy *inno)
+ 	if (i == inno->pdata->num_timings)
+ 		--i;
+ 
++	dev_info(inno->dev,
++		 "lane rate %lu Hz (prediv %u, fbdiv %u), timing row up to %lu Hz of the %s table\n",
++		 inno->pll.rate, inno->pll.prediv, inno->pll.fbdiv, timings[i].rate,
++		 inno->pdata->max_rate == MAX_2_5GHZ ? "2.5 GHz" : "1 GHz");
++
+ 	/*
+ 	 * The value of counter for HS Tlpx Time
+ 	 * Tlpx = Tpin_txbyteclkhs * (2 + value)
+@@ -697,6 +703,38 @@ static const struct inno_video_phy_plat_data max_2_5ghz_video_phy_plat_data = {
+ 	.max_rate = MAX_2_5GHZ,
+ };
+ 
++/*
++ * PX30S (RK3326S) is a newer revision of PX30 (RK3326) with the same compatible
++ * but a 2.5 GHz capable D-PHY that needs the 2.5 GHz timing table; with the
++ * 1 GHz one the low power commands work but the high speed video does not.
++ * The vendor kernel tells them apart by DDR_GRF_CON1 bits 15:14 (both set on
++ * PX30S, rockchip-cpuinfo.c px30_init()).
++ */
++#define PX30_DDR_GRF_BASE	0xff630000
++#define PX30_DDR_GRF_CON1	0x04
++
++static bool inno_dsidphy_is_px30s(struct device *dev)
++{
++	void __iomem *base;
++	bool px30s;
++	u32 val;
++
++	if (!of_machine_is_compatible("rockchip,px30") &&
++	    !of_machine_is_compatible("rockchip,rk3326"))
++		return false;
++
++	base = ioremap(PX30_DDR_GRF_BASE, SZ_4K);
++	if (!base)
++		return false;
++	val = readl_relaxed(base + PX30_DDR_GRF_CON1);
++	iounmap(base);
++
++	px30s = ((val >> 14) & 0x3) == 0x3;
++	dev_info(dev, "SoC revision: %s (DDR_GRF_CON1 0x%08x)\n",
++		 px30s ? "PX30S/RK3326S" : "PX30/RK3326", val);
++	return px30s;
++}
++
+ static int inno_dsidphy_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -713,6 +751,11 @@ static int inno_dsidphy_probe(struct platform_device *pdev)
+ 	inno->pdata = of_device_get_match_data(inno->dev);
+ 	inno->txclkesc_not_inverted =
+ 		of_property_read_bool(dev->of_node, "rockchip,txclkesc-not-inverted");
++	/* PX30S: its own timing table and the escape clock not inverted (vendor) */
++	if (inno->pdata == &max_1ghz_video_phy_plat_data && inno_dsidphy_is_px30s(dev)) {
++		inno->pdata = &max_2_5ghz_video_phy_plat_data;
++		inno->txclkesc_not_inverted = true;
++	}
+ 	platform_set_drvdata(pdev, inno);
+ 
+ 	inno->phy_base = devm_platform_ioremap_resource(pdev, 0);

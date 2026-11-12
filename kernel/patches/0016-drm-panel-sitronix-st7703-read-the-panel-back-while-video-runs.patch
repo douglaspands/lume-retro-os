@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 16:00:00 -0300
+Subject: [PATCH] drm/panel: sitronix-st7703: read the panel back while video runs
+
+The panel state read back around the init sequence (log_state) shows the
+controller awake, but it is read before the video stream starts and says
+nothing about the video itself. On the R36S V5 the DSI host runs high speed
+video without errors and the panel still shows a washed out grey screen.
+
+With init_in_prepare the panel enable runs after the DSI host switched to
+video mode. When the description asks for log_state, read the panel there
+three times, 100 ms apart, and log one line per register: the scanline
+twice in a row (it moves when the panel scans out the frames it receives),
+the DSI error count (ECC or checksum errors on the received packets), the
+power mode, the signal mode and the self diagnostic.
+
+diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7703.c b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+index 934a7e1..852030c 100644
+--- a/drivers/gpu/drm/panel/panel-sitronix-st7703.c
++++ b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+@@ -885,12 +885,55 @@ static int st7703_init_panel(struct st7703 *ctx)
+ 	return dsi_ctx.accum_err;
+ }
+
++/*
++ * Read the panel back while the video stream runs (log_state), three times
++ * 100 ms apart, and log "panel video <n> <reg>: <bytes>". The scanline (0x45,
++ * read twice in a row) moves when the panel scans out the frames it receives;
++ * the DSI error count (0x05: bit 7 overflow, bits 6:0 count, cleared by the
++ * read) grows when packets arrive with ECC or checksum errors. Power mode,
++ * signal mode and self diagnostic tell whether the panel stays awake.
++ */
++static void st7703_log_video(struct st7703 *ctx)
++{
++	static const u8 regs[] = {
++		MIPI_DCS_GET_SCANLINE, MIPI_DCS_GET_SCANLINE,
++		MIPI_DCS_GET_ERROR_COUNT_ON_DSI, MIPI_DCS_GET_POWER_MODE,
++		MIPI_DCS_GET_SIGNAL_MODE, MIPI_DCS_GET_DIAGNOSTIC_RESULT,
++	};
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int n, i, ret;
++	u8 buf[2];
++
++	for (n = 0; n < 3; n++) {
++		msleep(100);
++		for (i = 0; i < ARRAY_SIZE(regs); i++) {
++			u8 len = regs[i] == MIPI_DCS_GET_SCANLINE ? 2 : 1;
++
++			ret = mipi_dsi_set_maximum_return_packet_size(dsi, len);
++			if (ret >= 0) {
++				memset(buf, 0, sizeof(buf));
++				ret = mipi_dsi_dcs_read(dsi, regs[i], buf, len);
++			}
++			if (ret < 0)
++				dev_info(ctx->dev, "panel video %d %02x: error %d\n",
++					 n, regs[i], ret);
++			else
++				dev_info(ctx->dev, "panel video %d %02x: %*ph\n",
++					 n, regs[i], ret, buf);
++		}
++	}
++}
++
+ static int st7703_enable(struct drm_panel *panel)
+ {
+ 	struct st7703 *ctx = panel_to_st7703(panel);
+
+-	if (ctx->desc->init_in_prepare)
++	if (ctx->desc->init_in_prepare) {
++		/* the DSI host is in video mode by now (enabled before the panel) */
++		if (ctx->desc->log_state)
++			st7703_log_video(ctx);
+ 		return 0;
++	}
+
+ 	return st7703_init_panel(ctx);
+ }

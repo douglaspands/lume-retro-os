@@ -133,7 +133,8 @@ if grep -E '{own_files}' /out/build-warnings.log; then exit 1; fi
 
 # Our own drivers and the drivers our patches change: any warning in them fails the build
 # (9.1, 9.2; the R36S panel variant is in panel-sitronix-st7703.c, patch 0010)
-OWN_DRIVER_FILES = ("panel-ga36mb-jd9366.c", "ga36mb-gamepad.c", "panel-sitronix-st7703.c")
+OWN_DRIVER_FILES = ("panel-ga36mb-jd9366.c", "ga36mb-gamepad.c", "panel-sitronix-st7703.c",
+                    "phy-rockchip-inno-dsidphy.c", "dw-mipi-dsi.c", "dw-mipi-dsi-rockchip.c")
 
 # target -> (ARCH, cross prefix, starting defconfig, image)
 KERNEL_TARGETS = {

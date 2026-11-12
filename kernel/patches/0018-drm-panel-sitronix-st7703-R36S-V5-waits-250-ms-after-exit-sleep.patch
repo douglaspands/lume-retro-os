@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 18:00:00 -0300
+Subject: [PATCH] drm/panel: sitronix-st7703: R36S V5 waits 250 ms after exit sleep
+
+The factory init sequence of the R36S V5 panel ends with exit sleep and a
+250 ms wait (05 fa 01 11) before display on, where the driver waits the
+120 ms of the datasheet. Let a panel description set that wait and use
+the factory 250 ms on the R36S V5. Other panels keep 120 ms.
+
+diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7703.c b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+index 852030c..6456948 100644
+--- a/drivers/gpu/drm/panel/panel-sitronix-st7703.c
++++ b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+@@ -79,6 +79,8 @@ struct st7703_panel_desc {
+ 	bool init_in_prepare;
+ 	/* log the panel state read back over DSI around the init sequence */
+ 	bool log_state;
++	/* wait after exit sleep before display on, in ms (0: the default 120) */
++	unsigned int sleep_out_delay_ms;
+ };
+
+ static inline struct st7703 *panel_to_st7703(struct drm_panel *panel)
+@@ -784,6 +786,8 @@ static const struct st7703_panel_desc r36s_v5_desc = {
+ 	.init_sequence = r36s_v5_init_sequence,
+ 	.init_in_prepare = true,
+ 	.log_state = true,
++	/* the factory sequence waits 250 ms after exit sleep (05 fa 01 11) */
++	.sleep_out_delay_ms = 250,
+ };
+
+ /*
+@@ -868,7 +872,7 @@ static int st7703_init_panel(struct st7703 *ctx)
+ 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
+
+ 	/* It takes the controller 120 msec to wake up after sleep. */
+-	mipi_dsi_msleep(&dsi_ctx, 120);
++	mipi_dsi_msleep(&dsi_ctx, ctx->desc->sleep_out_delay_ms ?: 120);
+
+ 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+

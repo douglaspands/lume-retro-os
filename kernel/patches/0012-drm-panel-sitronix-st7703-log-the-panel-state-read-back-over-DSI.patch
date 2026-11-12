@@ -1,0 +1,173 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 14:30:00 -0300
+Subject: [PATCH] drm/panel: sitronix-st7703: log the panel state read back over DSI
+
+Panels of the clone handhelds come without documentation and in several
+revisions; the only reference is the factory init sequence. When a panel
+does not light up right, the kernel log says nothing beyond "ready".
+
+A panel description can now ask (log_state) to read the controller back
+over DSI (bus turnaround) before and after the init sequence and log what
+it answers, one line per register: the standard DCS status (ID, power mode,
+pixel format, signal mode, self diagnostic) and the controller registers the
+init sequences write. It tells whether the commands reach the controller as
+sent and whether the controller is awake. The R36S V5 panel turns it on.
+
+dw-mipi-dsi: a read that times out leaves its answer in the read payload
+FIFO when it arrives late, and every later read then returned the answer
+of the read before it (seen on the R36S V5, first read in video mode).
+Drain the FIFO before a read.
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+index 8fc2e28..3a8442f 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+@@ -498,6 +498,23 @@ static int dw_mipi_dsi_read(struct dw_mipi_dsi *dsi,
+ 	return ret;
+ }
+ 
++/*
++ * Drop read payload left in the FIFO by an earlier read that timed out: its
++ * answer arrives late, and every later read would return the answer of the
++ * read before it.
++ */
++static void dw_mipi_dsi_drain_read_fifo(struct dw_mipi_dsi *dsi)
++{
++	int n = 0;
++
++	while (n < 64 && !(dsi_read(dsi, DSI_CMD_PKT_STATUS) & GEN_PLD_R_EMPTY)) {
++		dsi_read(dsi, DSI_GEN_PLD_DATA);
++		n++;
++	}
++	if (n)
++		dev_warn(dsi->dev, "dropped %d stale read payload words\n", n);
++}
++
+ static ssize_t dw_mipi_dsi_host_transfer(struct mipi_dsi_host *host,
+ 					 const struct mipi_dsi_msg *msg)
+ {
+@@ -511,6 +528,9 @@ static ssize_t dw_mipi_dsi_host_transfer(struct mipi_dsi_host *host,
+ 		return ret;
+ 	}
+ 
++	if (msg->rx_buf && msg->rx_len)
++		dw_mipi_dsi_drain_read_fifo(dsi);
++
+ 	dw_mipi_message_config(dsi, msg);
+ 	if (dsi->slave)
+ 		dw_mipi_message_config(dsi->slave, msg);
+diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7703.c b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+index 0703300..934a7e1 100644
+--- a/drivers/gpu/drm/panel/panel-sitronix-st7703.c
++++ b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+@@ -77,6 +77,8 @@ struct st7703_panel_desc {
+ 	 * miss the long ones.
+ 	 */
+ 	bool init_in_prepare;
++	/* log the panel state read back over DSI around the init sequence */
++	bool log_state;
+ };
+ 
+ static inline struct st7703 *panel_to_st7703(struct drm_panel *panel)
+@@ -781,13 +783,86 @@ static const struct st7703_panel_desc r36s_v5_desc = {
+ 	.format = MIPI_DSI_FMT_RGB888,
+ 	.init_sequence = r36s_v5_init_sequence,
+ 	.init_in_prepare = true,
++	.log_state = true,
+ };
+ 
++/*
++ * Registers read back by st7703_log_state(): the standard DCS status (ID, power
++ * mode, address mode, pixel format, image mode, signal mode, self diagnostic,
++ * scanline, ID1-3) and the controller registers that the init sequences write.
++ */
++static const struct {
++	u8 cmd;
++	u8 len;
++} st7703_state_regs[] = {
++	{ MIPI_DCS_GET_DISPLAY_ID, 3 },
++	{ MIPI_DCS_GET_POWER_MODE, 1 },
++	{ MIPI_DCS_GET_ADDRESS_MODE, 1 },
++	{ MIPI_DCS_GET_PIXEL_FORMAT, 1 },
++	{ MIPI_DCS_GET_DISPLAY_MODE, 1 },
++	{ MIPI_DCS_GET_SIGNAL_MODE, 1 },
++	{ MIPI_DCS_GET_DIAGNOSTIC_RESULT, 1 },
++	{ MIPI_DCS_GET_SCANLINE, 2 },
++	{ 0xda, 1 }, { 0xdb, 1 }, { 0xdc, 1 },
++	{ ST7703_CMD_SETEXTC, 3 },
++	{ ST7703_CMD_SETDISP, 3 },
++	{ ST7703_CMD_SETRGBIF, 10 },
++	{ ST7703_CMD_SETCYC, 1 },
++	{ ST7703_CMD_SETBGP, 2 },
++	{ ST7703_CMD_SETVCOM, 2 },
++	{ ST7703_CMD_SETPOWER_EXT, 4 },
++	{ ST7703_CMD_SETMIPI, 27 },
++	{ ST7703_CMD_SETVDC, 1 },
++	{ ST7703_CMD_UNKNOWN_BF, 5 },
++	{ ST7703_CMD_SETSCR, 9 },
++	{ ST7703_CMD_SETPOWER, 17 },
++	{ ST7703_CMD_SETIO, 12 },
++	{ ST7703_CMD_SETPANEL, 1 },
++	{ ST7703_CMD_SETEQ, 14 },
++};
++
++/*
++ * Read the panel back over DSI (bus turnaround) and log what it answers, one
++ * line per register: "panel state <when> <reg>: <bytes>" or "... error <n>".
++ * It tells whether the commands reach the controller as sent and whether the
++ * controller is awake.
++ */
++static void st7703_log_state(struct st7703 *ctx, const char *when)
++{
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	u8 buf[32];
++	int i, ret;
++
++	for (i = 0; i < ARRAY_SIZE(st7703_state_regs); i++) {
++		u8 cmd = st7703_state_regs[i].cmd;
++		u8 len = st7703_state_regs[i].len;
++
++		ret = mipi_dsi_set_maximum_return_packet_size(dsi, len);
++		if (ret >= 0) {
++			memset(buf, 0, sizeof(buf));
++			ret = mipi_dsi_dcs_read(dsi, cmd, buf, len);
++		}
++		if (ret < 0)
++			dev_info(ctx->dev, "panel state %s %02x: error %d\n", when, cmd, ret);
++		else
++			dev_info(ctx->dev, "panel state %s %02x: %*ph\n", when, cmd, ret, buf);
++		if (cmd == MIPI_DCS_GET_POWER_MODE && ret == 1)
++			dev_info(ctx->dev,
++				 "panel state %s power: booster %s, sleep %s, display %s\n",
++				 when, buf[0] & BIT(7) ? "on" : "off",
++				 buf[0] & BIT(4) ? "out" : "in",
++				 buf[0] & BIT(2) ? "on" : "off");
++	}
++}
++
+ static int st7703_init_panel(struct st7703 *ctx)
+ {
+ 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
+ 	struct mipi_dsi_multi_context dsi_ctx = {.dsi = dsi};
+ 
++	if (ctx->desc->log_state)
++		st7703_log_state(ctx, "before-init");
++
+ 	ctx->desc->init_sequence(&dsi_ctx);
+ 
+ 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
+@@ -797,6 +872,13 @@ static int st7703_init_panel(struct st7703 *ctx)
+ 
+ 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+ 
++	if (ctx->desc->log_state) {
++		dev_info(ctx->dev, "panel init sequence: %d (sent %s)\n", dsi_ctx.accum_err,
++			 ctx->desc->init_in_prepare ? "in command mode" : "in video mode");
++		mipi_dsi_msleep(&dsi_ctx, 50);
++		st7703_log_state(ctx, "after-init");
++	}
++
+ 	if (!dsi_ctx.accum_err)
+ 		dev_dbg(ctx->dev, "Panel init sequence done\n");
+ 

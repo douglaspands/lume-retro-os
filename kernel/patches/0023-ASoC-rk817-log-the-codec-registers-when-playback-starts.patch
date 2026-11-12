@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 23:00:00 -0300
+Subject: [PATCH] ASoC: rk817: log the codec registers when playback starts
+
+BRING-UP ONLY, not for a product: drop it once the R36S V5 speaker works.
+
+On the R36S V5 the speaker stays silent with the playback mux on SPK and
+the stream running, while ROCKNIX drives the same hardware family with this
+driver. The vendor driver writes a fixed set of values for the speaker path
+(ADAC_CFG1 with DAC L/R on, ACLASSD_CFG1 0xa5, ACLASSD_CFG2 0xc4,
+DDAC_MUTE_MIXCTL 0x10); this driver gets there through DAPM supplies.
+
+Log the codec registers 0x12-0x4f the first three times playback unmutes,
+when DAPM has powered the path, to compare them with the vendor values.
+
+diff --git a/sound/soc/codecs/rk817_codec.c b/sound/soc/codecs/rk817_codec.c
+index 3c9957b..229feef 100644
+--- a/sound/soc/codecs/rk817_codec.c
++++ b/sound/soc/codecs/rk817_codec.c
+@@ -347,10 +347,37 @@ static int rk817_hw_params(struct snd_pcm_substream *substream,
+ 	return 0;
+ }
+
++/*
++ * Bring-up only (R36S V5, speaker silent): log the codec registers 0x12-0x4f when playback
++ * unmutes, after DAPM powered the path, as "codec regs 0xNN: v v v v v v v v", to compare
++ * with what the vendor driver writes for the speaker path. Only the first three times.
++ */
++static void rk817_log_registers(struct snd_soc_component *component)
++{
++	static int logged;
++	unsigned int reg, i;
++	char line[80];
++	int len;
++
++	if (logged >= 3)
++		return;
++	logged++;
++	for (reg = RK817_CODEC_DTOP_VUCTL; reg <= RK817_CODEC_DI2S_TXCR3_TXCMD; reg += 8) {
++		len = scnprintf(line, sizeof(line), "codec regs 0x%02x:", reg);
++		for (i = reg; i < reg + 8 && i <= RK817_CODEC_DI2S_TXCR3_TXCMD; i++)
++			len += scnprintf(line + len, sizeof(line) - len, " %02x",
++					 snd_soc_component_read(component, i));
++		dev_info(component->dev, "%s\n", line);
++	}
++}
++
+ static int rk817_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
+ {
+ 	struct snd_soc_component *component = dai->component;
+
++	if (!mute && stream == SNDRV_PCM_STREAM_PLAYBACK)
++		rk817_log_registers(component);
++
+ 	if (mute)
+ 		snd_soc_component_update_bits(component,
+ 					      RK817_CODEC_DDAC_MUTE_MIXCTL,
