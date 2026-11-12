@@ -105,7 +105,7 @@ truncate -s {image_bytes} $W/disk.img
 printf 'label: dos\\nlabel-id: 0x{disk_id}\\nstart={boot_start}, size={boot_sectors}, type=c, bootable\\n' \\
     | sfdisk -q $W/disk.img
 # boot area of both consoles without sector 0 (the MBR is ours), then the panel 1 boot image
-dd if=/area/{area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
+dd if=/out/{area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
 dd if=/ga36/kernel/android-boot-panel1.img of=$W/disk.img bs=512 seek={android} conv=notrunc status=none
 dd if=$W/boot.img of=$W/disk.img bs=512 seek={boot_start} conv=notrunc,sparse status=none
 mv $W/disk.img /out/console.img
@@ -216,8 +216,9 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
         area_sectors=bootarea.AREA_SECTORS - 1,
         android=vendor.ANDROID_BOOT_SECTOR,
     )
+    # the boot area is written next to the image (out/console), so /out carries it too
     volumes = {out: "/out", ga36_out: "/ga36", r36s_out: "/r36s",
-               REPO_ROOT / "board/r36s": "/board", area.parent: "/area"}
+               REPO_ROOT / "board/r36s": "/board"}
     # the image does not depend on the target arch: always the x86_64 builder
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
     area.unlink()

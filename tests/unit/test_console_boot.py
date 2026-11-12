@@ -249,6 +249,46 @@ def test_console_boot_needs_64_mib_free():
                                              image=60 * MiB))
 
 
+def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
+    """Every /<dir>/ the assembly script reads is a mounted volume (the first build failed:
+    the boot area folder and /out were the same path, and the dict kept only one)."""
+    import re as _re
+
+    from r36os import image, version
+
+    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    for f in ("ga36/SYSTEM", "ga36/kernel/dtbs/a.dtb", "ga36/kernel/android-boot-panel1.img",
+              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_bytes(b"x")
+
+    def fake_area(dest):
+        dest.write_bytes(b"area")
+        return dest
+
+    captured = {}
+
+    class FakeContainer:
+        def __init__(self, image, volumes):
+            captured["volumes"] = volumes
+
+        def sh(self, script):
+            captured["script"] = script
+
+    monkeypatch.setattr(image.bootarea, "write_console_area", fake_area)
+    monkeypatch.setattr(image, "Container", FakeContainer)
+    monkeypatch.setattr(image, "ensure_builder", lambda target: "builder")
+    image.build_console_image(version.current())
+
+    mounts = set(captured["volumes"].values())
+    assert len(mounts) == len(captured["volumes"])
+    # paths of the container itself (/dev/null) are not volumes
+    used = set(_re.findall(r"(?<![\w$])(/[a-z0-9]+)/", captured["script"])) - {"/dev", "/tmp"}
+    # /out/imgwork is the scratch folder inside /out
+    assert used <= mounts, used - mounts
+    assert {"/out", "/ga36", "/r36s", "/board"} <= used
+
+
 def test_boot_ini_loads_the_r36s_kernel_and_dtb():
     from r36os import image
 
