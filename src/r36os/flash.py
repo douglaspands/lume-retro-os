@@ -237,6 +237,13 @@ def find_image(target: ImageTarget, build: str = "latest") -> Path:
     return found[0]
 
 
+def mark_flashed(build_dir: Path) -> None:
+    """Point out/images/<image>/flashed at the build just written to a card (`clean` keeps it)."""
+    link = build_dir.parent / "flashed"
+    link.unlink(missing_ok=True)
+    link.symlink_to(build_dir.name)
+
+
 def _decompress(zst: Path) -> Path:
     """Decompress into the cache (reused if the same build is already there)."""
     from compression import zstd
@@ -435,6 +442,7 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
 
     if not update:
         _create_roms(device, img, build_language(zst))
+    mark_flashed(zst.parent)
 
     if eject:
         _eject(device)

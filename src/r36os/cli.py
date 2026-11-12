@@ -1,4 +1,4 @@
-"""Command line: `r36os build|flash|eject|vm|pkg|test-vm`."""
+"""Command line: `r36os build|flash|eject|vm|pkg|test-vm|clean`."""
 
 from __future__ import annotations
 
@@ -61,6 +61,12 @@ def _parser() -> argparse.ArgumentParser:
 
     t = sub.add_parser("test-vm", help="automated acceptance test of the vm image")
     t.add_argument("--keep", action="store_true", help="keep the VM disk after the test")
+
+    c = sub.add_parser("clean", help="free the space of build leftovers (dry run by default)")
+    c.add_argument("--yes", action="store_true", help="remove (without it, only list)")
+    c.add_argument("--keep", type=int, default=3, metavar="N",
+                   help="archived images to keep per image, besides latest and the ones "
+                        "cited in the docs (default 3)")
     return p
 
 
@@ -106,6 +112,10 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.selftest import test_vm
 
             return test_vm(keep=args.keep)
+        if args.command == "clean":
+            from r36os.clean import main_clean
+
+            return main_clean(yes=args.yes, keep=args.keep)
     except (InvalidTargetError, lang.InvalidLanguageError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
