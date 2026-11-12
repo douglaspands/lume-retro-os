@@ -93,6 +93,13 @@ def test_sysctl_override_keeps_only_keys_every_kernel_has():
     assert keys == ["kernel.panic", "fs.protected_hardlinks", "fs.protected_symlinks"]
 
 
+def test_menu_has_no_clock_by_default():
+    # P-31 (change hide-clock): no RTC battery and no network, the clock shows 1970. A user
+    # default the menu can turn back on, never a fixed key that would override that choice.
+    assert 'menu_timedate_enable = "false"' in FACTORY
+    assert "menu_timedate_enable" not in _keys(CFG)
+
+
 def test_menu_buttons_not_swapped():
     # RetroArch 1.22 swaps OK/Cancel in the menu by default; ours: A confirms, B goes back.
     # A user default (changeable in the menu, restored by "Reset to Default Config").
