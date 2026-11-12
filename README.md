@@ -186,6 +186,10 @@ repositório, com o crédito no lugar:
 - **Firmware de fábrica do GA36** (baseado no EmuELEC): medições, ajustes de áudio, bateria
   e cores registrados em `docs/referencia/ga36-emuelec/`, que guiaram decisões como o core
   de SNES e o volume.
+- **Shaders do projeto anterior do autor** ("R36S GA36-MB V1.2"): os shaders `gb-modern-dmg`,
+  `gbc-modern-remaster` e `gba-modern-remaster`, copiados sem alteração para
+  `/usr/share/libretro/shaders/lume-shaders/` (escolhidos no menu do RetroArch, desligados
+  por padrão).
 - **[Imagem custom para o clone do R36S (r/R36SBrasil)](https://www.reddit.com/r/R36SBrasil/comments/1xr9zfp/lan%C3%A7amento_imagem_custom_para_clone_do_r36s_placa/)**:
   tópico da comunidade usado como referência para configurar o GA36.
 - **[dArkOSRE-R36](https://github.com/southoz/dArkOSRE-R36)**: os dados do hardware do R36S
