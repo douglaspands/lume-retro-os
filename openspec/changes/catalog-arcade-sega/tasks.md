@@ -24,7 +24,7 @@
 ## 2. Pacotes
 
 - [x] 2.1 Aports `libretro-fbalpha2012-cps1`, `-cps2` e `-neogeo` (D3), com o `license.txt` instalado em `/usr/share/licenses/`; `rootfs/packages.txt` atualizado (o `libretro-mame2003-plus` já está com `arch=""`, feito na base). Verificação: `tests/unit/test_aports.py` (arch, checksums, licença no `package()`) e `test_catalog.py::test_every_core_has_package_in_common_list`.
-- [ ] 2.2 Compilar os três cores nas três arquiteturas (`r36os pkg <camada> <aport>`; **um build de cada vez**: só começar com `podman ps` vazio, nunca junto do build da imagem `console` da `r36s-single-card`, porque os dois usam `out/repo/` e o `aports/<nome>/src`). Verificação: `tests/integration/test_local_repo.py` acha os cores do catálogo em `out/repo/<arch>/`.
+- [x] 2.2 Compilar os três cores nas três arquiteturas (`r36os pkg <camada> <aport>`; **um build de cada vez**: só começar com `podman ps` vazio, nunca junto do build da imagem `console` da `r36s-single-card`, porque os dois usam `out/repo/` e o `aports/<nome>/src`). Verificação: `tests/integration/test_local_repo.py` acha os cores do catálogo em `out/repo/<arch>/`.
 - [x] 2.3 README: os cores FB Alpha 2012 nos Agradecimentos e a restrição da licença (sem venda, sem doações) na seção Licença. Verificação: teste de documentação confere a menção.
 
 ## 3. Imagem e VM
