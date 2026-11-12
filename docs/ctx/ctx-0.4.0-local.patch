@@ -1,0 +1,811 @@
+diff --git a/ctx/chunkers.py b/ctx/chunkers.py
+new file mode 100644
+index 0000000..a5cad3d
+--- /dev/null
++++ b/ctx/chunkers.py
+@@ -0,0 +1,204 @@
++"""Chunkers estruturais para C e Device Tree (protótipo local, ver docs/ctx/MELHORIAS.md).
++
++- C/H: tree-sitter-c (opcional). Cada definição de nível superior vira um chunk com o nome do
++  símbolo no título (função, struct, enum, tabela estática, bloco de #define). Funções longas são
++  divididas em partes com o mesmo título. Sem tree-sitter, devolve None (o chamador usa o genérico).
++- DTS/DTSI: sem dependências. Contagem de chaves; cada nó de profundidade 1 dentro de `/ { }` e
++  cada `&rótulo { }` de nível superior vira um chunk com o caminho do nó no título.
++"""
++
++from __future__ import annotations
++
++import re
++from pathlib import Path
++from typing import Any, Callable
++
++MAX_CHUNK_LINES = 120  # funções/nós maiores são divididos em partes
++GAP_STEP = 50  # trechos entre definições (includes, comentários) usam janelas como o genérico
++
++_C_PARSER: Any = None
++
++
++def _c_parser() -> Any:
++    global _C_PARSER
++    if _C_PARSER is None:
++        try:
++            import tree_sitter_c
++            from tree_sitter import Language, Parser
++
++            _C_PARSER = Parser(Language(tree_sitter_c.language()))
++        except Exception:  # dependência opcional ausente ou incompatível
++            _C_PARSER = False
++    return _C_PARSER or None
++
++
++def _declarator_name(node: Any) -> str | None:
++    """Nome do identificador mais interno de um declarator (função, ponteiro, array, init)."""
++    cur = node
++    for _ in range(12):
++        if cur is None:
++            return None
++        if cur.type in ("identifier", "field_identifier", "type_identifier"):
++            return cur.text.decode("utf-8", "replace")
++        nxt = cur.child_by_field_name("declarator")
++        if nxt is None:
++            nxt = next((c for c in cur.named_children if c.type.endswith("declarator") or c.type == "identifier"), None)
++        cur = nxt
++    return None
++
++
++def _c_symbol(node: Any) -> tuple[str, str] | None:
++    """(tipo do chunk, nome) de um nó de nível superior, ou None se não for uma definição relevante."""
++    t = node.type
++    if t == "function_definition":
++        name = _declarator_name(node.child_by_field_name("declarator"))
++        return ("c_function", name) if name else None
++    if t in ("struct_specifier", "enum_specifier", "union_specifier"):
++        name = node.child_by_field_name("name")
++        return (f"c_{t.split('_')[0]}", name.text.decode()) if name else None
++    if t == "type_definition":
++        name = _declarator_name(node.child_by_field_name("declarator"))
++        return ("c_typedef", name) if name else None
++    if t == "declaration":
++        decl = node.child_by_field_name("declarator")
++        name = _declarator_name(decl)
++        body = node.text.count(b"\n")
++        if name and body >= 2:  # tabelas/structs estáticas com inicializador
++            return ("c_data", name)
++        typ = node.child_by_field_name("type")
++        if typ is not None and typ.type in ("struct_specifier", "enum_specifier", "union_specifier") and body >= 2:
++            tname = typ.child_by_field_name("name")
++            return (f"c_{typ.type.split('_')[0]}", tname.text.decode() if tname else (name or "anon"))
++        return None
++    if t in ("preproc_function_def",):
++        # macros de uma ou duas linhas ficam nos chunks de intervalo (título com os #defines)
++        name = node.child_by_field_name("name")
++        multiline = node.end_point[0] - node.start_point[0] >= 3
++        return ("c_macro", name.text.decode()) if name and multiline else None
++    return None
++
++
++def _split(rel: str, title: str, ctype: str, lines: list[str], start: int, end: int, Chunk: Callable) -> list[Any]:
++    """Um chunk [start, end] (1-based, inclusivo), dividido em partes se passar de MAX_CHUNK_LINES."""
++    if end - start + 1 <= MAX_CHUNK_LINES:
++        return [Chunk(rel, title, ctype, start, end, "\n".join(lines[start - 1 : end]))]
++    out = []
++    part = 1
++    for s in range(start, end + 1, MAX_CHUNK_LINES):
++        e = min(s + MAX_CHUNK_LINES - 1, end)
++        out.append(Chunk(rel, f"{title} (part {part})", ctype, s, e, "\n".join(lines[s - 1 : e])))
++        part += 1
++    return out
++
++
++def _gaps(rel: str, name: str, lines: list[str], covered: list[tuple[int, int]], Chunk: Callable, ctype: str) -> list[Any]:
++    """Chunks para as linhas fora das definições (includes, #defines soltos, comentários)."""
++    covered = sorted(covered)
++    out: list[Any] = []
++    pos = 1
++    spans: list[tuple[int, int]] = []
++    for s, e in covered:
++        if s > pos:
++            spans.append((pos, s - 1))
++        pos = max(pos, e + 1)
++    if pos <= len(lines):
++        spans.append((pos, len(lines)))
++    define_rx = re.compile(r"^\s*#\s*define\s+(\w+)")
++    for s, e in spans:
++        for ws in range(s, e + 1, GAP_STEP):
++            we = min(ws + GAP_STEP - 1, e)
++            body = lines[ws - 1 : we]
++            if not any(ln.strip() for ln in body):
++                continue
++            defines = [m.group(1) for ln in body if (m := define_rx.match(ln))]
++            label = f"{name} (lines {ws}-{we})"
++            if defines:
++                label += " defines: " + ", ".join(defines[:6]) + ("…" if len(defines) > 6 else "")
++            out.append(Chunk(rel, label, ctype, ws, we, "\n".join(body)))
++    return out
++
++
++def extract_c_chunks(file_path: Path, rel_path: str, content: str, Chunk: Callable) -> list[Any] | None:
++    parser = _c_parser()
++    if parser is None:
++        return None
++    lines = content.splitlines()
++    if not lines:
++        return []
++    tree = parser.parse(content.encode("utf-8", "replace"))
++    chunks: list[Any] = []
++    covered: list[tuple[int, int]] = []
++    pending_comment: int | None = None
++    for node in tree.root_node.children:
++        if node.type == "comment":
++            # comentário imediatamente antes de uma definição entra no chunk dela
++            pending_comment = node.start_point[0] + 1 if pending_comment is None else pending_comment
++            continue
++        sym = _c_symbol(node)
++        if sym is None:
++            pending_comment = None
++            continue
++        ctype, name = sym
++        start = node.start_point[0] + 1
++        if pending_comment is not None and start - pending_comment <= 40:
++            start = pending_comment
++        pending_comment = None
++        end = node.end_point[0] + 1
++        chunks += _split(rel_path, name, ctype, lines, start, end, Chunk)
++        covered.append((start, end))
++    chunks += _gaps(rel_path, file_path.name, lines, covered, Chunk, f"text_{file_path.suffix.lstrip('.')}")
++    chunks.sort(key=lambda c: c.start_line)
++    return chunks
++
++
++_DTS_NODE_RX = re.compile(r"^\s*(?:([\w,.-]+)\s*:\s*)?(&[\w,.-]+|/|[\w,.@+-]+)\s*\{")
++
++
++def _strip_dts_line(line: str) -> str:
++    line = re.sub(r'"(?:\\.|[^"\\])*"', '""', line)  # strings
++    return re.sub(r"//.*$", "", line)
++
++
++def extract_dts_chunks(file_path: Path, rel_path: str, content: str, Chunk: Callable) -> list[Any]:
++    lines = content.splitlines()
++    if not lines:
++        return []
++    depth = 0
++    in_comment = False
++    stack: list[tuple[int, str, int]] = []  # (linha de início, nome, profundidade de abertura)
++    chunks: list[Any] = []
++    covered: list[tuple[int, int]] = []
++    root_open = False
++    for i, raw in enumerate(lines, start=1):
++        line = _strip_dts_line(raw)
++        if in_comment:
++            if "*/" not in line:
++                continue
++            line = line.split("*/", 1)[1]
++            in_comment = False
++        line = re.sub(r"/\*.*?\*/", "", line)
++        if "/*" in line:
++            line = line.split("/*", 1)[0]
++            in_comment = True
++        m = _DTS_NODE_RX.match(line)
++        if m and "{" in line:
++            label, name = m.group(1), m.group(2)
++            title = f"{label}: {name}" if label else name
++            if depth == 0 and name == "/":
++                root_open = True
++            elif depth == 0 or (depth == 1 and root_open):
++                stack.append((i, title, depth))
++        for ch in line:
++            if ch == "{":
++                depth += 1
++            elif ch == "}":
++                depth -= 1
++                if stack and depth == stack[-1][2]:
++                    s, title, _ = stack.pop()
++                    chunks += _split(rel_path, title, "dts_node", lines, s, i, Chunk)
++                    covered.append((s, i))
++                if depth == 0:
++                    root_open = False
++    chunks += _gaps(rel_path, file_path.name, lines, covered, Chunk, f"text_{file_path.suffix.lstrip('.')}")
++    chunks.sort(key=lambda c: c.start_line)
++    return chunks
+diff --git a/ctx/cli.py b/ctx/cli.py
+index 26cc4a6..abc54cf 100644
+--- a/ctx/cli.py
++++ b/ctx/cli.py
+@@ -118,17 +118,28 @@ def cmd_search(args: argparse.Namespace) -> int:
+     for w in res["warnings"]:
+         print(f"⚠ {w}")
+ 
++    mode_label = {
++        "and": "",
++        "trigram": " · por substring (trigram)",
++        "or": " · com qualquer termo (nenhum chunk tem todos)",
++        "semantic": " · só por semelhança (nenhum termo casou)",
++    }
+     for q in res["queries"]:
+-        print(f"\n═══ '{q['query']}' — {q['count']} resultados ═══")
++        mode = q.get("mode", "")
++        label = mode_label.get(mode.removesuffix("+glossary"), "")
++        if q.get("glossary"):
++            label += f" · glossário: {'; '.join(q.get('glossary', []))}"
++        print(f"\n═══ '{q['query']}' — {q['count']} resultados{label} ═══")
+         if q["timed_out"]:
+             print(f"⏱ Tempo esgotado. Equivalente com rg: {q['rg']}")
+         if not q["results"]:
+             if not q["timed_out"]:
+-                print("Nenhum resultado encontrado no índice FTS5.")
++                print("Nenhum resultado encontrado no índice.")
+             continue
+         for i, r in enumerate(q["results"], start=1):
+             tag = "" if r["kind"] == "code" else f" [{r['kind']}]"
+-            print(f"\n[{i}] {r['slice']}{tag} — {r['title']} ({r['chunk_type']}, BM25 {r['score']})")
++            via = r.get("via", "bm25")
++            print(f"\n[{i}] {r['slice']}{tag} — {r['title']} ({r['chunk_type']}, {via} {r['score']})")
+             if r["preview"]:
+                 print(r["preview"])
+             else:
+diff --git a/ctx/rag.py b/ctx/rag.py
+index 06b48df..509c2d4 100644
+--- a/ctx/rag.py
++++ b/ctx/rag.py
+@@ -33,7 +33,12 @@ MAP_PRIORITY = ("src/", "scripts/", "tests/", "openspec/changes/")
+ DEFAULT_PREVIEW_LINES = 25
+ 
+ # Esquema do índice. O índice é cache reconstruível: versão diferente => recriado e reindexado (ver get_db).
+-SCHEMA_VERSION = 2
++SCHEMA_VERSION = 3  # 3: chunks_tri (trigram) e vectors (embeddings), protótipo local
++# Pesos do bm25() por coluna de `chunks`: path, title, chunk_type, start_line, end_line, content, kind.
++# O título carrega o nome do símbolo (função C, nó DTS, função Python), então vale mais que o corpo.
++BM25_WEIGHTS = (2.0, 6.0, 0.5, 0.0, 0.0, 1.0, 0.0)
++RRF_K = 60  # reciprocal rank fusion entre BM25 e semântica
++HYBRID_POOL = 20  # candidatos de cada lado antes da fusão
+ KINDS = ("code", "reference", "upstream")
+ # WAL acima disso não vale a pena consolidar na hora de uma busca: o índice é recriado do zero.
+ WAL_REBUILD_BYTES = 1024 * 1024 * 1024
+@@ -131,6 +136,8 @@ def _create_schema(con: sqlite3.Connection) -> bool:
+         has_old = con.execute("SELECT 1 FROM sqlite_master WHERE name IN ('chunks','indexed_files') LIMIT 1").fetchone()
+         # Índice da versão anterior: o FTS5 ganhou a coluna `kind`, então recria (reindex automático depois).
+         con.execute("DROP TABLE IF EXISTS chunks")
++        con.execute("DROP TABLE IF EXISTS chunks_tri")
++        con.execute("DROP TABLE IF EXISTS vectors")
+         con.execute("DROP TABLE IF EXISTS indexed_files")
+         con.execute("DROP TABLE IF EXISTS meta")
+         rebuilt = bool(has_old)
+@@ -160,6 +167,20 @@ def _create_schema(con: sqlite3.Connection) -> bool:
+         );
+         """
+     )
++    # Mesmo rowid de `chunks`: trigramas para pedaços de identificador ("lane_mb", "dsidph") e LIKE/GLOB.
++    con.execute(
++        """
++        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_tri USING fts5(
++            path UNINDEXED,
++            title,
++            content,
++            tokenize='trigram'
++        );
++        """
++    )
++    # Embeddings (float32, normalizados) por rowid de `chunks`; ver ctx/semantic.py.
++    con.execute("CREATE TABLE IF NOT EXISTS vectors (id INTEGER PRIMARY KEY, path TEXT NOT NULL, vec BLOB NOT NULL)")
++    con.execute("CREATE INDEX IF NOT EXISTS vectors_path ON vectors(path)")
+     if version != SCHEMA_VERSION:
+         con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+         con.commit()
+@@ -497,6 +518,15 @@ def chunk_file(file_path: Path, workspace_root: Path, rel_path: str | None = Non
+         return extract_markdown_chunks(file_path, rel_path, content)
+     elif suffix in {".patch", ".diff"}:
+         return extract_patch_chunks(file_path, rel_path, content)
++    elif suffix in {".c", ".h"}:
++        from ctx.chunkers import extract_c_chunks
++
++        chunks = extract_c_chunks(file_path, rel_path, content, Chunk)
++        return chunks if chunks is not None else extract_generic_chunks(file_path, rel_path, content)
++    elif suffix in {".dts", ".dtsi"}:
++        from ctx.chunkers import extract_dts_chunks
++
++        return extract_dts_chunks(file_path, rel_path, content, Chunk)
+     else:
+         return extract_generic_chunks(file_path, rel_path, content)
+ 
+@@ -686,13 +716,36 @@ def os_walk_filtered(
+         yield curr, dirs, files
+ 
+ 
+-def _store_file(con: sqlite3.Connection, path: Path, workspace_root: Path, rel: str, kind: str, st: os.stat_result) -> None:
+-    chunks = chunk_file(path, workspace_root, rel_path=rel)
++def _delete_path(con: sqlite3.Connection, rel: str) -> None:
+     con.execute("DELETE FROM chunks WHERE path = ?", (rel,))
+-    con.executemany(
+-        "INSERT INTO chunks (path, title, chunk_type, start_line, end_line, content, kind) VALUES (?, ?, ?, ?, ?, ?, ?)",
+-        [(c.path, c.title, c.chunk_type, c.start_line, c.end_line, c.content, kind) for c in chunks],
+-    )
++    con.execute("DELETE FROM chunks_tri WHERE path = ?", (rel,))
++    con.execute("DELETE FROM vectors WHERE path = ?", (rel,))
++
++
++def _store_file(
++    con: sqlite3.Connection, path: Path, workspace_root: Path, rel: str, kind: str, st: os.stat_result, model: Any = None
++) -> None:
++    chunks = chunk_file(path, workspace_root, rel_path=rel)
++    _delete_path(con, rel)
++    rowids: list[int] = []
++    for c in chunks:
++        cur = con.execute(
++            "INSERT INTO chunks (path, title, chunk_type, start_line, end_line, content, kind) VALUES (?, ?, ?, ?, ?, ?, ?)",
++            (c.path, c.title, c.chunk_type, c.start_line, c.end_line, c.content, kind),
++        )
++        rowid = int(cur.lastrowid)
++        rowids.append(rowid)
++        con.execute(
++            "INSERT INTO chunks_tri (rowid, path, title, content) VALUES (?, ?, ?, ?)", (rowid, c.path, c.title, c.content)
++        )
++    if model is not None and chunks:
++        from ctx import semantic
++
++        vecs = semantic.encode(model, [semantic.chunk_text(c.title, c.path, c.content) for c in chunks])
++        con.executemany(
++            "INSERT INTO vectors (id, path, vec) VALUES (?, ?, ?)",
++            [(rid, rel, semantic.to_blob(v)) for rid, v in zip(rowids, vecs)],
++        )
+     con.execute(
+         "INSERT OR REPLACE INTO indexed_files (path, mtime_ns, size, hash, kind) VALUES (?, ?, ?, ?, ?)",
+         (rel, st.st_mtime_ns, st.st_size, "", kind),
+@@ -714,6 +767,7 @@ def index_workspace(
+     con = get_db(db_path, config["index"])
+     indexed_count = skipped_count = 0
+     partial = False
++    model = _semantic_model(workspace_root, config, allow_download=True)
+     try:
+         cached_meta = {
+             row[0]: (row[1], row[2], row[3]) for row in con.execute("SELECT path, mtime_ns, size, kind FROM indexed_files")
+@@ -736,13 +790,13 @@ def index_workspace(
+                 if deadline and time.perf_counter() > deadline:
+                     partial = True
+                     continue
+-                _store_file(con, path, workspace_root, rel, kind, st)
++                _store_file(con, path, workspace_root, rel, kind, st, model)
+                 indexed_count += 1
+ 
+             if not partial:
+                 for cached_path, (_m, _s, cached_kind) in cached_meta.items():
+                     if cached_path not in seen and cached_kind != "upstream":
+-                        con.execute("DELETE FROM chunks WHERE path = ?", (cached_path,))
++                        _delete_path(con, cached_path)
+                         con.execute("DELETE FROM indexed_files WHERE path = ?", (cached_path,))
+                 con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('indexed_at', ?)", (str(time.time()),))
+     finally:
+@@ -769,17 +823,66 @@ def index_extra_file(workspace_root: Path, path: Path, kind: str = "upstream") -
+         rel = str(path.resolve())
+     config = load_config(workspace_root)
+     con = get_db(db_path_for(workspace_root), config["index"])
++    model = _semantic_model(workspace_root, config, allow_download=True)
+     try:
+         with con:
+-            _store_file(con, path, workspace_root, rel, kind, path.stat())
++            _store_file(con, path, workspace_root, rel, kind, path.stat(), model)
+     finally:
+         con.close()
+     checkpoint(db_path_for(workspace_root))
+     return rel
+ 
+ 
+-def sanitize_query(query: str) -> str:
+-    """Higieniza termos para consulta estrita no FTS5 sem quebras de sintaxe."""
++def _semantic_model(workspace_root: Path, config: dict[str, Any], allow_download: bool = False) -> Any:
++    """Modelo de embeddings se `[search].semantic` (padrão true) e a dependência estiver instalada."""
++    search_cfg = config.get("search", {})
++    if not search_cfg.get("semantic", True):
++        return None
++    from ctx import semantic
++
++    return semantic.get_model(workspace_root, search_cfg.get("semantic_model", semantic.DEFAULT_MODEL), allow_download)
++
++
++def query_tokens(query: str) -> list[str]:
++    return re.findall(r"[\wÀ-ſ]+", query)
++
++
++# Palavras vazias (pt/en) retiradas da consulta lexical: numa pergunta em linguagem natural elas
++# derrubam o "todos os termos" ("backlight do panel") sem ajudar a ranquear.
++STOPWORDS = frozenset(
++    """
++    a o as os um uma uns umas de da do das dos em na no nas nos por para pra com sem que se ao aos
++    e ou mas como onde quando qual quais quem porque fica ficar esta estao este esse isso ser foi
++    the an of in on at to for from with without by and or but is are was be it its this that
++    where when what which who how why does do
++    """.split()
++)
++
++
++def lexical_tokens(query: str) -> list[str]:
++    """Termos da consulta sem palavras vazias (se só sobrarem palavras vazias, mantém todos)."""
++    tokens = query_tokens(query)
++    kept = [t for t in tokens if _fold(t) not in STOPWORDS]
++    return kept or tokens
++
++
++def sanitize_query(query: str, mode: str = "and") -> str:
++    """Higieniza termos para o FTS5 sem quebras de sintaxe.
++
++    mode "and": todos os termos (busca cirúrgica); "or": qualquer termo (fallback quando "and" volta
++    vazio); "trigram": cada termo com 3+ caracteres como substring (tabela chunks_tri).
++    """
++    tokens = lexical_tokens(query)
++    if mode == "trigram":
++        tokens = [t for t in tokens if len(t) >= 3]
++    if not tokens:
++        return ""
++    quoted = [f'"{t}"' for t in tokens]
++    return " OR ".join(quoted) if mode == "or" else " ".join(quoted)
++
++
++def _sanitize_query_v040(query: str) -> str:
++    """Versão 0.4.0 (só AND), mantida para comparação."""
+     # Remove caracteres especiais do FTS5 preservando palavras
+     tokens = re.findall(r"[\w\u00C0-\u017F]+", query)
+     if not tokens:
+@@ -802,8 +905,24 @@ def path_matches(path: str, subpaths: list[str]) -> bool:
+     return any(path == p or path.startswith(p + "/") for p in prefixes)
+ 
+ 
+-def read_preview(workspace_root: Path, rel_path: str, start: int, end: int, max_lines: int, cache: dict[str, list[str]]) -> str:
+-    """Lê até `max_lines` linhas reais do arquivo a partir de `start` (sem passar de `end`)."""
++PREVIEW_CONTEXT = 3  # linhas antes da primeira ocorrência quando a prévia é centrada no termo
++PREVIEW_LINE_CHARS = 200  # corte por linha da prévia
++
++
++def read_preview(
++    workspace_root: Path,
++    rel_path: str,
++    start: int,
++    end: int,
++    max_lines: int,
++    cache: dict[str, list[str]],
++    terms: list[str] | None = None,
++) -> str:
++    """Lê até `max_lines` linhas reais do arquivo, sem passar de `end`.
++
++    Com `terms`, a prévia começa `PREVIEW_CONTEXT` linhas antes da primeira linha do chunk que contém um
++    dos termos (sem diferenciar maiúsculas), em vez do início do chunk (que pode ser cabeçalho/licença).
++    """
+     if max_lines <= 0:
+         return ""
+     if rel_path not in cache:
+@@ -812,9 +931,21 @@ def read_preview(workspace_root: Path, rel_path: str, start: int, end: int, max_
+         except OSError:
+             cache[rel_path] = []
+     lines = cache[rel_path]
++    start, end = int(start), int(end)
++    if terms and end - start + 1 > max_lines:
++        low = [t.lower() for t in terms]
++        for n in range(start, min(end, len(lines)) + 1):
++            text = lines[n - 1].lower()
++            if any(t in text for t in low):
++                start = max(start, min(n - PREVIEW_CONTEXT, end - max_lines + 1))
++                break
+     stop = min(int(end), int(start) + max_lines - 1, len(lines))
+     width = len(str(stop))
+-    return "\n".join(f"{n:>{width}}  {lines[n - 1]}" for n in range(int(start), stop + 1))
++
++    def cut(text: str) -> str:  # JSONL/minificados: uma linha não pode inundar a saída
++        return text if len(text) <= PREVIEW_LINE_CHARS else text[:PREVIEW_LINE_CHARS] + f" …(+{len(text) - PREVIEW_LINE_CHARS})"
++
++    return "\n".join(f"{n:>{width}}  {cut(lines[n - 1])}" for n in range(int(start), stop + 1))
+ 
+ 
+ def rg_equivalent(query: str, path_prefix: str | None = None) -> str:
+@@ -894,6 +1025,120 @@ def _stale_results(con: sqlite3.Connection, workspace_root: Path, paths: set[str
+     return stale
+ 
+ 
++SEMANTIC_WEIGHT = 0.8  # peso da lista semântica na fusão (BM25 = 1.0): termo exato ainda vence empate
++
++
++def _filters(prefix: str, kinds: list[str] | None, col: str = "") -> tuple[str, list[Any]]:
++    """Cláusulas extras (subcaminho e kind) para uma consulta sobre `chunks` (col = prefixo da tabela)."""
++    sql, params = "", []
++    if prefix:
++        sql += f" AND ({col}path = ? OR {col}path LIKE ? ESCAPE '\\')"
++        escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
++        params += [prefix, escaped + "/%"]
++    if kinds:
++        sql += f" AND {col}kind IN ({','.join('?' * len(kinds))})"
++        params += kinds
++    return sql, params
++
++
++def _fold(text: str) -> str:
++    """Minúsculas sem acentos, para casar termos do glossário."""
++    import unicodedata
++
++    return "".join(ch for ch in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(ch))
++
++
++def expand_query(query: str, glossary: list[list[str]] | None) -> tuple[list[str], str, list[str]]:
++    """Aplica o glossário do projeto (`[search].glossary`: grupos de termos equivalentes).
++
++    Devolve (variantes para o BM25: original e, se algo casou, a consulta com cada termo trocado pelo
++    primeiro equivalente; texto expandido: original + todos os equivalentes, para o OR e a semântica;
++    grupos que casaram, para o cabeçalho do CLI).
++    """
++    if not glossary:
++        return [query], query, []
++    folded = _fold(query)
++    translated = folded
++    extras: list[str] = []
++    hits: list[str] = []
++    for group in glossary:
++        terms = [str(t) for t in group if str(t).strip()]
++        for term in terms:
++            rx = re.compile(rf"(?<!\w){re.escape(_fold(term))}(?!\w)")
++            if rx.search(folded):
++                others = [t for t in terms if t != term]
++                if others:
++                    extras += others
++                    translated = rx.sub(others[0], translated)
++                    hits.append(f"{term} → {', '.join(others)}")
++                break
++    variants = [query] + ([translated] if translated != folded else [])
++    return variants, " ".join([query, *extras]), hits
++
++
++def _lexical_rowids(
++    con: sqlite3.Connection,
++    query: str,
++    prefix: str,
++    kinds: list[str] | None,
++    limit: int,
++    variants: list[str] | None = None,
++    expanded: str | None = None,
++) -> tuple[list[int], str]:
++    """rowids por BM25, com recuo: todos os termos -> substrings (trigram) -> qualquer termo.
++
++    Em cada modo tenta a consulta original e depois a variante traduzida pelo glossário; o modo "or"
++    usa o texto expandido (original + equivalentes). Devolve (rowids em ordem, modo usado).
++    """
++    weights = ", ".join(str(w) for w in BM25_WEIGHTS)
++    extra, extra_params = _filters(prefix, kinds)
++    variants = variants or [query]
++    attempts = [(m, v) for m in ("and", "trigram") for v in variants] + [("or", expanded or query)]
++    for mode, text in attempts:
++        match = sanitize_query(text, mode)
++        if not match or (mode == "or" and len(query_tokens(text)) < 2):
++            continue
++        if mode == "trigram":
++            t_extra, t_params = _filters(prefix, kinds, "c.")
++            sql = (
++                "SELECT chunks_tri.rowid FROM chunks_tri JOIN chunks AS c ON c.rowid = chunks_tri.rowid "
++                f"WHERE chunks_tri MATCH ?{t_extra} ORDER BY bm25(chunks_tri) LIMIT ?"
++            )
++            params = [match, *t_params, limit]
++        else:
++            sql = f"SELECT rowid FROM chunks WHERE chunks MATCH ?{extra} ORDER BY bm25(chunks, {weights}) LIMIT ?"
++            params = [match, *extra_params, limit]
++        try:
++            rows = [int(r[0]) for r in con.execute(sql, params).fetchall()]
++        except sqlite3.OperationalError as e:
++            if "interrupted" in str(e):
++                raise
++            rows = []
++        if rows:
++            return rows, mode + ("+glossary" if text != query else "")
++    return [], ""
++
++
++def _semantic_rowids(
++    con: sqlite3.Connection, model: Any, query: str, prefix: str, kinds: list[str] | None, limit: int
++) -> list[int]:
++    if model is None:
++        return []
++    from ctx import semantic
++
++    try:
++        cands = semantic.top_rowids(con, model, query, limit * 4)
++    except sqlite3.OperationalError:
++        return []
++    if not cands:
++        return []
++    ids = [rid for rid, _ in cands]
++    extra, params = _filters(prefix, kinds)
++    marks = ",".join("?" * len(ids))
++    allowed = {int(r[0]) for r in con.execute(f"SELECT rowid FROM chunks WHERE rowid IN ({marks}){extra}", [*ids, *params])}
++    return [rid for rid in ids if rid in allowed][:limit]
++
++
+ def _search_one(
+     con: sqlite3.Connection,
+     workspace_root: Path,
+@@ -904,9 +1149,83 @@ def _search_one(
+     file_cache: dict[str, list[str]],
+     kinds: list[str] | None = None,
+     deadline: float | None = None,
++    model: Any = None,
++    glossary: list[list[str]] | None = None,
++) -> dict[str, Any]:
++    """Busca híbrida: BM25 ponderado (com recuo trigram/OR) + semântica, fundidas por RRF."""
++    start_t = time.perf_counter()
++    prefix = normalize_subpath(path_prefix or "")
++    results: list[dict[str, Any]] = []
++    timed_out = False
++    mode = ""
++    variants, expanded, glossary_hits = expand_query(query, glossary)
++    if deadline is not None and start_t >= deadline:
++        timed_out = True
++    elif query_tokens(query):
++        try:
++            lexical, mode = _lexical_rowids(con, query, prefix, kinds, HYBRID_POOL, variants, expanded)
++            sem = _semantic_rowids(con, model, expanded, prefix, kinds, HYBRID_POOL)
++        except sqlite3.OperationalError:
++            lexical, sem, timed_out = [], [], True
++        scores: dict[int, float] = {}
++        via: dict[int, set[str]] = {}
++        for weight, label, ids in ((1.0, "bm25", lexical), (SEMANTIC_WEIGHT, "sem", sem)):
++            for rank, rid in enumerate(ids, start=1):
++                scores[rid] = scores.get(rid, 0.0) + weight / (RRF_K + rank)
++                via.setdefault(rid, set()).add(label)
++        ordered = sorted(scores, key=lambda r: -scores[r])[:top_k]
++        terms = query_tokens(query)
++        for rid in ordered:
++            row = con.execute(
++                "SELECT path, title, chunk_type, start_line, end_line, kind FROM chunks WHERE rowid = ?", (rid,)
++            ).fetchone()
++            if row is None:
++                continue
++            results.append(
++                {
++                    "path": row[0],
++                    "title": row[1],
++                    "chunk_type": row[2],
++                    "slice": f"{row[0]}:{row[3]}-{row[4]}",
++                    "start_line": row[3],
++                    "end_line": row[4],
++                    "snippet": "",
++                    "preview": read_preview(workspace_root, row[0], row[3], row[4], lines, file_cache, terms),
++                    "score": round(scores[rid] * 1000, 2),
++                    "kind": row[5],
++                    "via": "+".join(sorted(via[rid])),
++                }
++            )
++        if not lexical and sem:
++            mode = "semantic"
++    out = {
++        "query": query,
++        "results": results,
++        "count": len(results),
++        "mode": mode,
++        "glossary": glossary_hits,
++        "timed_out": timed_out,
++        "elapsed_ms": round((time.perf_counter() - start_t) * 1000, 2),
++    }
++    if timed_out:
++        out["rg"] = rg_equivalent(query, path_prefix)
++    return out
++
++
++def _search_one_v040(
++    con: sqlite3.Connection,
++    workspace_root: Path,
++    query: str,
++    top_k: int,
++    path_prefix: str | None,
++    lines: int,
++    file_cache: dict[str, list[str]],
++    kinds: list[str] | None = None,
++    deadline: float | None = None,
+ ) -> dict[str, Any]:
++    """Versão 0.4.0 (só BM25 com AND), mantida para comparação."""
+     start_t = time.perf_counter()
+-    sanitized = sanitize_query(query)
++    sanitized = _sanitize_query_v040(query)
+     results: list[dict[str, Any]] = []
+     timed_out = False
+ 
+@@ -988,13 +1307,16 @@ def search_many(
+     # O prazo vale para a busca em si; a (rara) indexação inicial/reparo de ensure_current não consome o orçamento.
+     deadline = time.perf_counter() + timeout
+ 
++    model = _semantic_model(workspace_root, config)  # nunca baixa na busca
++    glossary = config.get("search", {}).get("glossary") or []
+     con = open_readonly(db_path_for(workspace_root))
+     file_cache: dict[str, list[str]] = {}
+     con.set_progress_handler(lambda: 1 if time.perf_counter() > deadline else 0, 10000)
+     warnings = list(info["warnings"])
+     try:
+         per_query = [
+-            _search_one(con, workspace_root, q, top_k, path_prefix, lines, file_cache, kinds, deadline) for q in queries
++            _search_one(con, workspace_root, q, top_k, path_prefix, lines, file_cache, kinds, deadline, model, glossary)
++            for q in queries
+         ]
+         con.set_progress_handler(None, 0)
+         found = {r["path"] for q in per_query for r in q["results"]}
+diff --git a/ctx/semantic.py b/ctx/semantic.py
+new file mode 100644
+index 0000000..4174090
+--- /dev/null
++++ b/ctx/semantic.py
+@@ -0,0 +1,84 @@
++"""Busca semântica local (protótipo, ver docs/ctx/MELHORIAS.md).
++
++Embeddings estáticos (model2vec, ~30 MB, CPU, sem GPU) guardados como BLOB numa tabela comum do
++próprio index.db; a similaridade é calculada com numpy (força bruta: milhares de chunks em poucos ms).
++Não usa sqlite-vec: o Python do .venv pode vir sem `enable_load_extension`.
++
++- O modelo é baixado só na indexação, para `.ctx/models/<nome>`; a busca nunca acessa a rede.
++- Sem model2vec/numpy instalados, tudo aqui devolve None e a busca segue só com BM25.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from pathlib import Path
++from typing import Any
++
++DEFAULT_MODEL = "minishlab/potion-base-8M"
++TEXT_CHARS = 1500  # início do chunk usado no embedding (título + caminho vêm antes)
++
++_MODELS: dict[str, Any] = {}
++
++
++def model_dir(workspace_root: Path, name: str) -> Path:
++    return workspace_root / ".ctx" / "models" / re.sub(r"[^\w.-]+", "--", name)
++
++
++def get_model(workspace_root: Path, name: str = DEFAULT_MODEL, allow_download: bool = False) -> Any:
++    """Modelo carregado (cache por processo) ou None (dependência ausente / não baixado)."""
++    key = f"{workspace_root}:{name}"
++    if key in _MODELS:
++        return _MODELS[key]
++    local = model_dir(workspace_root, name)
++    model = None
++    try:
++        os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
++        from model2vec import StaticModel
++
++        if local.is_dir():
++            model = StaticModel.from_pretrained(str(local))
++        elif allow_download:
++            os.environ.setdefault("HF_HOME", str(workspace_root / ".ctx" / "models" / ".hf"))
++            model = StaticModel.from_pretrained(name)
++            local.parent.mkdir(parents=True, exist_ok=True)
++            model.save_pretrained(str(local))
++    except Exception:
++        model = None
++    _MODELS[key] = model
++    return model
++
++
++def chunk_text(title: str, path: str, content: str) -> str:
++    return f"{title}\n{path}\n{content[:TEXT_CHARS]}"
++
++
++def encode(model: Any, texts: list[str]) -> Any:
++    """Vetores float32 normalizados (norma 1), um por texto."""
++    import numpy as np
++
++    vecs = np.asarray(model.encode(texts), dtype=np.float32)
++    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
++    norms[norms == 0] = 1.0
++    return vecs / norms
++
++
++def to_blob(vec: Any) -> bytes:
++    return vec.astype("float32").tobytes()
++
++
++def top_rowids(con: Any, model: Any, query: str, limit: int) -> list[tuple[int, float]]:
++    """(rowid do chunk, similaridade de cosseno) dos `limit` chunks mais próximos da query."""
++    import numpy as np
++
++    rows = con.execute("SELECT id, vec FROM vectors").fetchall()
++    if not rows:
++        return []
++    ids = np.fromiter((r[0] for r in rows), dtype=np.int64, count=len(rows))
++    mat = np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), -1)
++    q = encode(model, [query])[0]
++    sims = mat @ q
++    k = min(limit, len(rows))
++    best = np.argpartition(-sims, k - 1)[:k]
++    best = best[np.argsort(-sims[best])]
++    return [(int(ids[i]), float(sims[i])) for i in best]

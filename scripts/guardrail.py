@@ -27,9 +27,13 @@ import os
 import re
 import shlex
 import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import Any
+
+# Versão do motor `ctx` que gerou este arquivo: `ctx doctor` compara com a versão instalada e pede `ctx upgrade`.
+KIT_VERSION = "0.4.0"
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = WORKSPACE_ROOT / "policy.toml"
@@ -221,10 +225,39 @@ def matches_harness_allow(path: Path, policy: dict[str, Any]) -> bool:
 
 
 def matches_readonly_system(path: Path, policy: dict[str, Any]) -> bool:
+    """Read-only paths (paths.readonly_system); "~" is expanded and a trailing "/**" is optional."""
     for ro in policy.get("paths", {}).get("readonly_system", []):
-        if is_within(path, Path(ro).resolve()):
+        ro = ro[:-3] if ro.endswith("/**") else ro
+        if is_within(path, resolve_path(ro)):
             return True
     return False
+
+
+# Commands that only read: a path of paths.readonly_system passed to them is allowed even
+# inside the Btrfs No-COW volume (~/data), whose other accesses keep asking.
+DEFAULT_READONLY_COMMANDS = ["rg", "ls", "fd", "sha256sum", "wc", "stat", "tree", "file", "cmp", "diff"]
+
+
+def readonly_data_access(
+    segments: list[list[str]], tokens: list[str], data_path: Path, policy: dict[str, Any], cwd: Path | None
+) -> bool:
+    """True when every segment is a read-only command and every path inside ~/data is read-only."""
+    readonly_cmds = set(policy.get("paths", {}).get("readonly_commands", DEFAULT_READONLY_COMMANDS))
+    safe_filters = set(policy.get("commands", {}).get("safe_pipe_filters", []))
+    if segments[0][0] not in readonly_cmds:
+        return False
+    if any(seg[0] not in readonly_cmds and seg[0] not in safe_filters for seg in segments[1:]):
+        return False
+    for t in tokens:
+        if is_operator(t):
+            continue
+        candidate = t.split("=", 1)[1] if t.startswith("-") and "=" in t else t
+        if not looks_like_path(candidate):
+            continue
+        p = resolve_path(candidate, cwd)
+        if is_within(p, data_path) and not matches_readonly_system(p, policy):
+            return False
+    return True
 
 
 def looks_like_path(token: str) -> bool:
@@ -412,6 +445,15 @@ def file_tools_decision(cmd: str, policy: dict[str, Any], harness: str) -> tuple
     return "deny", messages[kind]
 
 
+def is_recipe_override(segments: list[list[str]]) -> bool:
+    """`ctx recipe run <nome> --yes`: o agente não pode aprovar sozinho etapas que o guardrail não liberou."""
+    for seg in segments:
+        words = [Path(seg[0]).name, *seg[1:]] if seg else []
+        if "recipe" in words and "run" in words and any(w in ("--yes", "-y") for w in words):
+            return True
+    return False
+
+
 def _prefix_match(text: str, prefix: str) -> bool:
     return text == prefix or text.startswith(prefix + " ") or text.startswith(prefix + "\t")
 
@@ -485,6 +527,12 @@ def evaluate_shell_command(
         return "deny", coaching
 
     # 6. Ask forte (operações sensíveis)
+    if is_recipe_override(segments):
+        return (
+            "ask",
+            "`ctx recipe run ... --yes` executa etapas que o guardrail não aprovou sozinho (ask/defer) e requer "
+            "confirmação do usuário.",
+        )
     if any(is_operator(t) and ">" in t for t in tokens):
         return "ask", "Redirecionamento de saída (>) escreve arquivos e requer confirmação do usuário."
     if "--privileged" in tokens:
@@ -492,11 +540,13 @@ def evaluate_shell_command(
 
     data_path = btrfs_path(policy)
     data_raw = policy.get("storage", {}).get("btrfs_nocow", {}).get("path", "~/data")
+    # reading a paths.readonly_system path inside ~/data with a read-only command does not ask
+    data_readonly = readonly_data_access(segments, tokens, data_path, policy, cwd)
     for needle in {data_raw, str(data_path)}:
-        if re.search(re.escape(needle) + r"(?![\w.-])", cmd_clean):
+        if not data_readonly and re.search(re.escape(needle) + r"(?![\w.-])", cmd_clean):
             return "ask", f"Operação envolvendo {data_path} (Btrfs No-COW) requer confirmação do usuário."
     for t in tokens:
-        if is_operator(t):
+        if is_operator(t) or data_readonly:
             continue
         candidate = t.split("=", 1)[1] if t.startswith("-") and "=" in t else t
         candidate = candidate.split(":", 1)[0]
@@ -571,9 +621,9 @@ def evaluate_file_access(
     if hit:
         return "deny", f"Acesso ao arquivo/diretório confidencial '{hit}' é estritamente proibido."
 
-    # 2. Volume Btrfs No-COW (~/data) sempre pergunta
+    # 2. Volume Btrfs No-COW (~/data) sempre pergunta, exceto leitura de paths.readonly_system
     data_path = btrfs_path(policy)
-    if is_within(path, data_path):
+    if is_within(path, data_path) and (is_write or not matches_readonly_system(path, policy)):
         return "ask", f"Operações no volume {data_path} (Btrfs No-COW) requerem confirmação do usuário."
 
     # 3. Dentro do workspace
@@ -663,6 +713,96 @@ def extract_request(payload: dict[str, Any], harness: str) -> tuple[str, str, st
     return "other", "", tool_name
 
 
+# --------------------------------------------------------------------------------------
+# Sugestão de receita: o agente repetiu à mão a sequência de uma receita (`ctx recipe run`)
+# --------------------------------------------------------------------------------------
+
+HINT_WINDOW_S = 900
+HINT_KEEP = 8
+# Receitas embutidas no ctx (o guardrail não importa o ctx): nome -> (params, etapas com `*` no lugar dos parâmetros)
+BUILTIN_RECIPE_HINTS = {"copy-verify": (["origem", "destino"], ["cp * *", "sync", "sha256sum *", "sha256sum *"])}
+
+
+def recipe_patterns(policy: dict[str, Any]) -> dict[str, tuple[list[str], list[str]]]:
+    """Receitas com 2+ etapas de comando: nome -> (params, padrões de etapa). Policy sobrescreve as embutidas."""
+    out = dict(BUILTIN_RECIPE_HINTS)
+    recipes = policy.get("recipes", {})
+    for name, r in (recipes.items() if isinstance(recipes, dict) else []):
+        if not isinstance(r, dict):
+            continue
+        steps = []
+        for s in r.get("steps", []):
+            cmd = s if isinstance(s, str) else (s.get("run") if isinstance(s, dict) else None)
+            if cmd:
+                steps.append(re.sub(r"\{\w+\}", "*", cmd))
+        out[name] = (list(r.get("params", [])), steps)
+    return out
+
+
+def _step_matches(cmd: str, pattern: str) -> bool:
+    try:
+        ct, pt = shlex.split(cmd), shlex.split(pattern)
+    except ValueError:
+        return False
+    return len(ct) == len(pt) and all(fnmatch.fnmatchcase(c, p) for c, p in zip(ct, pt))
+
+
+def suggest_recipe(history: list[str], policy: dict[str, Any]) -> str | None:
+    """Se os 2 últimos comandos são etapas consecutivas de uma receita, devolve a dica `ctx recipe run ...`."""
+    if len(history) < 2:
+        return None
+    runner = policy.get("ctx", {}).get("runner", ".venv/bin/ctx")
+    for name, (params, steps) in recipe_patterns(policy).items():
+        for i in range(len(steps) - 1):
+            if _step_matches(history[-2], steps[i]) and _step_matches(history[-1], steps[i + 1]):
+                usage = " ".join(f"<{p}>" for p in params)
+                return (
+                    f"Dica: esta sequência manual é a receita `{name}`. Rode `{runner} recipe run {name} {usage}`".rstrip()
+                    + " — uma chamada em vez de uma por etapa (cada etapa passa pelo guardrail)."
+                )
+    return None
+
+
+def record_and_suggest(cmd: str, policy: dict[str, Any]) -> str | None:
+    """Guarda o comando num histórico curto (.ctx/hint-history.json) e sugere a receita. Best-effort: nunca falha."""
+    try:
+        if "recipe" in cmd.split() and "run" in cmd.split():
+            return None
+        path = WORKSPACE_ROOT / ".ctx" / "hint-history.json"
+        now = time.time()
+        try:
+            hist = [h for h in json.loads(path.read_text(encoding="utf-8")) if now - h["ts"] < HINT_WINDOW_S]
+        except (OSError, ValueError, KeyError, TypeError):
+            hist = []
+        hist.append({"ts": now, "cmd": cmd.strip()})
+        hist = hist[-HINT_KEEP:]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(hist), encoding="utf-8")
+        hint = suggest_recipe([h["cmd"] for h in hist], policy)
+        if hint:
+            with open(WORKSPACE_ROOT / ".ctx" / "events.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": round(now, 3), "cmd": "hint", "recipe": hint.split("`")[1]}) + "\n")
+        return hint
+    except Exception:  # noqa: BLE001 - dica é opcional
+        return None
+
+
+def with_hint(response: dict[str, Any], decision: str, hint: str | None, harness: str) -> dict[str, Any]:
+    """Anexa a dica sem alterar a decisão: contexto adicional (Claude/Codex) ou no motivo de ask/deny."""
+    if not hint:
+        return response
+    if decision in ("ask", "deny"):
+        for key in ("permissionDecisionReason", "reason", "agent_message", "user_message"):
+            holder = response.get("hookSpecificOutput", response)
+            if key in holder:
+                holder[key] = f"{holder[key]} {hint}"
+        return response
+    if harness in ("claude", "codex"):
+        out = response.setdefault("hookSpecificOutput", {"hookEventName": "PreToolUse"})
+        out["additionalContext"] = hint
+    return response
+
+
 def main() -> None:
     """Entry point do hook (PreToolUse / BeforeTool / beforeShellExecution / beforeReadFile)."""
     try:
@@ -692,7 +832,10 @@ def main() -> None:
     else:
         decision, reason = "allow", "Ferramenta padrão autorizada."
 
-    sys.stdout.write(json.dumps(format_response(harness, decision, reason, ask_fallback=ask_fallback)))
+    response = format_response(harness, decision, reason, ask_fallback=ask_fallback)
+    if kind == "shell" and decision != "deny":
+        response = with_hint(response, decision, record_and_suggest(value, policy), harness)
+    sys.stdout.write(json.dumps(response))
 
 
 if __name__ == "__main__":
