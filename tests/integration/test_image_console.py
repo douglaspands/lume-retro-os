@@ -83,3 +83,10 @@ def test_boot_contents():
                  "r36s/SYSTEM", "r36s/Image", "r36s/rk3326-r36s-v5.dtb"):
         assert f"::/{name}" in listing, listing
     assert "::/logs" not in listing and "::/SYSTEM" not in listing.split()
+
+
+def test_boot_root_has_the_factory_files():
+    # task 4.5: the RG351 DTB the R36S U-Boot loads first, and the boot logo it draws
+    listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/console.img@@{START * S} -b ::/")
+    for name in r36s_vendor.BOOT_FILES:
+        assert f"::/{name}" in listing, listing

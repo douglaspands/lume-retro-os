@@ -89,7 +89,8 @@ def console_bootloaders() -> dict:
         "ga36": {"chain": "vendor boot0 (shrunk to 24 KiB) + U-Boot 2017",
                  "area_sha256": vendor.AREA_SHA256},
         "r36s": {"chain": "vendor idbloader + uboot.img + trust.img",
-                 "sha256": {r.name: r.sha256 for r in r36s_vendor.REGIONS}},
+                 "sha256": {r.name: r.sha256 for r in r36s_vendor.REGIONS},
+                 "boot_files": dict(r36s_vendor.BOOT_FILES)},
     }
 
 

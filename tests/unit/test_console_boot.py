@@ -146,6 +146,142 @@ def test_r36s_chain_refuses_short_copy(synthetic_chain, tmp_path, monkeypatch):
         r36s_vendor.factory_regions()
 
 
+# --- R36S factory BOOT files (task 4.5) ------------------------------------------------
+
+def _fat32(files: dict[str, bytes]) -> bytes:
+    """A minimal FAT32 volume (512-byte sectors, one sector per cluster, one FAT) holding
+    `files` at the root under long (VFAT) names, as mkfs.vfat + mcopy would."""
+    import math
+    import struct
+
+    clusters = {n: max(1, math.ceil(len(d) / S)) for n, d in files.items()}
+    total = 1 + sum(clusters.values())            # root dir + files
+    fat_sectors = math.ceil((total + 2) * 4 / S)
+    reserved = 32
+    fs = bytearray((reserved + fat_sectors + total) * S)
+    bpb = struct.pack("<HBHBHHBHHHII", S, 1, reserved, 1, 0, 0, 0xF8, 0, 0, 0, 0,
+                      len(fs) // S)
+    fs[11:11 + len(bpb)] = bpb
+    struct.pack_into("<IHHI", fs, 36, fat_sectors, 0, 0, 2)  # FAT size, flags, ver, root
+    fs[510:512] = b"\x55\xaa"
+    fat = reserved * S
+    data = (reserved + fat_sectors) * S
+
+    def link(first, count):
+        for c in range(first, first + count):
+            struct.pack_into("<I", fs, fat + 4 * c, c + 1 if c < first + count - 1 else 0x0FFFFFFF)
+
+    link(2, 1)                                    # root directory
+    entries, cluster = b"", 3
+    for i, (name, content) in enumerate(files.items()):
+        short = f"F{i:07d}TXT".encode()
+        chk = 0
+        for b in short:
+            chk = (((chk & 1) << 7) + (chk >> 1) + b) & 0xFF
+        units = [ord(c) for c in name] + [0]
+        units += [0xFFFF] * (-len(units) % 13)
+        parts = [units[k:k + 13] for k in range(0, len(units), 13)]
+        for seq in range(len(parts), 0, -1):
+            u = parts[seq - 1]
+            e = bytearray(32)
+            e[0] = seq | (0x40 if seq == len(parts) else 0)
+            e[1:11] = struct.pack("<5H", *u[0:5])
+            e[11], e[13] = 0x0F, chk
+            e[14:26] = struct.pack("<6H", *u[5:11])
+            e[28:32] = struct.pack("<2H", *u[11:13])
+            entries += bytes(e)
+        e = bytearray(32)
+        e[0:11] = short
+        struct.pack_into("<H", e, 20, cluster >> 16)
+        struct.pack_into("<HI", e, 26, cluster & 0xFFFF, len(content))
+        entries += bytes(e)
+        link(cluster, clusters[name])
+        off = data + (cluster - 2) * S
+        fs[off:off + len(content)] = content
+        cluster += clusters[name]
+    fs[data:data + len(entries)] = entries       # root directory (one cluster is enough)
+    return bytes(fs)
+
+
+BOOT_CONTENT = {"rg351mp-kernel.dtb": b"\xd0\x0d\xfe\xed dtb" * 40,
+                "rg351p-kernel.dtb": b"\xd0\x0d\xfe\xed dtb" * 40,
+                "logo.bmp": b"BM" + bytes(1500),
+                "boot.ini": b"odroidgoa-uboot-config\n"}
+
+
+def _card_with_boot(files: dict[str, bytes]) -> bytes:
+    import struct
+
+    start = 2048
+    fs = _fat32(files)
+    card = bytearray(start * S) + fs
+    struct.pack_into("<II", card, 446 + 8, start, len(fs) // S)
+    card[446 + 4] = 0x0B
+    card[510:512] = b"\x55\xaa"
+    return bytes(card)
+
+
+@pytest.fixture
+def synthetic_boot(monkeypatch, tmp_path):
+    """BOOT_FILES with the SHA256 of the synthetic files, and an empty cache."""
+    monkeypatch.setattr(r36s_vendor, "BOOT_FILES", {
+        n: hashlib.sha256(BOOT_CONTENT[n]).hexdigest()
+        for n in ("rg351mp-kernel.dtb", "rg351p-kernel.dtb", "logo.bmp")})
+    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv(r36s_vendor.ENV_VAR, raising=False)
+
+
+def test_fat32_reader_finds_long_names():
+    files = r36s_vendor.fat32_root_files(_fat32(BOOT_CONTENT))
+    assert files == {n.lower(): d for n, d in BOOT_CONTENT.items()}
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_r36s_boot_files_from_card_copy(synthetic_boot, tmp_path, monkeypatch, compressed):
+    card = _card_with_boot(BOOT_CONTENT)
+    path = tmp_path / ("card.img.zst" if compressed else "card.img")
+    path.write_bytes(zstd.compress(card) if compressed else card)
+    monkeypatch.setenv(r36s_vendor.ENV_VAR, str(path))
+    files = r36s_vendor.factory_boot_files()
+    assert set(files) == {"rg351mp-kernel.dtb", "rg351p-kernel.dtb", "logo.bmp"}
+    assert files["logo.bmp"].read_bytes() == BOOT_CONTENT["logo.bmp"]
+    monkeypatch.delenv(r36s_vendor.ENV_VAR)          # cached: no copy needed any more
+    assert r36s_vendor.factory_boot_files() == files
+
+
+def test_r36s_boot_files_require_variable(synthetic_boot):
+    with pytest.raises(r36s_vendor.R36SFactoryError, match=r36s_vendor.ENV_VAR):
+        r36s_vendor.factory_boot_files()
+
+
+def test_r36s_boot_files_refuse_other_logo(synthetic_boot, tmp_path, monkeypatch):
+    other = dict(BOOT_CONTENT, **{"logo.bmp": b"BM" + bytes(1499) + b"\x01"})
+    path = tmp_path / "other.img"
+    path.write_bytes(_card_with_boot(other))
+    monkeypatch.setenv(r36s_vendor.ENV_VAR, str(path))
+    with pytest.raises(r36s_vendor.R36SFactoryError, match="logo.bmp has SHA256"):
+        r36s_vendor.factory_boot_files()
+
+
+def test_r36s_boot_files_refuse_missing_file(synthetic_boot, tmp_path, monkeypatch):
+    path = tmp_path / "nologo.img"
+    path.write_bytes(_card_with_boot({k: v for k, v in BOOT_CONTENT.items() if k != "logo.bmp"}))
+    monkeypatch.setenv(r36s_vendor.ENV_VAR, str(path))
+    with pytest.raises(r36s_vendor.R36SFactoryError, match="no logo.bmp"):
+        r36s_vendor.factory_boot_files()
+
+
+def test_r36s_boot_files_match_the_measured_card():
+    from pathlib import Path
+
+    boot = Path(__file__).resolve().parents[2] / "out/r36s-factory/boot.img"
+    if not boot.exists():
+        pytest.skip("no copy of the factory BOOT in out/r36s-factory")
+    files = r36s_vendor.fat32_root_files(boot.read_bytes())
+    for name, sha in r36s_vendor.BOOT_FILES.items():
+        assert hashlib.sha256(files[name]).hexdigest() == sha, name
+
+
 # --- combined area (D2) --------------------------------------------------------------
 
 def _ga36_area() -> bytearray:
@@ -222,6 +358,16 @@ def test_console_boot_files_layout(tmp_path):
     (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
     assert "ga36/dtbs/a.dtb" in files and "ga36/android-boot/android-boot-panel2.img" in files
+    # task 4.5: the factory files go to the root of BOOT
+    factory = {"rg351mp-kernel.dtb": tmp_path / "a", "logo.bmp": tmp_path / "b"}
+    files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s", factory)
+    assert files["logo.bmp"] == tmp_path / "b" and "rg351mp-kernel.dtb" in files
+
+
+def test_console_image_copies_the_factory_files_to_the_boot_root():
+    from r36os import image
+
+    assert "$M /out/factory-boot/* ::" in image._CONSOLE
 
 
 def test_console_boot_within_limits():
@@ -275,6 +421,12 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
         def sh(self, script):
             captured["script"] = script
 
+    factory = tmp_path / "factory"
+    factory.mkdir()
+    for n in r36s_vendor.BOOT_FILES:
+        (factory / n).write_bytes(b"f")
+    monkeypatch.setattr(r36s_vendor, "factory_boot_files",
+                        lambda: {n: factory / n for n in r36s_vendor.BOOT_FILES})
     monkeypatch.setattr(image.bootarea, "write_console_area", fake_area)
     monkeypatch.setattr(image, "Container", FakeContainer)
     monkeypatch.setattr(image, "ensure_builder", lambda target: "builder")

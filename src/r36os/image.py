@@ -96,6 +96,8 @@ export MTOOLS_SKIP_CHECK=1
 M="mcopy -i $W/boot.img"
 $M /out/VERSION ::VERSION
 $M /board/boot.ini ::boot.ini
+# factory files the R36S U-Boot reads from the root: RG351 DTBs and the boot logo (task 4.5)
+$M /out/factory-boot/* ::
 mmd -i $W/boot.img ::ga36 ::ga36/dtbs ::ga36/android-boot ::r36s
 $M /ga36/SYSTEM ::ga36/SYSTEM
 $M /ga36/kernel/dtbs/*.dtb ::ga36/dtbs/
@@ -132,9 +134,14 @@ class ConsoleImageError(RuntimeError):
     pass
 
 
-def console_boot_files(ga36_out: Path, r36s_out: Path) -> dict[str, Path]:
-    """BOOT path -> source of every file of the console BOOT except VERSION."""
-    files = {"boot.ini": REPO_ROOT / "board/r36s/boot.ini",
+def console_boot_files(ga36_out: Path, r36s_out: Path,
+                       factory: dict[str, Path] | None = None) -> dict[str, Path]:
+    """BOOT path -> source of every file of the console BOOT except VERSION.
+
+    `factory`: files of the R36S factory BOOT root (r36s_vendor.factory_boot_files()).
+    """
+    files = {**(factory or {}),
+             "boot.ini": REPO_ROOT / "board/r36s/boot.ini",
              "ga36/SYSTEM": ga36_out / "SYSTEM",
              "r36s/SYSTEM": r36s_out / "SYSTEM",
              "r36s/Image": r36s_out / "kernel/Image",
@@ -200,13 +207,21 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     The 128 MiB before BOOT are the boot area of both consoles (bootarea.py), with the
     Android boot image of GA36 panel 1 at sector 172032; BOOT starts at sector 262144.
     """
-    from r36os import bootarea, vendor
+    import shutil
+
+    from r36os import bootarea, r36s_vendor, vendor
     from r36os.paths import ensure_dir
     from r36os.targets import IMAGES
 
     out = ensure_dir(target_out(IMAGES["console"]))
     ga36_out, r36s_out = target_out(TARGETS["ga36"]), target_out(TARGETS["r36s"])
-    files = console_boot_files(ga36_out, r36s_out)
+    factory = r36s_vendor.factory_boot_files()
+    staging = out / "factory-boot"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir()
+    for name, src in factory.items():
+        shutil.copy(src, staging / name)
+    files = console_boot_files(ga36_out, r36s_out, factory)
     missing = [str(src) for src in files.values() if not src.exists()]
     if missing:
         raise ConsoleImageError("missing layer outputs: " + ", ".join(missing))
