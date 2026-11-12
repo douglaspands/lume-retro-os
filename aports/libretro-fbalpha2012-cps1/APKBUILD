@@ -1,0 +1,26 @@
+# FB Alpha 2012 (v0.2.97.29) cut down to the Capcom CPS-1 board, from libretro/fbalpha2012_cps1.
+# The FB Alpha license forbids selling and asking for donations and requires the license text
+# to travel with the binary: it is installed in /usr/share/licenses/ (see README, License).
+pkgname=libretro-fbalpha2012-cps1
+pkgver=0.2.97.29
+pkgrel=0
+_commit="5542c1848ef81e92db311193b01dc349bc29d7cc"
+pkgdesc="FB Alpha 2012 libretro core cut down to the Capcom CPS-1 arcade board"
+url="https://github.com/libretro/fbalpha2012_cps1"
+arch="all"
+license="custom"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/fbalpha2012_cps1/archive/$_commit.tar.gz"
+builddir="$srcdir/fbalpha2012_cps1-$_commit"
+options="!check" # No tests
+
+build() {
+	make
+}
+
+package() {
+	install -Dm644 fbalpha2012_cps1_libretro.so "$pkgdir"/usr/lib/libretro/fbalpha2012_cps1_libretro.so
+	install -Dm644 src/license.txt "$pkgdir"/usr/share/licenses/$pkgname/license.txt
+}
+sha512sums="
+65f00b9e690bdf39ea4aad4f9fda95014b7454fa045cb362bfd50dc705c33ec0e38df9d87499853fdd800112baf99e5c646cb69796e0eecb6562f051d4dcb2d7  libretro-fbalpha2012-cps1-5542c1848ef81e92db311193b01dc349bc29d7cc.tar.gz
+"

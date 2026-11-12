@@ -47,4 +47,7 @@ libretro-snes9x2005-plus
 libretro-genesis-plus-gx
 libretro-picodrive
 libretro-fbneo
+libretro-fbalpha2012-cps1
+libretro-fbalpha2012-cps2
+libretro-fbalpha2012-neogeo
 libretro-pcsx-rearmed

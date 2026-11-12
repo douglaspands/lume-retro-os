@@ -1,0 +1,26 @@
+# FB Alpha 2012 (v0.2.97.29) cut down to the SNK Neo Geo board, from libretro/fbalpha2012_neogeo.
+# The FB Alpha license forbids selling and asking for donations and requires the license text
+# to travel with the binary: it is installed in /usr/share/licenses/ (see README, License).
+pkgname=libretro-fbalpha2012-neogeo
+pkgver=0.2.97.29
+pkgrel=0
+_commit="e092097037d494c50d17c5144a2758d68538061b"
+pkgdesc="FB Alpha 2012 libretro core cut down to the SNK Neo Geo arcade board"
+url="https://github.com/libretro/fbalpha2012_neogeo"
+arch="all"
+license="custom"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/fbalpha2012_neogeo/archive/$_commit.tar.gz"
+builddir="$srcdir/fbalpha2012_neogeo-$_commit"
+options="!check" # No tests
+
+build() {
+	make
+}
+
+package() {
+	install -Dm644 fbalpha2012_neogeo_libretro.so "$pkgdir"/usr/lib/libretro/fbalpha2012_neogeo_libretro.so
+	install -Dm644 src/license.txt "$pkgdir"/usr/share/licenses/$pkgname/license.txt
+}
+sha512sums="
+28880b2953f2e67d735130062d74624a5984ac93feca3bf1d043f66ad2b77dbb0963128fec2e6605df0d6fea30571e4e8e315c00596339ae9d06abf235f83746  libretro-fbalpha2012-neogeo-e092097037d494c50d17c5144a2758d68538061b.tar.gz
+"
