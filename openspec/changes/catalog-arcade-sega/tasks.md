@@ -29,16 +29,18 @@
 
 ## 3. Imagem e VM
 
-- [ ] 3.1 Build `vm` e `test-vm`: os cores novos carregam na VM (`tests/integration/test_cores_load.py`) e as listas aparecem com ROMs de teste geradas pelo build quando houver (homebrew livre). Verificação: `test-vm` passa.
-- [ ] 3.2 Build `console`: paridade de manifestos `vm` × `ga36` × `r36s` com os cores novos e sem o `mame2003_plus`. Verificação: `tests/unit/test_manifest_parity.py`.
+- [x] 3.1 Build `vm` e `test-vm`: os cores novos carregam na VM (`tests/integration/test_cores_load.py`) e as listas aparecem com ROMs de teste geradas pelo build quando houver (homebrew livre). Verificação: `test-vm` passa. **Resultado (2026-11-11, na branch `feature/r36s-single-card`, que recebeu esta change por merge):** build `vm` `20261111-232550`; `test-vm` 67/67, com os `core-loaded-*` dos 9 cores que têm ROM de teste; os `fbalpha2012_*` não têm romset livre (`NO_TEST_ROM`), então ficam só com o teste de carga sem conteúdo, `test_cores_load.py` com 8 PASS (os três `fbalpha2012_*` incluídos). Validado com ROMs de teste do usuário (CPS-1, CPS-2, Neo Geo no core padrão e no `fbneo`, e a BIOS do Sega CD), com os pacotes x86_64 da VM, sem tela.
+- [x] 3.2 Build `console`: paridade de manifestos `vm` × `ga36` × `r36s` com os cores novos e sem o `mame2003_plus`. Verificação: `tests/unit/test_manifest_parity.py`. **Resultado (2026-11-11):** build `console` `20261111-233324` (GA36 e R36S, `BOOT` de 2 GiB com 1,41 GiB livres); `tests/unit` 335 passed, paridade incluída; `test_image_console.py` e as suítes de shell passam.
 
 ## 4. Aparelho
 
-- [ ] 4.1 Nos dois consoles, um jogo de CPS-1, CPS-2, Neo Geo, Sega CD, 32X e arcade abre e roda 5 minutos. Verificação: `events.log` sem `game FAIL`, métricas do `logd`.
-- [ ] 4.2 Medir `fbalpha2012_*` contra `fbneo` (mesma ROM, 5 minutos, FPS, CPU por núcleo e temperatura) no GA36 e no R36S; registrar no `docs/CATALOG.md`. Se o FB Alpha 2012 não ganhar no GA36, rever o padrão com o usuário.
+> **4.1 e 4.2 movidas para o P-39** (`docs/PENDENCIAS.md`) no arquivamento, porque dependem dos aparelhos. Os `fbalpha2012_*` ficam só com teste de carga (`NO_TEST_ROM`).
+
+- [ ] 4.1 Nos dois consoles, um jogo de CPS-1, CPS-2, Neo Geo, Sega CD, 32X e arcade abre e roda 5 minutos. Verificação: `events.log` sem `game FAIL`, métricas do `logd`. → P-39.
+- [ ] 4.2 Medir `fbalpha2012_*` contra `fbneo` (mesma ROM, 5 minutos, FPS, CPU por núcleo e temperatura) no GA36 e no R36S; registrar no `docs/CATALOG.md`. Se o FB Alpha 2012 não ganhar no GA36, rever o padrão com o usuário. → P-39.
 
 ## Workflow follow-up
 
-- Começa depois do arquivamento da `r36s-single-card` (branch `feature/catalog-arcade-sega`, criado a partir do `feature/r36s-single-card`).
-- Ao concluir, mover o P-35 para "Concluídas" no `docs/PENDENCIAS.md` e atualizar o P-26.
+- Por decisão do usuário (2026-11-11), a implementação entrou na `r36s-single-card` por merge do branch `feature/catalog-arcade-sega`, e esta change é arquivada antes dela.
+- Feito no arquivamento: P-35 em "Concluídas" no `docs/PENDENCIAS.md`, P-26 atualizado e P-39 criado para 4.1 e 4.2.
 - O merge na `main` é por PR com squash, só quando o usuário pedir.

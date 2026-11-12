@@ -59,6 +59,10 @@
 - [ ] 9.4 Migração: um cartão gravado com a imagem `ga36` antiga é recusado pelo `flash console --update` (mensagem de gravação completa); depois de copiar jogos e saves, `flash console` (completo) e devolver os arquivos, o cartão inicia nos dois; em seguida um `flash console --update` mantém a `ROMS` intacta. Verificação: os saves continuam lá nos dois consoles.
 - [ ] 9.5 No R36S, um jogo de cada core do catálogo roda 5 minutos sem travar e em velocidade cheia pelas métricas; medir a taxa real do painel e confirmar F1-F5. Verificação: métricas do `logd` e ajuste final do `retroarch-r36s.cfg` e da autoconfiguração.
 
+## 10. Catálogo da P-35 incorporado
+
+- [x] 10.1 Por decisão do usuário (2026-11-11), a implementação da change `catalog-arcade-sega` (P-35) entrou nesta change por merge do branch `feature/catalog-arcade-sega`, para o primeiro cartão já sair com ela. O catálogo mudou: `systems.json` no esquema 2 (campo `romset` obrigatório; sistema de arcade sem `core_by_arch`), 5 sistemas novos (`segacd`, `sega32x`, `cps1`, `cps2`, `neogeo`) e 3 cores novos (`fbalpha2012_cps1`, `fbalpha2012_cps2`, `fbalpha2012_neogeo`, só com teste de carga por falta de romset livre). Verificação: build `vm`, `test-vm`, build `console` e `tests/unit/test_manifest_parity.py` com o catálogo novo; validado com ROMs de teste do usuário. As tarefas e a verificação no aparelho seguem na `catalog-arcade-sega`.
+
 ## Workflow follow-up
 
 - Arquivar a change depois da verificação nos dois aparelhos e da revisão do usuário.
