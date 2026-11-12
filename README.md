@@ -107,9 +107,12 @@ uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, de
 - `--update` grava só a área de boot e a partição `BOOT`; a tabela de partições e a `ROMS`
   não são tocadas. Ele recusa cartões com outro layout (por exemplo, um cartão da `vm` ou
   um com o layout antigo, em que a `BOOT` começava em 16 MiB) e pede a gravação completa.
-- **Cartão do GA36 gravado antes da imagem `console`:** ele já tem o layout do cartão único
-  (a mesma assinatura e a `BOOT` no mesmo lugar). `flash console /dev/sdX --update`
-  transforma ele num cartão que inicia nos dois consoles, com os jogos e os saves intactos.
+- **Cartão do GA36 gravado antes da imagem `console`:** a `BOOT` dele tem 1 GiB e a da
+  `console` tem 2 GiB, então o `--update` recusa e pede a gravação completa, que apaga a
+  `ROMS`. Copie `roms/`, `bios/`, `saves/` e `states/` para o PC antes, grave com
+  `flash console /dev/sdX` e devolva os arquivos. As atualizações seguintes podem usar
+  `--update`.
+- O cartão precisa ter pelo menos 4 GB (a `BOOT` ocupa 2 GiB depois dos 128 MiB iniciais).
 - Para descobrir o dispositivo: `lsblk -o NAME,SIZE,TRAN,RM,MODEL,LABEL`.
 
 ## O cartão
@@ -117,7 +120,7 @@ uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, de
 | Região | Conteúdo |
 |---|---|
 | início do cartão | bootloaders. Na `console`: os 128 MiB com as cadeias de fábrica dos dois consoles (boot0 do GA36 encolhido para 24 KiB, `idbloader`, `uboot.img` e `trust.img` do R36S, U-Boot do GA36) e o nosso kernel do GA36 no setor 172032. Na `vm`: SYSLINUX nos primeiros 16 MiB |
-| `BOOT` (FAT32, 1 GiB) | `VERSION`. Na `console`: `boot.ini` (lido pelo U-Boot do R36S), `ga36/` (`SYSTEM`, DTBs e as imagens de boot dos dois painéis em `android-boot/`) e `r36s/` (`SYSTEM`, kernel e DTB). Na `vm`: `SYSTEM`, kernel, initramfs e `extlinux/` |
+| `BOOT` (FAT32, 2 GiB na `console`, 1 GiB na `vm`) | `VERSION`. Na `console`: `boot.ini` (lido pelo U-Boot do R36S), `ga36/` (`SYSTEM`, DTBs e as imagens de boot dos dois painéis em `android-boot/`) e `r36s/` (`SYSTEM`, kernel e DTB). Na `vm`: `SYSTEM`, kernel, initramfs e `extlinux/` |
 | `ROMS` (exFAT, resto do cartão) | `roms/<sistema>/`, `bios/`, `saves/`, `states/`, `system/` (configurações), `logs/`, `LEIA-ME.txt`: a mesma nos dois consoles |
 
 - Os jogos vão em `ROMS/roms/<sistema>/` pelo PC; as listas são geradas no boot.
@@ -145,7 +148,7 @@ VM: `test-vm` da mesma build, 69 de 69 checagens):
 |---|---|---|
 | Do kernel ao frontend | 19 a 22 s | 2,9 s |
 | `SYSTEM` (squashfs) | 270 MiB | 302 MiB |
-| `ROMS` num cartão de 4 GB | cerca de 2,6 GiB (o cartão menos 128 MiB do fabricante e 1 GiB da `BOOT`) | cerca de 2,7 GiB |
+| `ROMS` num cartão de 4 GB | cerca de 1,6 GiB (o cartão menos 128 MiB do fabricante e 2 GiB da `BOOT`) | cerca de 2,7 GiB |
 
 ## Documentação
 

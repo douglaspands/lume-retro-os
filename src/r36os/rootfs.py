@@ -16,7 +16,7 @@ from r36os.paths import REPO_ROOT, ensure_dir, out_dir
 from r36os.targets import TARGETS, Target
 
 SYSTEM_LIMIT_MIB = 768
-# On the console image both systems share the 1 GiB BOOT (r36s-single-card, system-image)
+# On the console image both systems share the 2 GiB BOOT (r36s-single-card, system-image)
 CONSOLE_SYSTEM_LIMIT_MIB = 448
 MIRROR = "https://dl-cdn.alpinelinux.org/alpine"
 

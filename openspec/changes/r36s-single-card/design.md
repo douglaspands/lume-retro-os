@@ -89,7 +89,7 @@ patches, `system_bytes` de cada uma, bootloaders de fábrica).
  73728        FAT "bootloader"                         GA36
  139264       env do U-Boot                            GA36
  172032       android-boot do painel 1 (nosso)         build
- 262144       BOOT (FAT32, 1 GiB)                      build
+ 262144       BOOT (FAT32, 2 GiB)                      build
 ```
 
 O build parte da área de 128 MiB do GA36, aplica o boot0 encolhido e copia por cima as
@@ -98,10 +98,13 @@ regiões do R36S. Antes de copiar, confere que cada setor do R36S cai em setor z
 listando os conflitos. As regiões são uma tabela declarativa (início, fim, origem) usada
 pelo build e pelos testes.
 
-- A assinatura e o início da `BOOT` são os do GA36 de hoje: um cartão do GA36 gravado antes
-  passa no `check_update` do `flash` e vira cartão único com `--update` (que grava de
-  8 KiB até a `BOOT`, ou seja, o boot0 encolhido e a cadeia do R36S). Os setores 1 a 15 não
-  são gravados pelo `--update`, mas já são os mesmos.
+- A assinatura e o início da `BOOT` são os do GA36 de hoje, mas a `BOOT` tem 2 GiB (antes
+  1 GiB), para caber o crescimento previsto (catálogo, Wi-Fi, um terceiro sistema,
+  atualização A/B) sem mudar o layout de novo. Decisão do usuário em 2026-11-11: um cartão
+  do GA36 gravado antes não passa no `check_update` (tamanho da partição 1 diferente) e
+  precisa de gravação completa. Entre cartões `console`, o `--update` grava de 8 KiB até o
+  fim da `BOOT`. O limite de 448 MiB por `SYSTEM` fica; pode subir depois sem mudar o
+  layout.
 - O `board/r36s/disk-id` sai; a assinatura vira uma constante da imagem `console`.
 
 ### D3. Boot0 encolhido
@@ -260,19 +263,20 @@ então trocar de console não deixa lista apontando para core de outra arquitetu
   continua por camada; só o que mudou é refeito.
 - **[Save states entre armv7 e aarch64]** → Podem não ser compatíveis; os saves `.srm`
   costumam ser. Documentado no `LEIA-ME.txt` e no `README.md`.
-- **[Cartões do GA36 com `--update` antigo]** → O `--update` não grava os setores 1 a 15;
-  eles já são iguais. Coberto por teste do `flash`.
+- **[Cartões do GA36 gravados antes]** → A `BOOT` de 2 GiB não cabe no layout antigo: o
+  `--update` recusa e pede gravação completa, que apaga a `ROMS` (copiar jogos e saves
+  antes). Cartões de 2 GB deixam de servir. Coberto por teste do `flash`.
 
 ## Migration Plan
 
 1. `vm` → `test-vm` → `console`, nessa ordem (a imagem `console` só é liberada se a VM
    passar).
-2. Cartão do GA36 que já existe: `r36os flash console <dispositivo> --update` (a `ROMS`
-   fica). Cartão novo: `r36os flash console <dispositivo>`.
+2. Cartão do GA36 que já existe: copiar jogos e saves, `r36os flash console <dispositivo>`
+   (gravação completa) e devolver os arquivos à `ROMS`. Cartão novo: o mesmo comando.
+   Cartões `console` seguintes: `--update` (a `ROMS` fica).
 3. Voltar atrás: com o `r36os` de uma revisão anterior a esta change,
-   `r36os flash ga36 <dispositivo> --update --build <timestamp>` grava uma build antiga do
-   GA36 (mesmo layout de partição) e devolve o cartão ao estado anterior, com a `ROMS`
-   intacta; ele deixa de iniciar o R36S.
+   `r36os flash ga36 <dispositivo> --build <timestamp>` (gravação completa) grava uma build
+   antiga do GA36; ele deixa de iniciar o R36S.
 
 ## Open Questions
 

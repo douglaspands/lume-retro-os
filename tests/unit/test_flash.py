@@ -5,9 +5,10 @@ import struct
 import pytest
 
 from r36os import bootarea, flash
-from r36os.image import BOOT_SECTORS, boot_start, disk_id
+from r36os.image import boot_sectors, boot_start, disk_id
 
 BOOT_START = boot_start("console")  # 128 MiB: after the boot area of both consoles
+BOOT_SECTORS = boot_sectors("console")  # 2 GiB
 
 
 def _mbr(disk_id=0x4C554D32, start=BOOT_START, size=BOOT_SECTORS, p2=False) -> bytes:
@@ -30,18 +31,25 @@ def test_parse_mbr():
         flash.Mbr.parse(bytes(512))
 
 
-def test_console_layout_is_the_old_ga36_one():
-    # a card written with the ga36 image (before the console image) had signature
-    # 4c554d32 and BOOT at 262144+2097152: the console image keeps both
+def test_console_layout():
+    # same signature and BOOT start as the older ga36 image, but a 2 GiB BOOT
     assert disk_id("console") == bootarea.DISK_ID == "4c554d32"
     assert BOOT_START == 262144
+    assert BOOT_SECTORS == 4 * 1024 * 1024
     assert disk_id("vm") == "4c554d33"
+    assert boot_sectors("vm") == 2 * 1024 * 1024
 
 
-def test_update_accepts_card_written_with_the_old_ga36_image():
+def test_update_refuses_card_written_with_the_old_1gib_boot():
     old_ga36_card = _mbr(disk_id=0x4C554D32, start=262144, size=2 * 1024 * 1024, p2=True)
     console_image = _mbr(disk_id=int(disk_id("console"), 16), start=BOOT_START)
-    flash.check_update(flash.Mbr.parse(console_image), flash.Mbr.parse(old_ga36_card))
+    with pytest.raises(flash.FlashError, match="needs a full write"):
+        flash.check_update(flash.Mbr.parse(console_image), flash.Mbr.parse(old_ga36_card))
+
+
+def test_update_accepts_card_written_with_the_console_image():
+    card = _mbr(p2=True)
+    flash.check_update(flash.Mbr.parse(_mbr()), flash.Mbr.parse(card))
 
 
 @pytest.mark.parametrize("card", [
@@ -57,13 +65,13 @@ def test_update_refuses_other_layouts_asking_for_a_full_write(card):
 
 @pytest.mark.parametrize("target", ["console", "vm"])
 def test_update_never_writes_sector0_nor_roms(target):
-    start = boot_start(target)
+    start, size = boot_start(target), boot_sectors(target)
     regions = flash.update_regions(target)
     assert regions[0] == (8192, start * 512 - 8192)          # boot area (bootloader)
-    assert regions[1] == (start * 512, BOOT_SECTORS * 512)   # BOOT
+    assert regions[1] == (start * 512, size * 512)           # BOOT
     assert min(off for off, _ in regions) >= 512             # sector 0 untouched
     end = max(off + n for off, n in regions)
-    assert end == (start + BOOT_SECTORS) * 512               # nothing past BOOT (ROMS)
+    assert end == (start + size) * 512                       # nothing past BOOT (ROMS)
 
 
 def test_console_update_rewrites_both_chains_and_android_boot():

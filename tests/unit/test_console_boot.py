@@ -246,7 +246,7 @@ def test_console_boot_needs_64_mib_free():
 
     with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
         image.check_console_boot(_boot_sizes(ga36_system=440 * MiB, r36s_system=440 * MiB,
-                                             image=60 * MiB))
+                                             image=1110 * MiB))
 
 
 def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):

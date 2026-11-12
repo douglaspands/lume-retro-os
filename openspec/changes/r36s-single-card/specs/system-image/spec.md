@@ -14,11 +14,11 @@ O build MUST gerar duas imagens: `console` (um cartão único para o GA36, armv7
 - **THEN** o build falha antes de gerar qualquer arquivo e lista os alvos válidos
 
 ### Requirement: Tabela de partições MBR com BOOT FAT32
-A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, rótulo `BOOT`, 1 GiB. A área antes da `BOOT` MUST ficar livre de partições, reservada aos bootloaders: 16 MiB na VM (a `BOOT` começa no setor 32768) e 128 MiB na imagem `console`, a área de boot dos dois consoles (a `BOOT` começa no setor 262144). A assinatura de disco da imagem `console` MUST ser a mesma dos cartões do GA36 gravados antes desta versão (`4c554d32`).
+A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, rótulo `BOOT`, com 1 GiB na VM e 2 GiB na imagem `console`. A área antes da `BOOT` MUST ficar livre de partições, reservada aos bootloaders: 16 MiB na VM (a `BOOT` começa no setor 32768) e 128 MiB na imagem `console`, a área de boot dos dois consoles (a `BOOT` começa no setor 262144). A assinatura de disco da imagem `console` MUST ser a mesma dos cartões do GA36 gravados antes desta versão (`4c554d32`).
 
 #### Scenario: Layout da imagem recém-gerada
 - **WHEN** a tabela de partições de uma imagem gerada é lida
-- **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT` e 1 GiB, começando no setor 32768 na `vm` e no setor 262144 na `console`, e a assinatura de disco da `console` é `4c554d32`
+- **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT`, de 1 GiB começando no setor 32768 na `vm` e de 2 GiB começando no setor 262144 na `console`, e a assinatura de disco da `console` é `4c554d32`
 
 ### Requirement: Conteúdo da partição BOOT
 A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema da imagem. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). Na imagem `console`, MUST conter uma pasta por console: `ga36/` com o `SYSTEM`, os DTBs em `dtbs/` e as imagens de boot dos dois painéis em `android-boot/`; `r36s/` com o `SYSTEM`, o kernel e o DTB; e, na raiz, o `boot.ini` lido pelo U-Boot do R36S. Os logs não ficam na `BOOT` (ver `boot-runtime`).
@@ -76,12 +76,16 @@ O build MUST garantir que nenhuma região usada pela cadeia de boot de um consol
 - **WHEN** a área de boot da `console` é montada
 - **THEN** o build confere que as regiões do R36S (do setor 64 ao fim do `idbloader` e as do `uboot.img` e do `trust.img`) caem em setores vazios da área do GA36 ou nos setores 64 a 277, e falha listando os setores em conflito se não caírem
 
-### Requirement: Atualização de cartões do GA36 para a imagem única
-Um cartão gravado antes com a imagem `ga36` MUST aceitar `r36os flash console <dispositivo> --update`, que grava só a área de boot e a `BOOT`, sem tocar no setor 0 nem na `ROMS`. Depois disso, o cartão MUST iniciar nos dois consoles.
+### Requirement: Atualização de cartões para a imagem única
+Um cartão gravado antes com a imagem `console` MUST aceitar `r36os flash console <dispositivo> --update`, que grava só a área de boot e a `BOOT`, sem tocar no setor 0 nem na `ROMS`. Um cartão gravado com a imagem `ga36` antiga (`BOOT` de 1 GiB) MUST ser recusado pelo `--update`, com a mensagem de gravação completa.
+
+#### Scenario: Cartão da imagem console
+- **WHEN** o usuário roda `r36os flash console <dispositivo> --update` num cartão gravado antes com a imagem `console`
+- **THEN** a gravação é aceita, a `ROMS` fica intacta e o cartão inicia no GA36 e no R36S
 
 #### Scenario: Cartão antigo do GA36
-- **WHEN** o usuário roda `r36os flash console <dispositivo> --update` num cartão gravado antes com a imagem `ga36`
-- **THEN** a gravação é aceita, a `ROMS` fica intacta e o cartão inicia no GA36 e no R36S
+- **WHEN** o usuário roda `r36os flash console <dispositivo> --update` num cartão gravado antes com a imagem `ga36`, de `BOOT` com 1 GiB
+- **THEN** o comando recusa a gravação e explica que o cartão precisa de uma gravação completa
 
 #### Scenario: Cartão de outro layout
 - **WHEN** o usuário roda `--update` da `console` num cartão cuja partição 1 tem outro início, tamanho ou assinatura

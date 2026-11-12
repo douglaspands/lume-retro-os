@@ -24,11 +24,14 @@ tem imagem, e definir o layout depois quebraria os cartões já gravados.
 - **Cadeia de boot do próprio R36S**: os binários fechados do bootloader do R36S vêm de
   uma cópia do cartão original do aparelho (`R36OS_R36S_FACTORY`), conferidos por SHA256 e
   fora do git, como o GA36 já faz. O U-Boot mainline do R36S fica como pendência própria.
-- **BOOT com dois sistemas**: a `BOOT` (FAT32, 1 GiB, em 128 MiB) leva um `SYSTEM` por
+- **BOOT com dois sistemas**: a `BOOT` (FAT32, 2 GiB, em 128 MiB) leva um `SYSTEM` por
   console, o kernel e o DTB do R36S e o `boot.ini` que o U-Boot do R36S lê. O initramfs
-  embutido em cada kernel monta o `SYSTEM` do próprio console.
-- **Cartões do GA36 já gravados viram cartões únicos com `--update`**: a imagem `console`
-  mantém a assinatura de disco e o início da `BOOT` do GA36, então a ROMS fica intacta.
+  embutido em cada kernel monta o `SYSTEM` do próprio console. Os 2 GiB deixam espaço
+  para o crescimento previsto (catálogo, Wi-Fi, um terceiro sistema, atualização A/B).
+- **Cartões do GA36 já gravados precisam de gravação completa**: a imagem `console`
+  mantém a assinatura de disco e o início da `BOOT` do GA36, mas a `BOOT` passa de 1 GiB
+  para 2 GiB (decisão do usuário em 2026-11-11), então o `--update` recusa esses cartões e
+  pede gravação completa. Copiar jogos e saves antes.
 - **Suporte ao R36S V5** (o antigo grupo 10): kernel mainline aarch64 com config própria,
   DTS `rk3326-r36s-v5`, variante do painel no `panel-sitronix-st7703`, `r36os-padmerge`
   (um único "R36S Gamepad"), áudio do RK817, bateria, luz de fundo, autoconfiguração do
@@ -53,7 +56,7 @@ capacidades que já existem.
 
 - `system-image`: imagem `console` única para GA36 e R36S no lugar das imagens por alvo;
   layout da área de boot com as duas cadeias de fábrica; `BOOT` com um `SYSTEM` por
-  console e novo limite de tamanho; atualização de cartões do GA36 para a imagem única.
+  console, 2 GiB e novo limite de tamanho; cartões do GA36 antigos pedem gravação completa.
 - `device-support`: o R36S V5 passa a ser suportado (painel, GPU `panfrost`, controle,
   áudio, bateria, frequência e serial), ao lado do GA36.
 - `boot-runtime`: o boot escolhe o `SYSTEM` do console em que o cartão está; logs e ROMS
@@ -70,13 +73,14 @@ capacidades que já existem.
   aarch64 dos pacotes locais), `rootfs/overlay/` (`retroarch-r36s.cfg`, autoconfig do
   "R36S Gamepad", padrões do mixer do RK817).
 - **Testes**: unitários do layout da área de boot (boot0 encolhido e soma eGON, regiões
-  sem sobreposição), da `BOOT` com dois sistemas, do `--update` de cartões do GA36, da
+  sem sobreposição), da `BOOT` com dois sistemas, da recusa do `--update` em cartões antigos, da
   config do kernel e do DTS do R36S, das chaves fixas do RetroArch; testes de imagem e de
   paridade de manifestos `ga36` × `r36s`.
 - **Host**: build aarch64 sob `qemu-user` (binfmt) e cross-compile aarch64 do kernel.
   Variável nova `R36OS_R36S_FACTORY`, com uma cópia do cartão original do R36S.
 - **Usuário**: o fluxo muda para `build console` / `flash console`. Um cartão do GA36
-  gravado antes vira cartão único com `flash console <dispositivo> --update`.
+  gravado antes precisa de `flash console <dispositivo>` (gravação completa, apaga a ROMS);
+  cartões de 2 GB deixam de servir.
 - **Documentação**: `README.md` (uso, Agradecimentos), `docs/BRINGUP-R36S.md`,
   `docs/LOGS.md` (logs dos dois consoles na mesma ROMS) e `docs/PENDENCIAS.md` (P-21 e P-27
   viram esta change; U-Boot mainline do R36S como pendência nova).

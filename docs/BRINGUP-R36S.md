@@ -11,7 +11,8 @@ imagem `console`, o cartão único do GA36 e do R36S (change `r36s-single-card`)
 ```sh
 uv run r36os build console                          # 1ª vez: R36OS_GA36_FACTORY e R36OS_R36S_FACTORY (README)
 uv run r36os flash console /dev/sdX --full --eject  # cartão novo: imagem + ROMS no resto do cartão
-uv run r36os flash console /dev/sdX --update --eject   # cartão do GA36 que já existe: vira cartão único, a ROMS fica
+uv run r36os flash console /dev/sdX --update --eject   # cartão já gravado com a console: a ROMS fica
+# cartão do GA36 gravado antes (BOOT de 1 GiB): o --update recusa; copiar a ROMS e usar --full
 ```
 
 O mesmo cartão serve aos dois consoles: basta trocar de aparelho.
@@ -50,7 +51,7 @@ embutido) e `r36s/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no
 | 16384 a 32767 | `uboot.img` (x4) e `trust.img` (x2) | R36S |
 | 38192 em diante | U-Boot 2017, tabela `softw411`, FAT "bootloader", env | GA36 |
 | 172032 | imagem de boot Android do painel 1 do GA36 | build |
-| 262144 | `BOOT` (FAT32, 1 GiB): `VERSION`, `boot.ini`, `ga36/`, `r36s/` | build |
+| 262144 | `BOOT` (FAT32, 2 GiB): `VERSION`, `boot.ini`, `ga36/`, `r36s/` | build |
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai

@@ -12,8 +12,8 @@ Two modes:
   Sector 0 (the partition table) and ROMS (games, saves, settings, logs) are not
   touched. It only accepts a card whose partition 1 has the same start, size and disk
   signature as the image, that is, a card written before with an image of this layout.
-  The console image keeps the layout of the older ga36 image, so a GA36 card written
-  before becomes a single card for both consoles with `flash console <device> --update`.
+  The console image has a 2 GiB BOOT partition, so a card written before with a 1 GiB
+  BOOT (the older ga36 image) is refused and needs a full write.
 
 Pass `--eject` to safely unmount and power off the device after writing and verification.
 
@@ -40,7 +40,7 @@ from pathlib import Path
 
 from r36os import lang
 from r36os.archive import images_dir
-from r36os.image import BOOT_SECTORS, boot_start
+from r36os.image import boot_sectors, boot_start
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
 from r36os.targets import ImageTarget
 
@@ -49,7 +49,6 @@ _ENV = dict(os.environ, LC_ALL="C", LANG="C")
 
 SECTOR = 512
 BOOTLOADER_START = 8192             # sector 0 (MBR) is never written in update mode
-BOOT_BYTES = BOOT_SECTORS * SECTOR  # 1 GiB
 CHUNK = 1 << 22
 ALIGN = 2048                        # 1 MiB, as the initramfs (initramfs/lib/storage.sh)
 MIN_ROMS = 131072                   # 64 MiB, as the initramfs
@@ -105,7 +104,8 @@ def update_regions(target: ImageTarget | str) -> list[tuple[int, int]]:
     or, on the console, the 128 MiB of both factory chains with the Android boot image.
     """
     boot_offset = boot_start(target) * SECTOR
-    return [(BOOTLOADER_START, boot_offset - BOOTLOADER_START), (boot_offset, BOOT_BYTES)]
+    return [(BOOTLOADER_START, boot_offset - BOOTLOADER_START),
+            (boot_offset, boot_sectors(target) * SECTOR)]
 
 
 def roms_layout(card_sectors: int, image: Mbr) -> tuple[int, int]:

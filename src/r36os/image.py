@@ -3,8 +3,8 @@
 vm: 0-16 MiB free for the bootloader; partition 1 `BOOT` (FAT32, 1 GiB) at sector 32768.
 console (design D2): the first 128 MiB are the boot area of both consoles (bootarea.py:
 GA36 vendor area with the shrunk boot0, the R36S factory chain and our Android boot image
-at sector 172032), and `BOOT` starts at sector 262144. Partition 2 (`ROMS`) is created by
-`flash` or on the first boot.
+at sector 172032), and `BOOT` (FAT32, 2 GiB, room for future systems and A/B updates)
+starts at sector 262144. Partition 2 (`ROMS`) is created by `flash` or on the first boot.
 """
 
 from __future__ import annotations
@@ -18,13 +18,17 @@ from r36os.rootfs import target_out
 from r36os.targets import TARGETS, ImageTarget, Target
 
 BOOT_START = 32768  # 512 B sectors = 16 MiB (default)
-BOOT_SECTORS = 2 * 1024 * 1024  # 1 GiB
+BOOT_SECTORS = 2 * 1024 * 1024  # 1 GiB (default, the vm)
 IMAGE_SECTORS = BOOT_START + BOOT_SECTORS
 
-# Images with a vendor boot area: BOOT starts after it (128 MiB). The console keeps the
-# start and the disk signature of the GA36 cards written before, so `--update` works on them
+# Images with a vendor boot area: BOOT starts after it (128 MiB), with the disk signature
+# of the GA36 cards (the kernels look for PARTUUID=4c554d32-01)
 VENDOR_BOOT_START = {"console": bootarea.AREA_SECTORS}
 DISK_ID = {"console": bootarea.DISK_ID}
+# The console BOOT holds both systems: 2 GiB leaves room for the planned growth (catalog,
+# Wi-Fi, a third system, A/B updates). Decided by the user on 2026-11-11; cards written
+# with the older 1 GiB BOOT need a full write (`--update` refuses them).
+BOOT_SIZE = {"console": 4 * 1024 * 1024}
 
 KERNEL_NAME = {"vm": "vmlinuz", "r36s": "Image", "ga36": "zImage"}
 
@@ -32,6 +36,12 @@ KERNEL_NAME = {"vm": "vmlinuz", "r36s": "Image", "ga36": "zImage"}
 def boot_start(target: Target | ImageTarget | str) -> int:
     name = target if isinstance(target, str) else target.name
     return VENDOR_BOOT_START.get(name, BOOT_START)
+
+
+def boot_sectors(target: Target | ImageTarget | str) -> int:
+    """Size of the BOOT partition of an image, in 512 B sectors."""
+    name = target if isinstance(target, str) else target.name
+    return BOOT_SIZE.get(name, BOOT_SECTORS)
 
 
 def disk_id(target: Target | ImageTarget | str) -> str:
@@ -114,7 +124,7 @@ rm -rf $W
 
 R36S_DTB = "rk3326-r36s-v5.dtb"
 BOOT_MIN_FREE = 64 * 2**20
-_CLUSTER = 4096                 # mkfs.vfat -F 32 on 1 GiB
+_CLUSTER = 4096                 # mkfs.vfat -F 32 on 1 to 2 GiB
 _FAT_OVERHEAD = 16 * 2**20      # FATs, reserved sectors and directories (upper bound)
 
 
@@ -138,7 +148,7 @@ def console_boot_files(ga36_out: Path, r36s_out: Path) -> dict[str, Path]:
 
 def check_console_boot(sizes: dict[str, int]) -> None:
     """Limits of the console BOOT (system-image): every SYSTEM within 448 MiB and at least
-    64 MiB free on the 1 GiB BOOT. `sizes` maps the BOOT path to the file size."""
+    64 MiB free on the 2 GiB BOOT. `sizes` maps the BOOT path to the file size."""
     from r36os.rootfs import CONSOLE_SYSTEM_LIMIT_MIB
 
     for path, size in sizes.items():
@@ -147,7 +157,7 @@ def check_console_boot(sizes: dict[str, int]) -> None:
                 f"{path} has {size / 2**20:.1f} MiB, above the {CONSOLE_SYSTEM_LIMIT_MIB} MiB "
                 "limit of each system on the console image")
     used = sum(-(-size // _CLUSTER) * _CLUSTER for size in sizes.values())
-    free = BOOT_SECTORS * 512 - _FAT_OVERHEAD - used
+    free = boot_sectors("console") * 512 - _FAT_OVERHEAD - used
     if free < BOOT_MIN_FREE:
         raise ConsoleImageError(
             f"the console BOOT would have {free / 2**20:.0f} MiB free, it needs at least "
@@ -205,10 +215,10 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
         version.boot_version_file("console", v) + f"language: {language}\n")
     area = bootarea.write_console_area(out / "console-boot-area.bin")
     script = _CONSOLE.format(
-        boot_bytes=BOOT_SECTORS * 512,
+        boot_bytes=boot_sectors("console") * 512,
         boot_start=boot_start("console"),
-        boot_sectors=BOOT_SECTORS,
-        image_bytes=(boot_start("console") + BOOT_SECTORS) * 512,
+        boot_sectors=boot_sectors("console"),
+        image_bytes=(boot_start("console") + boot_sectors("console")) * 512,
         disk_id=disk_id("console"),
         r36s_dtb=R36S_DTB,
         min_free=BOOT_MIN_FREE,
