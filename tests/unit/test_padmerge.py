@@ -37,6 +37,8 @@ def _keymap() -> dict[str, str]:
 def test_aport_is_aarch64_only_listed_for_the_r36s_and_checksummed():
     apkbuild = (APORT / "APKBUILD").read_text()
     assert re.search(r'^arch="aarch64"$', apkbuild, re.M)
+    # the kernel input headers are not in the Alpine build base (the host test has them)
+    assert re.search(r'^makedepends="linux-headers"', apkbuild, re.M)
     for name in ("padmerge.c", "r36os-padmerge.initd", "61-r36os-padmerge.rules"):
         digest = hashlib.sha512((APORT / name).read_bytes()).hexdigest()
         assert f"{digest}  {name}" in apkbuild, name
@@ -168,5 +170,6 @@ def test_replay_missing_file_is_an_error(padmerge, tmp_path):
 
 
 def test_source_and_comments_are_in_english():
-    text = "".join(p.read_text() for p in APORT.iterdir())
+    # the aport files only (abuild leaves src/ and pkg/ behind, ignored by git)
+    text = "".join(p.read_text() for p in APORT.iterdir() if p.is_file())
     assert not any(ord(c) > 127 for c in text)

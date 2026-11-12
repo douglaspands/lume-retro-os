@@ -10,6 +10,7 @@ url="https://example.invalid"
 arch="aarch64"
 license="GPL-2.0-or-later"
 depends="openrc"
+makedepends="linux-headers" # linux/input.h and linux/uinput.h
 options="!check" # tested on the host and in the VM with fake uinput devices
 source="padmerge.c
 	r36os-padmerge.initd
