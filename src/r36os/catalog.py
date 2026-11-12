@@ -24,8 +24,8 @@ def load(path: Path = CATALOG) -> dict:
 def validate(cat: dict) -> list[str]:
     """Schema errors (empty if the catalog is valid)."""
     errs: list[str] = []
-    if cat.get("schema") != 1:
-        errs.append("schema must be 1")
+    if cat.get("schema") != 2:
+        errs.append("schema must be 2")
     cores = cat.get("cores")
     if not isinstance(cores, dict) or not cores:
         errs.append("cores must be a non-empty object")
@@ -39,7 +39,7 @@ def validate(cat: dict) -> list[str]:
     if not isinstance(systems, list) or not systems:
         return errs + ["systems must be a non-empty list"]
     seen_ids, seen_names = set(), set()
-    required = {"id", "name", "extensions", "core", "core_by_arch", "alt_cores", "bios"}
+    required = {"id", "name", "extensions", "core", "core_by_arch", "alt_cores", "bios", "romset"}
     for s in systems:
         sid = s.get("id", "?")
         if set(s) != required:
@@ -64,6 +64,13 @@ def validate(cat: dict) -> list[str]:
         for b in s["bios"]:
             if set(b) != {"files", "required", "note"} or not b["files"]:
                 errs.append(f"{sid}: malformed bios")
+        romset = s["romset"]
+        if romset is not None and (not isinstance(romset, str) or not romset.strip()):
+            errs.append(f"{sid}: romset must be null or a non-empty text")
+        elif romset is not None and s["core_by_arch"]:
+            # Single card: one arcade romset folder serves every console, and a romset only
+            # works on the core version it was built for.
+            errs.append(f"{sid}: arcade system (romset) cannot have core_by_arch")
     return errs
 
 

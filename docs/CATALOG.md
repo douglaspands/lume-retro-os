@@ -7,11 +7,11 @@ Qualquer frontend futuro deve ler este arquivo em vez de manter uma lista própr
 Fonte no repositório: `rootfs/overlay/usr/share/r36os/systems.json`.
 Validação: `r36os.catalog.validate()` (teste `tests/unit/test_catalog.py`).
 
-## Esquema (versão 1)
+## Esquema (versão 2)
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "systems": [ <sistema>, ... ],
   "cores":   { "<core>": { "package": "<pacote apk>", "file": "<core>_libretro.so" } }
 }
@@ -27,7 +27,8 @@ Cada `<sistema>` tem exatamente estes campos:
 | `core` | nome de core | core padrão |
 | `core_by_arch` | objeto `{arch: core}` | core padrão numa arquitetura (`x86_64`, `aarch64`, `armv7`) |
 | `alt_cores` | lista de cores | cores alternativos instalados |
-| `bios` | lista de `{files, required, note}` | BIOS aceitas em `ROMS/bios/`; `files` são nomes alternativos |
+| `bios` | lista de `{files, required, note}` | BIOS aceitas em `ROMS/bios/` (a do Neo Geo, `neogeo.zip`, vai em `roms/neogeo/`, como diz a `note`); `files` são nomes alternativos |
+| `romset` | texto ou `null` | `null` nos sistemas comuns; nos de arcade, o romset que o core padrão aceita (o `LEIA-ME.txt` o imprime) |
 
 Regras:
 
@@ -36,6 +37,9 @@ Regras:
 - O core padrão de um sistema na arquitetura `A` é `core_by_arch[A]`, se existir, ou
   `core`.
 - `ids` e `names` são únicos.
+- Sistema de arcade (com `romset`) não pode ter `core_by_arch`: o cartão único leva a mesma
+  pasta de romsets aos dois consoles, e um romset só funciona no core da versão dele. O
+  validador recusa o catálogo que quebrar a regra.
 
 ## Contrato de pastas da partição `ROMS`
 

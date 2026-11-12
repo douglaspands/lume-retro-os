@@ -33,9 +33,12 @@ jq -r --arg arch "$ARCH" '
 	.cores as $cores
 	| .systems[]
 	| (.core_by_arch[$arch] // .core) as $core
-	| [.id, .name, $core, $cores[$core].file, (.extensions | join(" "))]
+	| ((.bios | map(.files[]) | join(" ")) | if . == "" then "-" else . end) as $bios
+		| [.id, .name, $core, $cores[$core].file, (.extensions | join(" ")), $bios]
 	| @tsv' "$CATALOG" |
-while IFS="$(printf '\t')" read -r id name core file exts; do
+while IFS="$(printf '\t')" read -r id name core file exts bios; do
+	# BIOS files that live in the game folder itself (neogeo.zip) are not games
+	bios=$(echo "$bios" | tr 'A-Z' 'a-z')
 	lpl="$OUT/$name.lpl"
 	list=$(mktemp)
 	if [ -d "$ROMS/$id" ]; then
@@ -43,6 +46,8 @@ while IFS="$(printf '\t')" read -r id name core file exts; do
 			ext=$(echo "${path##*.}" | tr 'A-Z' 'a-z')
 			case " $exts " in *" $ext "*) ;; *) continue ;; esac
 			base=${path##*/}
+			lbase=$(echo "$base" | tr 'A-Z' 'a-z')
+			case " $bios " in *" $lbase "*) continue ;; esac
 			printf '%s\t%s\n' "$path" "${base%.*}"
 		done | sort -t "$(printf '\t')" -k2,2f > "$list"
 	fi

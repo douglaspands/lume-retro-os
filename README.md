@@ -208,6 +208,9 @@ repositório, com o crédito no lugar:
 - **[Alpine Linux](https://alpinelinux.org/)**, **[RetroArch e libretro](https://www.retroarch.com/)**
   e o **Linux mainline**: a base de tudo; os pacotes locais de `aports/` partem dos APKBUILDs do
   Alpine, e as mudanças no RetroArch e nos cores ficam em patches numerados.
+- **FB Alpha 2012** (Final Burn Alpha v0.2.97.29, de Dave e da equipe do FB Alpha): os
+  cores `fbalpha2012_cps1`, `fbalpha2012_cps2` e `fbalpha2012_neogeo` (os recortes por placa
+  do libretro, `libretro/fbalpha2012_*`) são o core padrão do CPS-1, do CPS-2 e do Neo Geo.
 
 ## Licença
 
@@ -218,6 +221,11 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
   goodluckOS (GPL-2.0), e os patches do kernel seguem a GPL-2.0, como o próprio Linux.
 - Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
   um); os patches desses pacotes seguem a licença do projeto que modificam.
+- Os cores **FB Alpha 2012** (`aports/libretro-fbalpha2012-*`) têm licença própria, **não
+  comercial**: o FB Alpha proíbe a venda e o pedido de doações. Por isso o Lume Retro OS é
+  distribuído de graça e **sem doações**, e o texto da licença vai junto com o binário, em
+  `/usr/share/licenses/libretro-fbalpha2012-*/license.txt`. Quem redistribuir a imagem
+  herda a restrição.
 - Os bootloaders dos fabricantes (boot0 e U-Boot da Allwinner no GA36; `idbloader`,
   `uboot.img` e `trust.img` da Rockchip no R36S) são binários fechados e **não são
   distribuídos**: cada um os extrai do cartão original do próprio aparelho
