@@ -12,8 +12,9 @@ Ver `proposal.md` (Why). Estado de partida:
   instalados para o usuário escolher no menu do RetroArch (que oferece qualquer core com
   `.info` que aceite a extensão; o `libretro-core-info` do Alpine traz os `.info` dos
   `fbalpha2012_*`).
-- O arcade hoje: `fbneo` (x86_64, aarch64) e `mame2003_plus` (armv7), o que viola a regra
-  do cartão único (P-26: o arcade do GA36 não funciona com os romsets do usuário).
+- O arcade já usa o `fbneo` em todas as arquiteturas, e o `mame2003_plus` e o `snes9x`
+  saíram da imagem (change `r36s-single-card`, 2026-11-11, a pedido do usuário). Falta só
+  impedir que a regra do cartão único volte a ser quebrada (D1).
 - Medido nos fontes dos cores (2026-11-11): os três `fbalpha2012_*` do libretro são o FB
   Alpha **v0.2.97.29** (set/2013), compilam com `make` (`makefile.libretro`, plataforma
   `unix`, saída `<core>_libretro.so`) e procuram os zips, inclusive o `neogeo.zip`, **na
@@ -32,7 +33,8 @@ Ver `proposal.md` (Why). Estado de partida:
 **Non-Goals:**
 
 - Flags por CPU nos cores novos (P-10) e cross-compile (P-36).
-- Remover o aport do `mame2003_plus` (fica desativado para voltar quando o usuário quiser).
+- Apagar os aports desativados do `mame2003_plus` e do `snes9x` (ficam para voltar quando
+  o usuário quiser).
 - Converter romsets ou checar romsets do usuário.
 
 ## Decisions
@@ -68,8 +70,9 @@ pasta dos jogos.
 Um aport por core (`cps1`, `cps2`, `neogeo`), no modelo do `libretro-fbneo`: tarball do
 GitHub do libretro num commit fixo, `make`, `install` do `.so` em `/usr/lib/libretro/` e do
 `src/license.txt` em `/usr/share/licenses/<pkg>/` (exigência da licença), `arch="all"`,
-`license="custom"`. Entram em `rootfs/packages.txt` (os três alvos). O
-`libretro-mame2003-plus` fica com `arch=""` e sai da lista.
+`license="custom"`. Entram em `rootfs/packages.txt` (os três alvos). Commits fixados
+(medidos em 2026-11-11): `cps1` `5542c18`, `cps2` `e3f3ae4`, `neogeo` `e092097`; os
+`sha512sums` são os dos tarballs do GitHub (`r36os pkg --checksum` confere).
 
 ### D4. Arcade sem `core_by_arch`
 

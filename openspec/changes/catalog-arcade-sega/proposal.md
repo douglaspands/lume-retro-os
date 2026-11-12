@@ -18,14 +18,15 @@ quebra essa regra, e o arcade do GA36 não funciona com os romsets do usuário (
 - **FB Alpha 2012 recortado por placa** como core padrão de CPS-1, CPS-2 e Neo Geo:
   `fbalpha2012_cps1`, `fbalpha2012_cps2` e `fbalpha2012_neogeo`, mais leves que o FBNeo
   atual em aparelho simples. O **`fbneo` é o único alternativo** dessas três pastas.
-- **Arcade com o `fbneo` nos dois consoles** (sai o padrão do armv7).
+- **Arcade com o `fbneo` nos dois consoles** (já feito na change `r36s-single-card`, a
+  pedido do usuário; esta change só passa a exigir a regra no catálogo).
 - **Sega CD** com `genesis_plus_gx` no R36S e na VM e `picodrive` no GA36 (o outro como
   alternativo); **32X** com o `picodrive`.
 - **Regra do cartão único:** nas pastas de arcade (arcade, CPS-1, CPS-2, Neo Geo) o core
   padrão é o mesmo em todas as arquiteturas; o catálogo e os testes recusam exceção.
-- **BREAKING (catálogo):** o `mame2003_plus` sai do catálogo e da imagem; o aport fica no
-  repositório desativado (`arch=""`), como o `libretro-ppsspp`. Quem tinha romsets do MAME
-  2003-Plus no arcade precisa de romsets do FBNeo.
+- O `mame2003_plus` (e o `snes9x`) já saíram do catálogo e da imagem na change
+  `r36s-single-card` (aports desativados com `arch=""`); nada a fazer aqui além de manter
+  o catálogo sem eles.
 - **`LEIA-ME.txt`** diz o romset de cada pasta de arcade e as BIOS (`neogeo.zip` para o
   Neo Geo, BIOS do Sega CD por região).
 - Três pacotes locais novos (`aports/libretro-fbalpha2012-cps1`, `-cps2`, `-neogeo`) para
