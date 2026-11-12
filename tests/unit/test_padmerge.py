@@ -4,6 +4,7 @@ DTS and the RetroArch autoconfig of "R36S Gamepad"."""
 import hashlib
 import re
 import shutil
+import struct
 import subprocess
 
 import pytest
@@ -90,13 +91,80 @@ def test_udev_rule_hides_only_the_source_devices():
     assert "volume-keys {" in DTS
 
 
-@pytest.mark.skipif(CC is None, reason="no C compiler")
-def test_builds_without_warnings(tmp_path):
-    r = subprocess.run([CC, "-Wall", "-Wextra", "-Werror", "-o", str(tmp_path / "padmerge"),
-                        str(APORT / "padmerge.c")], capture_output=True, text=True)
+@pytest.fixture(scope="module")
+def padmerge(tmp_path_factory):
+    if CC is None:
+        pytest.skip("no C compiler")
+    exe = tmp_path_factory.mktemp("padmerge") / "padmerge"
+    r = subprocess.run([CC, "-Wall", "-Wextra", "-Werror", "-o", str(exe), str(APORT / "padmerge.c")],
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    r = subprocess.run([str(tmp_path / "padmerge"), "--bogus"], capture_output=True, text=True)
+    return exe
+
+
+def test_bad_arguments_print_usage(padmerge):
+    r = subprocess.run([str(padmerge), "--bogus"], capture_output=True, text=True)
     assert r.returncode == 2 and "usage" in r.stderr
+
+
+# struct input_event on a 64-bit host: struct timeval (2 x long), u16 type, u16 code, s32 value
+EVENT = struct.Struct("qqHHi")
+EV_SYN, EV_KEY, EV_ABS, SYN_REPORT = 0, 1, 3, 0
+ABS = {"ABS_X": 0, "ABS_Y": 1, "ABS_Z": 2, "ABS_RX": 3, "ABS_RY": 4}
+
+
+def _events(*items) -> bytes:
+    return b"".join(EVENT.pack(0, 0, t, c, v) for t, c, v in items)
+
+
+def _read_events(path) -> list[tuple[int, int, int]]:
+    data = path.read_bytes()
+    return [EVENT.unpack_from(data, i)[2:] for i in range(0, len(data), EVENT.size)]
+
+
+def test_replay_translates_buttons_and_forwards_sticks(padmerge, tmp_path):
+    """The translation of the merged gamepad, with no device and no uinput (task 6.2)."""
+    keys = tmp_path / "keys"
+    sticks = tmp_path / "sticks"
+    out = tmp_path / "out"
+    keymap = _keymap()
+    # every DTS button pressed and released, then one unknown key (dropped) and a MSC event
+    presses = []
+    for src in sorted(keymap):
+        presses += [(EV_KEY, CODES[src], 1), (EV_SYN, SYN_REPORT, 0),
+                    (EV_KEY, CODES[src], 0), (EV_SYN, SYN_REPORT, 0)]
+    keys.write_bytes(_events(*presses, (EV_KEY, 0x74, 1), (4, 4, 7), (EV_SYN, SYN_REPORT, 0)))
+    # the four stick axes, and ABS_Z, which the merged gamepad does not have
+    sticks.write_bytes(_events((EV_ABS, ABS["ABS_X"], 180), (EV_ABS, ABS["ABS_Y"], 800),
+                               (EV_ABS, ABS["ABS_RX"], 500), (EV_ABS, ABS["ABS_RY"], 501),
+                               (EV_ABS, ABS["ABS_Z"], 9), (EV_SYN, SYN_REPORT, 0)))
+    r = subprocess.run([str(padmerge), "--replay", str(keys), str(sticks), str(out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    got = _read_events(out)
+
+    expected = []
+    for src in sorted(keymap):
+        dst = CODES[keymap[src]]
+        expected += [(EV_KEY, dst, 1), (EV_SYN, SYN_REPORT, 0),
+                     (EV_KEY, dst, 0), (EV_SYN, SYN_REPORT, 0)]
+    expected += [(EV_SYN, SYN_REPORT, 0)]                       # the unknown key and MSC: dropped
+    expected += [(EV_ABS, ABS["ABS_X"], 180), (EV_ABS, ABS["ABS_Y"], 800),
+                 (EV_ABS, ABS["ABS_RX"], 500), (EV_ABS, ABS["ABS_RY"], 501),
+                 (EV_SYN, SYN_REPORT, 0)]                       # ABS_Z dropped
+    assert got == expected
+    # the printed labels: BTN_EAST (the right button in the DTS) comes out as BTN_A and
+    # BTN_SOUTH (the bottom one) as BTN_B; F5 is the menu key
+    pressed = {src: got[4 * i] for i, src in enumerate(sorted(keymap))}
+    assert pressed["BTN_EAST"] == (EV_KEY, CODES["BTN_A"], 1)
+    assert pressed["BTN_SOUTH"] == (EV_KEY, CODES["BTN_B"], 1)
+    assert pressed["BTN_TRIGGER_HAPPY5"] == (EV_KEY, CODES["BTN_MODE"], 1)
+
+
+def test_replay_missing_file_is_an_error(padmerge, tmp_path):
+    r = subprocess.run([str(padmerge), "--replay", str(tmp_path / "none"), str(tmp_path / "none"),
+                        str(tmp_path / "out")], capture_output=True, text=True)
+    assert r.returncode == 1
 
 
 def test_source_and_comments_are_in_english():

@@ -181,7 +181,7 @@ static int emit(int out, unsigned short type, unsigned short code, int value)
 	return write(out, &ev, sizeof(ev)) == (ssize_t)sizeof(ev) ? 0 : -1;
 }
 
-/* Forward the events of one source; -1 when the device is gone. */
+/* Forward the events of one source; -1 when the device is gone (or a file ended). */
 static int forward(int src, int out)
 {
 	struct input_event ev[64];
@@ -189,6 +189,8 @@ static int forward(int src, int out)
 
 	if (n < 0)
 		return errno == EAGAIN || errno == EINTR ? 0 : -1;
+	if (n == 0)
+		return -1;
 	for (size_t i = 0; i < (size_t)n / sizeof(ev[0]); i++) {
 		int code;
 
@@ -214,7 +216,37 @@ static int forward(int src, int out)
 static void usage(void)
 {
 	fprintf(stderr, "usage: r36os-padmerge [--keys NAME] [--sticks NAME] "
-		"[--timeout SECONDS] [--list]\n");
+		"[--timeout SECONDS] [--list]\n"
+		"       r36os-padmerge --replay KEYS_FILE STICKS_FILE OUT_FILE\n");
+}
+
+/*
+ * --replay: the same translation, from files of recorded input events to a file, with
+ * no input device and no uinput (the host tests use it; it needs no privileges).
+ */
+static int replay(const char *keys_path, const char *sticks_path, const char *out_path)
+{
+	const char *paths[2] = { keys_path, sticks_path };
+	int out = open(out_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+
+	if (out < 0) {
+		perror(out_path);
+		return 1;
+	}
+	for (int i = 0; i < 2; i++) {
+		int src = open(paths[i], O_RDONLY | O_CLOEXEC);
+
+		if (src < 0) {
+			perror(paths[i]);
+			close(out);
+			return 1;
+		}
+		while (forward(src, out) == 0)
+			;
+		close(src);
+	}
+	close(out);
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -227,6 +259,8 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[i], "--list")) {
 			list_devices();
 			return 0;
+		} else if (!strcmp(argv[i], "--replay") && i + 3 < argc) {
+			return replay(argv[i + 1], argv[i + 2], argv[i + 3]);
 		} else if (i + 1 < argc && !strcmp(argv[i], "--keys")) {
 			keys_name = argv[++i];
 		} else if (i + 1 < argc && !strcmp(argv[i], "--sticks")) {
