@@ -36,9 +36,15 @@ O `boot.ini` de fábrica carrega `Image`, `uInitrd` e `rk3326-r35s-linux.dtb` de
 embutido) e `r36s/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no kernel
 (`CONFIG_CMDLINE_FORCE`: `root=PARTUUID=4c554d32-01`, `ttyS2` a 1500000 e `tty1`).
 
-**Tarefa 1.1, o U-Boot lê o nosso `boot.ini`?** *A medir.* O primeiro boot da imagem
-`console` responde: se o LED azul acende (o initramfs liga o LED de status ao chegar ao
-`init`) ou as mensagens do kernel aparecem no painel, o `boot.ini` foi lido.
+**Tarefa 1.1, o U-Boot lê o nosso `boot.ini`?** **Sim (medido em 2026-11-12)**, mas com
+uma condição. O U-Boot de fábrica mede a revisão da placa pelo ADC, escolhe um DTB do
+RG351 (`rg351mp-kernel.dtb`, `rg351p-kernel.dtb` ou `rg351v-kernel.dtb`) e o carrega da
+raiz da `BOOT` antes de ler o `boot.ini`. Sem esse arquivo ele grava `dtb load fail` em
+`BOOT/error.log` e para: tela do logo e nada mais. Com o arquivo, ele lê o nosso
+`boot.ini`, que carrega o nosso kernel e o nosso DTB (o log mostra
+`Machine model: R36S V5`). Por isso a raiz da `BOOT` leva os dois DTBs do RG351 do cartão
+de fábrica (binário de fábrica, conferido por SHA256; tarefa 4.5). **Diagnóstico:** se o
+R36S para no logo, procure `BOOT/error.log` pelo PC.
 
 ## 3. O cartão único
 
@@ -51,7 +57,7 @@ embutido) e `r36s/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no
 | 16384 a 32767 | `uboot.img` (x4) e `trust.img` (x2) | R36S |
 | 38192 em diante | U-Boot 2017, tabela `softw411`, FAT "bootloader", env | GA36 |
 | 172032 | imagem de boot Android do painel 1 do GA36 | build |
-| 262144 | `BOOT` (FAT32, 2 GiB): `VERSION`, `boot.ini`, `ga36/`, `r36s/` | build |
+| 262144 | `BOOT` (FAT32, 2 GiB): `VERSION`, `boot.ini`, `rg351mp-kernel.dtb` e `rg351p-kernel.dtb` (de fábrica), `ga36/`, `r36s/` | build |
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai
@@ -70,11 +76,62 @@ sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
   bootloader de fábrica do início ao fim. Um adaptador USB-serial de 3,3 V encurta muito
   o diagnóstico.
 
-**Tarefa 4.4, primeira subida (risco do BL31 de fábrica com o kernel mainline):** *a
-medir.* Registrar aqui se os quatro núcleos sobem (`nproc` = 4 no `hw/boot-<n>.txt`) e se
-o desligamento corta a energia.
+**Tarefa 4.4, primeira subida (risco do BL31 de fábrica com o kernel mainline):**
+**medido em 2026-11-12:** o BL31 de fábrica funciona com o kernel mainline (PSCI v1.0, os
+4 núcleos sobem: `smp: Brought up 1 node, 4 CPUs`); U-Boot, kernel, initramfs, `SYSTEM` e
+RetroArch em ~19,4 s até o frontend (`frontend (s from kernel)` no `hw/boot-<n>.txt`); RTC
+do RK817, bateria, Panfrost, "R36S Gamepad" e jack aparecem no log. *Falta:* a imagem no
+painel (seção 5) e conferir se o desligamento corta a energia.
 
-## 5. Controle
+## 5. Painel: diagnóstico
+
+O painel é de 3,5", 640x480, ligado por DSI de 4 lanes, com um controlador da família
+ST7703 que responde `F1 12 87` ao `SETEXTC` e ID `FE 52 02`. A sequência de
+inicialização e o modo de vídeo vêm do DTB de fábrica (`panel-init-sequence`), no driver
+`panel-sitronix-st7703` (patch 0010). O DSI tem dois caminhos:
+
+- **baixa velocidade (LP):** comandos e leituras do painel;
+- **alta velocidade (HS):** o vídeo; depende da temporização do D-PHY
+  (`phy-rockchip-inno-dsidphy`).
+
+**O log conta o que o painel respondeu** (`ROMS/logs/boot/boot-<n>.log`,
+`grep -nE "panel|dsi|dphy"`):
+
+| Linha | O que diz |
+|---|---|
+| `panel state before-init 0a: 08` e `... power: booster off, sleep in, display off` | o reset funcionou: o painel está dormindo antes da sequência |
+| `panel init sequence: 0 (sent in command mode)` | a sequência foi enviada sem erro, antes do vídeo, como o kernel de fábrica faz |
+| `panel state after-init 0a: 9c` e `... power: booster on, sleep out, display on` | os comandos chegaram: o painel acordou e ligou o display |
+| `panel state ... 04: fe 52 02` | ID do controlador |
+| `panel state ... 0c: 70` / `0f: c0` | formato de 24 bits / autodiagnóstico OK |
+| `panel state ... <reg>: error -110` | leitura sem resposta (timeout) |
+| `dropped N stale read payload words` | uma leitura anterior deu timeout e a resposta chegou atrasada (descartada) |
+| `SoC revision: PX30/RK3326` ou `PX30S/RK3326S` | revisão do chip; no PX30S o D-PHY usa a tabela de 2,5 GHz |
+| `lane rate … Hz (prediv …, fbdiv …), timing row up to … Hz of the … table` | a taxa do link de vídeo e a temporização usada |
+| `lane rate … Mbps (PHY … Hz)` (`dw-mipi-dsi-rockchip`) | a taxa que o host usa nos tempos de linha; precisa ser igual à do PLL (patch 0014) |
+| `status sample <n>: int_st0 … int_st1 … phy_status …` | erros do host DSI com o vídeo rodando, 1 s entre amostras: `int_st1` bit 7 (`0x80`) = estouro da FIFO de pixels; `int_st0` = contenção no D-PHY ou erro de confirmação; `phy_status` bit 0 = PLL travado |
+
+**Tela cinza com uma mancha clara e fixa no centro, que não muda com o menu:** o painel
+está ligado e acordado, mas não recebe vídeo. Se as linhas acima mostram o painel
+acordado (`9c`), o problema está no caminho de alta velocidade (D-PHY, taxa do link), não
+nos comandos. O histórico do que já foi testado está na tarefa 4.6 da change
+`r36s-single-card`.
+
+## 6. Testar só um kernel novo
+
+Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
+
+1. `uv run r36os build console` (com `podman ps` vazio antes).
+2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e, se o DTS
+   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/r36s/`.
+3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
+   desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
+   (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos
+   dois DTBs do RG351 contra o build, e ejetar com `uv run r36os eject /dev/sdX`.
+4. Mudanças no `SYSTEM` (userland, como o `mixer`) exigem `r36os flash console` (gravação
+   completa ou `--update`).
+
+## 7. Controle
 
 Os botões (`gpio-keys`) e os dois analógicos (`adc-joystick`, SARADC canal 1 atrás de um
 multiplexador) são unidos pelo serviço `r36os-padmerge` num único **"R36S Gamepad"**, com
@@ -93,7 +150,7 @@ um dispositivo à parte (`volume-keys`), como no GA36.
 A ordem e a inversão dos eixos dos analógicos seguem o DTS de fábrica e o Odroid Go3:
 *a medir* (tarefa 9.5).
 
-## 6. Checklist de conferência
+## 8. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
 |---|---|---|
@@ -108,6 +165,13 @@ A ordem e a inversão dos eixos dos analógicos seguem o DTS de fábrica e o Odr
 | Temperatura | dentro das zonas do `rk3326.dtsi` | `metrics/boot-<n>.csv` |
 | Cartão único | o mesmo cartão no GA36 e de volta no R36S; um save passa entre os dois | tarefas 9.1 a 9.4 |
 
-## 7. Medido no aparelho
+## 9. Medido no aparelho
 
-*A preencher com os resultados das tarefas 1.1, 4.4 e 9.1 a 9.5.*
+| Data | Item | Resultado |
+|---|---|---|
+| 2026-11-12 | Tarefa 1.1 (`boot.ini`) | lido, desde que a raiz da `BOOT` tenha o DTB do RG351 que o U-Boot escolhe (seção 2) |
+| 2026-11-12 | Tarefa 4.4 (primeira subida) | inicia até o RetroArch em ~19,4 s; 4 núcleos pelo BL31 de fábrica; RTC, bateria, Panfrost, gamepad e jack no log |
+| 2026-11-12 | Mixer do RK817 | controles reais: `Master`, `Mic Capture Gain`, `Playback Mux`, `Internal Speakers` (sem `Headphones`) |
+| 2026-11-12 | Painel | acende, acorda e liga o display pelos comandos, mas fica cinza sem vídeo (seção 5; tarefa 4.6 em andamento) |
+
+*A preencher com as tarefas 9.1 a 9.5.*

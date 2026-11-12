@@ -151,6 +151,8 @@ cartão original, fora do git:
 BOOT/
   VERSION
   boot.ini                     lido pelo U-Boot do R36S (cabecalho odroidgoa-uboot-config)
+  rg351mp-kernel.dtb           exigidos pelo U-Boot do R36S antes do boot.ini (fabrica)
+  rg351p-kernel.dtb
   ga36/SYSTEM                  squashfs armv7
   ga36/dtbs/*.dtb              referencia (o DTB vai anexado no android-boot)
   ga36/android-boot/*.img      paineis 1 e 2 (troca de painel pelo PC)
@@ -166,21 +168,26 @@ BOOT/
 - **Medido no backup (2026-11-11):** a `BOOT` de fábrica tem, sim, o
   `rk3326-r35s-linux.dtb` e o `uInitrd` (no FAT eles aparecem também pelos nomes curtos
   `RK3326~1.DTB` e `UINITRD`, o que explica a "curiosidade" abaixo), além do `Image`, do
-  `boot.ini`, do `logo.bmp` e de dois DTBs do RG351 que não são usados. O `boot.ini` começa
+  `boot.ini`, do `logo.bmp` e de dois DTBs do RG351 (que o U-Boot exige; ver abaixo). O `boot.ini` começa
   com `odroidgoa-uboot-config`, define `loadaddr` 0x02000000, `initrd_loadaddr` 0x01100000 e
   `dtb_loadaddr` 0x01f00000, carrega os três arquivos de `mmc 1:1` e chama `booti`. O DTB
   de fábrica é a fonte dos valores do DTS (D7) que o Apêndice A não tinha: tensões do RK817,
   interrupção do PMIC em `gpio0 7`, *io-domains*, `vcc_lcd` a 1,8 V e os botões de volume
   (`gpio3 22` e `gpio3 21`). A tarefa 1.1 continua valendo para confirmar que o U-Boot lê
   um `boot.ini` alterado.
-- **Antes de tudo, a tarefa 1.1 descobre como este U-Boot usa o `boot.ini`**: o do cartão de
-  fábrica pede um DTB que não existe e o aparelho inicia assim mesmo. Hipóteses: o U-Boot
-  segue em frente quando um `load` falha e usa um DTB padrão (o `rg351mp-kernel.dtb`?), ou
-  tem um `bootcmd` próprio que nem lê o `boot.ini`. O teste: um `boot.ini` nosso com um
-  marcador visível (por exemplo, `bootargs` com um parâmetro que aparece em
-  `/proc/cmdline` do ArkOS) e um que carrega um DTB com nome nosso. Se o `boot.ini` não
-  for lido, o caminho B é dar ao kernel e ao DTB os nomes que o U-Boot procura, na raiz da
-  `BOOT`; isso muda só o D5, não o layout.
+- **Medido no aparelho (tarefa 1.1, 2026-11-12):** o U-Boot de fábrica (Hardkernel
+  odroidgoa 2017.09) mede a revisão da placa pelo ADC e define `dtb_name`
+  (`rg351mp-kernel.dtb`, `rg351p-kernel.dtb` ou `rg351v-kernel.dtb`); o `bootcmd` é
+  `mmc dev 1; cfgload; run setbootargs; load mmc 1:1 0x02000000 Image; load mmc 1:1
+  ${fdt_addr_r} ${dtb_name}; booti`. Antes disso ele carrega `${dtb_name}` da raiz da
+  `BOOT`: **sem o arquivo, grava `dtb load fail` em `BOOT/error.log` e para** (o primeiro
+  cartão `console` não iniciou no R36S por isso). Com o arquivo presente, o `cfgload` lê o
+  nosso `boot.ini`, que carrega o nosso kernel e o nosso DTB (o log mostra
+  `Machine model: R36S V5`), e o `bootcmd` padrão nunca chega a rodar. Por isso a `BOOT` da
+  `console` leva na raiz os dois DTBs do RG351 do cartão de fábrica (`rg351mp-kernel.dtb`
+  e `rg351p-kernel.dtb`, idênticos, 61797 bytes); eles são binário de fábrica: o build os
+  extrai de `R36OS_R36S_FACTORY` e confere o SHA256, como a cadeia de boot (tarefa 4.5).
+  O caminho B (dar ao kernel os nomes que o U-Boot procura) não é necessário.
 - O FAT da `BOOT` aceita nomes longos; o U-Boot da Hardkernel lê FAT32 com VFAT.
 
 ### D6. Initramfs escolhe o `SYSTEM` do próprio console

@@ -209,6 +209,23 @@ bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em la�
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
+## Diagnóstico de hardware no `boot/boot-<n>.log`
+
+Alguns drivers gravam no log do kernel o que leram do próprio hardware. Elas aparecem no
+`boot/boot-<n>.log` com a hora do kernel:
+
+- `panel state <before-init|after-init> <reg>: <bytes>`: o painel lido pelo DSI antes e
+  depois da sequência de inicialização (ID, energia, formato, autodiagnóstico e os
+  registradores do fabricante), mais uma linha `power:` decodificada e
+  `panel init sequence: <erro> (sent in command mode|in video mode)`. Hoje no painel do
+  R36S.
+- `SoC revision: PX30/RK3326` ou `PX30S/RK3326S` e `lane rate … Hz …`: a revisão do SoC do
+  R36S e a taxa do link de vídeo do D-PHY.
+- `dropped N stale read payload words`: o controlador DSI descartou uma resposta atrasada.
+
+Como ler cada linha: `docs/BRINGUP-R36S.md`, seção 5. Reunir essas leituras num relatório
+único de hardware é o P-40.
+
 ## `hw/boot-<n>.txt`
 
 Mapa completo do hardware, gerado uma vez por boot pelo `hwinfo`, depois que o frontend
