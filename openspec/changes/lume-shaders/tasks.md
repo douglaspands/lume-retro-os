@@ -8,7 +8,7 @@
 
 ## 2. Verificação
 
-- [ ] 2.1 Build `vm` e `test-vm`: os arquivos estão no `SYSTEM` em `/usr/share/libretro/shaders/lume-shaders/`. Verificação: manifesto de arquivos do rootfs ou listagem do `SYSTEM`.
+- [x] 2.1 Build `vm` e `test-vm`: os arquivos estão no `SYSTEM` em `/usr/share/libretro/shaders/lume-shaders/`. Verificação: manifesto de arquivos do rootfs ou listagem do `SYSTEM`.
 - [ ] 2.2 No aparelho (GA36 e R36S): Shaders → Carregar abre em `/usr/share/libretro/shaders`, e cada preset carrega num jogo do seu sistema. Verificação: anotar no `docs/BRINGUP-R36S.md` e no `docs/BRINGUP-GA36.md`.
 
 ## Workflow follow-up
