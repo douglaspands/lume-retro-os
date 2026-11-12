@@ -5,7 +5,7 @@
 set -u
 cp /keys/r36os.rsa.pub /etc/apk/keys/
 apk add -q -X /repo retroarch jq libretro-fceumm libretro-nestopia libretro-gambatte \
-	libretro-gpsp libretro-snes9x2005-plus libretro-snes9x libretro-genesis-plus-gx \
+	libretro-gpsp libretro-snes9x2005-plus libretro-genesis-plus-gx \
 	libretro-picodrive libretro-fbneo libretro-pcsx-rearmed >/dev/null || exit 1
 cat > /tmp/null.cfg <<'EOF'
 video_driver = "null"

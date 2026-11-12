@@ -5,7 +5,10 @@ pkgrel=0
 _commit="229933ea5aa6b4d2a6f00ed55b34d7b8bf5f63e3"
 pkgdesc="Super Nintendo Entertainment System core for libretro"
 url="https://github.com/libretro/snes9x"
-arch="all"
+# Disabled (Alpine convention: empty arch) on the user's request (2026-11-11): the SNES
+# uses snes9x2005_plus. To bring it back: arch="all", libretro-snes9x in
+# rootfs/packages.txt and the core in systems.json (alt_cores of snes).
+arch=""
 license="custom"
 makedepends="linux-headers zlib-dev"
 source="$pkgname-$_commit.tar.gz::https://github.com/libretro/snes9x/archive/$_commit.tar.gz"

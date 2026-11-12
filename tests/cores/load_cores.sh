@@ -3,7 +3,7 @@
 # Runs in an alpine:3.24 container with /repo (out/repo) and /keys mounted.
 set -u
 cp /keys/r36os.rsa.pub /etc/apk/keys/
-CORES="snes9x2005-plus snes9x genesis-plus-gx picodrive fbneo pcsx-rearmed"
+CORES="snes9x2005-plus genesis-plus-gx picodrive fbneo pcsx-rearmed"
 PKGS="retroarch"
 for c in $CORES; do PKGS="$PKGS libretro-$c"; done
 apk add -q -X /repo $PKGS >/dev/null || exit 1
