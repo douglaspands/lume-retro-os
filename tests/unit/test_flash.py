@@ -166,6 +166,8 @@ def test_populate_roms_has_the_default_folders_and_factory_config(tmp_path):
     ids = [s["id"] for s in json.loads(flash.CATALOG.read_text())["systems"]]
     for sid in ids:
         assert (tmp_path / "roms" / sid).is_dir(), sid
+    for sid in ("neogeo", "cps1", "cps2", "segacd", "sega32x"):    # catalog-arcade-sega
+        assert sid in ids and (tmp_path / "roms" / sid).is_dir(), sid
     for name in ("bios", "saves", "states", "screenshots", "system"):
         assert (tmp_path / name).is_dir(), name
     cfg = (tmp_path / "system/retroarch/retroarch.cfg").read_text()

@@ -14,13 +14,18 @@ from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import TARGETS
 
 # Romset free for non-commercial use, distributed by MAMEDev (mamedev.org/roms):
-# Gridlee (Videa, 1983). Runs on fbneo and mame2003_plus.
+# Gridlee (Videa, 1983). Runs on fbneo.
 GRIDLEE_URL = "https://www.mamedev.org/roms/gridlee/gridlee.zip"
 GRIDLEE_SHA256 = "df977ceba0ae1c8d0ecf489ae8423390ff5c7c76ce95f5ee6ba9bc892b18056e"
 
 # System used to test each core: the first one in the catalog that uses it, except for
 # overrides here (mgba, which only accepted GB with the header logo, left the catalog).
 CORE_SYSTEM_OVERRIDE: dict[str, str] = {}
+# Systems with no free test ROM: the build cannot generate a Sega CD disc (it needs the
+# non-free BIOS to boot), a 32X cart or a CPS-1/CPS-2/Neo Geo romset (only the real ones
+# work). Their cores are tested through another system, or, for the fbalpha2012_* cores,
+# only by loading with no content (tests/cores/load_cores.sh).
+NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "neogeo"}
 SIZE_MIB = 64
 
 
@@ -46,6 +51,8 @@ def core_tests(cat: dict | None = None) -> dict[str, tuple[str, str]]:
     for s in cat["systems"]:
         for core in sorted(catalog.core_refs(s)):
             system = CORE_SYSTEM_OVERRIDE.get(core, s["id"])
+            if system in NO_TEST_ROM:
+                continue
             tests.setdefault(core, (system, roms[system]))
     return tests
 
