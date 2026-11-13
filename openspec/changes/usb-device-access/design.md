@@ -13,7 +13,10 @@ Motivação em `proposal.md`. O estado medido no código em 2026-11-13:
 
 - O build já instala os módulos do kernel no `SYSTEM` (`src/r36os/kernel.py`).
 - No Alpine 3.24 existem `umtprd` 1.6.8, `dropbear`, `dropbear-convert` e
-  `dropbear-openrc` 2026.91. O `busybox` já traz o `udhcpd`.
+  `dropbear-openrc` 2026.91. O `udhcpd` não está no `busybox` do Alpine ("applet not
+  found"): fica no `busybox-extras` (110 KB), que cria `/usr/sbin/udhcpd`. Isso foi visto
+  na prova do GA36 com o build `20261113-192923` (2026-11-13), em que o PC ficou sem
+  endereço.
 - O GA36 inicia pela imagem Android do setor 172032, que leva o kernel com o initramfs e o
   DTB do painel 1; a `BOOT` tem o `SYSTEM`, os DTBs e o `zImage` do kexec
   (`docs/BRINGUP-GA36.md`, seção 3).

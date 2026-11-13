@@ -36,6 +36,8 @@ jq
 umtprd
 dropbear
 dropbear-convert
+# udhcpd of the USB network: in Alpine it is in busybox-extras, not in busybox
+busybox-extras
 
 # Frontend
 retroarch

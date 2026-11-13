@@ -37,6 +37,7 @@ EOF
 # UDC file of the gadget held at that time, then serves until killed
 cat > "$W/bin/umtprd" <<EOF
 #!/bin/sh
+echo "[uMTPrd - Info] uMTP Responder"
 sleep 0.3
 echo "umtprd ready, UDC=[\$(cat "$W/cfg/usb_gadget/lume/UDC" 2>/dev/null)]" >> "$LOG"
 touch "\$FFS_DIR/ep0" "\$FFS_DIR/ep1" "\$FFS_DIR/ep2" "\$FFS_DIR/ep3"
@@ -81,6 +82,7 @@ EV="$W/logs/events.pending"
 G="$W/cfg/usb_gadget/lume"
 echo ga36 > "$W/board"
 echo 0x1a2b3c4d > "$W/mmc/serial"
+: > "$W/kmsg"     # a writable "kernel log": what say() sends to /dev/kmsg
 
 ### the vm: no UDC, nothing is built
 out=$($GADGET_SH start); rc=$?
@@ -102,6 +104,7 @@ check "start: then the gadget is bound to the UDC" '[ "$(cat $G/UDC)" = musb-hdr
 check "start: logged in English" 'printf "%s\n" "$out" | grep -qx "usb: gadget \"Lume GA36\" bound to musb-hdrc.2.auto (MTP, NCM), serial 0x1a2b3c4d"'
 pid=$(cat "$W/run/umtprd.pid")
 check "start: umtprd keeps running" 'kill -0 "$pid" 2>/dev/null'
+check "start: umtprd output reaches the kernel log and umtprd.log" 'grep -qx "r36os-usb: umtprd: \[uMTPrd - Info\] uMTP Responder" $W/kmsg && grep -q "uMTP Responder" $W/run/umtprd.log'
 
 ### umtprd configuration (3.3): only ROMS, with the frontend user, FunctionFS endpoints
 C="$W/umtprd.conf"

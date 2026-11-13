@@ -77,7 +77,7 @@ STORAGE=/storage
 
 say() {
 	echo "usb: $1"
-	[ -w "$KMSG" ] && echo "r36os-usb: $1" > "$KMSG" 2>/dev/null
+	[ -w "$KMSG" ] && echo "r36os-usb: $1" >> "$KMSG" 2>/dev/null
 	return 0
 }
 
@@ -226,7 +226,7 @@ ssh_start() {
 	fi
 	rm -f "$USB_RUN/dropbear.fifo"
 	mkfifo "$USB_RUN/dropbear.fifo"
-	ssh_log < "$USB_RUN/dropbear.fifo" &
+	ssh_log < "$USB_RUN/dropbear.fifo" > /dev/null 2>&1 &
 	# shellcheck disable=SC2086
 	"$DROPBEAR" -F -E -s -j -k -p "$CONSOLE_ADDR:22" $keyarg 2> "$USB_RUN/dropbear.fifo" &
 	echo $! > "$USB_RUN/dropbear.pid"
@@ -243,6 +243,10 @@ stop_pid() {  # name
 NET_UP=0
 net_up() {  # interface
 	$IP addr replace "$CONSOLE_ADDR/30" dev "$1"
+	if ! command -v "$UDHCPD" >/dev/null 2>&1; then
+		# Alpine has udhcpd in busybox-extras, not in busybox
+		event usb FAIL "network: no $UDHCPD, the PC gets no address (set it to $PC_ADDR/30 by hand)"
+	fi
 	write_udhcpd_conf "$1"
 	"$UDHCPD" -f "$USB_RUN/udhcpd.conf" > /dev/null 2>&1 &
 	echo $! > "$USB_RUN/udhcpd.pid"
@@ -286,7 +290,17 @@ cmd_start() {
 	mkdir -p "$FFS_DIR" "$USB_RUN"
 	$MOUNT -t functionfs mtp "$FFS_DIR" || { say "ERROR: cannot mount functionfs"; cmd_stop >/dev/null; return 1; }
 	write_umtprd_conf "$product" "$serial"
-	"$UMTPRD" > "$USB_RUN/umtprd.log" 2>&1 &
+	# umtprd's own words go to the kernel log line by line (the logd trace keeps them on
+	# the card) and to umtprd.log: the MTP side can only be debugged from there
+	: > "$USB_RUN/umtprd.log"
+	rm -f "$USB_RUN/umtprd.fifo"
+	mkfifo "$USB_RUN/umtprd.fifo"
+	# the reader must not hold the script's stdout (it lives as long as umtprd)
+	while IFS= read -r l; do
+		echo "$l" >> "$USB_RUN/umtprd.log"
+		say "umtprd: $l"
+	done < "$USB_RUN/umtprd.fifo" > /dev/null 2>&1 &
+	"$UMTPRD" > "$USB_RUN/umtprd.fifo" 2>&1 &
 	pid=$!
 	echo "$pid" > "$USB_RUN/umtprd.pid"
 	# FunctionFS: the UDC can be bound only after umtprd wrote its descriptors, which
@@ -299,8 +313,9 @@ cmd_start() {
 			else
 				say "ERROR: umtprd exited before writing its descriptors, gadget not bound"
 			fi
-			# its own words, for the logd trace (the last lines are enough)
-			tail -n 5 "$USB_RUN/umtprd.log" 2>/dev/null | while IFS= read -r l; do say "umtprd: $l"; done
+			# its last words on the service output too (the kernel log has them all)
+			sleep 0.2
+			tail -n 5 "$USB_RUN/umtprd.log" 2>/dev/null | while IFS= read -r l; do echo "usb: umtprd: $l"; done
 			cmd_stop >/dev/null
 			return 1
 		fi
@@ -325,6 +340,7 @@ cmd_stop() {
 		wait "$pid" 2>/dev/null
 		rm -f "$USB_RUN/umtprd.pid"
 	fi
+	rm -f "$USB_RUN/umtprd.fifo"
 	$MOUNTPOINT -q "$FFS_DIR" 2>/dev/null && $UMOUNT "$FFS_DIR"
 	[ -d "$GADGET" ] || return 0
 	# configfs: links first, then the directories from the inside out

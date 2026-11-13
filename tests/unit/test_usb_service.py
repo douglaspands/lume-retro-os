@@ -37,6 +37,14 @@ def test_service_is_enabled_on_every_system():
     assert line.index("r36os-logd") < line.index("r36os-usb") < line.index("frontend")
 
 
+def test_the_usb_network_has_its_dhcp_server():
+    # Alpine's busybox has no udhcpd applet: it comes with busybox-extras (GA36 proof with
+    # build 20261113-192923, the PC got no address)
+    packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
+    for name in ("umtprd", "dropbear", "dropbear-convert", "busybox-extras"):
+        assert name in packages, name
+
+
 def test_overlay_scripts_are_executable():
     assert GADGET.stat().st_mode & 0o111
     assert (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-usb").stat().st_mode & 0o111
