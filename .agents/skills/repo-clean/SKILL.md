@@ -1,6 +1,6 @@
 ---
 name: repo-clean
-description: Libera o espaço das sobras de build do r36os (árvores de kernel de conjuntos de patches antigos, imagens arquivadas antigas, cópia descomprimida do flash, pastas de trabalho do abuild, caches do Python) sem tocar no que não se refaz. Use quando o usuário pedir para limpar o repositório, liberar espaço em disco, ou quando `out/` ou `~/data/r36os` estiverem grandes.
+description: Libera o espaço das sobras de build do r36os (árvores de kernel de conjuntos de patches antigos, imagens arquivadas antigas, cópia descomprimida do flash, pastas de trabalho do abuild, caches do Python) sem tocar no que não se refaz. Use quando o usuário pedir para limpar o repositório, liberar espaço em disco, ou quando `out/` ou `.cache` estiverem grandes.
 ---
 
 # Limpeza do repositório r36os
@@ -43,9 +43,9 @@ testadas, e o guardrail barra `rm -rf`.
 
 | O quê | Onde | Por que pode sair |
 |---|---|---|
-| Árvores de build do kernel de conjuntos de patches antigos | `~/data/r36os/kbuild/<placa>-<digest>` | o build usa só a do digest atual de `kernel/patches/`; mudou um patch, nasce outra |
+| Árvores de build do kernel de conjuntos de patches antigos | `.cache/kbuild/<placa>-<digest>` | o build usa só a do digest atual de `kernel/patches/`; mudou um patch, nasce outra |
 | Imagens arquivadas antigas | `out/images/<imagem>/<carimbo>/` | ficam a `latest`, a `flashed`, as N mais novas e as citadas nos documentos |
-| Imagem descomprimida do flash | `~/data/r36os/flash/*.img` | o `flash` descomprime de novo a partir do `.img.zst` arquivado |
+| Imagem descomprimida do flash | `.cache/flash/*.img` | o `flash` descomprime de novo a partir do `.img.zst` arquivado |
 | Pastas de trabalho do abuild | `aports/*/{src,pkg,tmp}` | o `r36os pkg` baixa (do `distfiles`) e monta de novo |
 | Caches do Python | `__pycache__`, `.pytest_cache` | recriados na próxima execução |
 
@@ -54,7 +54,7 @@ testadas, e o guardrail barra `rm -rf`.
 - `var/`: ROMs de teste do usuário (privadas; não citar nomes nem caminhos de jogos).
 - `out/repo`: repositório local de pacotes (horas de compilação sob `qemu-user`).
 - `out/r36s-factory`, `out/r36s-bootlogs`: provas tiradas do aparelho, não se refazem.
-- No cache (`~/data/r36os`): `ccache`, `distfiles`, `abuild` (chaves de assinatura),
+- No cache (`.cache`, ou `$R36OS_CACHE`): `ccache`, `distfiles`, `abuild` (chaves de assinatura),
   `vendor`, `vm` e a árvore do kernel atual (`src/`, que o próprio build troca).
 - `.ctx/`, `.venv/`: índice e ambiente do `ctx` (para o índice, `ctx doctor --fix`).
 - Imagens de container do podman: são compartilhadas com outros projetos da máquina.
