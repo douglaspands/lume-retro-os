@@ -26,6 +26,7 @@ kv version "$(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME")"
 kv board "$(board)"
 kv model "$(dtstr /proc/device-tree/model)"
 kv "dt compatible" "$(dtstr /proc/device-tree/compatible)"
+kv "dt in use" "$(dtb_in_use)"
 kv "serial number" "$(dtstr /proc/device-tree/serial-number)"
 for f in machine family soc_id revision serial_number; do
 	[ -r "/sys/devices/soc0/$f" ] && kv "soc $f" "$(val "/sys/devices/soc0/$f")"

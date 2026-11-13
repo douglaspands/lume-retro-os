@@ -210,6 +210,36 @@ bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em la�
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
+## Escolha do device tree no `boot/boot-<n>.log`
+
+O `lume-bootsel` do initramfs escolhe o DTB entre os de `BOOT/dtbs/<soc>/` (ver
+`docs/BRINGUP-GA36.md` e `docs/BRINGUP-R36S.md`) e registra cada passo no log do kernel,
+com o prefixo `lume-bootsel:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `soc <soc> (<compatible>), running device tree <id>` | SoC e DTB com que o bootloader iniciou o kernel |
+| `candidate <id> (<arquivo>) priority <p>, <n> rule(s)\|no rules[, default]` | DTB da pasta aceito como candidato |
+| `ignored <arquivo>: <motivo>` | DTB recusado: inválido, de outro SoC, sem o nó `lume-select` ou com `lume,id` repetido |
+| `probe adc\|gpio\|i2c <endereço> ...: <leitura> (rule ...) match\|no match` | leitura feita por uma regra |
+| `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
+| `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
+| `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada |
+| `fallback: <id> did not reach the frontend in the previous boot; discarded` | volta ao último DTB que funcionou |
+| `list shown ...`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback)` | **o DTB escolhido e o motivo** |
+| `keeping the running device tree, no kexec` | boot segue sem troca |
+| `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
+| `before kexec: <linha>` e `device tree from kexec: <id> (reason: <motivo>)` | no segundo início, as linhas do primeiro (que se perderiam com o kexec) e a origem do DTB |
+| `no device tree` | sem device tree (a VM): nada a escolher |
+
+O estado fica em `ROMS/system/etc/dtb-<soc>.conf` (`manual=`, `good=`, `pending=`, `bad=`),
+um arquivo por SoC. Quando o frontend sobe, o `r36os-logd` grava `good=<DTB em uso>` e apaga
+o `pending=`; um DTB que continua `pending` no boot seguinte não chegou ao frontend e é
+descartado (`fallback`). No `events.log`, a escolha vira `boot OK device tree selected …`,
+a confirmação `boot OK device tree <id> confirmed: the frontend started`, e o fallback e os
+erros do `lume-bootsel` viram `boot FAIL device tree …`.
+
 ## Diagnóstico de hardware no `boot/boot-<n>.log`
 
 Alguns drivers gravam no log do kernel o que leram do próprio hardware. Elas aparecem no
@@ -232,8 +262,9 @@ Como ler cada linha: `docs/BRINGUP-R36S.md`, seção 5. Reunir essas leituras nu
 Mapa completo do hardware, gerado uma vez por boot pelo `hwinfo`, depois que o frontend
 sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Seções:
 
-- `== system`: versão, placa, modelo e `compatible` do device tree, número de série, SoC,
-  kernel e linha de comando.
+- `== system`: versão, placa, modelo e `compatible` do device tree, o DTB em uso
+  (`dt in use: <id> (<motivo>)`, com `after kexec` quando houve troca), número de série,
+  SoC, kernel e linha de comando.
 - `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
   entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
   decodificador de vídeo, áudio, DMA, botões, gamepad, cartão, RTC, watchdog, sensor

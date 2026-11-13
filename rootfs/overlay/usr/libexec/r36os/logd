@@ -46,6 +46,14 @@ cmd_start() {
 	dmesg | sed -n 's/.*lume: \(ROMS partition created.*\)/\1/p' | while read -r l; do event roms OK "$l"; done
 	dmesg | sed -n 's/.*lume: ROMS checked: \(.*\)/\1/p' | while read -r l; do event roms OK "checked: $l"; done
 	dmesg | sed -n 's/.*lume: \(ERROR.*\)/\1/p' | while read -r l; do event boot FAIL "$l"; done
+	# Device tree choice (lume-bootsel in the initramfs; "before kexec:" when it switched)
+	dmesg | sed -En 's/.*lume-bootsel: (before kexec: )?(selected .*|fallback: .*|ERROR.*)/\2/p' |
+		while read -r l; do
+			case "$l" in
+			selected*) event boot OK "device tree $l" ;;
+			*) event boot FAIL "device tree $l" ;;
+			esac
+		done
 	# Erros do kernel neste boot (nível err ou pior): contagem e os 3 primeiros
 	local errs
 	errs=$(dmesg -l err,crit,alert,emerg 2>/dev/null)
@@ -544,13 +552,45 @@ game_track() {  # uptime
 	fi
 }
 
+# Waits for the frontend (up to 60 s): 0 when it started
+wait_frontend() {
+	local i=0
+	while [ $i -lt "${FRONTEND_WAIT:-60}" ]; do
+		dmesg | grep -q "lume: frontend started" && return 0
+		sleep 1
+		i=$((i + 1))
+	done
+	return 1
+}
+
+# The frontend is up, so the device tree in use works (boot-dtb-select D6): good=<it> and
+# no pending in ROMS/system/etc/dtb-<soc>.conf, keeping manual= and bad=. A DTB still
+# pending at the next boot did not get here, and lume-bootsel discards it.
+DTB_CONF_DIR=${DTB_CONF_DIR:-/storage/system/etc}
+dtb_confirm() {
+	local id soc conf manual bad
+	id=$(dtb_id)
+	soc=$(dtb_soc)
+	[ -n "$id" ] && [ -n "$soc" ] || return 0
+	logs_on_disk || return 0
+	conf=$DTB_CONF_DIR/dtb-$soc.conf
+	if grep -qx "good=$id" "$conf" 2>/dev/null && ! grep -q '^pending=.' "$conf"; then
+		return 0
+	fi
+	manual=$(sed -n 's/^manual=//p' "$conf" 2>/dev/null | tail -n 1)
+	bad=$(sed -n 's/^bad=//p' "$conf" 2>/dev/null | tail -n 1)
+	mkdir -p "$DTB_CONF_DIR"
+	printf '# Lume Retro OS: device tree choice of the %s SoC (lume-bootsel, r36os-logd)\nmanual=%s\ngood=%s\npending=\nbad=%s\n' \
+		"$soc" "$manual" "$id" "$bad" > "$conf.tmp" || return 0
+	fsync "$conf.tmp" 2>/dev/null
+	mv -f "$conf.tmp" "$conf"
+	event boot OK "device tree $id confirmed: the frontend started"
+}
+
 # Retrato do hardware deste boot (hw/boot-<n>.txt), depois que o frontend sobe
 hw_snapshot() {
 	local out="$LOGS_RAM/hw.txt" n
 	n=$(boot_n)
-	# espera o frontend (até 60 s) para medir o tempo até ele
-	local i=0
-	while [ $i -lt 60 ] && ! dmesg | grep -q "lume: frontend started"; do sleep 1; i=$((i + 1)); done
 	/usr/libexec/r36os/hwinfo > "$out" 2>&1
 	if logs_on_disk; then atomic_copy "$out" "$LOGS_DIR/hw/boot-$n.txt"; fi
 }
@@ -563,8 +603,11 @@ cmd_run() {
 		discover
 		: > "$LOGS_RAM/stat.prev"
 		KMSG_SEEN=$(dmesg | wc -l)
-		hw_snapshot
 	fi
+	# wait for the frontend (also to time it in the hardware snapshot), then confirm the
+	# device tree; the snapshot is taken even when the frontend did not start
+	if wait_frontend; then dtb_confirm; fi
+	[ "$LOG_ENABLE" = 1 ] && hw_snapshot
 	while :; do
 		[ "$LOG_ENABLE" = 1 ] && sample
 		now=$(cut -d. -f1 /proc/uptime)

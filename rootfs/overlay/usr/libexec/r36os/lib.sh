@@ -77,6 +77,32 @@ note_new_dir() { [ "$1" = n ] && [ -d "$2/$3" ] && : > "$R36OS_RUN/rescan.${WATC
 
 board() { cat "${BOARD_FILE:-/etc/r36os/board}" 2>/dev/null; }
 
+# Device tree in use (boot-dtb-select): chosen by lume-bootsel in the initramfs among the
+# DTBs of BOOT/dtbs/<soc>/. DT_ROOT is overridden by the tests.
+DT_ROOT=${DT_ROOT:-/proc/device-tree}
+# lume,id of the running device tree (empty without the lume-select node)
+dtb_id() { [ -r "$DT_ROOT/lume-select/lume,id" ] && tr -d '\000' < "$DT_ROOT/lume-select/lume,id"; return 0; }
+# folder of the SoC under BOOT/dtbs/, from the SoC compatible (the same as /etc/soc)
+dtb_soc() {
+	case " $(tr '\000' ' ' < "$DT_ROOT/compatible" 2>/dev/null) " in
+	*" allwinner,sun8i-a33 "*) echo a33 ;;
+	*" rockchip,rk3326 "*) echo rk3326 ;;
+	esac
+}
+# "<id> (<reason>)": after a kexec the reason is in /chosen, else in the boot log
+dtb_in_use() {
+	local id reason
+	[ -d "$DT_ROOT" ] || { echo "none (no device tree)"; return 0; }
+	id=$(dtb_id)
+	[ -n "$id" ] || { echo "no lume-select node"; return 0; }
+	if [ -r "$DT_ROOT/chosen/lume,dtb-selected" ]; then
+		reason="$(tr '\000' '\n' < "$DT_ROOT/chosen/lume,dtb-selected" | sed -n 2p), after kexec"
+	else
+		reason=$(dmesg 2>/dev/null | sed -n 's/.*lume-bootsel: selected .* (reason: \([a-z]*\))$/\1/p' | tail -n 1)
+	fi
+	echo "$id (${reason:-reason unknown})"
+}
+
 # Idioma das mensagens para o usuário: o user_language do RetroArch (escolhido no menu e
 # persistido pelo r36os-persist). Logs são sempre em inglês. Textos em en, pt e es (os
 # mesmos idiomas do rótulo "Desligar"); os outros idiomas caem no inglês.

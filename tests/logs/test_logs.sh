@@ -429,6 +429,52 @@ check "single card: the boot log header names the console" \
 check "single card: the hardware snapshot names the board" \
 	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
 
+### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
+### the frontend starts and the events of the choice made in the initramfs
+DT_ROOT=$W/dt
+DTB_CONF_DIR=$W/storage/system/etc
+mkdir -p "$DT_ROOT/lume-select" "$DTB_CONF_DIR"
+printf 'ga36mb,ga36-mb-v1.2\000allwinner,sun8i-a33\000' > "$DT_ROOT/compatible"
+printf 'ga36-panel2\000' > "$DT_ROOT/lume-select/lume,id"
+dmesg() { cat "$W/dmesg" 2>/dev/null; }
+printf '[    1.2] lume-bootsel: rules of ga36-panel2: match\n[    1.3] lume-bootsel: selected ga36-panel2 (reason: rule)\n' > "$W/dmesg"
+check "dtb: id and SoC folder of the running tree" '[ "$(dtb_id) $(dtb_soc)" = "ga36-panel2 a33" ]'
+check "dtb: in use, with the reason from the boot log" '[ "$(dtb_in_use)" = "ga36-panel2 (rule)" ]'
+mkdir -p "$DT_ROOT/chosen"
+printf 'ga36-panel2\000forced\000' > "$DT_ROOT/chosen/lume,dtb-selected"
+check "dtb: in use after a kexec, with the reason from /chosen" '[ "$(dtb_in_use)" = "ga36-panel2 (forced, after kexec)" ]'
+rm -f "$DT_ROOT/chosen/lume,dtb-selected"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+printf 'manual=ga36-panel2\ngood=ga36-panel1\npending=ga36-panel2\nbad=old\n' > "$DTB_CONF_DIR/dtb-a33.conf"
+dtb_confirm; logs_flush
+check "dtb: the frontend confirms it (good, no pending, manual and bad kept)" \
+	'grep -qx good=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf && grep -qx pending= $DTB_CONF_DIR/dtb-a33.conf && grep -qx manual=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf && grep -qx bad=old $DTB_CONF_DIR/dtb-a33.conf'
+check "dtb: confirmation event" 'grep -q " boot OK device tree ga36-panel2 confirmed: the frontend started" $LOGS_DIR/events.log'
+dtb_confirm; logs_flush
+check "dtb: confirmed once (no rewrite, no new event)" '[ "$(grep -c "confirmed: the frontend" $LOGS_DIR/events.log)" = 1 ] && [ ! -e $DTB_CONF_DIR/dtb-a33.conf.tmp ]'
+printf 'r36s,r36s-v5\000rockchip,rk3326\000' > "$DT_ROOT/compatible"
+printf 'r36s-v5\000' > "$DT_ROOT/lume-select/lume,id"
+dtb_confirm
+check "dtb: one file per SoC (the R36S does not touch the GA36 one)" \
+	'grep -qx good=r36s-v5 $DTB_CONF_DIR/dtb-rk3326.conf && grep -qx good=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf'
+rm -rf "$DT_ROOT/lume-select"
+rm -f "$DTB_CONF_DIR/dtb-rk3326.conf"
+dtb_confirm
+check "dtb: without the node nothing is written" '[ ! -e $DTB_CONF_DIR/dtb-rk3326.conf ] && [ "$(dtb_in_use)" = "no lume-select node" ]'
+DT_ROOT=$W/none
+check "dtb: the vm has no device tree" '[ "$(dtb_in_use)" = "none (no device tree)" ]'
+printf '%s\n' "[    2.0] lume-bootsel: before kexec: fallback: ga36-panel2 did not reach the frontend in the previous boot; discarded" \
+	"[    2.1] lume-bootsel: before kexec: selected other (reason: fallback)" \
+	"[    2.2] lume-bootsel: ERROR: kexec -l failed (status 1); keeping the running device tree" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: the choice becomes an event" 'grep -q " boot OK device tree selected other (reason: fallback)" $LOGS_DIR/events.log'
+check "dtb: fallback and errors become failure events" \
+	'grep -q " boot FAIL device tree fallback: ga36-panel2 did not reach the frontend" $LOGS_DIR/events.log && grep -q " boot FAIL device tree ERROR: kexec -l failed" $LOGS_DIR/events.log'
+check "dtb: the hardware snapshot has the device tree in use" \
+	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use)\"" rootfs/overlay/usr/libexec/r36os/hwinfo'
+unset -f dmesg
+
 rm -rf "$W"
 echo "falhas: $FAILS"
 [ $FAILS -eq 0 ]
