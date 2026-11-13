@@ -46,8 +46,34 @@ def test_fragment_enables_kexec_and_the_selection_keys():
     # boot-dtb-select D2/D7: kexec to switch the DTB, and the volume keys on the LRADC
     # built in (the build fails if an option of the fragment does not stick)
     opts = _options(FRAGMENT)
-    for o in ("CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_SUN4I_LRADC"):
+    for o in ("CONFIG_KEXEC", "CONFIG_HOTPLUG_CPU", "CONFIG_INPUT_EVDEV",
+              "CONFIG_KEYBOARD_SUN4I_LRADC"):
         assert opts.get(o) == "y", o
+
+
+def test_a33_secondary_cpus_can_be_killed_for_kexec():
+    # machine_kexec_prepare() refuses SMP without .cpu_kill (GA36 boot 20): patch 0027
+    # gives the sun8i enable method of the A33 .cpu_die and .cpu_kill
+    patch = (REPO_ROOT / "kernel/patches/0027-ARM-sunxi-sun8i-add-CPU-hotplug-so-kexec-can-run.patch"
+             ).read_text()
+    assert "+++ b/arch/arm/mach-sunxi/platsmp.c" in patch
+    assert "+\t.cpu_kill\t\t= sun8i_cpu_kill," in patch
+    assert "+\t.cpu_die\t\t= sun8i_cpu_die," in patch
+
+
+def _off(text: str) -> set[str]:
+    return set(re.findall(r"^# (CONFIG_\w+) is not set$", text, re.M))
+
+
+def test_boot_screen_is_the_same_on_both_consoles():
+    # no Tux on fbcon on either console (the arm64 defconfig of the R36S turns it on)
+    r36s = (REPO_ROOT / "board/r36s/kernel.config").read_text()
+    assert "CONFIG_LOGO" in _off(FRAGMENT) and "CONFIG_LOGO" in _off(r36s)
+
+
+def test_build_checks_the_options_that_stay_off():
+    from r36os.kernel import _KERNEL_SCRIPT
+    assert "must stay off" in _KERNEL_SCRIPT
 
 
 def test_fragment_gives_the_overlay_upper_layer_xattrs():
@@ -71,6 +97,8 @@ def test_built_config():
     assert opts.get("CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL") == "y"
     for want, value in _options(FRAGMENT).items():
         assert opts.get(want) == value, want
+    for off in _off(FRAGMENT):
+        assert off not in opts, off
     kdir = BUILT.parent
     assert (kdir / "zImage").stat().st_size > 1_000_000
     dtbs = sorted(p.name for p in (kdir / "dtbs").glob("*.dtb"))

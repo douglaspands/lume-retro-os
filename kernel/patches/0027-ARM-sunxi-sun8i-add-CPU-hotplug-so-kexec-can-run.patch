@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Fri, 13 Nov 2026 16:30:00 -0300
+Subject: [PATCH] ARM: sunxi: sun8i: add CPU hotplug so kexec can run
+
+On the GA36-MB V1.2 (Allwinner A33) kexec -l of the running kernel always
+failed with status 255 and nothing in the kernel log. The four cores come
+up through the "allwinner,sun8i-a23" enable method, whose smp_operations
+only know how to start a secondary core, and machine_kexec_prepare()
+refuses, silently with -EINVAL, an SMP system whose platform cannot kill
+its secondary CPUs (platform_can_cpu_hotplug() needs .cpu_kill).
+
+Add .cpu_die and .cpu_kill for the A23/A33, following the pattern of the
+multi-cluster code (mc_smp.c): the core that goes away turns its GIC CPU
+interface off, leaves coherency and waits in WFI; the boot CPU waits for
+STANDBYWFI in the core status register, then holds the core in reset and
+sets its power-off gating, the reverse of sun8i_smp_boot_secondary(),
+which brings the core back from that state (it clears the gating and
+releases the reset), also in the kernel started by kexec.
+
+diff --git a/arch/arm/mach-sunxi/platsmp.c b/arch/arm/mach-sunxi/platsmp.c
+index 052097e..34a2dde 100644
+--- a/arch/arm/mach-sunxi/platsmp.c
++++ b/arch/arm/mach-sunxi/platsmp.c
+@@ -14,15 +14,21 @@
+ #include <linux/delay.h>
+ #include <linux/init.h>
+ #include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/irqchip/arm-gic.h>
+ #include <linux/memory.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/smp.h>
+
++#include <asm/cacheflush.h>
++#include <asm/cp15.h>
++
+ #define CPUCFG_CPU_PWR_CLAMP_STATUS_REG(cpu)	((cpu) * 0x40 + 0x64)
+ #define CPUCFG_CPU_RST_CTRL_REG(cpu)		(((cpu) + 1) * 0x40)
+ #define CPUCFG_CPU_CTRL_REG(cpu)		(((cpu) + 1) * 0x40 + 0x04)
+ #define CPUCFG_CPU_STATUS_REG(cpu)		(((cpu) + 1) * 0x40 + 0x08)
++#define CPUCFG_CPU_STATUS_STANDBYWFI		BIT(2)
+ #define CPUCFG_GEN_CTRL_REG			0x184
+ #define CPUCFG_PRIVATE0_REG			0x1a4
+ #define CPUCFG_PRIVATE1_REG			0x1a8
+@@ -187,8 +193,61 @@ static int sun8i_smp_boot_secondary(unsigned int cpu,
+ 	return 0;
+ }
+
++#ifdef CONFIG_HOTPLUG_CPU
++/*
++ * CPU hotplug on the A23/A33, needed by kexec: machine_kexec_prepare() refuses
++ * an SMP system whose platform cannot kill its secondary CPUs. The core that
++ * goes away leaves coherency and waits in WFI; the boot CPU then holds it in
++ * reset and gates its power, the reverse of sun8i_smp_boot_secondary(), which
++ * brings it back from that state.
++ */
++static void sun8i_cpu_die(unsigned int cpu)
++{
++	gic_cpu_if_down(0);
++	v7_exit_coherency_flush(louis);
++
++	for (;;)
++		wfi();
++}
++
++static int sun8i_cpu_kill(unsigned int cpu)
++{
++	u32 reg;
++	int ret;
++
++	if (!(prcm_membase && cpucfg_membase))
++		return 0;
++
++	/* wait for the core to reach WFI in sun8i_cpu_die() */
++	ret = readl_poll_timeout(cpucfg_membase + CPUCFG_CPU_STATUS_REG(cpu), reg,
++				 reg & CPUCFG_CPU_STATUS_STANDBYWFI,
++				 1000, 1000000);
++	if (ret) {
++		pr_warn("CPU%u did not reach WFI, not killing it\n", cpu);
++		return 0;
++	}
++
++	spin_lock(&cpu_lock);
++
++	/* Assert the CPU core in reset */
++	writel(0, cpucfg_membase + CPUCFG_CPU_RST_CTRL_REG(cpu));
++
++	/* Set CPU power-off gating */
++	reg = readl(prcm_membase + PRCM_CPU_PWROFF_REG);
++	writel(reg | BIT(cpu), prcm_membase + PRCM_CPU_PWROFF_REG);
++
++	spin_unlock(&cpu_lock);
++
++	return 1;
++}
++#endif
++
+ static const struct smp_operations sun8i_smp_ops __initconst = {
+ 	.smp_prepare_cpus	= sun8i_smp_prepare_cpus,
+ 	.smp_boot_secondary	= sun8i_smp_boot_secondary,
++#ifdef CONFIG_HOTPLUG_CPU
++	.cpu_die		= sun8i_cpu_die,
++	.cpu_kill		= sun8i_cpu_kill,
++#endif
+ };
+ CPU_METHOD_OF_DECLARE(sun8i_a23_smp, "allwinner,sun8i-a23", &sun8i_smp_ops);
