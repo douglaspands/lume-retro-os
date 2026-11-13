@@ -4,8 +4,11 @@
 .ctx/
 .claude/settings.local.json
 
-# r36os: artefatos de build (o cache fica fora do repositório)
+# r36os: build artifacts
 /out/
+# r36os: build cache (sources, build trees, ccache, distfiles, abuild keys, factory areas,
+# VM disk); created No-COW on Btrfs. `git clean -fdx` deletes it, abuild keys included.
+/.cache/
 # rascunhos locais para validação (não versionados)
 /var/
 # diretórios de trabalho do abuild (fontes baixadas e pacote montado)

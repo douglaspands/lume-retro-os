@@ -190,9 +190,6 @@ readonly_system = [
     "/proc/meminfo",
     # bring-up: cartões montados pelo leitor USB (logs de boot, dumps do aparelho)
     "/run/media",
-    # bring-up: árvore do kernel com patches e configurações geradas pelo build (r36os)
-    "~/data/r36os/src",
-    "~/data/r36os/kbuild",
 ]
 
 # Comandos só de leitura aceitos nos caminhos de readonly_system dentro de ~/data
@@ -261,21 +258,21 @@ reason = "Volumes pesados e bancos de dados devem consultar o usuário para uso 
 # max_file_kb = 4096
 
 # Reference material for the R36S/GA36 bring-up (outside git). The patched kernel tree is
-# ~/.cache/r36os/src/linux-<version>-<patches digest>; the build keeps only the current one,
-# so the wildcard matches a single tree. Only the display/DSI/PHY drivers and the Rockchip
+# .cache/src/linux-<version>-<patches digest> (the build cache, ignored by git); `r36os clean`
+# removes old trees, so the wildcard matches a single tree. Only the display/DSI/PHY drivers and the Rockchip
 # PX30/RK3326 device trees are indexed, never var/ (test ROMs).
 [index.reference]
 globs = [
   "out/r36s-factory/*.dts",
   "out/r36s-factory/boot.ini",
-  "~/.cache/r36os/src/linux-6.18.62-*/drivers/gpu/drm/rockchip/*.[ch]",
-  "~/.cache/r36os/src/linux-6.18.62-*/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi*.c",
-  "~/.cache/r36os/src/linux-6.18.62-*/include/drm/bridge/dw_mipi_dsi.h",
-  "~/.cache/r36os/src/linux-6.18.62-*/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c",
-  "~/.cache/r36os/src/linux-6.18.62-*/drivers/gpu/drm/panel/panel-sitronix-st7703.c",
-  "~/.cache/r36os/src/linux-6.18.62-*/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c",
-  "~/.cache/r36os/src/linux-6.18.62-*/arch/arm64/boot/dts/rockchip/px30*.dtsi",
-  "~/.cache/r36os/src/linux-6.18.62-*/arch/arm64/boot/dts/rockchip/rk3326*.dts*",
+  ".cache/src/linux-6.18.62-*/drivers/gpu/drm/rockchip/*.[ch]",
+  ".cache/src/linux-6.18.62-*/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi*.c",
+  ".cache/src/linux-6.18.62-*/include/drm/bridge/dw_mipi_dsi.h",
+  ".cache/src/linux-6.18.62-*/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c",
+  ".cache/src/linux-6.18.62-*/drivers/gpu/drm/panel/panel-sitronix-st7703.c",
+  ".cache/src/linux-6.18.62-*/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c",
+  ".cache/src/linux-6.18.62-*/arch/arm64/boot/dts/rockchip/px30*.dtsi",
+  ".cache/src/linux-6.18.62-*/arch/arm64/boot/dts/rockchip/rk3326*.dts*",
 ]
 max_file_kb = 4096
 
