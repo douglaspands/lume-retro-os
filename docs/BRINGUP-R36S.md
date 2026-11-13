@@ -35,7 +35,7 @@ cartão original (`R36OS_R36S_FACTORY`), conferida por SHA256 (`src/r36os/r36s_v
 
 O `boot.ini` de fábrica carrega `Image`, `uInitrd` e `rk3326-r35s-linux.dtb` de
 `mmc 1:1`. O nosso (`board/r36s/boot.ini`) carrega `r36s/Image` (kernel com o initramfs
-embutido) e `r36s/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no kernel
+embutido) e o DTB padrão `dtbs/rk3326/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no kernel
 (`CONFIG_CMDLINE_FORCE`: `root=PARTUUID=4c554d32-01`, `ttyS2` a 1500000 e `tty1`).
 
 **Tarefa 1.1, o U-Boot lê o nosso `boot.ini`?** **Sim (medido em 2026-11-12)**, mas com
@@ -59,12 +59,49 @@ R36S para no logo, procure `BOOT/error.log` pelo PC.
 | 16384 a 32767 | `uboot.img` (x4) e `trust.img` (x2) | R36S |
 | 38192 em diante | U-Boot 2017, tabela `softw411`, FAT "bootloader", env | GA36 |
 | 172032 | imagem de boot Android do painel 1 do GA36 | build |
-| 262144 | `BOOT` (FAT32, 2 GiB): `VERSION`, `boot.ini`, `rg351mp-kernel.dtb` e `rg351p-kernel.dtb` (de fábrica), `ga36/`, `r36s/` | build |
+| 262144 | `BOOT` (FAT32, 2 GiB): ver a tabela abaixo | build |
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai
 sobre dados do GA36 (`src/r36os/bootarea.py`). O initramfs de cada console monta o próprio
 sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
+
+**A partição `BOOT`** (a mesma nos dois consoles; `docs/BRINGUP-GA36.md` tem a mesma tabela):
+
+| Caminho | O que é |
+|---|---|
+| `VERSION` | build gravado no cartão |
+| `boot.ini` | lido pelo U-Boot do R36S: carrega `r36s/Image` e `dtbs/rk3326/rk3326-r36s-v5.dtb` |
+| `rg351mp-kernel.dtb`, `rg351p-kernel.dtb` | de fábrica: o U-Boot do R36S os exige para iniciar (seção 2) |
+| `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
+| `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
+| `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
+| `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `android-boot/` com as imagens de boot dos painéis 1 e 2 |
+| `r36s/` | `SYSTEM` e `Image` |
+
+**Trocar o logo:** pelo PC, substituir `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits.
+No R36S vale no boot seguinte. (No GA36, o logo da `BOOT` depende da tarefa 2.2 de
+`boot-dtb-select`; até lá ele mostra o logo da área de fábrica.)
+
+### 3.1 Escolher o device tree (DTB)
+
+O U-Boot sempre inicia o kernel com o DTB padrão. No initramfs, o `lume-bootsel` olha
+`BOOT/dtbs/rk3326/` e decide, nesta ordem: o arquivo `BOOT/dtbs/force`; a lista na tela
+(tecla segurada ao ligar); a volta ao último DTB que funcionou; a escolha salva da lista; as
+regras de cada DTB (leituras de ADC, GPIO e I2C); o padrão. Se o escolhido não é o que está
+rodando, o kernel reinicia uma vez com ele (kexec, 1 a 2 s a mais). Hoje há um só DTB do
+R36S, então o boot segue sempre com o padrão, sem troca.
+
+- **Pelo PC:** escrever o nome (por exemplo `r36s-v5`) em `BOOT/dtbs/force`. Apagar o
+  arquivo volta ao automático. Um nome que não existe é ignorado (motivo no log).
+- **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
+  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-rk3326.conf` e "Automatic"
+  apaga a escolha. (Teclas provisórias até a prova 1.2 de `boot-dtb-select`.)
+- **DTB novo:** copiar o `.dtb` (com o nó `lume-select`) para `BOOT/dtbs/rk3326/` basta
+  para ele entrar na lista.
+- **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
+  `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
 
 ## 4. Primeiro boot
 
@@ -128,7 +165,7 @@ Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 
 1. `uv run r36os build console` (com `podman ps` vazio antes).
 2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e, se o DTS
-   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/r36s/`.
+   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`.
 3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
    desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
    (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos

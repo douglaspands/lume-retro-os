@@ -26,13 +26,52 @@ uv run r36os eject /dev/sdX                     # ejetar depois de copiar jogos 
   não existir, é criada com o resto do cartão.
 - **Serial (opcional):** `ttyS1`, 115200 baud, a mesma velocidade do bootloader ao kernel.
 
-## 3. Trocar o painel
+## 3. A partição `BOOT`
 
-A imagem usa o painel 1 (o do firmware de fábrica). Se a tela ficar preta ou com cores
-erradas, grave a imagem de boot do painel 2 no setor 172032, pelo PC:
+A mesma nos dois consoles (`docs/BRINGUP-R36S.md` tem a mesma tabela):
+
+| Caminho | O que é |
+|---|---|
+| `VERSION` | build gravado no cartão |
+| `boot.ini` | lido pelo U-Boot do R36S (o GA36 não lê) |
+| `rg351mp-kernel.dtb`, `rg351p-kernel.dtb` | de fábrica, exigidos pelo U-Boot do R36S |
+| `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
+| `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
+| `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
+| `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `android-boot/` com as imagens de boot dos painéis 1 e 2 |
+| `r36s/` | `SYSTEM` e `Image` |
+
+**Logo:** hoje o GA36 mostra o `bootlogo.bmp` da área de fábrica. Passar a usar o
+`BOOT/logo.bmp` (o mesmo logo nos dois) é a tarefa 2.2 de `boot-dtb-select`, que depende da
+prova 1.4.
+
+### 3.1 Trocar o painel
+
+O bootloader sempre inicia com o painel 1 (a imagem de boot do setor 172032, com o DTB do
+painel 1 anexado). No initramfs, o `lume-bootsel` olha `BOOT/dtbs/a33/` e decide, nesta
+ordem: o arquivo `BOOT/dtbs/force`; a lista na tela (tecla segurada ao ligar); a volta ao
+último DTB que funcionou; a escolha salva da lista; as regras de cada DTB; o padrão. Se o
+escolhido não é o que está rodando, o kernel reinicia uma vez com ele (kexec do
+`ga36/zImage`). Os dois painéis ainda não têm uma regra que os distinga, então sem
+escolha o GA36 fica no painel 1.
+
+- **Tela preta, pelo PC:** escrever `ga36-panel2` em `BOOT/dtbs/force`. Apagar o arquivo
+  volta ao automático. Um nome que não existe é ignorado (motivo no log).
+- **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
+  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-a33.conf` e "Automatic"
+  apaga a escolha. (Teclas provisórias até a prova 1.3 de `boot-dtb-select`.)
+- **Se o DTB escolhido não chegar ao menu**, desligue e ligue: o boot seguinte volta ao
+  último DTB que funcionou (`reason: fallback` no log).
+- **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
+  `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
+
+**Enquanto a troca por kexec não estiver provada no GA36** (prova 1.5 de
+`boot-dtb-select`), o caminho antigo continua valendo: gravar a imagem de boot do painel 2
+no setor 172032, pelo PC:
 
 ```sh
-sudo dd if=/run/media/$USER/BOOT/android-boot/android-boot-panel2.img of=/dev/sdX \
+sudo dd if=/run/media/$USER/BOOT/ga36/android-boot/android-boot-panel2.img of=/dev/sdX \
     bs=512 seek=172032 conv=notrunc,fsync
 ```
 
