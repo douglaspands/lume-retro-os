@@ -14,6 +14,13 @@ Android, e o logo externo e igual nos dois consoles. Esta change é o **degrau 1
 escrever nem recompilar bootloader, sobre as cadeias de fábrica que já iniciam o cartão
 único. O U-Boot próprio (P-43) só entra se este degrau não bastar.
 
+Os clones do R36S (dezenas de placas RK3326 com outros painéis e pinos) já têm DTBs prontos
+nos projetos de código aberto dArkOS e dArkOSRE, mas escritos para o kernel 4.4 da Rockchip,
+que o nosso kernel mainline não aceita. O usuário pediu (2026-11-13) que esta change garanta
+a compatibilidade com esses DTBs: copiá-los para a pasta do SoC basta para o boot validá-los,
+convertê-los, escolher o certo quando o hardware permitir reconhecê-lo e, quando não, oferecê-los
+na lista.
+
 ## What Changes
 
 - **Pasta de DTBs por SoC na `BOOT`** (`dtbs/a33/`, `dtbs/rk3326/`): cada DTB traz dentro
@@ -49,9 +56,28 @@ escrever nem recompilar bootloader, sobre as cadeias de fábrica que já iniciam
   atravessa o kexec e se o kernel informa o número de série do SoC.
 - O caminho do `dd` da imagem do painel 2 do GA36 continua valendo até a troca por kexec
   ser provada no GA36.
+- **DTBs do dArkOS e do dArkOSRE** (pedido do usuário, 2026-11-13): um DTB desses projetos
+  (kernel 4.4 da Rockchip) copiado para `BOOT/dtbs/rk3326/`, solto ou numa subpasta com o
+  nome da placa (como o dArkOSRE os distribui), é validado e convertido no boot para o
+  kernel mainline: tela e luz de fundo, botões e analógicos, som, bateria e LEDs. O que o
+  conversor não sabe mapear faz o DTB ser recusado, com o motivo no log.
+- **Outras fontes de DTB** (revisão de 2026-11-13, a partir de
+  <https://handhelds.wiki/R36S_Clones>): os DTBs do arkos4clone e o DTB de fábrica do
+  próprio aparelho (o do cartão original, ou o do repositório EE-Clones-DTB) entram pela
+  mesma conversão, cuja lógica é portada do `rocknix_dtbo.py` do ROCKNIX (MIT, com
+  crédito). O conversor usa um volume seguro no amplificador, nunca o do DTB de origem.
+- **Driver de painel DSI genérico**: o `panel-generic-dsi` do ROCKNIX (GPL-2.0, com
+  crédito), já usado com kernel mainline nesses clones, como patch de kernel, com a
+  sequência e os modos do painel lidos do próprio DTB.
+- **Detecção quando possível**: uma placa cuja assinatura medida (ID do painel lido pelo
+  DSI, níveis de pinos, ADC) está na tabela do projeto é escolhida sozinha; sem assinatura,
+  a lista mostra todos os DTBs da pasta, e a escolha passa pela confirmação na tela.
 
-Fora do escopo: U-Boot próprio ou mainline (P-43, P-19, P-34); detecção do painel pelo ID
-lido por DSI (só se uma prova mostrar que dá para ler sem driver de painel); menu às cegas
+Fora do escopo: U-Boot próprio ou mainline (P-43, P-19, P-34), inclusive os clones com
+eMMC, que iniciam pelo eMMC antes do cartão; placas A33/A23 da família do GA36 além do
+GA36-MB V1.2 (P-16: sem DTB de fábrica, porte por placa); aparelhos de outros SoCs (RK3128,
+MT6572, E3100), documentados como incompatíveis; medir a assinatura de cada placa de clone (a tabela
+começa com o R36S V5 e cresce com medições); menu às cegas
 por piscadas do LED; perfis de userland por variante (mixer, autoconfiguração, taxa), que
 continuam no P-33; o mapa completo do hardware (P-40).
 
@@ -63,6 +89,10 @@ continuam no P-33; o mapa completo do hardware (P-40).
   por SoC, as regras dentro de cada DTB, o padrão, a escolha manual pela tecla, a escolha
   forçada pelo PC, a confirmação na tela, a persistência por aparelho, a volta ao último
   que funcionou e o registro no log.
+- `vendor-dtb-compat`: como um DTB do kernel da Rockchip (dArkOS, dArkOSRE, arkos4clone ou
+  o de fábrica do aparelho) é aceito,
+  validado, convertido para o kernel mainline e reconhecido pelo hardware quando há uma
+  assinatura medida.
 
 ### Modified Capabilities
 
@@ -70,7 +100,10 @@ continuam no P-33; o mapa completo do hardware (P-40).
   `dtbs/force` e o kernel do GA36 como arquivo; o `logo.bmp` passa a valer para os dois
   consoles; a área de boot do GA36 leva o env editado e o `bootlogo.bmp` trocado.
 - `device-support`: os DTBs dos consoles ficam em `BOOT/dtbs/<soc>/`; a troca de variante
-  pelo PC passa a ser pelo `dtbs/force`, sem `dd`.
+  pelo PC passa a ser pelo `dtbs/force`, sem `dd`; clones do R36S com DTB do (d)ArkOS
+  ficam "compatíveis por conversão, sem garantia".
+- `dtb-selection`: a pasta do SoC aceita subpastas e os DTBs do (d)ArkOS; a lista rola e
+  aceita mais candidatos.
 
 ## Impact
 
@@ -85,6 +118,13 @@ continuam no P-33; o mapa completo do hardware (P-40).
 - **Testes**: unitários da escolha (precedência, regras, `force` inválido, volta ao último
   que funcionou, sem laço de kexec), do layout da `BOOT`, do env do GA36 (CRC) e do
   `bootlogo.bmp`; integração na VM do caminho padrão (sem kexec); provas no aparelho.
+  Conversão: os DTBs reais do dArkOSRE, do arkos4clone e os de fábrica do EE-Clones-DTB
+  (copiados para `.cache/upstream/`, fora do git; os testes são pulados sem eles) convertem
+  ou são recusados com motivo, o resultado passa
+  no `dt-validate` do kernel mainline, e o DTB de fábrica do R36S convertido bate com o nosso
+  `rk3326-r36s-v5` no que importa.
+- **Kernel**: patch numerado com o painel `rocknix,generic-dsi` do ROCKNIX e um binding
+  nosso para ele.
 - **Usuário**: cartões precisam de `flash console --update` para receber o layout novo; a
   `ROMS` não muda de lugar.
 - **Documentação**: `README.md` (como escolher o DTB: `force`, lista, confirmação na tela,

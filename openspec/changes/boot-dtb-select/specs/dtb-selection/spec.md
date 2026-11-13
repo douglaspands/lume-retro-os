@@ -10,7 +10,7 @@ com a escolha guardada por aparelho.
 ## ADDED Requirements
 
 ### Requirement: Pasta de DTBs por SoC
-A `BOOT` MUST ter uma pasta de DTBs por SoC (`dtbs/a33/` e `dtbs/rk3326/`). Cada DTB da pasta MUST declarar, num nó do Lume, o seu nome, a sua prioridade e as regras de reconhecimento, e exatamente um DTB por SoC MUST ser o padrão. Um DTB cujo `compatible` de SoC difere do console em execução MUST NOT ser candidato.
+A `BOOT` MUST ter uma pasta de DTBs por SoC (`dtbs/a33/` e `dtbs/rk3326/`), com DTBs soltos ou em subpastas de um nível. Cada DTB nativo MUST declarar, num nó do Lume, o seu nome, a sua prioridade e as regras de reconhecimento, e exatamente um DTB por SoC MUST ser o padrão. Um DTB do kernel da Rockchip (do (d)ArkOS, do arkos4clone ou o de fábrica) entra pela conversão (ver `vendor-dtb-compat`). Um DTB cujo `compatible` de SoC difere do console em execução MUST NOT ser candidato.
 
 #### Scenario: DTB novo na pasta
 - **WHEN** um DTB com o nó do Lume é copiado pelo PC para `BOOT/dtbs/rk3326/`
@@ -52,6 +52,13 @@ Segurando a tecla de seleção do console ao ligar, o boot MUST mostrar na tela 
 #### Scenario: Voltar ao automático
 - **WHEN** o usuário escolhe na lista a opção do automático
 - **THEN** a escolha gravada é apagada e o boot volta à escolha automática
+
+### Requirement: Lista longa
+A lista MUST mostrar todos os candidatos do SoC, mesmo quando não cabem numa tela, rolando conforme a navegação, e MUST aceitar pelo menos as coleções inteiras do dArkOSRE e do arkos4clone mais os DTBs nativos.
+
+#### Scenario: Coleção do dArkOSRE na pasta
+- **WHEN** a pasta `dtbs/rk3326/` tem o DTB nativo e as subpastas das placas do dArkOSRE e o usuário abre a lista
+- **THEN** todos os candidatos aparecem, a lista rola ao navegar além da última linha visível, e o escolhido é o que estava marcado ao confirmar
 
 ### Requirement: Escolha forçada pelo PC
 Se `BOOT/dtbs/force` existir e nomear um candidato do SoC em execução, o boot MUST usar esse DTB acima de qualquer outra escolha, passando pela confirmação na tela na primeira vez em cada aparelho. Um nome que não existe, é de outro SoC ou foi descartado naquele aparelho MUST ser ignorado, com o motivo no log, e o boot MUST seguir as outras escolhas.

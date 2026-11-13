@@ -29,7 +29,11 @@ Ver `proposal.md` (Why). O estado que molda o desenho:
   env do GA36.
 - O caminho padrão (aparelho original, sem escolha) custa zero: sem kexec e sem espera.
 
+- Os DTBs do dArkOS/dArkOSRE para clones do R36S funcionam copiados para a pasta do SoC,
+  convertidos no boot (D12 a D14).
+
 **Non-Goals:**
+- DTBs de outros projetos ou do kernel 4.4 de outros SoCs; subir o kernel 4.4 deles.
 - Escolher o DTB dentro do bootloader. O `boot.ini` poderia ler o `force` e evitar o kexec
   no R36S, mas isso é uma otimização para depois das provas e fica fora desta change.
 - Sondas que escrevem no hardware ou varrem barramentos inteiros.
@@ -180,6 +184,17 @@ aparelho daquele SoC.
 O `force` fica só na `BOOT` e só é lido: a `BOOT` continua montada `ro`. Ele vale para o
 cartão (qualquer aparelho do SoC); a confirmação e o `bad` são de cada aparelho.
 
+**Implementação (2026-11-13):** do número de série ficam só letras e dígitos (o valor vira
+nome de arquivo), e um valor vazio ou só de zeros (SoC sem fusível gravado) conta como
+ausente. O `r36os-logd` acha o mesmo arquivo pela mesma regra (`dtb_conf_name` em `lib.sh`)
+e passa a confirmar só um `pending` igual ao DTB em uso; antes ele gravava `good=` do DTB
+em uso a cada boot, e agora o `good=` só nasce de uma confirmação.
+
+**GA36 (boot 19, 2026-11-13, prova 1.7):** o kernel do A33 não cria `/sys/devices/soc0`
+(nenhum driver registra o SoC no `soc` bus), então o estado ficou em `dtb-a33.conf`, com o
+aviso no log. O SID existe pelo nvmem (`CONFIG_NVMEM_SUNXI_SID=y`); usá-lo como número de
+série é uma decisão em aberto.
+
 ### D7. Tecla e menu
 
 A tecla de seleção e as de navegação são por console, num arquivo do board
@@ -201,11 +216,14 @@ BOOT/
   dtbs/a33/    sun8i-a33-ga36-mb-v1.2-panel1.dtb (padrao)  ...-panel2.dtb
   dtbs/rk3326/ rk3326-r36s-v5.dtb (padrao)
   dtbs/force   (opcional, so o usuario cria)
-  ga36/ SYSTEM  zImage  android-boot/
+  ga36/ SYSTEM  zImage
   r36s/ SYSTEM  Image
 ```
 
-`ga36/dtbs/` e `r36s/<dtb>` saem. O `boot.ini` passa a carregar
+A `BOOT` tem só o que os consoles leem (pedido do usuário, 2026-11-13). `ga36/dtbs/`,
+`r36s/<dtb>` e `ga36/android-boot/` saem; as imagens de boot dos dois painéis do GA36 (o
+`dd` no setor 172032, plano B enquanto o kexec não é provado) são arquivadas com o build em
+`out/images/console/<build>/ga36-android-boot-panel{1,2}.img`, com o SHA256. O `boot.ini` passa a carregar
 `dtbs/rk3326/rk3326-r36s-v5.dtb`. O `force` traz só o nome do nó (`ga36-panel2`), não o
 caminho do arquivo. A pasta do SoC vem de `/etc/soc`, gravado no initramfs pelo build.
 
@@ -249,6 +267,11 @@ Going back to ga36-panel1 in 15 s...
 - O padrão e os DTBs já confirmados nunca perguntam: no uso normal ninguém vê esta tela.
 - Mensagem só em inglês, como o resto do initramfs.
 
+**Implementação (2026-11-13):** o segundo início só pergunta quando o `pending` gravado é
+o DTB que veio do kexec; a mensagem é redesenhada a cada segundo com a contagem. Na raiz
+falsa dos testes, o fim da descrição do dispositivo de entrada conta como "sem resposta"
+na hora, para o teste não esperar 15 s.
+
 **Alternativas:** (a) perguntar no frontend: depende do RetroArch, que um DTB ruim pode
 impedir de subir; (b) tecla sorteada a cada pergunta, para não confirmar às cegas:
 descartada pela simplicidade, o risco fica nos Riscos; (c) checar no initramfs se os drivers
@@ -270,10 +293,145 @@ nesse tempo) e o driver do watchdog de cada SoC embutido. Se o watchdog não atr
 kexec num dos consoles (prova 1.6), aquele console fica só com o `fallback` depois de
 desligar e ligar.
 
+**Implementação (2026-11-13):** o DTB preparado leva `/chosen/lume,watchdog` quando o
+watchdog foi armado, e todo início que vem de um kexec com essa marca para o watchdog
+(`V`) quando não há pergunta: o terceiro início depois da volta, um DTB já confirmado, ou a
+pergunta que não pôde aparecer (sem tecla de confirmar; aí o `pending` fica para o
+`r36os-logd`, e um travamento antes do frontend só se resolve desligando). O watchdog só é
+armado depois que o `kexec -l` deu certo, e o `--dry-run` não o toca. Se o `kexec -e`
+voltar, o `init` chama `lume-bootsel --kexec-failed`, que para o watchdog e apaga o
+`pending` (o DTB escolhido nunca rodou e não deve ir para `bad`).
+
+**GA36 (boot 19):** o `sunxi-wdt` registra `timeout=16 sec`, o máximo dele. O utilitário
+pede 60 s e, se o driver recusar, usa o maior tempo aceito e registra o valor real. No A33
+o segundo início chega à pergunta cerca de 3 s depois do kexec, então 16 s bastam se o
+watchdog atravessar o kexec (prova 1.6).
+
+### D12. DTBs do dArkOS e do dArkOSRE convertidos no boot
+
+**Contexto (2026-11-13):** o dArkOS compila o kernel de `christianhaitian/linux`, branch
+`rg351` (4.4 da Rockchip, `rg351p_tweaked_defconfig`), e o dArkOSRE distribui 43 DTBs de
+placas (R36S oficiais, clones e "soysauce") em `files/BOOT/dtb/<variante>/<placa>/`, todos
+com o nome `rk3326-r36s-linux.dtb`, escolhidos à mão pelo PC (`select_devices.sh`). Cópias
+para análise ficam em `.cache/upstream/` (fora do git): `dArkOSRE-R36` (commit `3f372c8`) e
+`darkos-linux-rg351` (commit `14c877f`, DTS do RK3326 e os drivers `odroidgo3-joypad.c` e
+`panel-simple.c`). Os 43 têm `rockchip,rk3326`, o PMIC `rk817` (codec, carregador,
+bateria), o painel `simple-panel-dsi` com `panel-init-sequence` (14 sequências distintas,
+640x480 ou 720x720), o controle `odroidgo3-joypad`, `pwm-backlight`, `simple-audio-card` e
+`gpio-leds`. Mudam entre placas: sequência, timings, atrasos e pinos do painel; pinos dos
+botões, mux e canal do ADC dos analógicos; PWM e níveis da luz de fundo; pino do
+amplificador e da detecção do fone; tabela de tensão e capacidade da bateria; LEDs.
+
+O nosso kernel não sobe com esses DTBs (bindings e drivers do 4.4). O `lume-bootsel` os
+**converte no boot**:
+
+```
+ BOOT/dtbs/rk3326/  <placa>.dtb  ou  <placa>/rk3326-r36s-linux.dtb  (rg351*-uboot.dtb: ignorado)
+        |
+        v
+ reconhece o DTB 4.4: compatible do SoC + nós conhecidos (simple-panel-dsi, odroidgo3-joypad, rk817)
+        |
+        +-- nó obrigatório ausente ou propriedade sem mapeamento --> recusado, motivo no log
+        v
+ base = o DTB padrão do SoC (rk3326-r36s-v5, nosso, mainline), trocando por placa:
+   painel        -> nó rocknix,generic-dsi (D13): panel_description com sequências, modos,
+                    atrasos; reset/enable
+   luz de fundo  -> pwms, brightness-levels, default
+   controle      -> gpio-keys (sw*) + adc-joystick sobre io-channel-mux (amux-*, io-channels,
+                    amux-channel-mapping)
+   som           -> pino do amplificador (spk-ctl-gpios) e detecção do fone (hp-det-gpio)
+   bateria       -> simple-battery (ocv_table, design_capacity, design_qmax)
+   LEDs          -> gpio-leds
+        |
+        v
+ candidato com lume,id = nome da subpasta (ou o model), sem regra salvo assinatura (D14)
+```
+
+Os pinos do 4.4 vêm como `<phandle linha flags>`; o phandle aponta para um banco
+(`gpio0`..`gpio3`) do DTB deles, identificado pelo endereço (`reg`), e vira o phandle do
+mesmo banco no DTB base. Um pino de um banco que a base não tem recusa o DTB. A conversão é
+determinística e só de leitura no DTB de origem; o resultado vai para o mesmo caminho de
+preparo do D2 (memória, `/chosen`, kexec), e um DTB convertido é sempre "novo": passa pela
+confirmação na tela (D10) e pela volta automática.
+
+**Revisão (2026-11-13, depois de avaliar <https://handhelds.wiki/R36S_Clones> com o
+usuário):**
+
+- **Entradas:** além do dArkOSRE, os DTBs do arkos4clone (MIT, cerca de 280 arquivos para
+  dArkOS) e o **DTB de fábrica do próprio aparelho** (o do cartão original, ou o do
+  repositório EE-Clones-DTB, com os de fábrica de cerca de 25 aparelhos: K36, K36S, R36
+  Max/Pro/Ultra, RX6H/RX6S, T16 Max, XF35H/XF40H, U8, MyMini, clones "EE" e outros). Os
+  de fábrica usam o mesmo kernel da Rockchip (4.4; alguns V20 trazem DTBs do 5.10, com os
+  mesmos nós) e entram pela mesma conversão. Cópias em `.cache/upstream/arkos4clone` e
+  `.cache/upstream/EE-Clones-DTB`.
+- **Lógica da conversão:** portada do `rocknix_dtbo.py` do ROCKNIX (repositório
+  `stolen/overlay_server`, MIT, com crédito no código e no README; cópia em
+  `.cache/upstream/overlay_server`), que já trata os casos reais desses clones: joypad de
+  um ADC com mux ou de vários ADCs (estilo MyMini), `adc-keys` desligado, teclas de volume
+  por GPIO, detecção do fone invertida, amplificador por `spk-con-gpio` ou
+  `spk-ctl-gpios`. A nossa porta em C acrescenta bateria e LEDs, que ele não cobre, e gera
+  o DTB completo em vez de um overlay (o kexec carrega um DTB pronto).
+- **Base:** o DTB padrão do SoC serve de base para as placas parecidas com o R36S; para os
+  clones "EE", cuja placa difere em mais que painel e pinos, a base é avaliada a partir do
+  `rk3326-gameconsole-eeclone.dts` do ROCKNIX (GPL-2.0; cópia em `.cache/upstream/rocknix`)
+  e entra como um segundo DTB base no build, escolhido pelo conversor conforme os nós do DTB
+  de origem.
+- **Volume seguro:** o arkos4clone queimou alto-falantes do R36S-V20 com tensão alta demais
+  (aviso na página do handhelds.wiki). O conversor não copia o ganho do amplificador do DTB
+  de origem: usa o valor seguro da base, e um DTB que peça outro registra isso no log.
+
+**Fora do alcance do DTB** (registrado em `docs/PENDENCIAS.md`): aparelhos com eMMC, que o
+RK3326 tenta iniciar antes do cartão (o ROCKNIX precisou de um U-Boot próprio para o K36
+com eMMC), e outra memória: P-43. As placas A33/A23 da família do GA36 (GA36-MB V1.0 e
+V1.1, a V1.2-20260416, que pode ser A23, Gaminja Batocera, RD36) não têm DTB de fábrica
+(o firmware delas é sunxi com FEX) e precisam de porte por placa: P-16. Os aparelhos com
+outro SoC (RK3128, MediaTek MT6572, HCSEMI E3100 dos GB350, R36SX e R36HD, PS101/PS202, o
+Famiclone) ficam documentados como incompatíveis.
+
+**Alternativas:** (a) converter no PC (`r36os dtb import`): mais simples, mas o usuário
+pediu "copiar e funcionar" sem o projeto no PC; (b) subir o kernel 4.4 deles por kexec: o
+nosso userland, os módulos e o RetroArch não rodam nele; (c) portar cada placa à mão:
+não escala para dezenas de placas; (d) usar o `rocknix_dtbo.py` como está: é Python, e o
+initramfs não tem interpretador; a lógica é portada.
+
+### D13. Painel DSI genérico do ROCKNIX (`rocknix,generic-dsi`)
+
+O painel dos DTBs convertidos usa o driver `panel-generic-dsi` do ROCKNIX (GPL-2.0, autor
+Danil Zagoskin; cópia em `.cache/upstream/rocknix/projects/ROCKNIX/packages/linux-drivers/
+generic-dsi/`), já usado com kernel mainline nesses clones, trazido como patch de kernel
+numerado com o crédito no cabeçalho, mais um binding YAML nosso para o `dt-validate` (o
+ROCKNIX não tem). O driver lê do nó a propriedade `panel_description`: linhas de texto com
+`delays`, `size`, `format`, `lanes`, `flags`, os modos (`clock`, `horizontal`, `vertical`,
+`default`) e a sequência (`dcs`, `data`, `seq`, `wait`, `read`), além de `reset-gpios`,
+`enable-gpios` e das alimentações `vdd` e `iovcc`. O conversor traduz o
+`panel-init-sequence`/`panel-exit-sequence` (formato binário da Rockchip: tipo DCS, atraso,
+tamanho, dados), os `display-timings` e os atrasos para esse texto, como o
+`rocknix_dtbo.py` faz. O compatible fica o do ROCKNIX (`rocknix,generic-dsi`) para manter
+a compatibilidade com os DTBs e overlays que eles geram. O R36S V5 continua com o driver
+do ST7703 (provado no aparelho).
+
+**Alternativa:** um driver nosso (`lume,dsi-panel`), que leria o formato binário da
+Rockchip direto do nó: descartado porque o do ROCKNIX já está provado nesses clones.
+
+### D14. Detecção pela assinatura medida
+
+O nome da placa nos DTBs do (d)ArkOS é só um rótulo (`model`), sem nada que o hardware
+confirme. A escolha automática de um DTB convertido usa uma **tabela de assinaturas** do
+projeto (`board/r36s/vendor-signatures`): por placa, o SHA256 do DTB de origem (de
+qualquer das fontes do D12) e as leituras
+que a distinguem (o ID do painel lido pelo DSI, que o kernel padrão já registra com o patch
+0012; níveis de pinos de entrada livres; faixas do ADC). Bate a assinatura, o DTB convertido
+ganha as regras correspondentes e entra na escolha automática como qualquer candidato com
+regras (D3, D4). A tabela começa com o R36S V5 (medido) e cresce com medições de outras
+placas; sem assinatura, o DTB só entra pela lista ou pelo `force`. A lista rola e aceita as
+coleções inteiras (dArkOSRE e arkos4clone) mais os DTBs de fábrica e os nativos.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos
-  secundários] → prova 1.5 antes do código; se falhar, o GA36 fica com a troca pelo
+  secundários] → **confirmado no GA36 (boot 20):** o método `allwinner,sun8i-a23` não tinha
+  `.cpu_kill`, e o kernel recusa o kexec calado; o patch `0027` acrescenta `.cpu_die` e
+  `.cpu_kill` (tarefa 3.6). Se ainda assim falhar no aparelho, vale o plano abaixo. Prova 1.5 antes do código; se falhar, o GA36 fica com a troca pelo
   `force` lido pelo U-Boot (`env import -t` de um arquivo da `BOOT`, se a prova 1.4 der
   certo) ou pela imagem de boot gravada com `dd`, que continua valendo.
 - [Drivers que não reiniciam limpos depois do kexec (DSI, painel, PMIC, MMC)] → a prova 1.5
@@ -295,6 +453,22 @@ desligar e ligar.
   só quando troca.
 - [Escrever no exFAT da `ROMS` cedo no boot] → as mesmas funções de montagem do init; um
   arquivo pequeno, gravado com `sync`.
+- [Clone com outra memória ou outra cadeia de boot não passa do bootloader de fábrica do
+  R36S] → fora do alcance do DTB; o log não chega a existir. Fica no P-43. Indício a favor:
+  o ArkOS de série sobe o U-Boot nos clones "EE" (o LED vermelho piscando vem depois dele),
+  inclusive nos V20 com LPDDR3; aparelhos com eMMC iniciam pelo eMMC e ficam de fora.
+- [Ganho do amplificador alto demais queima o alto-falante (caso do arkos4clone no
+  R36S-V20)] → o conversor usa o volume seguro da base e não copia o do DTB de origem.
+- [DTB convertido de um clone com chip sem driver no nosso kernel] → o conversor recusa o
+  que não mapeia; um chip novo exige o driver (patch numerado).
+- [Conversão provada só no R36S V5] → os 43 DTBs passam nos testes de conversão e no
+  `dt-validate`, mas o funcionamento em cada placa só se prova nela; a confirmação na tela e
+  a volta automática protegem do painel errado. Clones ficam "compatíveis por conversão,
+  sem garantia".
+- [Painéis de 720x720 e timings acima do que o RetroArch espera] → o conversor leva o
+  `native-mode`; a configuração de vídeo por resolução fica no P-33.
+- [Tempo de conversão no boot] → só quando um DTB do (d)ArkOS está na pasta; os nativos não
+  são convertidos.
 
 ## Migration Plan
 
