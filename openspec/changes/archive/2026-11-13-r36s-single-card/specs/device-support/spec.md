@@ -10,11 +10,11 @@ Esta versão MUST suportar o GA36-MB V1.2 (Allwinner A33) com as duas variantes 
 - **THEN** a imagem de boot do painel 1 do GA36 está no setor 172032 (a variante padrão), as imagens de boot dos dois painéis do GA36 estão em `BOOT/ga36/android-boot/` e o DTB do R36S V5 está em `BOOT/r36s/`
 
 ### Requirement: Kernel mainline
-O console MUST usar um kernel Linux mainline da série LTS, com device trees escritos para esse kernel. Device trees de kernels de fabricante MUST NOT ser gravados na imagem.
+O console MUST usar um kernel Linux mainline da série LTS, com device trees escritos para esse kernel. Device trees de kernels de fabricante MUST NOT ser usados pelo kernel do sistema. A única exceção são os DTBs do RG351 do cartão de fábrica do R36S na raiz da `BOOT`, que só o U-Boot de fábrica lê, para identificar a placa antes de carregar o `boot.ini`.
 
 #### Scenario: Origem dos DTBs
 - **WHEN** os DTBs da `BOOT` e os anexados às imagens de boot do GA36 são inspecionados
-- **THEN** todos foram compilados pelo build a partir dos fontes do repositório, para o kernel do próprio console, e nenhum DTB do cartão de fábrica do R36S está na imagem
+- **THEN** todos os que o kernel carrega foram compilados pelo build a partir dos fontes do repositório, para o kernel do próprio console, e os únicos DTBs de fábrica na imagem são os do RG351 na raiz da `BOOT`, que o kernel não usa
 
 ### Requirement: Troca de variante pelo PC
 A variante de painel do GA36 MUST poder ser trocada num PC, sem recompilar a imagem: a imagem de boot de cada painel fica em `BOOT/ga36/android-boot/`, e gravar a do painel desejado no setor 172032 troca o painel (o bootloader do fabricante lê a imagem de boot desse setor).
@@ -55,7 +55,7 @@ O console MUST mandar as mensagens do bootloader e do kernel para sua serial de 
 ## ADDED Requirements
 
 ### Requirement: Bootloader de fábrica do R36S
-O R36S MUST iniciar pela cadeia de boot do próprio aparelho (`idbloader`, `uboot.img` e `trust.img` do cartão original), que lê o `boot.ini` da `BOOT` e carrega o kernel e o DTB do Lume. Nenhum kernel, DTB ou initramfs do cartão de fábrica MUST ser usado.
+O R36S MUST iniciar pela cadeia de boot do próprio aparelho (`idbloader`, `uboot.img` e `trust.img` do cartão original), que lê o `boot.ini` da `BOOT` e carrega o kernel e o DTB do Lume. Nenhum kernel ou initramfs do cartão de fábrica MUST ser usado, e os DTBs do RG351 de fábrica na raiz da `BOOT` MUST servir só ao U-Boot, que os lê para identificar a placa; o kernel sobe com o DTB do Lume.
 
 #### Scenario: Kernel do Lume no R36S
 - **WHEN** o R36S é ligado com um cartão da imagem `console`

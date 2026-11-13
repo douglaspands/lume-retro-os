@@ -21,11 +21,11 @@ A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, r
 - **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT`, de 1 GiB começando no setor 32768 na `vm` e de 2 GiB começando no setor 262144 na `console`, e a assinatura de disco da `console` é `4c554d32`
 
 ### Requirement: Conteúdo da partição BOOT
-A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema da imagem. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). Na imagem `console`, MUST conter uma pasta por console: `ga36/` com o `SYSTEM`, os DTBs em `dtbs/` e as imagens de boot dos dois painéis em `android-boot/`; `r36s/` com o `SYSTEM`, o kernel e o DTB; e, na raiz, o `boot.ini` lido pelo U-Boot do R36S. Os logs não ficam na `BOOT` (ver `boot-runtime`).
+A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema da imagem. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). Na imagem `console`, MUST conter uma pasta por console: `ga36/` com o `SYSTEM`, os DTBs em `dtbs/` e as imagens de boot dos dois painéis em `android-boot/`; `r36s/` com o `SYSTEM`, o kernel e o DTB; e, na raiz, o `boot.ini` lido pelo U-Boot do R36S, os dois DTBs do RG351 de fábrica (`rg351mp-kernel.dtb` e `rg351p-kernel.dtb`) que esse U-Boot exige para iniciar, e o `logo.bmp`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
 
 #### Scenario: Arquivos presentes na BOOT
 - **WHEN** a partição `BOOT` de uma imagem gerada é listada
-- **THEN** existe `VERSION`, sem pasta `logs/`; na `vm` também `SYSTEM`, o kernel, o `initramfs` e `extlinux/extlinux.conf`; na `console` também `boot.ini`, `ga36/SYSTEM`, `ga36/dtbs/`, `ga36/android-boot/` com as imagens dos painéis 1 e 2, `r36s/SYSTEM`, o kernel e o DTB do R36S
+- **THEN** existe `VERSION`, sem pasta `logs/`; na `vm` também `SYSTEM`, o kernel, o `initramfs` e `extlinux/extlinux.conf`; na `console` também `boot.ini`, `rg351mp-kernel.dtb`, `rg351p-kernel.dtb`, `logo.bmp`, `ga36/SYSTEM`, `ga36/dtbs/`, `ga36/android-boot/` com as imagens dos painéis 1 e 2, `r36s/SYSTEM`, o kernel e o DTB do R36S
 
 ### Requirement: Sistema como arquivo squashfs
 O sistema de arquivos raiz de cada sistema MUST ser entregue como um único arquivo squashfs chamado `SYSTEM` dentro da `BOOT`. Na `vm`, ele MUST ter no máximo 768 MiB. Na `console`, cada `SYSTEM` MUST ter no máximo 448 MiB, e a soma de todos os arquivos da `BOOT` MUST deixar ao menos 64 MiB livres.
