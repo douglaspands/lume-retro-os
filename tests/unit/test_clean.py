@@ -61,6 +61,17 @@ def test_plan_removes_only_what_a_build_recreates(tree):
     assert {i.path for i in review} == {out / "one-off-test"}
 
 
+def test_python_caches_inside_the_repo_cache_are_not_walked(tmp_path):
+    # the default cache is <repo>/.cache, with millions of kernel build files
+    repo = tmp_path / "repo"
+    cache = repo / ".cache"
+    _mk(cache / "x" / "__pycache__" / "y.pyc")
+    _mk(cache / "src" / "linux" / "scripts" / "__pycache__" / "z.pyc")
+    _mk(repo / "src" / "r36os" / "__pycache__" / "x.pyc")
+    remove, _review = clean.plan(repo, repo / "out", cache, DIGEST, cited=set())
+    assert {i.path for i in remove} == {repo / "src" / "r36os" / "__pycache__"}
+
+
 def test_remove_frees_the_plan_and_keeps_the_rest(tree):
     repo, out, cache, stamps = tree
     to_remove, _ = clean.plan(repo, out, cache, DIGEST, keep=3)

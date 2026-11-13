@@ -20,7 +20,7 @@ uv run r36os build vm
 
 Saída em `out/vm/`: `vm.img` (imagem do cartão, 1040 MiB), `SYSTEM`, `initramfs`,
 `manifest.txt` (pacotes e versões) e `kernel/`. O cache (chave do abuild, fontes,
-ccache) fica em `~/.cache/r36os/` (ou `$R36OS_CACHE`).
+ccache) fica em `.cache/`, na raiz do projeto (ou em `$R36OS_CACHE`).
 
 ## Rodar
 
@@ -44,7 +44,7 @@ jogos. Saves e estados continuam no disco descartável da VM. A VM nunca altera 
 
 Cada execução usa uma cópia descartável de `out/vm/vm.img`, aumentada para 4 GB como um
 cartão real: o primeiro boot sempre cria a partição `ROMS`. A serial também é gravada em
-`~/.cache/r36os/vm/serial.log`, e o QMP fica em `~/.cache/r36os/vm/qmp.sock`.
+`.cache/vm/serial.log`, e o QMP fica em `.cache/vm/qmp.sock`.
 
 O console serial aceita `root` sem senha (só nesta fase de validação). Para encerrar,
 escolha **Desligar** no menu principal do RetroArch (o sistema grava o pendente e
@@ -70,7 +70,7 @@ um jogo pausa o jogo. Ctrl+Alt+G libera o mouse da janela do QEMU.
 ## Teste de aceitação
 
 ```
-uv run r36os test-vm          # --keep mantém o disco da VM em ~/.cache/r36os/vm/test.img
+uv run r36os test-vm          # --keep mantém o disco da VM em .cache/vm/test.img
 ```
 
 O teste sobe a VM sem tela com `r36os.selftest=1` e um segundo disco FAT (`TESTDATA`)
@@ -99,7 +99,7 @@ serviços (`lume: ...`) e o resumo de hardware.
 Os logs do sistema ficam na partição de jogos da VM, em `/storage/logs/` (`ROMS/logs/`):
 log de cada boot, retrato do hardware, métricas, eventos e log do RetroArch. O formato
 está em [LOGS.md](LOGS.md). Para vê-los, use a serial (`ls /storage/logs`) ou rode o
-teste com `--keep` e monte o disco `~/.cache/r36os/vm/test.img`.
+teste com `--keep` e monte o disco `.cache/vm/test.img`.
 
 ## Depuração
 

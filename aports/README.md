@@ -1,7 +1,8 @@
 # aports locais do Lume Retro OS
 
 Pacotes Alpine construídos com `abuild` no container do arch alvo e publicados em
-`out/repo/<arch>`, assinados com a chave local em `~/.cache/r36os/abuild/`.
+`out/repo/<arch>`, assinados com a chave local em `.cache/abuild/` (cache do build, na raiz
+do projeto).
 
 ```
 uv run r36os pkg <alvo> <pacote>...            # constrói

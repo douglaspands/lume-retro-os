@@ -3,6 +3,9 @@
 Dry run by default: it lists what it would remove, with sizes, and what it leaves for a
 person to review. `--yes` removes only the first list.
 
+<cache> is the build cache: `.cache/` at the root of the main repository, or
+`$R36OS_CACHE` (see `paths.cache_dir`).
+
 Removed (all of it comes back by itself on the next build or download):
   - kernel build trees of old patch sets: <cache>/kbuild/<board>-<digest> whose digest is
     not the one of the current kernel/patches/ (each is 0.3 to 2.8 GB);
@@ -22,7 +25,8 @@ in out/worktrees/ whose branch is already merged into the current branch.
 Never touched: var/ (test ROMs), out/repo (local package repository, hours to rebuild),
 out/r36s-factory and out/r36s-bootlogs (evidence from the device, not reproducible), the
 current kernel tree and build, ccache, distfiles, the abuild keys, vendor/ and vm/ of the
-cache, .ctx/ and .venv/.
+cache, .ctx/ and .venv/. The search for Python caches never walks into .cache/ (millions of
+kernel build files).
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ KNOWN_OUT = {
     "r36s-factory", "r36s-bootlogs",
 }
 TIMESTAMP = re.compile(r"\b(\d{8}-\d{6})\b")
-SKIP_DIRS = {".git", ".venv", ".ctx", "out", "var", "node_modules"}
+SKIP_DIRS = {".git", ".venv", ".ctx", ".cache", "out", "var", "node_modules"}
 
 
 @dataclass

@@ -5,11 +5,11 @@ import hashlib
 import random
 import struct
 from compression import zstd
-from pathlib import Path
 
 import pytest
 
 from r36os import bootarea, r36s_vendor, vendor
+from r36os.paths import cache_dir
 
 S = 512
 
@@ -66,7 +66,7 @@ def test_shrink_boot0_requires_egon():
         vendor.shrink_boot0(bytearray(128 * S))
 
 
-_CACHED = Path.home() / ".cache/r36os/vendor/ga36-factory-128M.bin"
+_CACHED = cache_dir() / "vendor/ga36-factory-128M.bin"
 
 
 @pytest.mark.skipif(not _CACHED.exists(), reason="GA36 factory area not in the cache")

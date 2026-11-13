@@ -23,10 +23,27 @@ no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome intern
 - Linux com `podman` (rootless) e [`uv`](https://docs.astral.sh/uv/); Python 3.14 via `uv`;
 - para a imagem `console`, `qemu-user` registrado no binfmt para armv7 e aarch64 (os pacotes
   das duas camadas são compilados sob emulação);
-- espaço em disco: o cache fica fora do repositório, em `~/.cache/r36os` (kernel, U-Boot,
-  distfiles, ccache), e os artefatos em `out/`.
+- espaço em disco: cerca de 17 GB para o cache em `.cache/` e mais os artefatos em `out/`
+  (veja abaixo).
 
 Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em Alpine.
+
+**Cache do build (`.cache/`).** Fica na raiz do projeto, ignorado pelo git, e guarda o que
+o build baixa e compila entre uma execução e outra: fontes e árvores de build do kernel e do
+U-Boot (`src/`, `kbuild/`, `ubuild/`), `ccache/`, `distfiles/`, as chaves de assinatura do
+abuild (`abuild/`), as áreas de boot de fábrica (`vendor/`), a imagem descomprimida do
+`flash` (`flash/`) e o disco da VM (`vm/`). Cerca de 17 GB com as camadas compiladas;
+`uv run r36os clean` remove o que um build refaz sozinho.
+
+- No Btrfs, o build cria o `.cache/` como No-COW (`chattr +C`), o que evita a fragmentação
+  das árvores de build e do disco da VM. Em ext4, xfs e outros, ele avisa numa linha e segue.
+- Para guardar o cache em outro lugar, exporte `R36OS_CACHE=/outro/lugar`.
+- Uma git worktree (por exemplo, `out/worktrees/<nome>`) usa o `.cache/` do repositório
+  principal, sem recompilar o kernel.
+- Exclua o `.cache/` (e o `out/`) do file watcher da IDE: são milhões de arquivos.
+- **`git clean -fdx` apaga o `.cache/` inteiro**, incluindo as chaves do abuild. Tudo volta
+  com um build, mas as chaves novas exigem recompilar os pacotes de `out/repo`. Prefira
+  `git clean -fd` (sem `-x`) ou `uv run r36os clean`.
 
 **Bootloaders dos aparelhos.** Cada console sobe pelo bootloader do próprio fabricante, que
 é binário fechado e não está no repositório:
@@ -36,7 +53,7 @@ Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em 
   original.
 
 Na primeira vez, faça uma cópia do cartão que veio com cada aparelho e aponte as variáveis
-para elas. O build extrai as áreas de boot para o cache (`~/.cache/r36os/vendor/`), confere
+para elas. O build extrai as áreas de boot para o cache (`.cache/vendor/`), confere
 o SHA256 e, daí em diante, não precisa mais das variáveis. A cópia do R36S pode ser a
 imagem inteira do cartão, crua ou comprimida (`.img.zst`):
 
@@ -48,6 +65,29 @@ R36OS_GA36_FACTORY=ga36-boot-area.img R36OS_R36S_FACTORY=r36s-card.img uv run r3
 
 Só os cartões de fábrica medidos são aceitos (o SHA256 de outro cartão é recusado com uma
 mensagem que explica o motivo).
+
+### Cache de versões anteriores
+
+Até esta versão, o cache ficava em `~/.cache/r36os` (ou `$XDG_CACHE_HOME/r36os`), que o
+build não usa mais. Para aproveitá-lo sem recompilar tudo, mova-o uma vez, com nenhum build
+rodando (`podman ps` vazio), a partir da raiz do projeto:
+
+```sh
+uv run r36os clean                  # confira a lista
+uv run r36os clean --yes            # remove as árvores kbuild/ de conjuntos de patches antigos
+stat -c %d ~/.cache/r36os/ .        # o mesmo número: o mv só troca nomes, sem copiar dados
+mkdir .cache
+chattr +C .cache                    # só no Btrfs
+mv ~/.cache/r36os/src .cache/       # repita para cada pasta de primeiro nível do cache antigo
+rmdir ~/.cache/r36os                # falha se sobrar algo
+uv run r36os build vm               # reaproveita fontes e ccache, sem baixar o kernel de novo
+lsattr -d .cache                    # mostra o atributo C (No-COW)
+```
+
+Se o `stat` mostrar números diferentes, o `mv` vira uma cópia completa: confira o espaço
+livre antes. Se o `~/.cache/r36os` for um symlink, use o caminho real dele no `stat` e no
+`mv`, e no fim remova o symlink (`rm ~/.cache/r36os`) e a pasta vazia de destino (`rmdir`).
+Para voltar atrás, mova as pastas de volta ou exporte `R36OS_CACHE` com o caminho antigo.
 
 ## Uso rápido
 
@@ -172,6 +212,8 @@ initramfs/        init próprio (partição de jogos, SYSTEM, overlay)
 src/r36os/        orquestrador (build, imagem, versão, gravação, VM, testes)
 tests/            testes unitários, de integração e suítes em shell
 openspec/         planejamento (proposta, design, specs e tarefas)
+out/              artefatos do build: imagens, repositório de pacotes local (fora do git)
+.cache/           cache do build: fontes, árvores de build, ccache, chaves do abuild (fora do git)
 ```
 
 Upstream (kernel, U-Boot, aports, RetroArch) fica intocado e fixado por versão e sha256;
