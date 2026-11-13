@@ -39,6 +39,9 @@ def _parser() -> argparse.ArgumentParser:
     f.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     f.add_argument("--eject", action="store_true",
                    help="safely unmount and power off / eject the device after writing")
+    f.add_argument("--ssh-key", type=Path, metavar="PUB",
+                   help="public key allowed to log in as root over the USB cable "
+                        "(BOOT/ssh/; --update keeps the keys already on the card)")
 
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
@@ -91,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.flash import main_flash
 
             return main_flash(get_image(args.target), args.device, args.update,
-                              args.build, args.yes, args.eject)
+                              args.build, args.yes, args.eject, args.ssh_key)
         if args.command == "eject":
             from r36os.flash import main_eject
 

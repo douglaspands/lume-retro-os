@@ -17,6 +17,12 @@ Two modes:
 
 Pass `--eject` to safely unmount and power off the device after writing and verification.
 
+`--ssh-key <file.pub>` (usb-device-access D4) puts the public key in BOOT/ssh/
+authorized_keys, with the console host key of this PC (r36os.sshkeys), so root logs in
+over the USB cable with that key only. A private key is refused. `--update` keeps a
+BOOT/ssh/ already on the card. The files go into the BOOT region before it is written,
+so they are covered by the same read-back check.
+
 
 The image comes from out/images/<image>/<timestamp>/ (default: `latest`). Before
 writing, the command checks that the device is a removable disk, unmounts its partitions
@@ -38,7 +44,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from r36os import lang
+from r36os import lang, sshkeys
 from r36os.archive import images_dir
 from r36os.image import boot_sectors, boot_start
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
@@ -394,13 +400,53 @@ def _rereadpt(device: str) -> None:
                    env=_ENV, check=False)
 
 
+def _read_card_ssh(device: str) -> dict[str, bytes]:
+    """BOOT/ssh/ of the card before --update rewrites BOOT (reading is safe with any
+    reader; the files go back in through the verified BOOT write)."""
+    node = _part_node(device, 1)
+    if not Path(node).is_block_device():
+        return {}
+    mp = _mountpoint(node)
+    if mp is None:
+        subprocess.run(["udisksctl", "mount", "-b", node, "--options", "ro",
+                        "--no-user-interaction"], capture_output=True, env=_ENV)
+        mp = _mountpoint(node)
+    return sshkeys.read_card_ssh(Path(mp)) if mp else {}
+
+
+def write_plan(img: Path, target: ImageTarget, update: bool,
+               boot_src: Path | None = None) -> list[tuple[Path, int, int]]:
+    """(source file, offset, bytes) to write: the image, with the BOOT region taken from
+    `boot_src` (the copy with BOOT/ssh/) when there is one. Same offsets on both sides."""
+    if update:
+        regions = update_regions(target)
+    else:
+        regions = [(0, img.stat().st_size)]
+    if boot_src is None:
+        return [(img, off, length) for off, length in regions]
+    b_off = boot_start(target) * SECTOR
+    b_end = b_off + boot_sectors(target) * SECTOR
+    plan = []
+    for off, length in regions:
+        end = off + length
+        for lo, hi, src in ((off, min(end, b_off), img), (max(off, b_off), min(end, b_end), boot_src),
+                            (max(off, b_end), end, img)):
+            if hi > lo:
+                plan.append((src, lo, hi - lo))
+    return plan
+
+
 def flash(target: ImageTarget, device: str, update: bool = False, build: str = "latest",
-          yes: bool = False, eject: bool = False) -> int:
+          yes: bool = False, eject: bool = False, ssh_key: Path | None = None) -> int:
     zst = find_image(target, build)
     desc = _check_device(device)
+    if ssh_key is not None:
+        sshkeys.read_public_key(ssh_key)     # refuse a private key before anything else
     mode = "UPDATE (boot area + BOOT; ROMS kept)" if update else \
         "FULL (erases the whole card, including ROMS, then creates an empty ROMS)"
     print(f"image: {zst}\ncard:  {desc}\nmode:  {mode}")
+    if ssh_key is not None:
+        print(f"ssh:   {ssh_key} -> BOOT/ssh/authorized_keys (root over the USB cable)")
     if warning := reader_warning(device):
         print(warning)
     if not yes:
@@ -409,6 +455,7 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
             print("cancelled")
             return 1
     img = _decompress(zst)
+    existing = _read_card_ssh(device) if update else {}
     _unmount(device)
 
     if update:
@@ -418,28 +465,35 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
         check_update(image_mbr, card_mbr)
         if not card_mbr.has_p2:
             print("note: the card has no ROMS partition yet (it is created on the next boot)")
-        regions = update_regions(target)
     else:
         _wipe_disk(device, img.stat().st_size)
-        regions = [(0, img.stat().st_size)]
 
-    for offset, length in regions:
-        _sudo_write(img, device, offset, length)
+    boot_src = None
+    if files := sshkeys.boot_ssh_files(ssh_key, existing):
+        boot_src = sshkeys.boot_with_ssh(img, boot_start(target) * SECTOR,
+                                         boot_sectors(target) * SECTOR, files)
+        kept = "kept from the card" if existing else "new"
+        print(f"BOOT/ssh/: {', '.join(sorted(files))} ({kept if ssh_key is None else 'with the key'})")
+    plan = write_plan(img, target, update, boot_src)
+
+    for src, offset, length in plan:
+        _sudo_write(src, device, offset, length)
     subprocess.run(["sync"], check=True, env=_ENV)
 
     if not update:
         _rereadpt(device)
 
-
-    for offset, length in regions:
+    for src, offset, length in plan:
         actual_hash = _sudo_read(device, offset, length)
-        expected_hash = _sha256_file(img, offset, length)
+        expected_hash = _sha256_file(src, offset, length)
         if actual_hash != expected_hash:
             raise FlashError(
                 f"verification failed at {offset}+{length}: "
                 f"expected {expected_hash[:16]}..., got {actual_hash[:16]}...: write it again"
             )
 
+    if boot_src is not None:
+        boot_src.unlink()             # the BOOT copy with ssh/ (hundreds of MiB)
     if not update:
         _create_roms(device, img, build_language(zst))
     mark_flashed(zst.parent)
@@ -470,10 +524,10 @@ def main_eject(device: str) -> int:
 
 
 def main_flash(target: ImageTarget, device: str, update: bool, build: str, yes: bool,
-               eject: bool = False) -> int:
+               eject: bool = False, ssh_key: Path | None = None) -> int:
     try:
-        return flash(target, device, update, build, yes, eject)
-    except (FlashError, subprocess.CalledProcessError) as e:
+        return flash(target, device, update, build, yes, eject, ssh_key)
+    except (FlashError, sshkeys.SshKeyError, subprocess.CalledProcessError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

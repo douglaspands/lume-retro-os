@@ -154,6 +154,26 @@ uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, de
   `--update`.
 - O cartão precisa ter pelo menos 4 GB (a `BOOT` ocupa 2 GiB depois dos 128 MiB iniciais).
 - Para descobrir o dispositivo: `lsblk -o NAME,SIZE,TRAN,RM,MODEL,LABEL`.
+- Rode o `r36os flash` como seu usuário, **sem** `sudo` na frente: ele chama o `sudo` só
+  para gravar e ler o cartão, e a chave do `--ssh-key` fica na sua pasta pessoal.
+
+### Root pelo cabo USB (`--ssh-key`)
+
+```sh
+uv run r36os flash console /dev/sdX --update --ssh-key ~/.ssh/id_ed25519.pub
+```
+
+- Grava `BOOT/ssh/authorized_keys` com a sua chave **pública** e a chave de host do console.
+  Uma chave privada é recusada.
+- A chave de host é gerada uma vez neste PC, em `~/.config/r36os/ssh_host_ed25519`. Todo
+  cartão gravado aqui usa a mesma chave, e o `~/.config/r36os/known_hosts` (usado pelo
+  `r36os push`) já a conhece, então o SSH não avisa ao trocar de cartão ou de console.
+- Os arquivos entram na `BOOT` antes da gravação e passam pela mesma conferência por SHA256.
+  Não há uma gravação pequena à parte, que o leitor 14cd:125d corromperia.
+- Sem `--ssh-key`, o `--update` mantém a `BOOT/ssh/` que já estiver no cartão. Para tirar o
+  acesso root, apague a pasta `ssh/` da `BOOT`.
+- Com a chave no cartão, ligue o console no PC pela porta OTG e entre com
+  `ssh root@10.55.0.1`.
 
 ## O cartão
 
