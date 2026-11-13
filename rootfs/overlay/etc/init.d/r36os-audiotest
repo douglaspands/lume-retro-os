@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+# BRING-UP ONLY (r36s-single-card, task 4.6): measures the real audio playback rate before
+# the frontend opens the sound card. Does nothing unless ROMS/system/etc/audiotest exists.
+# Enabled only on the R36S (rootfs/configure.sh).
+
+description="Bring-up: measure the R36S audio playback rate (only with the audiotest flag)"
+
+depend() {
+	need alsa
+	after r36os-mixer r36os-jack
+	before frontend
+}
+
+start() {
+	ebegin "Running the audio rate test"
+	/usr/libexec/r36os/audiotest
+	eend 0
+}

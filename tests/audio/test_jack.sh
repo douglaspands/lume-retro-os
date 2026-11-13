@@ -77,7 +77,7 @@ out=$(INPUT_SYSFS="$W/sys" $JACK 2>/dev/null)
 rc=$?
 check "sysfs: no jack device is an error, named in the output" \
 	'[ "$rc" = 1 ] && printf "%s\n" "$out" | grep -q "no input device named \"rk817_int Headphones\""'
-check "service: enabled only on the R36S" 'grep -q "r36s) add r36os-jack default ;;" rootfs/configure.sh'
+check "service: enabled only on the R36S" 'grep -q "r36s) add r36os-jack default[;]" rootfs/configure.sh'
 
 rm -rf "$W"
 echo "failures: $FAILS"

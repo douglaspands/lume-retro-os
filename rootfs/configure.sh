@@ -45,6 +45,6 @@ for s in r36os-padmerge; do
 done
 # Board services that live in the common overlay
 case "$BOARD" in
-r36s) add r36os-jack default ;;
+r36s) add r36os-jack default; add r36os-audiotest default ;;
 esac
 for s in killprocs mount-ro savecache; do add "$s" shutdown; done
