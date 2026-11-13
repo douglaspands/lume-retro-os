@@ -224,21 +224,38 @@ com o prefixo `lume-bootsel:`:
 | `probe adc\|gpio\|i2c <endereço> ...: <leitura> (rule ...) match\|no match` | leitura feita por uma regra |
 | `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
 | `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
-| `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada |
-| `fallback: <id> did not reach the frontend in the previous boot; discarded` | volta ao último DTB que funcionou |
+| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC |
+| `no SoC serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
+| `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada (nome inválido) |
+| `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
+| `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
 | `list shown ...`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção |
-| `selected <id> (reason: default\|rule\|manual\|forced\|fallback)` | **o DTB escolhido e o motivo** |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted)` | **o DTB escolhido e o motivo** |
 | `keeping the running device tree, no kexec` | boot segue sem troca |
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
-| `before kexec: <linha>` e `device tree from kexec: <id> (reason: <motivo>)` | no segundo início, as linhas do primeiro (que se perderiam com o kexec) e a origem do DTB |
+| `kexec: <linha>` | o que o `kexec -l` imprimiu (antes só ia para a tela) |
+| `kexec -l failed (status <n>); details follow`, `iomem: <linha>` | a carga falhou: segue a saída do `kexec -d` e a RAM do `/proc/iomem` |
+| `watchdog armed: 60 s ...` / `watchdog stopped` / `no /dev/watchdog: ...` | watchdog armado antes da troca para um DTB novo e parado no início seguinte |
+| `before kexec: <linha>` e `device tree from kexec: <id> (reason: <motivo>)` | no segundo início, as linhas do primeiro (que se perderiam com o kexec) e a origem do DTB; depois de uma volta, as do primeiro vêm com o prefixo duas vezes |
+| `question shown: keep <id>? (15 s)` | pergunta na tela do primeiro boot com um DTB novo |
+| `confirmed on screen: <id> kept` | o usuário apertou A: o DTB fica confirmado neste aparelho |
+| `not confirmed within 15 s: <id> discarded on this device, going back to <id>` | sem resposta: o DTB vai para `bad` e o kernel volta (`reverted`) |
+| `no question on the screen (...): <id> stays pending until the frontend starts` | sem tecla de confirmar: o `r36os-logd` confirma quando o frontend sobe |
+| `back from a device tree that was not confirmed: no question, no switch` | terceiro início, depois da volta |
+| `kexec -e failed: <id> is no longer pending` | o `kexec -e` falhou e o boot segue com o DTB em uso |
 | `no device tree` | sem device tree (a VM): nada a escolher |
 
-O estado fica em `ROMS/system/etc/dtb-<soc>.conf` (`manual=`, `good=`, `pending=`, `bad=`),
-um arquivo por SoC. Quando o frontend sobe, o `r36os-logd` grava `good=<DTB em uso>` e apaga
-o `pending=`; um DTB que continua `pending` no boot seguinte não chegou ao frontend e é
+O estado fica em `ROMS/system/etc/dtb-<soc>-<serial>.conf` (`manual=`, `good=`,
+`pending=`, `bad=`), um arquivo por aparelho, identificado pelo número de série do SoC
+(`/sys/devices/soc0/serial_number`); sem ele, `dtb-<soc>.conf`, um por SoC. Um DTB que não
+é o padrão e ainda não foi confirmado no aparelho fica `pending` e é confirmado na tela; se
+a pergunta não pôde aparecer, o `r36os-logd` o confirma quando o frontend sobe (`good=` e
+sem `pending=`). Um DTB que continua `pending` no boot seguinte não foi confirmado e é
 descartado (`fallback`). No `events.log`, a escolha vira `boot OK device tree selected …`,
-a confirmação `boot OK device tree <id> confirmed: the frontend started`, e o fallback e os
-erros do `lume-bootsel` viram `boot FAIL device tree …`.
+a confirmação na tela `boot OK device tree confirmed on screen: …`, a do frontend
+`boot OK device tree <id> confirmed: the frontend started (no question on the screen)`, e o
+fallback, a falta de resposta e os erros do `lume-bootsel` viram `boot FAIL device tree …`.
+O `hw/boot-<n>.txt` traz o DTB em uso e o arquivo de estado no campo `dt in use`.
 
 ## Diagnóstico de hardware no `boot/boot-<n>.log`
 

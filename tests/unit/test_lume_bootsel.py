@@ -153,8 +153,32 @@ class Root:
     def force(self, text):
         (self.path / "boot/dtbs/force").write_text(text)
 
-    def state(self, soc=None, **values):
-        f = self.path / f"roms/system/etc/dtb-{soc or self.soc}.conf"
+    def serial(self, value):
+        f = self.path / "sys/devices/soc0/serial_number"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(value)
+
+    def after_kexec(self, ident, reason, watchdog=False):
+        """The second (or third) start: the kernel runs with the tree prepared before."""
+        dt = self.path / "proc/device-tree"
+        (dt / "lume-select/lume,id").write_bytes(fdt.s(ident))
+        (dt / "chosen/lume,dtb-selected").write_bytes(fdt.s(ident, reason))
+        (dt / "chosen/lume,dtb-log").write_bytes(fdt.s(f"selected {ident} (reason: {reason})\n"))
+        if watchdog:
+            (dt / "chosen/lume,watchdog").write_bytes(b"")
+
+    def watchdog(self, text=""):
+        """A fake /dev/watchdog: a regular file that records what is written to it."""
+        f = self.path / "dev/watchdog"
+        f.write_text(text)
+        return f
+
+    def prepared(self):
+        return fdt.parse((self.path / "tmp/lume-bootsel.dtb").read_bytes())
+
+    def state(self, soc=None, device=None, **values):
+        name = f"dtb-{soc or self.soc}-{device}.conf" if device else f"dtb-{soc or self.soc}.conf"
+        f = self.path / f"roms/system/etc/{name}"
         if values:
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
@@ -345,7 +369,7 @@ def test_force_from_the_pc(tools, root):
     rc, out, err = run(tools, root)
     assert decision(out) == {"selected": "ga36-panel2", "reason": "forced", "kexec": "yes",
                              "dtb": str(root.path / "tmp/lume-bootsel.dtb")}
-    assert root.state()["pending"] == ""                   # the forced one is never discarded
+    assert root.state()["pending"] == "ga36-panel2"        # confirmed on the screen, too
 
 
 def test_force_accepts_the_file_name(tools, root):
@@ -386,8 +410,7 @@ def test_back_to_the_last_one_that_worked(tools, root):
     root.dtb("x.dtb", _cand("other"))
     root.state(manual="ga36-panel2", good="other", pending="ga36-panel2")
     rc, out, err = run(tools, root)
-    assert ("fallback: ga36-panel2 did not reach the frontend in the previous boot; "
-            "discarded") in err
+    assert "fallback: ga36-panel2 was not confirmed in the previous boot; discarded" in err
     assert decision(out)["selected"] == "other" and decision(out)["reason"] == "fallback"
     st = root.state()
     assert st["bad"] == "ga36-panel2" and st["manual"] == "" and st["pending"] == ""
@@ -409,13 +432,37 @@ def test_discarded_one_is_skipped_by_the_rules(tools, root):
     assert decision(out)["reason"] == "default"
 
 
-def test_forced_one_is_never_discarded(tools, root):
+def test_forced_one_that_hung_is_discarded_and_the_force_ignored(tools, root):
     root.ga36_panels()
     root.force("ga36-panel2")
     run(tools, root)
-    assert root.state()["pending"] == ""
-    out = decision(run(tools, root)[1])                    # the next boot: still forced
-    assert out["reason"] == "forced" and root.state()["bad"] == ""
+    assert root.state()["pending"] == "ga36-panel2"
+    rc, out, err = run(tools, root)          # the next boot comes from the bootloader again
+    assert decision(out) == {"selected": "ga36-panel1", "reason": "fallback", "kexec": "no"}
+    assert ("force ignored: ga36-panel2 was discarded on this device (bad); delete "
+            "BOOT/dtbs/force or choose it in the list") in err
+    assert root.state()["bad"] == "ga36-panel2"
+
+
+def test_force_of_a_discarded_one_is_ignored(tools, root):
+    root.ga36_panels()
+    root.dtb("x.dtb", _cand("other"))
+    root.force("ga36-panel2")
+    root.state(bad="ga36-panel2", manual="other", good="other")
+    rc, out, err = run(tools, root)
+    assert "force ignored: ga36-panel2 was discarded on this device (bad)" in err
+    assert decision(out)["selected"] == "other" and decision(out)["reason"] == "manual"
+
+
+def test_list_clears_the_discard_of_the_forced_one(tools, root):
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    root.state(bad="ga36-panel2")
+    # starts on "Automatic": up goes to panel2
+    root.keys(held=[KEY_VOLUMEDOWN], events=[KEY_VOLUMEUP, BTN_EAST])
+    rc, out, err = run(tools, root)
+    assert decision(out)["selected"] == "ga36-panel2"
+    assert root.state()["bad"] == "" and root.state()["pending"] == "ga36-panel2"
 
 
 def test_without_roms_the_choice_still_works(tools, root):
@@ -519,6 +566,30 @@ def test_failed_kexec_keeps_booting_without_pending(tools, root, tmp_path):
     assert root.state()["pending"] == ""
 
 
+def test_kexec_output_goes_to_the_log(tools, root, tmp_path):
+    # the errors of kexec only reached the console (GA36 boot 20): now they are logged,
+    # and a failure is retried with -d plus the RAM layout of /proc/iomem
+    script = tmp_path / "kexec"
+    script.write_text('#!/bin/sh\necho "$@" >> "' + str(tmp_path) + '/kexec.calls"\n'
+                      'echo "Could not find a free area of memory of 0x715248 bytes..." >&2\n'
+                      'echo "Cannot load /boot/ga36/zImage" >&2\nexit 255\n')
+    script.chmod(0o755)
+    (root.path / "proc/iomem").write_text("40000000-5fffffff : System RAM\n"
+                                          "  40008000-40efffff : Kernel code\n"
+                                          "01c00000-01c00fff : 1c00000.syscon\n")
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    rc, out, err = run(tools, root, "--kexec", str(script), dry=False)
+    assert rc == 0
+    assert "lume-bootsel: kexec: Could not find a free area of memory of 0x715248 bytes..." in err
+    assert "lume-bootsel: kexec -l failed (status 255); details follow" in err
+    assert "lume-bootsel: iomem: 40000000-5fffffff : System RAM" in err
+    assert "syscon" not in err
+    calls = (tmp_path / "kexec.calls").read_text().splitlines()
+    assert calls[0].startswith("-l ") and calls[1].startswith("-d -l ")
+    assert "ERROR: kexec -l failed (status 255); keeping the running device tree" in err
+
+
 def test_missing_kernel_keeps_the_running_tree(tools, root):
     root.ga36_panels()
     root.force("ga36-panel2")
@@ -619,3 +690,251 @@ def test_log_lines(tools, root):
     assert "lume-bootsel: rules of ga36-panel2: no match" in lines
     assert "lume-bootsel: selected ga36-panel1 (reason: default)" in lines
     assert all(line.isascii() for line in lines)               # English, plain text
+
+
+# --- 4.7: state per device (D6) ------------------------------------------------------------
+
+def test_choice_is_separate_per_device(tools, root):
+    root.ga36_panels()
+    root.serial("02c00042a1b2c3d4\n")
+    root.state(device="02c00042a1b2c3d4", manual="ga36-panel2", good="ga36-panel2")
+    rc, out, err = run(tools, root)
+    assert "device: SoC serial number 02c00042a1b2c3d4, choice in dtb-a33-02c00042a1b2c3d4.conf" in err
+    assert decision(out)["selected"] == "ga36-panel2" and decision(out)["reason"] == "manual"
+
+    root.serial("02c00042ffff0000\n")                       # the card in another GA36
+    out = decision(run(tools, root)[1])
+    assert out == {"selected": "ga36-panel1", "reason": "default", "kexec": "no"}
+    assert root.state(device="02c00042ffff0000") == {"manual": "", "good": "", "pending": "",
+                                                    "bad": ""}
+    assert root.state(device="02c00042a1b2c3d4")["manual"] == "ga36-panel2"   # untouched
+
+    root.serial("02c00042a1b2c3d4\n")                       # back in the first one
+    assert decision(run(tools, root)[1])["selected"] == "ga36-panel2"
+
+
+@pytest.mark.parametrize("value", [None, "", "0000000000000000\n"])
+def test_without_serial_the_choice_is_per_soc_with_a_warning(tools, root, value):
+    root.ga36_panels()
+    if value is not None:
+        root.serial(value)
+    root.state(manual="ga36-panel2")
+    rc, out, err = run(tools, root)
+    assert "no SoC serial number: the choice in dtb-a33.conf applies to every a33 device" in err
+    assert decision(out)["selected"] == "ga36-panel2"
+
+
+def test_serial_keeps_only_letters_and_digits(tools, root):
+    root.ga36_panels()
+    root.serial("12:ab/../CD\n")
+    run(tools, root)
+    assert (root.path / "roms/system/etc/dtb-a33-12abCD.conf").exists()
+
+
+def test_bad_on_one_device_does_not_block_the_force_on_another(tools, root):
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    root.serial("aaaa")
+    root.state(device="aaaa", bad="ga36-panel2")
+    assert decision(run(tools, root)[1])["reason"] == "default"
+    root.serial("bbbb")
+    assert decision(run(tools, root)[1])["reason"] == "forced"
+
+
+# --- 4.8: confirmation on the screen (D10) -------------------------------------------------
+
+def test_new_device_tree_confirmed_on_the_screen(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", manual="ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    root.after_kexec("ga36-panel2", "manual")
+    rc, out, err = run(tools, root)
+    assert rc == 0 and out == ""
+    assert "question shown: keep ga36-panel2? (15 s)" in err
+    assert "confirmed on screen: ga36-panel2 kept" in err
+    tty = root.tty()
+    assert "Lume Retro OS - new device tree: ga36-panel2" in tty
+    assert "If you can read this, press A to keep it." in tty
+    assert "Going back to ga36-panel1 in 15 s..." in tty
+    assert "Kept: ga36-panel2" in tty
+    assert root.state() == {"manual": "ga36-panel2", "good": "ga36-panel2", "pending": "",
+                            "bad": ""}
+    # the boots after it with the same device tree do not ask any more
+    (root.path / "dev/tty1").write_text("")
+    rc, out, err = run(tools, root)
+    assert "question shown" not in err and root.tty() == ""
+
+
+def test_no_answer_goes_back_to_the_default(tools, root, tmp_path):
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    root.state(pending="ga36-panel2")
+    root.keys(events=[KEY_VOLUMEUP])                         # not the confirm key
+    root.after_kexec("ga36-panel2", "forced")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert ("not confirmed within 15 s: ga36-panel2 discarded on this device, going back "
+            "to ga36-panel1") in err
+    assert "selected ga36-panel1 (reason: reverted)" in err
+    assert "No answer: going back to ga36-panel1." in root.tty()
+    assert root.state() == {"manual": "", "good": "", "pending": "", "bad": "ga36-panel2"}
+    dtb = root.prepared()
+    assert dtb.path("/lume-select").string("lume,id") == "ga36-panel1"
+    assert dtb.path("/chosen").strings("lume,dtb-selected") == ["ga36-panel1", "reverted"]
+    assert (tmp_path / "kexec.args").read_text().split()[1] == str(root.path / "boot/ga36/zImage")
+
+
+def test_no_answer_goes_back_to_the_last_confirmed_one(tools, root, tmp_path):
+    root.ga36_panels()
+    root.dtb("x.dtb", _cand("other"))
+    root.state(pending="ga36-panel2", manual="ga36-panel2", good="other")
+    root.keys(events=[])
+    root.after_kexec("ga36-panel2", "manual")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10 and "going back to other" in err
+    assert root.state() == {"manual": "", "good": "other", "pending": "", "bad": "ga36-panel2"}
+    assert root.prepared().path("/lume-select").string("lume,id") == "other"
+
+
+def test_reverted_tree_read_with_fdtget(tools, root, tmp_path):
+    if tools["fdtget"] is None:
+        pytest.skip("fdtget did not build")
+    root.ga36_panels()
+    root.state(pending="ga36-panel2")
+    root.keys(events=[])
+    root.after_kexec("ga36-panel2", "rule")
+    run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    r = subprocess.run([str(tools["fdtget"]), str(root.path / "tmp/lume-bootsel.dtb"),
+                        "/chosen", "lume,dtb-selected"], capture_output=True, text=True)
+    assert r.stdout.strip() == "ga36-panel1 reverted"
+
+
+def test_third_start_after_the_revert_goes_on(tools, root):
+    root.ga36_panels()
+    root.state(bad="ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    root.after_kexec("ga36-panel1", "reverted")
+    rc, out, err = run(tools, root)
+    assert rc == 0 and out == ""
+    assert "back from a device tree that was not confirmed: no question, no switch" in err
+    assert root.tty() == "" and root.state()["bad"] == "ga36-panel2"
+
+
+@pytest.mark.parametrize("keys_file, devices", [(False, False), (True, False)])
+def test_without_a_confirm_key_there_is_no_question(tools, root, keys_file, devices):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2")
+    if keys_file:
+        (root.path / "etc/bootsel-keys").write_text(KEYS)
+    root.after_kexec("ga36-panel2", "rule")
+    rc, out, err = run(tools, root)
+    assert rc == 0
+    assert ("no question on the screen (no confirm key or tty1): ga36-panel2 stays pending "
+            "until the frontend starts") in err
+    assert root.state()["pending"] == "ga36-panel2"          # for r36os-logd
+
+
+def test_confirmed_or_default_trees_never_ask(tools, root):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2", good="ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    root.after_kexec("ga36-panel2", "manual")
+    rc, out, err = run(tools, root)
+    assert "question shown" not in err and root.tty() == ""
+
+
+# --- 4.9: watchdog (D11) ------------------------------------------------------------------
+
+def test_watchdog_armed_before_the_kexec_to_a_new_one(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2")
+    wd = root.watchdog()
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert wd.read_text() == "timeout 60\n"                 # closed without 'V'
+    assert "watchdog armed: 60 s" in err
+    assert "lume,watchdog" in root.prepared().path("/chosen").props
+
+
+def test_watchdog_not_armed_for_a_confirmed_one(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2", good="ga36-panel2")
+    wd = root.watchdog()
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10 and wd.read_text() == ""
+    assert "lume,watchdog" not in root.prepared().path("/chosen").props
+
+
+def test_watchdog_not_armed_when_kexec_fails(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2")
+    wd = root.watchdog()
+    run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 1)), dry=False)
+    assert wd.read_text() == ""
+
+
+def test_dry_run_does_not_touch_the_watchdog(tools, root):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2")
+    wd = root.watchdog()
+    run(tools, root)
+    assert wd.read_text() == ""
+    assert "lume,watchdog" not in root.prepared().path("/chosen").props
+
+
+def test_without_a_watchdog_the_log_says_so(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(manual="ga36-panel2")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert "no /dev/watchdog: a hang with ga36-panel2 needs a power cycle to go back" in err
+
+
+def test_watchdog_fed_during_the_question_and_stopped_on_confirm(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    root.after_kexec("ga36-panel2", "rule", watchdog=True)
+    wd = root.watchdog("timeout 60\n")
+    rc, out, err = run(tools, root, dry=False)
+    assert rc == 0
+    assert re.fullmatch(r"timeout 60\n\.+V", wd.read_text())
+    assert "watchdog stopped" in err
+
+
+def test_watchdog_stopped_before_going_back_and_armed_again(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2")
+    root.keys(events=[])
+    root.after_kexec("ga36-panel2", "rule", watchdog=True)
+    wd = root.watchdog("timeout 60\n")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert re.fullmatch(r"timeout 60\n\.+Vtimeout 60\n", wd.read_text())
+    assert "lume,watchdog" in root.prepared().path("/chosen").props
+
+
+@pytest.mark.parametrize("state, reason", [
+    ({"bad": "ga36-panel2"}, "reverted"),                   # third start
+    ({"good": "ga36-panel2"}, "manual"),                    # confirmed before
+    ({"pending": "ga36-panel2"}, "rule"),                   # no question (no keys)
+])
+def test_watchdog_stopped_when_there_is_no_question(tools, root, state, reason):
+    root.ga36_panels()
+    root.state(**state)
+    root.after_kexec("ga36-panel2" if reason != "reverted" else "ga36-panel1", reason,
+                     watchdog=True)
+    wd = root.watchdog("timeout 60\n")
+    rc, out, err = run(tools, root, dry=False)
+    assert rc == 0 and wd.read_text() == "timeout 60\nV"
+
+
+def test_kexec_failed_clears_pending_and_stops_the_watchdog(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", manual="ga36-panel2")
+    wd = root.watchdog("timeout 60\n")
+    rc, out, err = run(tools, root, "--kexec-failed", dry=False)
+    assert rc == 0
+    assert "kexec -e failed: ga36-panel2 is no longer pending" in err
+    assert root.state() == {"manual": "ga36-panel2", "good": "", "pending": "", "bad": ""}
+    assert wd.read_text() == "timeout 60\nV"

@@ -114,6 +114,8 @@ select_dtb() {
 		ROMS_MOUNTED=""
 		log "ERROR: failed to mount ROMS; continuing without games partition"
 	fi
+	# the chosen device tree never ran: not pending, and the watchdog armed for it stops
+	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} --kexec-failed || true
 }
 select_dtb
 

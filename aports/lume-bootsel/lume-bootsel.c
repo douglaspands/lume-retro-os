@@ -9,11 +9,18 @@
  * through kexec_load (kexec -l); the init then unmounts everything and runs kexec -e.
  *
  * Decision order: BOOT/dtbs/force; the list on the screen (selection key held at power
- * on); back to the last device tree that reached the frontend; the choice saved from the
- * list; the rules of the candidates (read-only probes); the default.
+ * on); back to the last confirmed device tree; the choice saved from the list; the rules
+ * of the candidates (read-only probes); the default.
+ *
+ * The state is per device (D6): ROMS/system/etc/dtb-<soc>-<serial>.conf, with the SoC
+ * serial number of /sys/devices/soc0 (dtb-<soc>.conf without one). A device tree that is
+ * not the default and was not confirmed on this device is "pending": the watchdog is
+ * armed before the kexec (D11) and the second start asks on the screen (D10); without an
+ * answer in 15 s it is "bad" and the kernel goes back to the last confirmed one.
  *
  * Exit status: 0 keep booting with the running device tree; 10 a kernel is loaded, the
- * init must run kexec -e; 2 bad usage.
+ * init must run kexec -e; 2 bad usage. With --kexec-failed (kexec -e returned) it only
+ * clears the pending device tree and stops the watchdog.
  *
  * --root DIR prefixes every path (/proc/device-tree, /sys, /dev, /etc, BOOT and ROMS), so
  * the tests run it on the PC against a fake tree; there a device node that is a regular
@@ -21,6 +28,7 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -41,6 +49,7 @@
 #include <linux/gpio.h>
 #include <linux/i2c-dev.h>
 #include <linux/input.h>
+#include <linux/watchdog.h>
 
 #include <libfdt.h>
 
@@ -51,6 +60,8 @@
 #define LIST_LEN 512
 #define MENU_IDLE_MS 60000
 #define KEY_WAIT_MS 1000
+#define CONFIRM_S 15
+#define WATCHDOG_S 60
 
 /* --- options and paths ------------------------------------------------------------- */
 
@@ -61,6 +72,7 @@ static const char *opt_kernel;
 static const char *opt_kexec = "/bin/kexec";
 static const char *opt_out;
 static int opt_dry_run;
+static int opt_kexec_failed;
 
 /* path under --root; returns a static buffer from a small ring */
 static const char *rp(const char *fmt, ...)
@@ -94,8 +106,15 @@ static void lg(const char *fmt, ...)
 	vsnprintf(line, sizeof(line), fmt, ap);
 	va_end(ap);
 	fprintf(stderr, "lume-bootsel: %s\n", line);
-	if (kmsg >= 0)
-		dprintf(kmsg, "lume-bootsel: %s\n", line);
+	if (kmsg >= 0) {
+		/* one write per record: the dprintf of musl is unbuffered and would send the
+		 * newline as an empty record of its own */
+		char rec[sizeof(line) + 16];
+		int len = snprintf(rec, sizeof(rec), "lume-bootsel: %s\n", line);
+
+		if (len > 0 && write(kmsg, rec, (size_t)len) < 0)
+			close(kmsg), kmsg = -1;
+	}
 	n = strlen(line);
 	if (loglen + n + 2 < sizeof(logbuf)) {
 		memcpy(logbuf + loglen, line, n);
@@ -571,9 +590,40 @@ static struct {
 	char manual[ID_LEN], good[ID_LEN], pending[ID_LEN], bad[LIST_LEN];
 } st;
 
+static char serial[64];
+static char state_file[NAME_MAX + 1];
+
+/*
+ * The SoC serial number (SID on the A33, OTP on the RK3326) names the state file, so a
+ * card taken to another device of the same SoC does not take the choice of the first one.
+ * Only letters and digits are kept; an empty or all-zero value (not fused) counts as none.
+ */
+static void load_serial(void)
+{
+	char *text = read_file(rp("/sys/devices/soc0/serial_number"), NULL), *p;
+	size_t n = 0;
+	int nonzero = 0;
+
+	for (p = text; p && *p && n + 1 < sizeof(serial); p++)
+		if (isalnum((unsigned char)*p)) {
+			serial[n++] = *p;
+			nonzero |= *p != '0';
+		}
+	serial[nonzero ? n : 0] = 0;
+	free(text);
+	if (*serial) {
+		snprintf(state_file, sizeof(state_file), "dtb-%s-%s.conf", soc, serial);
+		lg("device: SoC serial number %s, choice in %s", serial, state_file);
+	} else {
+		snprintf(state_file, sizeof(state_file), "dtb-%s.conf", soc);
+		lg("no SoC serial number: the choice in %s applies to every %s device", state_file,
+		   soc);
+	}
+}
+
 static const char *state_path(void)
 {
-	return rp("%s/system/etc/dtb-%s.conf", opt_roms, soc);
+	return rp("%s/system/etc/%s", opt_roms, state_file);
 }
 
 static void load_state(void)
@@ -624,9 +674,10 @@ static void save_state(void)
 		lg("ERROR: cannot write %s: %s", tmp, strerror(errno));
 		return;
 	}
-	fprintf(f, "# Lume Retro OS: device tree choice of the %s SoC (lume-bootsel, r36os-logd)\n"
+	fprintf(f, "# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, r36os-logd)\n"
 		   "manual=%s\ngood=%s\npending=%s\nbad=%s\n",
-		soc, st.manual, st.good, st.pending, st.bad);
+		soc, *serial ? serial : "(every device: no SoC serial number)", st.manual, st.good,
+		st.pending, st.bad);
 	fflush(f);
 	fsync(fileno(f));
 	fclose(f);
@@ -914,6 +965,168 @@ static int menu(struct cand *autoc, struct cand *forced)
 	return -1;
 }
 
+/* --- watchdog (D11) ------------------------------------------------------------------- */
+
+/*
+ * Armed before the kexec to a pending device tree: opened, set to WATCHDOG_S and closed
+ * without the magic 'V', so it keeps counting through the kexec (the kernels have
+ * CONFIG_WATCHDOG_OPEN_TIMEOUT and do not feed it for ever). The second start opens it
+ * again, feeds it during the question and stops it with 'V'. In the tests /dev/watchdog
+ * is a regular file that records "timeout <s>", the feeds (".") and the 'V'.
+ */
+static int wd_fd = -1;
+
+static int wd_exists(void)
+{
+	return access(rp("/dev/watchdog"), F_OK) == 0;
+}
+
+static int wd_open(void)
+{
+	const char *path = rp("/dev/watchdog");
+
+	if (wd_fd >= 0)
+		return 0;
+	if (opt_dry_run) {
+		lg("dry run: the watchdog is not touched");
+		return -1;
+	}
+	wd_fd = open(path, O_WRONLY | O_CLOEXEC | (is_chr(path) ? 0 : O_APPEND));
+	if (wd_fd < 0) {
+		lg("watchdog: cannot open /dev/watchdog: %s", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+static void wd_feed(void)
+{
+	if (wd_fd >= 0 && write(wd_fd, ".", 1) != 1)
+		lg("watchdog: cannot feed it: %s", strerror(errno));
+}
+
+/* arms it and closes it without 'V': it keeps counting */
+static void wd_arm(void)
+{
+	int t = WATCHDOG_S, err = 0;
+
+	if (wd_open())
+		return;
+	if (is_chr(rp("/dev/watchdog"))) {
+		/* WATCHDOG_S, or the longest the driver takes (16 s on the A33) */
+		while (ioctl(wd_fd, WDIOC_SETTIMEOUT, &t) < 0 && t > 1)
+			t = t > 16 ? 16 : t - 1;
+		err = ioctl(wd_fd, WDIOC_GETTIMEOUT, &t) < 0;
+	} else {
+		err = dprintf(wd_fd, "timeout %d\n", t) < 0;
+	}
+	if (err)
+		lg("watchdog: cannot set the timeout: %s", strerror(errno));
+	else
+		lg("watchdog armed: %d s (a hang before the question restarts the device)", t);
+	close(wd_fd);
+	wd_fd = -1;
+}
+
+/* stops it with the magic 'V' */
+static void wd_stop(void)
+{
+	if (wd_open())
+		return;
+	if (write(wd_fd, "V", 1) != 1)
+		lg("watchdog: cannot stop it: %s", strerror(errno));
+	else
+		lg("watchdog stopped");
+	close(wd_fd);
+	wd_fd = -1;
+}
+
+/* --- confirmation on the screen (D10) -------------------------------------------------- */
+
+static void draw_question(FILE *tty, const char *id, const char *prev, int left)
+{
+	fprintf(tty, "\033[2J\033[H");
+	fprintf(tty, "Lume Retro OS - new device tree: %s\n\n", id);
+	fprintf(tty, "If you can read this, press A to keep it.\n");
+	fprintf(tty, "Going back to %s in %d s...\n", prev, left);
+	fflush(tty);
+}
+
+/*
+ * 1 the confirm key was pressed, 0 no answer in CONFIRM_S, -1 the question cannot be shown
+ * (no input device with the confirm key, no tty1). The watchdog, when open, is fed while
+ * waiting. A test description that ends counts as no answer at once.
+ */
+static int ask_confirm(const char *id, const char *prev)
+{
+	struct pollfd fds[16];
+	struct dirent **list;
+	FILE *tty;
+	int n, i, nfd = 0, open_fds, shown = -1, answer = 0;
+	long deadline;
+
+	if (!nkeys[K_OK])
+		return -1;
+	n = scandir(rp("/dev/input"), &list, event_filter, alphasort);
+	for (i = 0; i < n; i++) {
+		const char *path = rp("/dev/input/%s", list[i]->d_name);
+
+		if (nfd < 16 && has_any(path, K_OK, K_OK)) {
+			fds[nfd].fd = open(path, O_RDONLY | O_CLOEXEC);
+			fds[nfd].events = POLLIN;
+			if (fds[nfd].fd >= 0)
+				nfd++;
+		}
+		free(list[i]);
+	}
+	if (n >= 0)
+		free(list);
+	if (!nfd)
+		return -1;
+	tty = fopen(rp("/dev/tty1"), "a");
+	if (!tty) {
+		lg("question: cannot open tty1: %s", strerror(errno));
+		for (i = 0; i < nfd; i++)
+			close(fds[i].fd);
+		return -1;
+	}
+	lg("question shown: keep %s? (%d s)", id, CONFIRM_S);
+	open_fds = nfd;
+	deadline = now_ms() + CONFIRM_S * 1000L;
+	while (!answer && open_fds > 0 && now_ms() < deadline) {
+		int left = (int)((deadline - now_ms() + 999) / 1000);
+
+		if (left != shown) {
+			draw_question(tty, id, prev, left);
+			wd_feed();
+			shown = left;
+		}
+		if (poll(fds, nfd, 200) <= 0)
+			continue;
+		for (i = 0; i < nfd && !answer; i++) {
+			struct input_event ev;
+
+			if (fds[i].fd < 0 || !(fds[i].revents & (POLLIN | POLLHUP | POLLERR)))
+				continue;
+			if (read(fds[i].fd, &ev, sizeof(ev)) != (ssize_t)sizeof(ev)) {
+				close(fds[i].fd);
+				fds[i].fd = -1;
+				open_fds--;
+				continue;
+			}
+			if (ev.type == EV_KEY && ev.value == 1 && role_of(ev.code) == K_OK)
+				answer = 1;
+		}
+	}
+	for (i = 0; i < nfd; i++)
+		if (fds[i].fd >= 0)
+			close(fds[i].fd);
+	fprintf(tty, answer ? "\nKept: %s\n" : "\nNo answer: going back to %s.\n",
+		answer ? id : prev);
+	fclose(tty);
+	return answer;
+}
+
 /* --- preparing the device tree and kexec (D2) ------------------------------------------ */
 
 static int is_memory_dir(const char *name)
@@ -972,7 +1185,7 @@ static const char *out_path(void)
 	return opt_out ? opt_out : rp("/tmp/lume-bootsel.dtb");
 }
 
-static int prepare(struct cand *c, const char *reason)
+static int prepare(struct cand *c, const char *reason, int watchdog)
 {
 	size_t size = c->size + 65536 + sizeof(logbuf);
 	char *buf = malloc(size), sel[2 * ID_LEN];
@@ -992,6 +1205,9 @@ static int prepare(struct cand *c, const char *reason)
 	n = snprintf(sel, sizeof(sel), "%s%c%s", c->id, 0, reason) + 1;
 	lg("prepared %s: memory from the running tree (%d node(s))", c->file, mem);
 	err = fdt_setprop(buf, chosen, "lume,dtb-selected", sel, n);
+	/* the watchdog is armed: the next start must stop it */
+	if (!err && watchdog)
+		err = fdt_setprop(buf, chosen, "lume,watchdog", NULL, 0);
 	if (!err)
 		err = fdt_setprop_string(buf, chosen, "lume,dtb-log", logbuf);
 	if (!err)
@@ -1014,26 +1230,152 @@ static int prepare(struct cand *c, const char *reason)
 	return 0;
 }
 
-static int kexec_load(const char *kernel)
+/*
+ * Runs kexec -l (with -d when debug) and puts every line it prints in the log ("kexec:
+ * <line>"): its errors would otherwise only reach the console and be lost.
+ */
+static int run_kexec(const char *kernel, int debug)
 {
-	char dtb_arg[PATH_MAX + 8];
+	char dtb_arg[PATH_MAX + 8], buf[4096], *line, *nl;
+	size_t used = 0, lines = 0;
+	int fds[2], status;
+	ssize_t r;
 	pid_t pid;
-	int status;
 
 	snprintf(dtb_arg, sizeof(dtb_arg), "--dtb=%s", out_path());
+	if (pipe(fds) < 0)
+		return -1;
 	pid = fork();
 	if (pid == 0) {
-		execl(opt_kexec, "kexec", "-l", kernel, dtb_arg, (char *)NULL);
+		dup2(fds[1], STDOUT_FILENO);
+		dup2(fds[1], STDERR_FILENO);
+		close(fds[0]);
+		close(fds[1]);
+		if (debug)
+			execl(opt_kexec, "kexec", "-d", "-l", kernel, dtb_arg, (char *)NULL);
+		else
+			execl(opt_kexec, "kexec", "-l", kernel, dtb_arg, (char *)NULL);
+		dprintf(STDERR_FILENO, "cannot run %s: %s\n", opt_kexec, strerror(errno));
 		_exit(127);
 	}
-	if (pid < 0 || waitpid(pid, &status, 0) < 0)
+	close(fds[1]);
+	if (pid < 0) {
+		close(fds[0]);
+		return -1;
+	}
+	while ((r = read(fds[0], buf + used, sizeof(buf) - used - 1)) > 0) {
+		used += r;
+		buf[used] = 0;
+		for (line = buf; (nl = strchr(line, '\n')); line = nl + 1) {
+			*nl = 0;
+			if (*line && lines++ < 80)
+				lg("kexec: %s", line);
+		}
+		used = strlen(line);
+		memmove(buf, line, used + 1);
+		if (used == sizeof(buf) - 1) { /* a line longer than the buffer */
+			if (lines++ < 80)
+				lg("kexec: %s", buf);
+			used = 0;
+		}
+	}
+	if (used && lines < 80)
+		lg("kexec: %s", buf);
+	close(fds[0]);
+	if (waitpid(pid, &status, 0) < 0)
 		return -1;
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+/* the RAM the kernel reports, for a failed kexec -l (it places the segments in it) */
+static void log_system_ram(void)
+{
+	char *text = read_file(rp("/proc/iomem"), NULL), *l, *save;
+
+	for (l = text ? strtok_r(text, "\n", &save) : NULL; l; l = strtok_r(NULL, "\n", &save))
+		if (strstr(l, "System RAM") || strstr(l, "reserved") || strstr(l, "Kernel"))
+			lg("iomem: %s", l);
+	free(text);
+}
+
+static int kexec_load(const char *kernel)
+{
+	int r = run_kexec(kernel, 0);
+
+	if (r) {
+		/* once more with the details of where it tried to put the kernel */
+		lg("kexec -l failed (status %d); details follow", r);
+		run_kexec(kernel, 1);
+		log_system_ram();
+	}
+	return r;
+}
+
+/*
+ * Prepares c and loads the same kernel with it. EXIT_KEXEC when loaded, 0 after a dry run,
+ * -1 on failure (the boot goes on with the running device tree). With arm, the watchdog
+ * is armed once the kernel is loaded (D11).
+ */
+static int switch_to(struct cand *c, const char *reason, int arm)
+{
+	int wd = arm && wd_exists() && !opt_dry_run, r;
+
+	if (!opt_kernel || access(rp("%s/%s", opt_boot, opt_kernel), R_OK)) {
+		lg("ERROR: kernel %s not found on BOOT; keeping the running device tree",
+		   opt_kernel ? opt_kernel : "(none given)");
+		return -1;
+	}
+	if (arm && !wd_exists())
+		lg("no /dev/watchdog: a hang with %s needs a power cycle to go back", c->id);
+	lg("switching to %s by kexec (%s/%s)", c->id, opt_boot, opt_kernel);
+	if (prepare(c, reason, wd))
+		return -1;
+	if (opt_dry_run) {
+		printf("selected=%s reason=%s kexec=yes dtb=%s\n", c->id, reason, out_path());
+		return 0;
+	}
+	r = kexec_load(rp("%s/%s", opt_boot, opt_kernel));
+	if (r) {
+		lg("ERROR: kexec -l failed (status %d); keeping the running device tree", r);
+		return -1;
+	}
+	if (wd)
+		wd_arm();
+	return EXIT_KEXEC;
+}
+
+/* --- the running device tree, the SoC and the state --------------------------------------- */
+
+static int load_soc(void)
+{
+	size_t len;
+	char *text = read_file(rp("/etc/soc"), NULL), *compat, *p;
+	const char *last;
+
+	copy_str(soc, sizeof(soc), text);
+	free(text);
+	trim(soc);
+	compat = read_file(rp("/proc/device-tree/compatible"), &len);
+	last = compat;
+	for (p = compat; p && p < compat + len; p += strlen(p) + 1)
+		if (*p)
+			last = p;
+	copy_str(soc_compat, sizeof(soc_compat), last);
+	free(compat);
+	text = read_file(rp("/proc/device-tree/lume-select/lume,id"), NULL);
+	copy_str(running_id, sizeof(running_id), text);
+	free(text);
+	if (!*soc || !*soc_compat) {
+		lg("ERROR: no /etc/soc or no compatible in the device tree; keeping the running one");
+		return -1;
+	}
+	return 0;
+}
+
 /* --- second start, after the kexec ----------------------------------------------------- */
 
-static int came_from_kexec(void)
+/* the choice of the first start, from /chosen: 1 when this start came from a kexec */
+static int came_from_kexec(char *id, size_t id_size, char *reason, size_t reason_size)
 {
 	size_t len;
 	char *sel = read_file(rp("/proc/device-tree/chosen/lume,dtb-selected"), &len);
@@ -1045,10 +1387,98 @@ static int came_from_kexec(void)
 	for (l = log ? strtok_r(log, "\n", &save) : NULL; l; l = strtok_r(NULL, "\n", &save))
 		lg("before kexec: %s", l);
 	free(log);
-	lg("device tree from kexec: %s (reason: %s)", sel,
-	   strlen(sel) + 1 < len ? sel + strlen(sel) + 1 : "?");
+	copy_str(id, id_size, sel);
+	copy_str(reason, reason_size, strlen(sel) + 1 < len ? sel + strlen(sel) + 1 : "?");
+	lg("device tree from kexec: %s (reason: %s)", id, reason);
 	free(sel);
 	return 1;
+}
+
+/*
+ * After the kexec (D10): a pending device tree is confirmed on the screen; without an
+ * answer it is discarded on this device and the kernel goes back to the last confirmed
+ * one (or the default) with the reason "reverted". That third start, like a start with a
+ * device tree already confirmed, goes on without asking or switching.
+ */
+static int second_start(const char *id, const char *reason)
+{
+	int wd = access(rp("/proc/device-tree/chosen/lume,watchdog"), F_OK) == 0;
+	struct cand *prev, *def;
+	int answer, r;
+
+	if (!strcmp(reason, "reverted")) {
+		lg("back from a device tree that was not confirmed: no question, no switch");
+		if (wd)
+			wd_stop();
+		return 0;
+	}
+	if (load_soc()) {
+		if (wd)
+			wd_stop();
+		return 0;
+	}
+	load_serial();
+	load_state();
+	if (!*st.pending || strcmp(st.pending, id)) {
+		/* the default, or confirmed on this device before */
+		if (wd)
+			wd_stop();
+		return 0;
+	}
+	if (wd)
+		wd_open(); /* fed during the question */
+	load_candidates();
+	def = default_cand();
+	prev = find_cand(st.good);
+	if (!prev || !strcmp(prev->id, id) || list_has(st.bad, prev->id))
+		prev = def;
+	load_keys();
+	answer = prev && strcmp(prev->id, id) ? ask_confirm(id, prev->id) : -1;
+	if (answer < 0) {
+		lg("no question on the screen (no confirm key or tty1): %s stays pending until "
+		   "the frontend starts", id);
+		if (wd)
+			wd_stop();
+		return 0;
+	}
+	if (answer) {
+		lg("confirmed on screen: %s kept", id);
+		copy_str(st.good, sizeof(st.good), id);
+		st.pending[0] = 0;
+		save_state();
+		if (wd)
+			wd_stop();
+		return 0;
+	}
+	lg("not confirmed within %d s: %s discarded on this device, going back to %s",
+	   CONFIRM_S, id, prev->id);
+	list_add(st.bad, sizeof(st.bad), id);
+	if (!strcmp(st.manual, id))
+		st.manual[0] = 0;
+	st.pending[0] = 0;
+	save_state();
+	if (wd)
+		wd_stop();
+	lg("selected %s (reason: reverted)", prev->id);
+	r = switch_to(prev, "reverted", 1);
+	return r < 0 ? 0 : r;
+}
+
+/* kexec -e returned: the chosen device tree never ran, so it is not pending (nor bad) */
+static int kexec_failed(void)
+{
+	if (load_soc())
+		return 0;
+	load_serial();
+	load_state();
+	if (*st.pending) {
+		lg("kexec -e failed: %s is no longer pending", st.pending);
+		st.pending[0] = 0;
+		save_state();
+	}
+	if (wd_exists())
+		wd_stop();
+	return 0;
 }
 
 /* --- main -------------------------------------------------------------------------------- */
@@ -1057,25 +1487,29 @@ static void usage(void)
 {
 	fprintf(stderr,
 		"usage: lume-bootsel [--root DIR] [--boot DIR] [--roms DIR] [--kernel PATH]\n"
-		"                    [--kexec PATH] [--out-dtb PATH] [--dry-run]\n"
+		"                    [--kexec PATH] [--out-dtb PATH] [--dry-run] [--kexec-failed]\n"
 		"  --boot    BOOT mount point (default /boot)\n"
 		"  --roms    ROMS mount point; without it the choice is not saved\n"
 		"  --kernel  kernel to reload, relative to BOOT (ga36/zImage, r36s/Image)\n"
-		"  --dry-run decide, write the state and prepare the tree, but do not run kexec\n");
+		"  --dry-run decide, write the state and prepare the tree, but do not run kexec\n"
+		"            nor touch the watchdog\n"
+		"  --kexec-failed  kexec -e returned: clear the pending device tree, stop the watchdog\n");
 }
 
 int main(int argc, char **argv)
 {
 	struct cand *forced = NULL, *autoc = NULL, *chosen = NULL, *def, *fallback = NULL;
 	const char *reason, *target;
-	char *text;
-	int i, has_fallback = 0, choice = -1;
+	char *text, kid[ID_LEN], kreason[32];
+	int i, has_fallback = 0, choice = -1, is_new, r;
 
 	for (i = 1; i < argc; i++) {
 		const char *a = argv[i];
 
 		if (!strcmp(a, "--dry-run"))
 			opt_dry_run = 1;
+		else if (!strcmp(a, "--kexec-failed"))
+			opt_kexec_failed = 1;
 		else if (i + 1 < argc && !strcmp(a, "--root"))
 			opt_root = argv[++i];
 		else if (i + 1 < argc && !strcmp(a, "--boot"))
@@ -1102,32 +1536,12 @@ int main(int argc, char **argv)
 		lg("no device tree");
 		return 0;
 	}
-	if (came_from_kexec())
+	if (opt_kexec_failed)
+		return kexec_failed();
+	if (came_from_kexec(kid, sizeof(kid), kreason, sizeof(kreason)))
+		return second_start(kid, kreason);
+	if (load_soc())
 		return 0;
-
-	text = read_file(rp("/etc/soc"), NULL);
-	copy_str(soc, sizeof(soc), text);
-	free(text);
-	trim(soc);
-	{
-		size_t len;
-		char *compat = read_file(rp("/proc/device-tree/compatible"), &len);
-		const char *last = compat;
-		char *p;
-
-		for (p = compat; p && p < compat + len; p += strlen(p) + 1)
-			if (*p)
-				last = p;
-		copy_str(soc_compat, sizeof(soc_compat), last);
-		free(compat);
-		text = read_file(rp("/proc/device-tree/lume-select/lume,id"), NULL);
-		copy_str(running_id, sizeof(running_id), text);
-		free(text);
-	}
-	if (!*soc || !*soc_compat) {
-		lg("ERROR: no /etc/soc or no compatible in the device tree; keeping the running one");
-		return 0;
-	}
 
 	load_candidates();
 	def = default_cand();
@@ -1135,11 +1549,12 @@ int main(int argc, char **argv)
 		copy_str(running_id, sizeof(running_id), def->id); /* no node: the default */
 	lg("soc %s (%s), running device tree %s", soc, soc_compat,
 	   *running_id ? running_id : "without lume-select node");
+	load_serial();
 	load_state();
 
-	/* a device tree that did not reach the frontend in the previous boot */
+	/* a device tree that was not confirmed in the previous boot */
 	if (*st.pending) {
-		lg("fallback: %s did not reach the frontend in the previous boot; discarded",
+		lg("fallback: %s was not confirmed in the previous boot; discarded",
 		   st.pending);
 		list_add(st.bad, sizeof(st.bad), st.pending);
 		if (!strcmp(st.manual, st.pending))
@@ -1160,11 +1575,16 @@ int main(int argc, char **argv)
 			*nl = 0;
 		trim(text);
 		forced = *text ? find_cand(text) : NULL;
-		if (forced)
-			lg("force: BOOT/dtbs/force selects %s", forced->id);
-		else
+		if (!forced) {
 			lg("force ignored: '%s' in BOOT/dtbs/force is not a device tree of dtbs/%s",
 			   text, soc);
+		} else if (list_has(st.bad, forced->id)) {
+			lg("force ignored: %s was discarded on this device (bad); delete BOOT/dtbs/force "
+			   "or choose it in the list", forced->id);
+			forced = NULL;
+		} else {
+			lg("force: BOOT/dtbs/force selects %s", forced->id);
+		}
 		free(text);
 	}
 
@@ -1237,35 +1657,16 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	/* switch: prepare the tree and load the same kernel with it */
-	if (!opt_kernel || access(rp("%s/%s", opt_boot, opt_kernel), R_OK)) {
-		lg("ERROR: kernel %s not found on BOOT; keeping the running device tree",
-		   opt_kernel ? opt_kernel : "(none given)");
-		save_state();
-		return 0;
-	}
-	/* not yet confirmed by reaching the frontend: pending (never for the forced one) */
-	if (strcmp(reason, "forced") && (!def || strcmp(chosen->id, def->id)) &&
-	    strcmp(chosen->id, st.good))
+	/*
+	 * Switch. Not the default and not confirmed on this device (the forced one too): it is
+	 * pending, the watchdog is armed and the second start asks on the screen.
+	 */
+	is_new = (!def || strcmp(chosen->id, def->id)) && strcmp(chosen->id, st.good);
+	if (is_new)
 		copy_str(st.pending, sizeof(st.pending), chosen->id);
-	lg("switching to %s by kexec (%s/%s)", chosen->id, opt_boot, opt_kernel);
-	if (prepare(chosen, reason)) {
+	r = switch_to(chosen, reason, is_new);
+	if (r < 0)
 		st.pending[0] = 0;
-		save_state();
-		return 0;
-	}
-	if (opt_dry_run) {
-		save_state();
-		printf("selected=%s reason=%s kexec=yes dtb=%s\n", chosen->id, reason, out_path());
-		return 0;
-	}
-	i = kexec_load(rp("%s/%s", opt_boot, opt_kernel));
-	if (i) {
-		lg("ERROR: kexec -l failed (status %d); keeping the running device tree", i);
-		st.pending[0] = 0;
-		save_state();
-		return 0;
-	}
 	save_state();
-	return EXIT_KEXEC;
+	return r < 0 ? 0 : r;
 }
