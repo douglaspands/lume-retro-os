@@ -112,6 +112,7 @@ Uma linha por evento:
 | `battery` | abaixo de 10% (`FAIL`) |
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
+| `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); na VM, sem porta OTG, não há evento |
 
 ## `metrics/boot-<n>.csv`
 
@@ -165,6 +166,25 @@ Além disso:
 
 - `k <mensagem>`: mensagens novas do kernel surgidas depois do início do `logd` (erros do
   driver de vídeo, de áudio ou do cartão aparecem aqui, com a hora do kernel).
+- `usb: <estado>`: a porta OTG vista pelo kernel, uma linha por amostra (change
+  `usb-device-access`, D1). Serve para saber como cada console distingue um PC, um
+  carregador e um adaptador OTG. Cada campo só aparece quando o console o tem; sem nenhum
+  (a VM), a linha é `usb: none`:
+
+  ```
+  10:46:08 usb: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral udc=musb-hdrc.1.auto:configured vbus=axp20x-usb:1 host_devs=0
+  ```
+
+  | Campo | Conteúdo |
+  |---|---|
+  | `extcon` | o PHY da porta (`/sys/class/extcon/*`, só os que têm cabos USB): `USB=1` é VBUS visto pelo PHY, `USB-HOST=1` é o pino ID em nível baixo (adaptador OTG) |
+  | `musb` | modo do controlador MUSB (GA36): `b_idle`, `b_peripheral`, `a_host`… |
+  | `role` | papel de um `usb-role-switch` (`none`, `host`, `device`) |
+  | `udc` | lado gadget do controlador (`/sys/class/udc/*/state`), com `_` no lugar de espaço: `not_attached`, `configured`… |
+  | `vbus` | `online` de cada fonte de energia do tipo USB (a entrada de carga do PMIC) |
+  | `host_devs` | dispositivos USB atrás das portas host (sem contar os hubs raiz nem as interfaces) |
+
+  Quando o estado muda, o `events.log` ganha `usb OK otg: <estado>`.
 - **Instantâneo** (`=== snapshot of retroarch pid ...` até `=== end of snapshot`): gravado
   quando o RetroArch fica 3 amostras seguidas (15 s) vivo e sem responder ao `GET_STATUS`,
   e de novo a cada 6 amostras, no máximo 6 por boot. Traz o `status` do processo, cada

@@ -195,6 +195,54 @@ check "audio: lines already read are not reported again" '[ "$(grep -c " audio F
 : > "$FRONTEND_LOG"
 AUDIO_LOG_POS=0
 
+### logd: OTG port sample (usb-device-access 1.1), on a fake /sys shaped like the GA36
+SYS_ROOT="$W/sys"
+rm -rf "$SYS_ROOT"
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending "$LOGS_DIR"/events*.log
+check "usb: a console without OTG sysfs (the vm) is none" '[ "$(usb_state)" = none ]'
+usb_watch
+check "usb: the vm logs a trace line and no event" 'grep -q " usb: none$" $LOGS_RAM/trace.pending && ! grep -q " usb " $LOGS_RAM/events.pending 2>/dev/null'
+mkdir -p "$SYS_ROOT/class/extcon/extcon0" "$SYS_ROOT/bus/platform/devices/musb-hdrc.1.auto" \
+	"$SYS_ROOT/class/udc/musb-hdrc.1.auto" "$SYS_ROOT/class/power_supply/axp20x-usb" \
+	"$SYS_ROOT/class/power_supply/axp20x-battery" "$SYS_ROOT/bus/usb/devices/usb1" \
+	"$SYS_ROOT/bus/usb/devices/1-0:1.0"
+echo 1c19400.phy > "$SYS_ROOT/class/extcon/extcon0/name"
+echo USB > "$SYS_ROOT/class/power_supply/axp20x-usb/type"
+echo Battery > "$SYS_ROOT/class/power_supply/axp20x-battery/type"
+echo 1 > "$SYS_ROOT/class/power_supply/axp20x-battery/online"
+usb_fake() {  # USB USB-HOST musb-mode udc-state vbus-online host-devices
+	printf 'USB=%s\nUSB-HOST=%s\n' "$1" "$2" > "$SYS_ROOT/class/extcon/extcon0/state"
+	echo "$3" > "$SYS_ROOT/bus/platform/devices/musb-hdrc.1.auto/mode"
+	echo "$4" > "$SYS_ROOT/class/udc/musb-hdrc.1.auto/state"
+	echo "$5" > "$SYS_ROOT/class/power_supply/axp20x-usb/online"
+	rm -rf "$SYS_ROOT/bus/usb/devices/1-1" "$SYS_ROOT/bus/usb/devices/1-1:1.0"
+	[ "$6" = 0 ] || mkdir -p "$SYS_ROOT/bus/usb/devices/1-1" "$SYS_ROOT/bus/usb/devices/1-1:1.0"
+}
+usb_fake 0 0 b_idle "not attached" 0 0
+check "usb: nothing plugged" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=0 musb=b_idle udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:0 host_devs=0" ]'
+usb_fake 0 0 b_idle "not attached" 1 0
+check "usb: charger on the DC port (only the PMIC input)" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=0 musb=b_idle udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:1 host_devs=0" ]'
+usb_fake 1 0 b_peripheral configured 1 0
+check "usb: PC cable on the OTG port" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral udc=musb-hdrc.1.auto:configured vbus=axp20x-usb:1 host_devs=0" ]'
+usb_fake 0 1 a_host "not attached" 0 1
+check "usb: OTG adapter with a pendrive (interfaces not counted)" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=1 musb=a_host udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:0 host_devs=1" ]'
+mkdir -p "$SYS_ROOT/class/usb_role/ff300000.usb-role-switch" "$SYS_ROOT/class/extcon/extcon1"
+echo device > "$SYS_ROOT/class/usb_role/ff300000.usb-role-switch/role"
+printf 'HDMI=0\n' > "$SYS_ROOT/class/extcon/extcon1/state"
+check "usb: a role switch is listed, an extcon without USB cables is not" 'usb_state | grep -q " role=ff300000.usb-role-switch:device " && ! usb_state | grep -q HDMI'
+rm -rf "$SYS_ROOT/class/usb_role" "$SYS_ROOT/class/extcon/extcon1"
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending
+USB_LAST=none
+usb_fake 0 0 b_idle "not attached" 0 0
+usb_watch; usb_watch
+usb_fake 1 0 b_peripheral configured 1 0
+usb_watch; usb_watch
+check "usb: one trace line per sample" '[ "$(grep -c " usb: " $LOGS_RAM/trace.pending)" = 4 ]'
+check "usb: one event per change only" '[ "$(grep -c " usb OK otg: " $LOGS_RAM/events.pending)" = 2 ] && tail -n 1 $LOGS_RAM/events.pending | grep -q "usb OK otg: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral"'
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending
+rm -rf "$SYS_ROOT"
+SYS_ROOT=/sys USB_LAST=none
+
 ### logd: game FPS from the GET_STATUS frame counter (RetroArch patch 0004)
 pidof() { return 0; }
 nc() { printf '%s' "$NC_REPLY"; }

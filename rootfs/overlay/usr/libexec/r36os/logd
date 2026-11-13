@@ -332,6 +332,64 @@ pcm_pos() {
 	echo -
 }
 
+# OTG port (usb-device-access D1): what the kernel sees of the port, to learn how each
+# console tells a PC, a charger and an OTG adapter apart. Fields, each only when present:
+#   extcon=<name>:USB=<0|1>,USB-HOST=<0|1>  the PHY: USB is VBUS seen by the PHY, USB-HOST
+#                                           is the ID pin pulled low (OTG adapter)
+#   musb=<mode>          MUSB controller (GA36): b_idle, b_peripheral, a_host...
+#   role=<name>:<role>   USB role switch: none, host or device
+#   udc=<name>:<state>   gadget side: not attached, attached, configured...
+#   vbus=<name>:<0|1>    online of each USB power supply (the charger input of the PMIC)
+#   host_devs=<n>        USB devices behind the host ports (root hubs not counted)
+# "none" when the console has none of them (the vm). SYS_ROOT is overridden by the tests.
+SYS_ROOT=${SYS_ROOT:-/sys}
+usb_state() {
+	local f d n s out="" devs=0
+	for f in "$SYS_ROOT"/class/extcon/*/state; do
+		[ -r "$f" ] || continue
+		s=$(tr '\n' ',' < "$f" 2>/dev/null)
+		case "$s" in *USB*) ;; *) continue ;; esac
+		d=${f%/state}
+		n=$(cat "$d/name" 2>/dev/null) || n=""
+		out="$out extcon=${n:-${d##*/}}:${s%,}"
+	done
+	for f in "$SYS_ROOT"/bus/platform/devices/musb-hdrc.*/mode; do
+		[ -r "$f" ] && out="$out musb=$(cat "$f" 2>/dev/null)"
+	done
+	for f in "$SYS_ROOT"/class/usb_role/*/role; do
+		[ -r "$f" ] || continue
+		d=${f%/role}
+		out="$out role=${d##*/}:$(cat "$f" 2>/dev/null)"
+	done
+	for f in "$SYS_ROOT"/class/udc/*/state; do
+		[ -r "$f" ] || continue
+		d=${f%/state}
+		out="$out udc=${d##*/}:$(cat "$f" 2>/dev/null | tr ' ' '_')"
+	done
+	for d in "$SYS_ROOT"/class/power_supply/*; do
+		[ "$(cat "$d/type" 2>/dev/null)" = USB ] || continue
+		out="$out vbus=${d##*/}:$(cat "$d/online" 2>/dev/null)"
+	done
+	for d in "$SYS_ROOT"/bus/usb/devices/[0-9]*-*; do
+		[ -e "$d" ] || continue
+		case "${d##*/}" in *:*) continue ;; esac
+		devs=$((devs + 1))
+	done
+	[ -z "$out" ] && [ "$devs" = 0 ] && { echo none; return 0; }
+	echo "${out# } host_devs=$devs"
+}
+
+# One "usb:" trace line per sample, and a usb event when the state changes
+USB_LAST=none
+usb_watch() {
+	local s
+	s=$(usb_state)
+	trace "usb: $s"
+	[ "$s" = "$USB_LAST" ] && return 0
+	USB_LAST=$s
+	event usb OK "otg: $s"
+}
+
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang
 trace_sample() {
 	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
@@ -497,6 +555,7 @@ sample() {
 	[ -n "$GAME_KEY" ] && line="$line$GAME_NOMINAL"
 	echo "$line" >> "$LOGS_RAM/metrics.pending"
 	trace_sample
+	usb_watch
 }
 
 # Nominal FPS of the running core: the last "Geometry: ... FPS: <n>," line of the frontend
