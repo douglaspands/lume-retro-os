@@ -46,11 +46,12 @@ cmd_start() {
 	dmesg | sed -n 's/.*lume: \(ROMS partition created.*\)/\1/p' | while read -r l; do event roms OK "$l"; done
 	dmesg | sed -n 's/.*lume: ROMS checked: \(.*\)/\1/p' | while read -r l; do event roms OK "checked: $l"; done
 	dmesg | sed -n 's/.*lume: \(ERROR.*\)/\1/p' | while read -r l; do event boot FAIL "$l"; done
-	# Device tree choice (lume-bootsel in the initramfs; "before kexec:" when it switched)
-	dmesg | sed -En 's/.*lume-bootsel: (before kexec: )?(selected .*|fallback: .*|ERROR.*)/\2/p' |
+	# Device tree choice (lume-bootsel in the initramfs; "before kexec:" once per kexec, so
+	# twice after a revert): the choice, the confirmation on the screen or the revert
+	dmesg | sed -En 's/.*lume-bootsel: (before kexec: )*(selected .*|fallback: .*|ERROR.*|confirmed on screen: .*|not confirmed .*)/\2/p' |
 		while read -r l; do
 			case "$l" in
-			selected*) event boot OK "device tree $l" ;;
+			selected*|"confirmed on screen"*) event boot OK "device tree $l" ;;
 			*) event boot FAIL "device tree $l" ;;
 			esac
 		done
@@ -563,28 +564,28 @@ wait_frontend() {
 	return 1
 }
 
-# The frontend is up, so the device tree in use works (boot-dtb-select D6): good=<it> and
-# no pending in ROMS/system/etc/dtb-<soc>.conf, keeping manual= and bad=. A DTB still
-# pending at the next boot did not get here, and lume-bootsel discards it.
+# The frontend is up (boot-dtb-select D6, D10). A device tree still pending here is one
+# the screen could not confirm (no confirm key in the initramfs): it is confirmed now,
+# good=<it> and no pending in ROMS/system/etc/dtb-<soc>[-<serial>].conf, keeping manual=
+# and bad=. Every other pending one was confirmed or reverted on the screen, and one still
+# pending at the next boot did not get here, so lume-bootsel discards it.
 DTB_CONF_DIR=${DTB_CONF_DIR:-/storage/system/etc}
 dtb_confirm() {
-	local id soc conf manual bad
+	local id soc name conf manual bad
 	id=$(dtb_id)
 	soc=$(dtb_soc)
-	[ -n "$id" ] && [ -n "$soc" ] || return 0
+	name=$(dtb_conf_name)
+	[ -n "$id" ] && [ -n "$name" ] || return 0
 	logs_on_disk || return 0
-	conf=$DTB_CONF_DIR/dtb-$soc.conf
-	if grep -qx "good=$id" "$conf" 2>/dev/null && ! grep -q '^pending=.' "$conf"; then
-		return 0
-	fi
+	conf=$DTB_CONF_DIR/$name
+	grep -qx "pending=$id" "$conf" 2>/dev/null || return 0
 	manual=$(sed -n 's/^manual=//p' "$conf" 2>/dev/null | tail -n 1)
 	bad=$(sed -n 's/^bad=//p' "$conf" 2>/dev/null | tail -n 1)
-	mkdir -p "$DTB_CONF_DIR"
-	printf '# Lume Retro OS: device tree choice of the %s SoC (lume-bootsel, r36os-logd)\nmanual=%s\ngood=%s\npending=\nbad=%s\n' \
-		"$soc" "$manual" "$id" "$bad" > "$conf.tmp" || return 0
+	printf '# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, r36os-logd)\nmanual=%s\ngood=%s\npending=\nbad=%s\n' \
+		"$soc" "$(dtb_serial)" "$manual" "$id" "$bad" > "$conf.tmp" || return 0
 	fsync "$conf.tmp" 2>/dev/null
 	mv -f "$conf.tmp" "$conf"
-	event boot OK "device tree $id confirmed: the frontend started"
+	event boot OK "device tree $id confirmed: the frontend started (no question on the screen)"
 }
 
 # Retrato do hardware deste boot (hw/boot-<n>.txt), depois que o frontend sobe

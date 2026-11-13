@@ -89,6 +89,24 @@ dtb_soc() {
 	*" rockchip,rk3326 "*) echo rk3326 ;;
 	esac
 }
+# SoC serial number, as lume-bootsel reads it: letters and digits only; all zeros is none
+SOC0_DIR=${SOC0_DIR:-/sys/devices/soc0}
+dtb_serial() {
+	local s
+	# test first: a failed redirection is reported by the shell, before 2>/dev/null applies
+	[ -r "$SOC0_DIR/serial_number" ] || return 0
+	s=$(tr -cd '[:alnum:]' < "$SOC0_DIR/serial_number")
+	case "$s" in *[!0]*) echo "$s" ;; esac
+}
+# state file of the choice on ROMS/system/etc: one per device (dtb-<soc>-<serial>.conf),
+# or one per SoC without a serial number (dtb-<soc>.conf)
+dtb_conf_name() {
+	local soc s
+	soc=$(dtb_soc)
+	[ -n "$soc" ] || return 0
+	s=$(dtb_serial)
+	echo "dtb-$soc${s:+-$s}.conf"
+}
 # "<id> (<reason>)": after a kexec the reason is in /chosen, else in the boot log
 dtb_in_use() {
 	local id reason

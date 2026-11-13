@@ -444,35 +444,66 @@ mkdir -p "$DT_ROOT/chosen"
 printf 'ga36-panel2\000forced\000' > "$DT_ROOT/chosen/lume,dtb-selected"
 check "dtb: in use after a kexec, with the reason from /chosen" '[ "$(dtb_in_use)" = "ga36-panel2 (forced, after kexec)" ]'
 rm -f "$DT_ROOT/chosen/lume,dtb-selected"
+
+### Task 5.3: the state file is per device (SoC serial number) and the frontend confirms
+### only the pending device tree that the screen could not confirm
+SOC0_DIR=$W/soc0
+mkdir -p "$SOC0_DIR"
+check "dtb: without a serial number the state file is per SoC" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
+printf '0000000000000000\n' > "$SOC0_DIR/serial_number"
+check "dtb: an all-zero serial number counts as none" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
+printf '02c00042:a1b2c3d4\n' > "$SOC0_DIR/serial_number"
+check "dtb: with a serial number the state file is per device" '[ "$(dtb_conf_name)" = dtb-a33-02c00042a1b2c3d4.conf ]'
+DEV1=$DTB_CONF_DIR/dtb-a33-02c00042a1b2c3d4.conf
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
-printf 'manual=ga36-panel2\ngood=ga36-panel1\npending=ga36-panel2\nbad=old\n' > "$DTB_CONF_DIR/dtb-a33.conf"
+printf 'manual=ga36-panel2\ngood=ga36-panel1\npending=ga36-panel2\nbad=old\n' > "$DEV1"
+printf 'manual=\ngood=\npending=ga36-panel2\nbad=\n' > "$DTB_CONF_DIR/dtb-a33.conf"
 dtb_confirm; logs_flush
-check "dtb: the frontend confirms it (good, no pending, manual and bad kept)" \
-	'grep -qx good=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf && grep -qx pending= $DTB_CONF_DIR/dtb-a33.conf && grep -qx manual=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf && grep -qx bad=old $DTB_CONF_DIR/dtb-a33.conf'
-check "dtb: confirmation event" 'grep -q " boot OK device tree ga36-panel2 confirmed: the frontend started" $LOGS_DIR/events.log'
+check "dtb: the frontend confirms the pending one (good, no pending, manual and bad kept)" \
+	'grep -qx good=ga36-panel2 $DEV1 && grep -qx pending= $DEV1 && grep -qx manual=ga36-panel2 $DEV1 && grep -qx bad=old $DEV1'
+check "dtb: only the file of this device is touched" 'grep -qx pending=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf'
+check "dtb: confirmation event" 'grep -q " boot OK device tree ga36-panel2 confirmed: the frontend started (no question on the screen)" $LOGS_DIR/events.log'
 dtb_confirm; logs_flush
-check "dtb: confirmed once (no rewrite, no new event)" '[ "$(grep -c "confirmed: the frontend" $LOGS_DIR/events.log)" = 1 ] && [ ! -e $DTB_CONF_DIR/dtb-a33.conf.tmp ]'
+check "dtb: confirmed once (no rewrite, no new event)" '[ "$(grep -c "confirmed: the frontend" $LOGS_DIR/events.log)" = 1 ] && [ ! -e $DEV1.tmp ]'
+printf 'manual=\ngood=ga36-panel2\npending=\nbad=\n' > "$DEV1"
 printf 'r36s,r36s-v5\000rockchip,rk3326\000' > "$DT_ROOT/compatible"
 printf 'r36s-v5\000' > "$DT_ROOT/lume-select/lume,id"
 dtb_confirm
-check "dtb: one file per SoC (the R36S does not touch the GA36 one)" \
-	'grep -qx good=r36s-v5 $DTB_CONF_DIR/dtb-rk3326.conf && grep -qx good=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf'
-rm -rf "$DT_ROOT/lume-select"
-rm -f "$DTB_CONF_DIR/dtb-rk3326.conf"
+check "dtb: nothing pending, nothing written (the default is never pending)" \
+	'[ ! -e $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf ] && grep -qx good=ga36-panel2 $DEV1'
+printf 'manual=\ngood=\npending=r36s-v6\nbad=\n' > "$DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf"
 dtb_confirm
-check "dtb: without the node nothing is written" '[ ! -e $DTB_CONF_DIR/dtb-rk3326.conf ] && [ "$(dtb_in_use)" = "no lume-select node" ]'
+check "dtb: a pending one that is not running is left to lume-bootsel" \
+	'grep -qx pending=r36s-v6 $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf'
+check "dtb: the hardware snapshot has the device tree in use and the state file" \
+	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" rootfs/overlay/usr/libexec/r36os/hwinfo'
+rm -rf "$DT_ROOT/lume-select"
+dtb_confirm
+check "dtb: without the node nothing is written" '[ "$(dtb_in_use)" = "no lume-select node" ]'
 DT_ROOT=$W/none
-check "dtb: the vm has no device tree" '[ "$(dtb_in_use)" = "none (no device tree)" ]'
-printf '%s\n' "[    2.0] lume-bootsel: before kexec: fallback: ga36-panel2 did not reach the frontend in the previous boot; discarded" \
+check "dtb: the vm has no device tree" '[ "$(dtb_in_use)" = "none (no device tree)" ] && [ -z "$(dtb_conf_name)" ]'
+printf '%s\n' "[    2.0] lume-bootsel: before kexec: fallback: ga36-panel2 was not confirmed in the previous boot; discarded" \
 	"[    2.1] lume-bootsel: before kexec: selected other (reason: fallback)" \
 	"[    2.2] lume-bootsel: ERROR: kexec -l failed (status 1); keeping the running device tree" > "$W/dmesg"
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
 BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
 check "dtb: the choice becomes an event" 'grep -q " boot OK device tree selected other (reason: fallback)" $LOGS_DIR/events.log'
 check "dtb: fallback and errors become failure events" \
-	'grep -q " boot FAIL device tree fallback: ga36-panel2 did not reach the frontend" $LOGS_DIR/events.log && grep -q " boot FAIL device tree ERROR: kexec -l failed" $LOGS_DIR/events.log'
-check "dtb: the hardware snapshot has the device tree in use" \
-	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use)\"" rootfs/overlay/usr/libexec/r36os/hwinfo'
+	'grep -q " boot FAIL device tree fallback: ga36-panel2 was not confirmed" $LOGS_DIR/events.log && grep -q " boot FAIL device tree ERROR: kexec -l failed" $LOGS_DIR/events.log'
+# third start after a revert: the lines of the first start come with two prefixes
+printf '%s\n' "[    1.0] lume-bootsel: before kexec: before kexec: selected ga36-panel2 (reason: forced)" \
+	"[    1.1] lume-bootsel: before kexec: question shown: keep ga36-panel2? (15 s)" \
+	"[    1.2] lume-bootsel: before kexec: not confirmed within 15 s: ga36-panel2 discarded on this device, going back to ga36-panel1" \
+	"[    1.3] lume-bootsel: before kexec: selected ga36-panel1 (reason: reverted)" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: revert events (the choice, the missing answer and the way back)" \
+	'grep -q " boot OK device tree selected ga36-panel2 (reason: forced)" $LOGS_DIR/events.log && grep -q " boot FAIL device tree not confirmed within 15 s: ga36-panel2 discarded" $LOGS_DIR/events.log && grep -q " boot OK device tree selected ga36-panel1 (reason: reverted)" $LOGS_DIR/events.log'
+printf '%s\n' "[    1.0] lume-bootsel: before kexec: selected ga36-panel2 (reason: rule)" \
+	"[    1.1] lume-bootsel: confirmed on screen: ga36-panel2 kept" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: confirmation on the screen becomes an event" 'grep -q " boot OK device tree confirmed on screen: ga36-panel2 kept" $LOGS_DIR/events.log'
 unset -f dmesg
 
 rm -rf "$W"
