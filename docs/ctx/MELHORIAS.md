@@ -314,6 +314,51 @@ O texto abaixo é a proposta original.
   com `readonly_commands` e a seção comentada explicando o uso; o `ctx upgrade` hoje
   sobrescreveria esta mudança local.
 
+### M-19. Bloqueios do guardrail por regra, e quais não ensinam — protótipo
+
+- **Problema:** o `evaluate` soma todos os bloqueios como custo (13 250 tokens estimados) e, ao mesmo
+  tempo, os conta como recurso que compensa, sem dizer qual regra pesa.
+- **Medido (2026-11-13, 15 sessões):** 53 bloqueios, **34 repetidos na mesma sessão** (a regra
+  disparou de novo, então o coaching não ensinou). Por regra: encadeamento de comandos shell 31
+  (~7 750 tokens), padrão proibido `mkfs` 9, `tree` sem `-L` 4, `git log` sem `-n` 3. A regra do
+  encadeamento sozinha é ~58% do custo: é o que o agente mais repete.
+- **Implementado:** `metrics.py` guarda `denial_rules` e `denial_repeats` por sessão; o `evaluate`
+  soma e o `cli.py` imprime a tabela "Bloqueios por regra" (primeiras 8). Patch incremental em
+  `docs/ctx/ctx-0.4.0-local-m19-m22.patch`.
+- **Falta:** o rótulo da regra é o início da mensagem (70 caracteres); o guardrail deveria gravar um
+  identificador de regra no `events.jsonl`. Limitar a mensagem do encadeamento a uma linha com a
+  receita pode reduzir a repetição.
+- **Mensagem mais instrutiva (2026-11-13, `scripts/guardrail.py`):** o `deny` de encadeamento agora
+  diz o que fazer no lugar: comandos independentes em chamadas Bash paralelas no mesmo turno,
+  dependentes em turnos seguintes, e `cd X && cmd` vira caminho absoluto ou `git -C X`. Medir na
+  próxima avaliação se os 34 repetidos caem. **Para levar ao agent-harness-hub:** o texto no gerador
+  do `guardrail.py`; o `ctx upgrade` hoje sobrescreveria esta mudança local.
+
+### M-20. Veredito provisório com amostra pequena — protótipo
+
+- **Problema:** com 15 sessões (e um modelo com 1), "não compensa" saía com o mesmo peso de um
+  veredito com amostra grande.
+- **Implementado:** `overall.confidence` é `provisório` abaixo de `[metrics.evaluate].confident_sessions`
+  (padrão 30); o relatório mostra o aviso e a recomendação manda repetir a avaliação antes de desligar
+  um recurso. Intervalo de confiança do saldo fica como evolução.
+
+### M-21. Registro de fatos quando algo custou caro — protótipo parcial
+
+- **Problema:** nenhum fato registrado em 15 sessões, e o `recall` depende só de transcript. O agente
+  nunca chama `ctx fact add`.
+- **Implementado:** com a amostra mínima e nenhum fato, o `evaluate` recomenda `ctx fact add` com
+  exemplos do que registrar.
+- **Falta (proposta):** o guardrail avisar no momento da descoberta, por exemplo quando uma mesma
+  sessão faz um `ctx search` seguido de 3 ou mais leituras no mesmo arquivo, ou ao fim da sessão
+  (`ctx fact review` já existe para candidatos).
+
+### M-22. Adoção por sessão, não só por chamada — protótipo
+
+- **Problema:** 1% por chamada (21 buscas contra ~2 300 desvios) não distingue "não usa" de "usa
+  pouco": 8 de 15 sessões usaram `ctx search` e 13 de 15 algum comando do ctx.
+- **Implementado:** a evidência de "busca e índice" mostra as duas medidas. Combina com o M-14, que
+  limpa os desvios que o `ctx search` não substitui.
+
 ## Métricas a acompanhar
 
 Repetir o `ctx evaluate` depois de algumas sessões e comparar com a linha de base:

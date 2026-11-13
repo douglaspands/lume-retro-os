@@ -1,0 +1,93 @@
+diff --git a/ctx/evaluate.py b/ctx/evaluate.py
+--- a/ctx/evaluate.py
++++ b/ctx/evaluate.py
+@@ -99,9 +99,12 @@
+     else:
+         adoption = uses / (uses + detours)
+         v = COMPENSA if adoption >= cfg["search_adoption_ok"] else MARGINAL if adoption >= 0.2 else NAO
++        # M-22: per-session adoption tells "does not use it" from "uses it little"
++        search_n = sum(1 for s in sessions if s["ctx_search"])
+         out.append(verdict_feature(
+             "busca e índice", v,
+-            f"{uses} buscas ctx vs {detours} desvios rg/grep/sed (adoção {adoption:.0%}); {saved} chamadas poupadas por multi-query{lat_note}",
++            f"{uses} buscas ctx vs {detours} desvios rg/grep/sed (adoção {adoption:.0%} por chamada; "
++            f"{search_n}/{n} sessões usaram `ctx search`, {ctx_n}/{n} usaram algum ctx); {saved} chamadas poupadas por multi-query{lat_note}",
+             saved,
+         ))
+
+@@ -222,6 +225,11 @@
+         recs.append("Há fatos que nunca são consultados: remova os obsoletos (`ctx fact stale`) e peça `ctx fact search` antes de redescobrir valores.")
+     if by["upstream em cache"]["verdict"] == NAO:
+         recs.append("Há re-downloads manuais: declare o projeto em `[upstream.<nome>]` do policy.toml para passar a usar `ctx upstream get`.")
++    if by["fatos verificados"]["verdict"] == SEM_DADOS and overall["sessions"] >= cfg["min_sessions"]:
++        # M-21 (prototype: report side only; the hint at the moment of discovery is a proposal)
++        recs.append("Nenhum fato registrado: o que custou caro descobrir (valor medido, causa de um bug, URL de patch) deve entrar com `ctx fact add \"<fato>\" --source arquivo:linha --tags a,b`, para o `recall` não depender de transcript.")
++    if overall.get("confidence") == "provisório":
++        recs.append(f"Veredito provisório: {n} sessões (confiança a partir de {cfg.get('confident_sessions', 30)}); repita o `ctx evaluate` depois de mais sessões antes de desligar um recurso.")
+     if by["receitas"]["verdict"] == NAO:
+         recs.append("Receitas ignoradas ou sem ganho: use `ctx recipe list`, ajuste as etapas no policy.toml ou remova as que ninguém usa.")
+     if by["coaching do guardrail"]["verdict"] == NAO:
+@@ -267,8 +275,18 @@
+         verdict = MARGINAL
+     else:
+         verdict = NAO
++    # M-20: the verdict carries its confidence; below `confident_sessions` it is only provisional
++    confidence = "ok" if n >= cfg.get("confident_sessions", 30) else "provisório"
++    # M-19: denial cost split by rule; repeats are denials that did not teach the agent anything
++    rules: dict[str, int] = {}
++    for s in sessions:
++        for rule, count in s.get("denial_rules", {}).items():
++            rules[rule] = rules.get(rule, 0) + count
++    repeats = sum(s.get("denial_repeats", 0) for s in sessions)
++    denial_rules = [{"rule": r, "count": c, "tokens": c * cfg["tokens_per_call"]} for r, c in sorted(rules.items(), key=lambda kv: -kv[1])]
+     overall = {
+-        "verdict": verdict, "sessions": n,
++        "verdict": verdict, "confidence": confidence, "sessions": n,
++        "denial_repeats": repeats, "denial_rules": denial_rules,
+         "saved_calls": saved_calls, "saved_tokens": saved_tokens,
+         "saved_tokens_per_session": round(saved_tokens / n) if n else 0,
+         "overhead_tokens_per_session": overhead["per_session"],
+diff --git a/ctx/metrics.py b/ctx/metrics.py
+--- a/ctx/metrics.py
++++ b/ctx/metrics.py
+@@ -121,7 +121,8 @@
+
+ def new_stats(path: Path) -> dict[str, Any]:
+     stats: dict[str, Any] = {k: 0 for k in ALL_NUMERIC}
+-    stats.update({"session": path.stem, "started": "", "model": "", "start_ts": 0.0, "end_ts": 0.0})
++    stats.update({"session": path.stem, "started": "", "model": "", "start_ts": 0.0, "end_ts": 0.0,
++                  "denial_rules": {}, "denial_repeats": 0})
+     return stats
+
+
+@@ -170,8 +171,14 @@
+                 stats["result_chars"] += len(text)
+                 if COACH_MARKER in text:
+                     stats["coach_denies"] += 1
+-                if GUARDRAIL_DENY_RE.search(text):
++                m = GUARDRAIL_DENY_RE.search(text)
++                if m:
+                     stats["denials"] += 1
++                    # M-19: per-rule breakdown; a rule that fires again in the same session did not teach anything
++                    rule = re.sub(r"\d+", "N", text[m.end():].strip().splitlines()[0] if text[m.end():].strip() else "(sem texto)")[:70]
++                    stats["denial_rules"][rule] = stats["denial_rules"].get(rule, 0) + 1
++                    if stats["denial_rules"][rule] > 1:
++                        stats["denial_repeats"] += 1
+     stats["repeated_cmds"] = sum(n - 1 for c, n in commands.items() if n > 1 and c not in TRIVIAL_REPEATS)
+     stats["redownloads"] = sum(n - 1 for n in urls.values() if n > 1)
+     return stats
+diff --git a/ctx/cli.py b/ctx/cli.py
+--- a/ctx/cli.py
++++ b/ctx/cli.py
+@@ -424,6 +424,11 @@
+         f"(instruções {o['overhead_tokens_per_session']}/sessão + bloqueios {o['denial_waste_tokens']})"
+     )
+     print(f"   saldo líquido estimado: {o['net_tokens']} tokens ({o['net_tokens_per_session']}/sessão)  [tokens = estimativa chars/4]")
++    if o.get("confidence") == "provisório":
++        print("   ⚠️  veredito PROVISÓRIO: poucas sessões para decidir (ver recomendação)")
++    if o.get("denial_rules"):
++        print(f"\nBloqueios por regra (estimativa; {o['denial_repeats']} repetidos na mesma sessão = coaching que não ensinou):")
++        print(format_table([[r["count"], f"~{r['tokens']}", r["rule"]] for r in o["denial_rules"][:8]], ["Vezes", "Tokens", "Regra (início da mensagem)"]))
+     print("\nPor recurso:")
+     print(format_table([[f"{VERDICT_ICON[f['verdict']]} {f['verdict']}", f["feature"], f["evidence"]] for f in res["features"]], ["Veredito", "Recurso", "Evidência"]))
+     if res["models"]:

@@ -489,7 +489,9 @@ def evaluate_shell_command(
         return (
             "deny",
             "Encadeamento de comandos shell (&&, ||, ;, &, subshells) é proibido: cada comando precisa ser avaliado "
-            "sozinho pelo guardrail. Execute um comando por chamada.",
+            "sozinho pelo guardrail. Execute um comando por chamada Bash; comandos independentes vão em chamadas "
+            "paralelas no mesmo turno, e os dependentes em turnos seguintes. Em vez de `cd X && cmd`, use caminho "
+            "absoluto ou `git -C X`; para não encadear `;`, repita a chamada.",
         )
 
     raw_tokens = tokenize(cmd_clean)
