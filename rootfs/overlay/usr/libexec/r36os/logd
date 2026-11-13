@@ -303,6 +303,26 @@ audio_watch() {
 	return 0
 }
 
+# First playback stream as state/rate/uptime/hw_ptr ("-" when none is open). Two samples
+# give the rate the hardware really consumes: (hw_ptr2 - hw_ptr1) / (uptime2 - uptime1).
+# The uptime is read right before hw_ptr (the ALSA tstamp stays 0 unless the application
+# enables timestamps, which RetroArch does not).
+pcm_pos() {
+	local f p st rate up ptr
+	for f in "${ASOUND_DIR:-/proc/asound}"/card*/pcm*p/sub*/status; do
+		[ -r "$f" ] || continue
+		p=${f%/status}
+		st=$(sed -n 's/^state: *//p' "$f" 2>/dev/null)
+		[ -n "$st" ] || continue
+		rate=$(sed -n 's/^rate: *\([0-9]*\).*/\1/p' "$p/hw_params" 2>/dev/null)
+		read -r up _ < "${UPTIME_FILE:-/proc/uptime}" 2>/dev/null || up=""
+		ptr=$(sed -n 's/^hw_ptr *: *//p' "$f" 2>/dev/null)
+		echo "$st/$rate/$up/$ptr"
+		return 0
+	done
+	echo -
+}
+
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang
 trace_sample() {
 	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
@@ -333,7 +353,7 @@ trace_sample() {
 			r=$(readlink "$f" 2>/dev/null)
 			case "$r" in /dev/dri/*) dri=$((dri + 1)) ;; esac
 		done
-		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu vblank=$vb tasks=$th"
+		trace "fe=$FE_STATE pid=$pid $line dri_fds=$dri gpu_mhz=$gpu vblank=$vb pcm=$(pcm_pos) tasks=$th"
 		# Hung = same process, (almost) no CPU used since the last sample and the display
 		# vblank counter not moving. A frontend that is only loading a big game uses CPU.
 		# After a kick only the CPU counts (see KICKED_PID).

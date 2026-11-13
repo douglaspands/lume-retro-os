@@ -145,7 +145,7 @@ Serve para descobrir **onde** o RetroArch parou quando o aparelho congela. Cada 
 começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segundos):
 
 ```
-10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 vblank=2842 tasks= 312:S:do_poll 318:S:futex_wait_queue
+10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 vblank=2842 pcm=RUNNING/48000/46.12/2211840 tasks= 312:S:do_poll 318:S:futex_wait_queue
 ```
 
 | Campo | Conteúdo |
@@ -158,6 +158,7 @@ começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segund
 | `dri_fds` | descritores abertos em `/dev/dri/` (mais de um pode indicar o dispositivo herdado do processo anterior) |
 | `gpu_mhz` | frequência da GPU (devfreq) em MHz; vazio sem devfreq. Mostra se o clock da GPU mudou quando o jogo abriu |
 | `vblank` | soma das interrupções do controlador de vídeo (`lcd-controller`, o vblank); vazio sem ele (VM). Com o display vivo, sobe ~55 por segundo; **parada, a tela congelou** |
+| `pcm` | primeira reprodução de áudio aberta, como `estado/taxa/uptime/hw_ptr` (`-` sem nenhuma). O `uptime` é o de `/proc/uptime`, lido logo antes do `hw_ptr`, que conta os quadros que o hardware já consumiu; entre duas linhas com o mesmo stream em `RUNNING`, `Δhw_ptr / Δuptime` é a taxa real de saída, que deve bater com a `taxa` |
 | `tasks` | por thread: `tid:estado:wchan`. O `wchan` é a função do kernel em que a thread está dormindo |
 
 Além disso:
