@@ -243,14 +243,15 @@ def test_sticks_on_saradc_channel_1_behind_the_mux():
 
 
 def test_stick_channels_and_directions_as_tested_on_the_device():
-    # boot 17 (2026-11-12): left stick as read; right stick turned 90 degrees, both inverted
+    # scripted test, boot 19 (log boot-10, 2026-11-13): left stick on channels 1 (horizontal)
+    # and 3 (vertical), both inverted; right stick on 2 (horizontal) and 0 (vertical), as read
     sticks = _node("analog_sticks: adc-joystick")
     axes = {int(reg): (int(a), int(b), code) for reg, a, b, code in re.findall(
         r"reg = <(\d)>;.*?abs-range = <(\d+) (\d+)>;\s*linux,code = <(ABS_\w+)>", sticks, re.S)}
     assert {reg: code for reg, (_, _, code) in axes.items()} == {
-        0: "ABS_X", 1: "ABS_RY", 2: "ABS_Y", 3: "ABS_RX"}
+        0: "ABS_RY", 1: "ABS_X", 2: "ABS_RX", 3: "ABS_Y"}
     inverted = {code for a, b, code in axes.values() if a > b}
-    assert inverted == {"ABS_RX", "ABS_RY"}
+    assert inverted == {"ABS_X", "ABS_Y"}
 
 
 def test_leds():
@@ -260,10 +261,15 @@ def test_leds():
 
 
 def test_audio():
-    # boot 18: speaker on SPKO as ROCKNIX; the factory spk-ctl line (gpio3 20) held high
-    assert _hog("speaker-enable-hog") == (3, 20, "GPIO_ACTIVE_HIGH")
+    # boot 25: the factory spk-ctl line (gpio3 20) is a simple-audio-amplifier after SPKO,
+    # on only while the speaker plays (held high by a hog, it hummed from the boot)
+    assert "speaker-enable-hog" not in DTS
+    amp = _node("spk_amp: audio-amplifier")
+    assert 'compatible = "simple-audio-amplifier"' in amp
+    assert _gpio(amp, "enable-gpios") == (3, 20, "GPIO_ACTIVE_HIGH")
     card = _node("rk817-sound")
-    assert '"Internal Speakers", "SPKO"' in card and "aux-devs" not in card
+    assert "simple-audio-card,aux-devs = <&spk_amp>;" in card
+    assert '"Speaker Amp INL", "SPKO"' in card and '"Internal Speakers", "Speaker Amp OUTL"' in card
     assert 'pin-switches = "Internal Speakers"' in card  # the mixer turns it on by name
     # active high, as the factory rk_headset node: active low muted the speaker (boot 16)
     assert _gpio(card, "simple-audio-card,hp-det-gpios") == (2, 22, "GPIO_ACTIVE_HIGH")

@@ -47,12 +47,11 @@
 	};
 
 	/*
-	 * Channels and directions as tested on the user's R36S V5 in the RetroArch menu (boot
-	 * 17, 2026-11-12): channel 0 is the left stick horizontal, 2 the left vertical, both
-	 * reported as read (inverting them, as the factory driver does with its own sign
-	 * convention, made both directions backwards). The right stick is mounted turned by
-	 * 90 degrees: channel 1 is its vertical and channel 3 its horizontal, both inverted
-	 * (with 1 = ABS_RX and 3 = ABS_RY the right stick moved the other axis, backwards).
+	 * Channels and directions from a scripted test on the user's R36S V5 (boot 19, log
+	 * boot-10, 2026-11-13: each direction held, left stick first), read from the kernel
+	 * events, not from the RetroArch menu. Left stick: channel 1 horizontal and channel 3
+	 * vertical, both reading high to the left and up, so inverted. Right stick: channel 2
+	 * horizontal and channel 0 vertical, both reading low to the left and up, as read.
 	 * adc-joystick has no calibration, so each range is centred on the rest value
 	 * measured on this device (boots 15 and 16: ch0 ~435, ch2 ~455, ch1 ~520, ch3 ~490)
 	 * with +-330 of travel. Calibration at start is task 6.8.
@@ -67,40 +66,40 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		/* left stick, horizontal */
+		/* right stick, vertical */
 		axis@0 {
 			reg = <0>;
 			abs-flat = <32>;
 			abs-fuzz = <32>;
 			abs-range = <105 765>;
-			linux,code = <ABS_X>;
+			linux,code = <ABS_RY>;
 		};
 
-		/* right stick, vertical (stick turned 90 degrees) */
+		/* left stick, horizontal (inverted) */
 		axis@1 {
 			reg = <1>;
 			abs-flat = <32>;
 			abs-fuzz = <32>;
 			abs-range = <850 190>;
-			linux,code = <ABS_RY>;
+			linux,code = <ABS_X>;
 		};
 
-		/* left stick, vertical */
+		/* right stick, horizontal */
 		axis@2 {
 			reg = <2>;
 			abs-flat = <32>;
 			abs-fuzz = <32>;
 			abs-range = <125 785>;
-			linux,code = <ABS_Y>;
+			linux,code = <ABS_RX>;
 		};
 
-		/* right stick, horizontal (stick turned 90 degrees) */
+		/* left stick, vertical (inverted) */
 		axis@3 {
 			reg = <3>;
 			abs-flat = <32>;
 			abs-fuzz = <32>;
 			abs-range = <820 160>;
-			linux,code = <ABS_RX>;
+			linux,code = <ABS_Y>;
 		};
 	};
 
@@ -281,17 +280,27 @@
 	};
 
 	/*
-	 * Speaker straight on the RK817 speaker output (SPKO, its class D stage), as ROCKNIX
-	 * wires the R3xS/R36S family on the same mainline codec driver. With a
-	 * simple-audio-amplifier on gpio3 20 between SPKO and the speaker the R36S V5 stayed
-	 * silent (boots 16 and 17, task 6.3). gpio3 20 (spk-ctl-gpios of the factory codec
-	 * node) is kept high by a hog, in case it enables a speaker stage on this board.
+	 * Speaker stage enabled by gpio3 20 (spk-ctl-gpios of the factory codec node), after
+	 * the RK817 speaker output (SPKO, its class D stage). The factory driver raises it only
+	 * while the speaker path plays; held high all the time (boots 18 to 24) the speaker
+	 * hummed from the start of the boot. As a simple-audio-amplifier, DAPM drives it with
+	 * the speaker path. (Boots 16 and 17 were silent with this wiring because of the codec,
+	 * fixed by patch 0024, not because of the amplifier.)
 	 */
+	spk_amp: audio-amplifier {
+		compatible = "simple-audio-amplifier";
+		enable-gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&spk_amp_enable_h>;
+		sound-name-prefix = "Speaker Amp";
+	};
+
 	rk817-sound {
 		compatible = "simple-audio-card";
 		pinctrl-names = "default";
 		pinctrl-0 = <&hp_det>;
 		simple-audio-card,name = "rk817_int";
+		simple-audio-card,aux-devs = <&spk_amp>;
 		simple-audio-card,format = "i2s";
 		/*
 		 * Active high, as the factory rk_headset node (headset_gpio, flag 0): the line reads
@@ -308,7 +317,10 @@
 			"MICL", "Mic Jack",
 			"Headphones", "HPOL",
 			"Headphones", "HPOR",
-			"Internal Speakers", "SPKO";
+			"Speaker Amp INL", "SPKO",
+			"Speaker Amp INR", "SPKO",
+			"Internal Speakers", "Speaker Amp OUTL",
+			"Internal Speakers", "Speaker Amp OUTR";
 		simple-audio-card,pin-switches = "Internal Speakers";
 
 		simple-audio-card,codec {
@@ -423,14 +435,6 @@
 		gpios = <RK_PB7 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "lcd-stbyb";
-	};
-
-	/* spk-ctl-gpios of the factory codec node, kept on (see rk817-sound) */
-	speaker-enable-hog {
-		gpio-hog;
-		gpios = <RK_PC4 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "speaker-enable";
 	};
 };
 
@@ -725,6 +729,13 @@
 		pmic_int: pmic-int {
 			rockchip,pins =
 				<0 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	speaker {
+		spk_amp_enable_h: spk-amp-enable-h {
+			rockchip,pins =
+				<3 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 };
