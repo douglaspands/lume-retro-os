@@ -96,7 +96,7 @@ def stage_modules(rootfs_tar: Path, wanted: list[str], dest: Path) -> list[str]:
 
 _PACK = """
 cp /keys/r36os.rsa.pub /etc/apk/keys/
-apk add -q -X /repo r36os-initramfs-static
+apk add -q -X /repo r36os-initramfs-static lume-bootsel
 S=/stage
 mkdir -p $S/bin $S/sbin $S/proc $S/sys $S/dev $S/tmp $S/boot $S/lower $S/rw $S/newroot
 cp /bin/busybox.static $S/bin/busybox
@@ -118,6 +118,14 @@ def build_initramfs(target: Target) -> Path:
     # the console of this initramfs: the init mounts BOOT/<console>/SYSTEM (single card)
     ensure_dir(stage / "etc")
     (stage / "etc/board").write_text(target.name + "\n")
+    # device tree selection (boot-dtb-select D7, D8): the SoC folder of BOOT/dtbs/ and the
+    # keys of the list, read by lume-bootsel (the vm has no device tree: neither)
+    from r36os.image import SOC_DIR
+    if target.name in SOC_DIR:
+        (stage / "etc/soc").write_text(SOC_DIR[target.name] + "\n")
+    keys = REPO_ROOT / "board" / target.name / "bootsel-keys"
+    if keys.exists():
+        shutil.copy(keys, stage / "etc/bootsel-keys")
     mods = REPO_ROOT / f"initramfs/modules-{target.name}.txt"
     if mods.exists():
         stage_modules(out / "rootfs.tar", _read_list(mods), stage)
