@@ -3,8 +3,10 @@
 Guia da primeira subida e da conferência do R36S V5 (Rockchip RK3326, aarch64) com a
 imagem `console`, o cartão único do GA36 e do R36S (change `r36s-single-card`).
 
-> **Estado:** a imagem ainda não foi testada no aparelho. As seções marcadas com
-> *a medir* são preenchidas com os resultados das tarefas 1.1, 4.4 e 9.x da change.
+> **Estado (2026-11-13):** a imagem inicia no aparelho: tela, controle e som funcionam.
+> Abertos: volume baixo e zumbido do alto-falante (P-45), fone (P-42) e a verificação nos
+> dois consoles (tarefas 9.1 a 9.5 da change). As seções marcadas com *a medir* esperam
+> essas verificações.
 
 ## 1. Gerar e gravar
 
@@ -80,8 +82,8 @@ sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 **medido em 2026-11-12:** o BL31 de fábrica funciona com o kernel mainline (PSCI v1.0, os
 4 núcleos sobem: `smp: Brought up 1 node, 4 CPUs`); U-Boot, kernel, initramfs, `SYSTEM` e
 RetroArch em ~19,4 s até o frontend (`frontend (s from kernel)` no `hw/boot-<n>.txt`); RTC
-do RK817, bateria, Panfrost, "R36S Gamepad" e jack aparecem no log. *Falta:* a imagem no
-painel (seção 5) e conferir se o desligamento corta a energia.
+do RK817, bateria, Panfrost, "R36S Gamepad" e jack aparecem no log. A imagem no painel
+apareceu a partir do boot 14 (seção 5). *Falta:* conferir se o desligamento corta a energia.
 
 ## 5. Painel: diagnóstico
 
@@ -114,8 +116,11 @@ inicialização e o modo de vídeo vêm do DTB de fábrica (`panel-init-sequence
 **Tela cinza com uma mancha clara e fixa no centro, que não muda com o menu:** o painel
 está ligado e acordado, mas não recebe vídeo. Se as linhas acima mostram o painel
 acordado (`9c`), o problema está no caminho de alta velocidade (D-PHY, taxa do link), não
-nos comandos. O histórico do que já foi testado está na tarefa 4.6 da change
-`r36s-single-card`.
+nos comandos. **Resolvido no boot 14 (2026-11-12):** o RetroArch apareceu no painel depois
+das mudanças dos patches 0018 (espera de 250 ms depois do *exit sleep*), 0019 (taxa de
+180 Mbps por lane e tempos `hstt` 64 64 16 20 do D-PHY externo) e 0020 (lane de clock em
+LP para comandos LP). Ainda não se sabe qual delas basta sozinha; isso, a conferência de
+nitidez e cores e o histórico completo estão na tarefa 4.6 da change `r36s-single-card`.
 
 ## 6. Testar só um kernel novo
 
@@ -147,8 +152,38 @@ um dispositivo à parte (`volume-keys`), como no GA36.
 | F4 | R3 | *a medir* |
 | F5 | menu (como o Fn do GA36) | *a medir* |
 
-A ordem e a inversão dos eixos dos analógicos seguem o DTS de fábrica e o Odroid Go3:
-*a medir* (tarefa 9.5).
+**Analógicos (medido em 2026-11-12 e 2026-11-13):** o `adc-joystick` mainline tinha um bug
+(`adc_joystick_invert()` usava o índice do canal onde o `input_abs_get_min/max` espera o
+código `ABS_*`, então o eixo invertido saía com a faixa errada): corrigido pelo patch 0022.
+Os dois sticks são montados girados 90° e a ordem dos canais saiu de um teste roteirizado
+(oito movimentos segurados, lido no log com o patch 0021, que registra cada evento de
+entrada como `evlog: …`). No DTS: canal 1 = `ABS_X` e canal 3 = `ABS_Y`, os dois
+invertidos; canal 2 = `ABS_RX` e canal 0 = `ABS_RY`, sem inverter. O usuário confirmou em
+2026-11-13 que o gamepad funciona corretamente. O repouso de cada eixo fica fora do centro
+da faixa fixa e o DTS centra a faixa no repouso medido **deste** aparelho; outro R36S pode
+precisar de calibração (tarefa 6.8).
+
+## 8. Áudio
+
+O alto-falante é o amplificador classe D interno do RK817 (sem amplificador externo no DTB
+de fábrica); o `PC4` (`spk-ctl` de fábrica) liga o estágio de potência e no nosso DTS é um
+`simple-audio-amplifier` depois do `SPKO`. O mesmo pino do codec serve ao alto-falante e ao
+canal esquerdo do fone, escolhido pelo `Playback Mux` (`SPK` ou `HP`; o `mixer` deixa em
+`SPK`). A detecção do fone é `gpio2 PC6`, **ativa em alto** como na fábrica (invertida, o
+sistema achava que havia fone e ficava mudo).
+
+- **Patch 0024:** o alto-falante só tocou depois de levar o caminho do codec aos valores do
+  driver de fábrica (DAC L/R ligados, `ACLASSD_CFG1` 0xa5, `ACLASSD_CFG2` 0xc4, `DDAC_MUTE_MIXCTL`
+  0x10). O dump dos registradores que levou a isso foi feito com um patch provisório, já
+  removido; a conferência hoje é pelo regmap do debugfs e pelo `board/r36s/diag/codecdump.sh`
+  (roda no ArkOS pelo menu Ports e salva os registradores durante um tom).
+- **Patch 0025:** o som saía 4 a 6% devagar (o tom de 440 Hz lia 205 Hz no afinador na
+  oitava de baixo) porque o divisor fracionário do I2S recebia 1200 MHz; o kernel de fábrica
+  limita essa entrada a 600 MHz. Com o limite, o tom de 440 Hz mede 440 Hz.
+- **Abertos:** o som é muito mais baixo que no ArkOS de fábrica e há zumbido em silêncio
+  (P-45); a troca de saída com o fone não acontece (P-42).
+
+## 9. Checklist de conferência
 
 ## 8. Checklist de conferência
 
@@ -159,19 +194,25 @@ A ordem e a inversão dos eixos dos analógicos seguem o DTS de fábrica e o Odr
 | Painel e brilho | imagem desde as mensagens do kernel, 640x480 | tela |
 | GPU | renderer `Panfrost` (não `llvmpipe`) | `frontend/boot-<n>.log` |
 | Controle | todos os botões, F1-F5 e os dois analógicos no menu e num jogo | tela |
-| Áudio | som no alto-falante; com fone, a troca é a tarefa 6.6 | ouvido; `events.log` sem `audio FAIL` |
+| Áudio | som no alto-falante (volume e zumbido: P-45); com fone, a troca é o P-42 | ouvido; `events.log` sem `audio FAIL` |
 | Taxa do painel | ~59,02 Hz (`video_refresh_rate` do `retroarch-r36s.cfg`) | métricas (`fps`) |
 | Bateria | porcentagem e corrente | `metrics/boot-<n>.csv` (`bat_*`) |
 | Temperatura | dentro das zonas do `rk3326.dtsi` | `metrics/boot-<n>.csv` |
 | Cartão único | o mesmo cartão no GA36 e de volta no R36S; um save passa entre os dois | tarefas 9.1 a 9.4 |
 
-## 9. Medido no aparelho
+## 10. Medido no aparelho
 
 | Data | Item | Resultado |
 |---|---|---|
 | 2026-11-12 | Tarefa 1.1 (`boot.ini`) | lido, desde que a raiz da `BOOT` tenha o DTB do RG351 que o U-Boot escolhe (seção 2) |
 | 2026-11-12 | Tarefa 4.4 (primeira subida) | inicia até o RetroArch em ~19,4 s; 4 núcleos pelo BL31 de fábrica; RTC, bateria, Panfrost, gamepad e jack no log |
 | 2026-11-12 | Mixer do RK817 | controles reais: `Master`, `Mic Capture Gain`, `Playback Mux`, `Internal Speakers` (sem `Headphones`) |
-| 2026-11-12 | Painel | acende, acorda e liga o display pelos comandos, mas fica cinza sem vídeo (seção 5; tarefa 4.6 em andamento) |
+| 2026-11-12 | Painel | acende, acorda e liga o display pelos comandos, mas fica cinza sem vídeo (seção 5) |
+| 2026-11-12 | Painel (boot 14) | o RetroArch aparece no painel depois dos patches 0018 a 0020; nitidez e cores ainda a conferir (tarefa 4.6) |
+| 2026-11-12 | Analógicos (boots 15 a 20) | bug do `adc-joystick` corrigido (0022); canais e inversões do DTS ajustados por teste roteirizado (seção 7) |
+| 2026-11-12 | Áudio (boots 16 a 24) | alto-falante toca com o patch 0024 e na velocidade certa com o 0025; mudo sem eles (seção 8) |
+| 2026-11-13 | Gamepad | funciona corretamente (usuário); botões e os quatro eixos no menu e em jogo |
+| 2026-11-13 | Volume e zumbido | volume muito abaixo da fábrica e zumbido em silêncio continuam: P-45 |
 
-*A preencher com as tarefas 9.1 a 9.5.*
+*A preencher com as tarefas 9.1 a 9.4 da change (boot integrado). As medições (cores, taxa do
+painel, F1-F5) ficam para a próxima change: P-46.*
