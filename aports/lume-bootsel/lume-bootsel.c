@@ -62,6 +62,15 @@
 #define KEY_WAIT_MS 1000
 #define CONFIRM_S 15
 #define WATCHDOG_S 60
+/*
+ * The question on the screen after a kexec (D10). Off in the package while the device
+ * tests of usb-device-access run (user request, 2026-11-13): a new device tree stays
+ * pending and r36os-logd confirms it when the frontend starts. The tests build with
+ * -DLUME_CONFIRM=1. Back to 1 when boot-dtb-select resumes.
+ */
+#ifndef LUME_CONFIRM
+#define LUME_CONFIRM 0
+#endif
 
 /* --- options and paths ------------------------------------------------------------- */
 
@@ -1065,7 +1074,7 @@ static int ask_confirm(const char *id, const char *prev)
 	int n, i, nfd = 0, open_fds, shown = -1, answer = 0;
 	long deadline;
 
-	if (!nkeys[K_OK])
+	if (!LUME_CONFIRM || !nkeys[K_OK])
 		return -1;
 	n = scandir(rp("/dev/input"), &list, event_filter, alphasort);
 	for (i = 0; i < n; i++) {
@@ -1435,8 +1444,8 @@ static int second_start(const char *id, const char *reason)
 	load_keys();
 	answer = prev && strcmp(prev->id, id) ? ask_confirm(id, prev->id) : -1;
 	if (answer < 0) {
-		lg("no question on the screen (no confirm key or tty1): %s stays pending until "
-		   "the frontend starts", id);
+		lg("no question on the screen (%s): %s stays pending until the frontend starts",
+		   LUME_CONFIRM ? "no confirm key or tty1" : "turned off in this build", id);
 		if (wd)
 			wd_stop();
 		return 0;

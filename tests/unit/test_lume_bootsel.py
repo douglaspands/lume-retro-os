@@ -42,7 +42,7 @@ apk add -q linux-headers >/dev/null
 mkdir -p /w
 cd /w
 tar xf /distfiles/dtc-{DTC_VER}.tar.xz
-cc -std=gnu11 -O2 -Wall -Wextra -Werror -I dtc-{DTC_VER}/libfdt -c -o bootsel.o /src/lume-bootsel.c
+cc -std=gnu11 -O2 -Wall -Wextra -Werror -DLUME_CONFIRM=1 -I dtc-{DTC_VER}/libfdt -c -o bootsel.o /src/lume-bootsel.c
 cc -static -O2 -I dtc-{DTC_VER}/libfdt -o /out/lume-bootsel bootsel.o dtc-{DTC_VER}/libfdt/fdt*.c
 cd dtc-{DTC_VER}
 make -s NO_PYTHON=1 NO_YAML=1 NO_VALGRIND=1 libfdt/libfdt.a fdtget.o util.o >/dev/null 2>&1 || true
@@ -832,6 +832,14 @@ def test_without_a_confirm_key_there_is_no_question(tools, root, keys_file, devi
     assert ("no question on the screen (no confirm key or tty1): ga36-panel2 stays pending "
             "until the frontend starts") in err
     assert root.state()["pending"] == "ga36-panel2"          # for r36os-logd
+
+
+def test_the_package_builds_without_the_question():
+    # Off while the device tests of usb-device-access run (the tests above build with
+    # -DLUME_CONFIRM=1); r36os-logd confirms the pending device tree instead.
+    source = SOURCE.read_text()
+    assert re.search(r"#ifndef LUME_CONFIRM\n#define LUME_CONFIRM 0\n#endif", source)
+    assert "LUME_CONFIRM" not in APKBUILD
 
 
 def test_confirmed_or_default_trees_never_ask(tools, root):
