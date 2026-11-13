@@ -39,8 +39,13 @@ A mesma nos dois consoles (`docs/BRINGUP-R36S.md` tem a mesma tabela):
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `android-boot/` com as imagens de boot dos painéis 1 e 2 |
+| `ga36/` | `SYSTEM` e `zImage` (o kernel recarregado na troca de DTB) |
 | `r36s/` | `SYSTEM` e `Image` |
+
+A `BOOT` tem só o que os consoles leem. O GA36 inicia pela imagem de boot do setor 172032,
+fora da `BOOT`; as imagens dos dois painéis ficam na pasta do build no PC
+(`out/images/console/<build>/ga36-android-boot-panel{1,2}.img`, com o SHA256 no
+`SHA256SUMS`).
 
 **Logo:** hoje o GA36 mostra o `bootlogo.bmp` da área de fábrica. Passar a usar o
 `BOOT/logo.bmp` (o mesmo logo nos dois) é a tarefa 2.2 de `boot-dtb-select`, que depende da
@@ -67,15 +72,17 @@ escolha o GA36 fica no painel 1.
   `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
 
 **Enquanto a troca por kexec não estiver provada no GA36** (prova 1.5 de
-`boot-dtb-select`), o caminho antigo continua valendo: gravar a imagem de boot do painel 2
-no setor 172032, pelo PC:
+`boot-dtb-select`), o caminho antigo continua valendo: gravar a imagem de boot do painel 2,
+da pasta do build gravado no cartão, no setor 172032, pelo PC:
 
 ```sh
-sudo dd if=/run/media/$USER/BOOT/ga36/android-boot/android-boot-panel2.img of=/dev/sdX \
+sudo dd if=out/images/console/<build>/ga36-android-boot-panel2.img of=/dev/sdX \
     bs=512 seek=172032 conv=notrunc,fsync
 ```
 
-Para voltar ao painel 1, a mesma coisa com `android-boot-panel1.img`.
+Para voltar ao painel 1, a mesma coisa com `ga36-android-boot-panel1.img`. O `<build>` é o
+do `BOOT/VERSION`: a imagem de boot leva o kernel e o initramfs, que precisam ser do mesmo
+build do `ga36/SYSTEM`.
 
 ## 4. Controle
 

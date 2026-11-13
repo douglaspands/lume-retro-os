@@ -77,8 +77,11 @@ sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `android-boot/` com as imagens de boot dos painéis 1 e 2 |
+| `ga36/` | `SYSTEM` e `zImage` (o kernel recarregado na troca de DTB) |
 | `r36s/` | `SYSTEM` e `Image` |
+
+A `BOOT` tem só o que os consoles leem; as imagens de boot dos painéis do GA36 ficam na pasta
+do build no PC (`docs/BRINGUP-GA36.md`, seção 3).
 
 **Trocar o logo:** pelo PC, substituir `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits.
 No R36S vale no boot seguinte. (No GA36, o logo da `BOOT` depende da tarefa 2.2 de

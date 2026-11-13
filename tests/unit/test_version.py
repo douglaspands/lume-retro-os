@@ -64,6 +64,10 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         out.mkdir(exist_ok=True)
         (out / "SYSTEM").write_bytes(b"s" * (10 if target.name == "ga36" else 20))
         (out / "manifest.txt").write_text(f"# arch: {target.alpine_arch}\n")
+        if target.name == "ga36":
+            (out / "kernel").mkdir(exist_ok=True)
+            for panel in ("panel1", "panel2"):
+                (out / f"kernel/android-boot-{panel}.img").write_bytes(panel.encode())
 
     def fake_console_image(v, language="en"):
         img = tmp_path / "console" / "console.img"
@@ -85,6 +89,12 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     assert (dest / "manifest-ga36.txt").read_text() == "# arch: armv7\n"
     assert (dest / "manifest-r36s.txt").read_text() == "# arch: aarch64\n"
     assert (dest / f"console-{_V.build_id}.img.zst").exists()
+    # the GA36 panel boot images are archived with the build (not on BOOT), with their sums
+    sums = (dest / "SHA256SUMS").read_text()
+    for panel in ("panel1", "panel2"):
+        name = f"ga36-android-boot-{panel}.img"
+        assert (dest / name).read_bytes() == panel.encode()
+        assert f"{hashlib.sha256(panel.encode()).hexdigest()}  {name}\n" in sums
 
 
 _V = version.current(NOW)

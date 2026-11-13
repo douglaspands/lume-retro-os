@@ -160,15 +160,15 @@ uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, de
 | Região | Conteúdo |
 |---|---|
 | início do cartão | bootloaders. Na `console`: os 128 MiB com as cadeias de fábrica dos dois consoles (boot0 do GA36 encolhido para 24 KiB, `idbloader`, `uboot.img` e `trust.img` do R36S, U-Boot do GA36) e o nosso kernel do GA36 no setor 172032. Na `vm`: SYSLINUX nos primeiros 16 MiB |
-| `BOOT` (FAT32, 2 GiB na `console`, 1 GiB na `vm`) | `VERSION`. Na `console`: `boot.ini` (lido pelo U-Boot do R36S), `ga36/` (`SYSTEM`, DTBs e as imagens de boot dos dois painéis em `android-boot/`) e `r36s/` (`SYSTEM`, kernel e DTB). Na `vm`: `SYSTEM`, kernel, initramfs e `extlinux/` |
+| `BOOT` (FAT32, 2 GiB na `console`, 1 GiB na `vm`) | `VERSION`. Na `console`, só o que os consoles leem: `boot.ini`, `logo.bmp` e os dois DTBs do RG351 (lidos pelo U-Boot do R36S), `dtbs/a33/` e `dtbs/rk3326/` (os DTBs de cada SoC), `ga36/` (`SYSTEM` e kernel) e `r36s/` (`SYSTEM` e kernel). Na `vm`: `SYSTEM`, kernel, initramfs e `extlinux/` |
 | `ROMS` (exFAT, resto do cartão) | `roms/<sistema>/`, `bios/`, `saves/`, `states/`, `system/` (configurações), `logs/`, `LEIA-ME.txt`: a mesma nos dois consoles |
 
 - Os jogos vão em `ROMS/roms/<sistema>/` pelo PC; as listas são geradas no boot.
 - **Restaurar a configuração de fábrica:** apagar a pasta `ROMS/system/`.
 - **Logs** (sempre em inglês): `ROMS/logs/`. Formato em [docs/LOGS.md](docs/LOGS.md).
 - **GA36, painel:** há duas variantes de tela; a imagem usa a 1 (a do firmware de fábrica).
-  A imagem de boot da 2 fica em `BOOT/ga36/android-boot/android-boot-panel2.img` (gravá-la
-  no setor 172032 troca o painel).
+  A imagem de boot da 2 fica na pasta do build, `out/images/console/<build>/ga36-android-boot-panel2.img`
+  (gravá-la no setor 172032 troca o painel; ver `docs/BRINGUP-GA36.md`).
 - **Trocar de console:** basta passar o cartão de um aparelho para o outro. Os saves
   (`.srm`) passam entre eles; os *save states* podem não passar, porque o GA36 é armv7 e o
   R36S é aarch64.

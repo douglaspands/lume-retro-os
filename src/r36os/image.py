@@ -85,10 +85,11 @@ _VM_RAW = ("dd if=/usr/share/syslinux/mbr.bin of=$W/disk.img bs=440 count=1 "
 
 # Console (design D5; boot-dtb-select D8): BOOT with one folder per console, one folder of
 # DTBs per SoC (dtbs/<soc>/, read by lume-bootsel) and, at the root, the boot.ini that the
-# R36S U-Boot reads. GA36: SYSTEM, the zImage without an appended DTB (reloaded by kexec)
-# and the boot images of both panels (the kernel with the built-in initramfs and the
-# appended DTB is the Android boot image at 172032). R36S: SYSTEM and the Image
-# (initramfs built in); boot.ini loads the default DTB from dtbs/rk3326/.
+# R36S U-Boot reads. Only what the consoles read: GA36 SYSTEM and the zImage without an
+# appended DTB (reloaded by kexec; the kernel with the built-in initramfs and the appended
+# DTB is the Android boot image at sector 172032, outside BOOT, and the images of both
+# panels are archived next to the card image for a dd from the PC). R36S: SYSTEM and the
+# Image (initramfs built in); boot.ini loads the default DTB from dtbs/rk3326/.
 _CONSOLE = """
 W=/out/imgwork
 rm -rf $W && mkdir -p $W
@@ -100,10 +101,9 @@ $M /out/VERSION ::VERSION
 $M /board/boot.ini ::boot.ini
 # factory files the R36S U-Boot reads from the root: RG351 DTBs and the boot logo (task 4.5)
 $M /out/factory-boot/* ::
-mmd -i $W/boot.img ::ga36 ::ga36/android-boot ::r36s ::dtbs ::dtbs/{ga36_soc} ::dtbs/{r36s_soc}
+mmd -i $W/boot.img ::ga36 ::r36s ::dtbs ::dtbs/{ga36_soc} ::dtbs/{r36s_soc}
 $M /ga36/SYSTEM ::ga36/SYSTEM
 $M /ga36/kernel/zImage ::ga36/zImage
-$M /ga36/kernel/android-boot-*.img ::ga36/android-boot/
 $M /ga36/kernel/dtbs/*.dtb ::dtbs/{ga36_soc}/
 $M /r36s/SYSTEM ::r36s/SYSTEM
 $M /r36s/kernel/Image ::r36s/Image
@@ -155,9 +155,14 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
         for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
             files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
-    for img in sorted((ga36_out / "kernel").glob("android-boot-*.img")):
-        files[f"ga36/android-boot/{img.name}"] = img
     return files
+
+
+def ga36_android_boot_images(ga36_out: Path) -> dict[str, Path]:
+    """Archived name -> boot image of each GA36 panel (written to sector 172032 with dd
+    from the PC; they are not on BOOT, which keeps only what the consoles read)."""
+    return {f"ga36-{img.name}": img
+            for img in sorted((ga36_out / "kernel").glob("android-boot-*.img"))}
 
 
 def check_soc_dtbs(files: dict[str, Path]) -> None:

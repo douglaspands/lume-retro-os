@@ -78,8 +78,6 @@ def test_android_boot_is_ga36_panel1():
 def test_boot_contents():
     listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/console.img@@{START * S} -b -/ ::/")
     for name in ("VERSION", "boot.ini", "ga36/SYSTEM", "ga36/zImage",
-                 "ga36/android-boot/android-boot-panel1.img",
-                 "ga36/android-boot/android-boot-panel2.img",
                  "r36s/SYSTEM", "r36s/Image",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel2.dtb",
@@ -89,6 +87,8 @@ def test_boot_contents():
     # boot-dtb-select D8: the DTBs only live in dtbs/<soc>/, and force is the user's
     assert "::/ga36/dtbs" not in listing and "::/r36s/rk3326" not in listing
     assert "::/dtbs/force" not in listing
+    # only what the consoles read: the panel boot images are archived with the build
+    assert "android-boot" not in listing
 
 
 def test_ga36_zimage_has_no_appended_dtb():

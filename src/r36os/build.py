@@ -25,6 +25,7 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
         print(f"layer {name} ({target.alpine_arch})", flush=True)
         build_layer(target, v, language, rebuild_packages)
         layers[name] = _layer_info(target)
+    extras = {}
     if img_target.name == "vm":
         img = image.build_image(TARGETS["vm"], v=v, language=language)
         info = {**layers["vm"], "alpine": _alpine()}
@@ -34,8 +35,11 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
         info = {"alpine": _alpine(), "layers": layers, "bootloaders": console_bootloaders()}
         manifests = {f"manifest-{n}.txt": rootfs.target_out(TARGETS[n]) / "manifest.txt"
                      for n in img_target.layers}
+        # the GA36 panel boot images: for a dd to sector 172032 from the PC, not on BOOT
+        extras = image.ga36_android_boot_images(rootfs.target_out(TARGETS["ga36"]))
     # image archived with the timestamp in out/images/<image>/
-    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests)
+    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests,
+                         extras)
     print(f"ok: {img}\narchived: {dest}")
 
 

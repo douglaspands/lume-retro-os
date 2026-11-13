@@ -342,9 +342,7 @@ def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB):
     return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
             "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
             "ga36/zImage": 6 * MiB,
-            "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
-            "ga36/android-boot/android-boot-panel1.img": 12 * MiB,
-            "ga36/android-boot/android-boot-panel2.img": 12 * MiB}
+            "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000}
 
 
 def test_console_boot_files_layout(tmp_path):
@@ -362,7 +360,11 @@ def test_console_boot_files_layout(tmp_path):
     (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
     assert "dtbs/a33/a.dtb" in files and "dtbs/rk3326/b.dtb" in files
-    assert "ga36/android-boot/android-boot-panel2.img" in files
+    # only what the consoles read: the panel boot images are archived with the build
+    assert not [p for p in files if "android-boot" in p]
+    assert image.ga36_android_boot_images(tmp_path / "ga36") == {
+        "ga36-android-boot-panel2.img": tmp_path / "ga36/kernel/android-boot-panel2.img"}
+    assert "android-boot" not in image._CONSOLE.split("# Disk:")[0]
     # boot-dtb-select D8: the DTBs only live in the SoC folders
     assert not [p for p in files if p.startswith("ga36/dtbs/") or p.startswith("r36s/r")]
     # task 4.5: the factory files go to the root of BOOT
