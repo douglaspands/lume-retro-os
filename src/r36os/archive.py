@@ -7,6 +7,8 @@
       build.json                       timestamp, commit, layers (kernel, patches, SYSTEM
                                        size), bootloaders, Alpine, sizes
       SHA256SUMS                       of the uncompressed image and of the .zst
+      boot-files.sha256                console: every file of BOOT with its SHA256, read
+                                       back from the FAT, VERSION last (r36os push)
     out/images/console/latest -> 20261109-214233
 
 Write it to a card: `uv run r36os flash <image> /dev/sdX`.

@@ -5,6 +5,7 @@ import hashlib
 import random
 import struct
 from compression import zstd
+from pathlib import Path
 
 import pytest
 
@@ -373,10 +374,73 @@ def test_console_boot_files_layout(tmp_path):
     assert files["logo.bmp"] == tmp_path / "b" and "rg351mp-kernel.dtb" in files
 
 
-def test_console_image_copies_the_factory_files_to_the_boot_root():
+def test_boot_copy_commands_come_from_the_one_boot_list(tmp_path):
+    # usb-device-access 5.1: the FAT is filled from console_boot_files(), the list that
+    # flash and push use, with no glob of its own
     from r36os import image
 
-    assert "$M /out/factory-boot/* ::" in image._CONSOLE
+    files = {"logo.bmp": tmp_path / "out/factory-boot/logo.bmp",
+             "ga36/SYSTEM": tmp_path / "ga36/SYSTEM",
+             "dtbs/a33/x.dtb": tmp_path / "ga36/kernel/dtbs/x.dtb"}
+    cmds = image.boot_copy_commands(files, {tmp_path / "out": "/out", tmp_path / "ga36": "/ga36"})
+    assert cmds["dirs"] == "::dtbs ::dtbs/a33 ::ga36"
+    assert cmds["copies"].splitlines() == [
+        '$M "/ga36/kernel/dtbs/x.dtb" "::dtbs/a33/x.dtb"', '$M "/ga36/SYSTEM" "::ga36/SYSTEM"',
+        '$M "/out/factory-boot/logo.bmp" "::logo.bmp"']
+    assert cmds["paths"] == '"dtbs/a33/x.dtb" "ga36/SYSTEM" "logo.bmp" "VERSION"'
+    assert not [line for line in image._CONSOLE.splitlines()
+                if line.startswith("$M") and "*" in line]          # no glob copies left
+    with pytest.raises(image.ConsoleImageError, match="outside the volumes"):
+        image.boot_copy_commands({"x": Path("/elsewhere/x")}, {tmp_path: "/out"})
+
+
+def test_boot_list_is_the_fat_content(tmp_path):
+    # the list read back from a real FAT holds every file once, VERSION last, with the
+    # SHA256 of what was copied (mtools in the builder, as the image build)
+    import hashlib
+    import shutil
+    import subprocess
+
+    from r36os import image
+    from r36os.container import Container, ensure_builder
+    from r36os.targets import TARGETS
+
+    if shutil.which("podman") is None:
+        pytest.skip("no podman")
+    src = tmp_path / "src"
+    files = {"boot.ini": b"ini", "ga36/SYSTEM": b"sys" * 1000, "dtbs/a33/p1.dtb": b"d1",
+             "dtbs/rk3326/r.dtb": b"d2"}
+    for path, data in files.items():
+        (src / path).parent.mkdir(parents=True, exist_ok=True)
+        (src / path).write_bytes(data)
+    (tmp_path / "VERSION").write_text("v\n")
+    cmds = image.boot_copy_commands({p: src / p for p in files}, {tmp_path: "/out"})
+    script = image._CONSOLE.split("# at least")[0].format(
+        boot_bytes=64 * 2**20, boot_start=0, **cmds)    # FAT32 needs some size
+    r = subprocess.run(Container(image=ensure_builder(TARGETS["vm"]),
+                                 volumes={tmp_path: "/out"}).argv(script),
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    listed = image.read_boot_list(tmp_path / image.BOOT_LIST)
+    want = {**files, "VERSION": b"v\n"}
+    assert [p for p, _ in listed] == [*sorted(files), "VERSION"]
+    assert dict(listed) == {p: hashlib.sha256(d).hexdigest() for p, d in want.items()}
+
+
+def test_archived_boot_list_matches_the_build():
+    # the latest console build: its boot-files.sha256 names what console_boot_files lists
+    from r36os import image
+    from r36os.archive import images_dir
+    from r36os.targets import IMAGES
+
+    path = images_dir(IMAGES["console"]) / "latest" / image.BOOT_LIST
+    if not path.exists():
+        pytest.skip("no console build with a BOOT list yet")
+    names = [p for p, _ in image.read_boot_list(path)]
+    assert names[-1] == "VERSION" and len(set(names)) == len(names)
+    for want in ("boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
+                 f"dtbs/rk3326/{image.R36S_DTB}"):
+        assert want in names, want
 
 
 def test_console_boot_within_limits():

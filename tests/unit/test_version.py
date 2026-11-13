@@ -73,6 +73,8 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         img = tmp_path / "console" / "console.img"
         img.parent.mkdir(exist_ok=True)
         img.write_bytes(b"\x00" * 4096)
+        # the BOOT list read back from the FAT (usb-device-access 5.1)
+        (img.parent / "boot-files.sha256").write_text("ab  ga36/SYSTEM\ncd  VERSION\n")
         return img
 
     monkeypatch.setattr(build, "build_layer", fake_layer)
@@ -95,6 +97,8 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         name = f"ga36-android-boot-{panel}.img"
         assert (dest / name).read_bytes() == panel.encode()
         assert f"{hashlib.sha256(panel.encode()).hexdigest()}  {name}\n" in sums
+    # the BOOT list goes with the build, for r36os push
+    assert (dest / "boot-files.sha256").read_text() == "ab  ga36/SYSTEM\ncd  VERSION\n"
 
 
 _V = version.current(NOW)

@@ -37,6 +37,9 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
                      for n in img_target.layers}
         # the GA36 panel boot images: for a dd to sector 172032 from the PC, not on BOOT
         extras = image.ga36_android_boot_images(rootfs.target_out(TARGETS["ga36"]))
+        # the files of BOOT with their SHA256, read back from the FAT (task 5.1): what
+        # `r36os push` sends and checks on the console
+        extras[image.BOOT_LIST] = img.parent / image.BOOT_LIST
     # image archived with the timestamp in out/images/<image>/
     dest = archive_image(img_target, img, v, {**info, "language": language}, manifests,
                          extras)

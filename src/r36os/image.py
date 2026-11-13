@@ -98,16 +98,16 @@ mkfs.vfat -F 32 -n BOOT -h {boot_start} -S 512 $W/boot.img >/dev/null
 export MTOOLS_SKIP_CHECK=1
 M="mcopy -i $W/boot.img"
 $M /out/VERSION ::VERSION
-$M /board/boot.ini ::boot.ini
-# factory files the R36S U-Boot reads from the root: RG351 DTBs and the boot logo (task 4.5)
-$M /out/factory-boot/* ::
-mmd -i $W/boot.img ::ga36 ::r36s ::dtbs ::dtbs/{ga36_soc} ::dtbs/{r36s_soc}
-$M /ga36/SYSTEM ::ga36/SYSTEM
-$M /ga36/kernel/zImage ::ga36/zImage
-$M /ga36/kernel/dtbs/*.dtb ::dtbs/{ga36_soc}/
-$M /r36s/SYSTEM ::r36s/SYSTEM
-$M /r36s/kernel/Image ::r36s/Image
-$M /r36s/kernel/dtbs/*.dtb ::dtbs/{r36s_soc}/
+# every other file from console_boot_files() (the same list flash and push use, task 5.1)
+mmd -i $W/boot.img {dirs}
+{copies}
+# what really is on the FAT, as "<sha256>  <path>" (the BOOT list of the build)
+mkdir -p $W/check
+for f in {paths}; do
+  mcopy -n -i $W/boot.img "::$f" $W/check/x
+  echo "$(sha256sum $W/check/x | cut -d' ' -f1)  $f"
+done > /out/boot-files.sha256
+rm -rf $W/check
 # at least {min_free} bytes free on BOOT (updates and the panel switch need room)
 free=$(mdir -i $W/boot.img :: | sed -n 's/ *bytes free.*//p' | tr -d ' ')
 echo "BOOT: $free bytes free"
@@ -156,6 +156,37 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
         for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
             files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
     return files
+
+
+BOOT_LIST = "boot-files.sha256"   # "<sha256>  <BOOT path>" of every file, VERSION last
+
+
+def _in_container(src: Path, volumes: dict[Path, str]) -> str:
+    for host, guest in volumes.items():
+        if src.is_relative_to(host):
+            return f"{guest}/{src.relative_to(host)}"
+    raise ConsoleImageError(f"{src} is outside the volumes of the image build")
+
+
+def boot_copy_commands(files: dict[str, Path], volumes: dict[Path, str]) -> dict[str, str]:
+    """The mmd/mcopy lines of the console BOOT from `files` (BOOT path -> host source), and
+    the list of paths to check back, VERSION last: one list for the FAT, flash and push."""
+    dirs = sorted({"/".join(p.split("/")[:i]) for p in files
+                   for i in range(1, p.count("/") + 1)})
+    copies = "\n".join(f'$M "{_in_container(src, volumes)}" "::{path}"'
+                       for path, src in sorted(files.items()))
+    paths = " ".join(f'"{p}"' for p in [*sorted(files), "VERSION"])
+    return {"dirs": " ".join(f"::{d}" for d in dirs), "copies": copies, "paths": paths}
+
+
+def read_boot_list(path: Path) -> list[tuple[str, str]]:
+    """(BOOT path, sha256) of a build's boot-files.sha256, in order (VERSION last)."""
+    out = []
+    for line in path.read_text().splitlines():
+        if line.strip():
+            digest, name = line.split("  ", 1)
+            out.append((name, digest))
+    return out
 
 
 def ga36_android_boot_images(ga36_out: Path) -> dict[str, Path]:
@@ -268,22 +299,22 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     (out / "VERSION").write_text(
         version.boot_version_file("console", v) + f"language: {language}\n")
     area = bootarea.write_console_area(out / "console-boot-area.bin")
+    # the factory files are staged in out/factory-boot/ (under /out in the container)
+    staged = {**files, **{name: staging / name for name in factory}}
+    volumes = {out: "/out", ga36_out: "/ga36", r36s_out: "/r36s",
+               REPO_ROOT / "board/r36s": "/board"}
     script = _CONSOLE.format(
+        **boot_copy_commands(staged, volumes),
         boot_bytes=boot_sectors("console") * 512,
         boot_start=boot_start("console"),
         boot_sectors=boot_sectors("console"),
         image_bytes=(boot_start("console") + boot_sectors("console")) * 512,
         disk_id=disk_id("console"),
-        ga36_soc=SOC_DIR["ga36"],
-        r36s_soc=SOC_DIR["r36s"],
         min_free=BOOT_MIN_FREE,
         area_file=area.name,
         area_sectors=bootarea.AREA_SECTORS - 1,
         android=vendor.ANDROID_BOOT_SECTOR,
     )
-    # the boot area is written next to the image (out/console), so /out carries it too
-    volumes = {out: "/out", ga36_out: "/ga36", r36s_out: "/r36s",
-               REPO_ROOT / "board/r36s": "/board"}
     # the image does not depend on the target arch: always the x86_64 builder
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
     area.unlink()

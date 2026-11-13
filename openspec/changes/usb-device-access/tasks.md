@@ -13,7 +13,7 @@
 
 ## 3. Gadget USB e arquivos por MTP (D2, D3)
 
-- [ ] 3.1 `rootfs/packages.txt`: `umtprd`, `dropbear`, `dropbear-convert` (sem `dropbear-openrc`: o serviço é o `r36os-usb`). Verificação: `tests/unit/test_manifest_parity.py` passa com os manifestos novos dos três sistemas; o tamanho de cada `SYSTEM` continua dentro do limite do `system-image`.
+- [x] 3.1 `rootfs/packages.txt`: `umtprd`, `dropbear`, `dropbear-convert` (sem `dropbear-openrc`: o serviço é o `r36os-usb`). Verificação: `tests/unit/test_manifest_parity.py` passa com os manifestos novos dos três sistemas; o tamanho de cada `SYSTEM` continua dentro do limite do `system-image`.
 - [x] 3.2 `rootfs/overlay/usr/libexec/r36os/usb-gadget`: monta o gadget "Lume" no configfs (VID/PID `1d6b:0104`, nome "Lume GA36"/"Lume R36S", serial), com `ffs.mtp` e `ncm.usb0`, e liga o `UDC` só depois do `umtprd` pronto; `stop` desfaz tudo. Verificação: teste de shell com um configfs falso confere a árvore criada, a ordem (`umtprd` antes do `UDC`) e o `stop` limpo.
 - [x] 3.3 Configuração do `umtprd`: um armazenamento "ROMS" em `/storage`, com uid/gid do `game`, sem acesso à `BOOT`. Verificação: teste unitário do arquivo de configuração gerado (caminho, uid, nenhum caminho fora de `/storage`).
 - [x] 3.4 Serviço OpenRC `r36os-usb` (`rootfs/overlay/etc/init.d/`), depois do `localmount` e do `r36os-logd`, antes do `frontend`; na VM ele não faz nada (sem `UDC`). No R36S (role switch do D1), ele acompanha o `USB-HOST` do `extcon` do `u2phy` e escreve `host`/`device` em `/sys/class/usb_role/*/role`, mantendo o host automático que já funciona hoje (acréscimo aprovado em 2026-11-13). Verificação: teste do serviço (dependências, saída imediata sem `UDC`, troca de papel com um `/sys` falso); boot da VM sem erro nem atraso no `events.log`.
@@ -28,8 +28,8 @@
 
 ## 5. Atualização pelo cabo: `r36os push` (D6)
 
-- [ ] 5.1 Lista de arquivos da `BOOT` de um build tirada do mesmo módulo que monta a FAT (`src/r36os/image.py`), usada pelo `flash` e pelo `push`. Verificação: teste unitário confere que a lista é igual ao conteúdo da FAT de um build de teste.
-- [ ] 5.2 `src/r36os/push.py` e `r36os push [build]` na CLI: leitura do console (`VERSION`, placa, bateria, espaço livre na `ROMS` e na `BOOT`), `rsync` para `/storage/.lume-push/<build>/`, `sha256sum -c` no console, troca por `.new` + `mv` com `VERSION` por último, imagem de boot do painel 1 no setor 172032 só no GA36 e só se mudou (com leitura de volta), `remount,ro`, limpeza e reboot. Verificação: testes unitários com um executor SSH falso cobrem a ordem dos passos e cada recusa (sem chave, SHA256 diferente, sem espaço, bateria abaixo de 20%).
+- [x] 5.1 Lista de arquivos da `BOOT` de um build tirada do mesmo módulo que monta a FAT (`src/r36os/image.py`), usada pelo `flash` e pelo `push`. Verificação: teste unitário confere que a lista é igual ao conteúdo da FAT de um build de teste.
+- [x] 5.2 `src/r36os/push.py` e `r36os push [build]` na CLI: leitura do console (`VERSION`, placa, bateria, espaço livre na `ROMS` e na `BOOT`), `rsync` para `/storage/.lume-push/<build>/`, `sha256sum -c` no console, troca por `.new` + `mv` com `VERSION` por último, imagem de boot do painel 1 no setor 172032 só no GA36 e só se mudou (com leitura de volta), `remount,ro`, limpeza e reboot. Verificação: testes unitários com um executor SSH falso cobrem a ordem dos passos e cada recusa (sem chave, SHA256 diferente, sem espaço, bateria abaixo de 20%).
 - [ ] 5.3 Prova nos dois consoles: `r36os push` de um build novo e, no GA36, de um build com kernel novo. Verificação: o próximo boot registra a versão nova no `events.log`; no GA36, `Linux version` do log de boot é o do build enviado; a troca do `SYSTEM` em uso não gera erro de FAT no log (risco do `design.md`); `README.md` e `docs/BRINGUP-*.md` com o ciclo `push`.
 
 ## 6. Integração

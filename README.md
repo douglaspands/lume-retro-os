@@ -175,6 +175,30 @@ uv run r36os flash console /dev/sdX --update --ssh-key ~/.ssh/id_ed25519.pub
 - Com a chave no cartão, ligue o console no PC pela porta OTG e entre com
   `ssh root@10.55.0.1`.
 
+### Atualizar pelo cabo USB (`r36os push`)
+
+Com o cartão já gravado uma vez com `--ssh-key` e o console ligado no PC pela porta OTG:
+
+```sh
+uv run r36os push                          # o build mais recente (out/images/console/latest)
+uv run r36os push --build 20261114-100000  # um build específico
+```
+
+1. Lê o console: build atual, placa, bateria e espaço livre.
+2. Separa os arquivos da `BOOT` do build que diferem dos do console.
+3. Envia esses arquivos para `/storage/.lume-push/` (na `ROMS`) e confere o SHA256 **no
+   próprio console**. Se algum arquivo diferir, a `BOOT` não é tocada.
+4. Troca os arquivos na `BOOT` um a um (`.new` e depois renomeia), com o `VERSION` por
+   último. No GA36, grava também a imagem de boot do painel 1 no setor 172032, só se ela
+   mudou, e confere lendo de volta.
+5. Remonta a `BOOT` só leitura, apaga a pasta temporária e reinicia o console.
+
+- O comando recusa com a bateria abaixo de 20% e sem espaço livre na `ROMS` ou na `BOOT`.
+- Um `push` interrompido deixa o `VERSION` antigo, e o próximo `push` reenvia tudo. Se o
+  console não iniciar, `r36os flash --update` pelo leitor continua sendo a recuperação.
+- Os arquivos do MTP e o `push` usam o mesmo cabo: dá para ler `logs/` pelo gerenciador de
+  arquivos do PC antes e depois.
+
 ## O cartão
 
 | Região | Conteúdo |
