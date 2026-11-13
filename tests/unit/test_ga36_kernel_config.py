@@ -42,6 +42,14 @@ def test_fragment_enables_thermal_sensor_and_gpu_cooling():
     assert opts.get("CONFIG_DEVFREQ_THERMAL") == "y"
 
 
+def test_fragment_enables_kexec_and_the_selection_keys():
+    # boot-dtb-select D2/D7: kexec to switch the DTB, and the volume keys on the LRADC
+    # built in (the build fails if an option of the fragment does not stick)
+    opts = _options(FRAGMENT)
+    for o in ("CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_SUN4I_LRADC"):
+        assert opts.get(o) == "y", o
+
+
 def test_fragment_gives_the_overlay_upper_layer_xattrs():
     # the root overlay's upper layer is a tmpfs: without xattrs the kernel logs
     # "overlayfs: failed to set xattr on upper" on every boot (task 9.11)

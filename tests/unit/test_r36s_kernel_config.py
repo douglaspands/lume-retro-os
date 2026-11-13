@@ -44,6 +44,8 @@ def test_kernel_target_is_arm64():
     "CONFIG_MMC_DW_ROCKCHIP", "CONFIG_SQUASHFS_ZSTD", "CONFIG_OVERLAY_FS", "CONFIG_EXFAT_FS",
     "CONFIG_TMPFS_XATTR", "CONFIG_ZSMALLOC", "CONFIG_ZRAM", "CONFIG_ZRAM_BACKEND_LZ4",
     "CONFIG_ZRAM_DEF_COMP_LZ4",
+    # DTB selection (boot-dtb-select D2/D7): kexec and the keys read in the initramfs
+    "CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_GPIO",
 ])
 def test_fragment_builds_in(option):
     assert _options(FRAGMENT).get(option) == "y", option  # built in, not a module
