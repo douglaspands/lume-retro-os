@@ -74,6 +74,8 @@ def test_built_config():
     opts = _options(BUILT.read_text())
     for want, value in _options(FRAGMENT).items():
         assert opts.get(want) == value, want
+    for off in re.findall(r"^# (CONFIG_\w+) is not set$", FRAGMENT, re.M):
+        assert off not in opts, off               # CONFIG_LOGO: no Tux on the boot screen
     kdir = BUILT.parent
     assert (kdir / "Image").stat().st_size > 1_000_000
     assert "warning:" not in (kdir / "build-warnings.log").read_text()

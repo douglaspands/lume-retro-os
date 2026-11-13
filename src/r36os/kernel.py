@@ -126,6 +126,10 @@ fail=0
 grep -E '^CONFIG_' /board/kernel.config | while IFS= read -r want; do
   grep -qxF "$want" $B/.config || {{ echo "kernel.config: $want did not end up in .config"; exit 1; }}
 done || fail=1
+# and every "# CONFIG_X is not set" of the fragment must stay off (a select turns it on)
+sed -n 's/^# \\(CONFIG_[A-Za-z0-9_]*\\) is not set$/\\1/p' /board/kernel.config | while read -r off; do
+  if grep -q "^$off=" $B/.config; then echo "kernel.config: $off must stay off"; exit 1; fi
+done || fail=1
 [ $fail = 0 ] || exit 1
 make O=$B -j$(nproc) {image} modules 2> /out/build-warnings.log
 rm -rf /tmp/mods
