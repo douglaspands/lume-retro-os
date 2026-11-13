@@ -72,9 +72,16 @@ def source_tree() -> Path:
         t.extractall(tmp, filter="data")
     (tmp / f"linux-{KERNEL_VERSION}").rename(tree)
     tmp.rmdir()
+    # The cache lives inside the project repository (.cache/): run from a subdirectory of a
+    # repository, `git apply` silently skips every path outside that subdirectory, so the
+    # tree came out unpatched. The ceiling stops git from finding the project repository,
+    # and the patch then applies relative to the tree, as with `patch -p1`.
+    import os
+    env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(base))
     for p in patches():
         print(f"applying {p.name}", flush=True)
-        subprocess.run(["git", "apply", "--whitespace=nowarn", str(p)], cwd=tree, check=True)
+        subprocess.run(["git", "apply", "--whitespace=nowarn", str(p)], cwd=tree, check=True,
+                       env=env)
     stamp.write_text(patches_digest() + "\n")
     return tree
 
