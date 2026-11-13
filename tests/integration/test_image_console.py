@@ -4,6 +4,7 @@ consoles, the GA36 Android boot image and the BOOT with one folder per console.
 Requires out/console/console.img (uv run r36os build console).
 """
 
+import hashlib
 import shutil
 import struct
 import subprocess
@@ -76,13 +77,26 @@ def test_android_boot_is_ga36_panel1():
 
 def test_boot_contents():
     listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/console.img@@{START * S} -b -/ ::/")
-    for name in ("VERSION", "boot.ini", "ga36/SYSTEM",
-                 "ga36/dtbs/sun8i-a33-ga36-mb-v1.2-panel1.dtb",
+    for name in ("VERSION", "boot.ini", "ga36/SYSTEM", "ga36/zImage",
                  "ga36/android-boot/android-boot-panel1.img",
                  "ga36/android-boot/android-boot-panel2.img",
-                 "r36s/SYSTEM", "r36s/Image", "r36s/rk3326-r36s-v5.dtb"):
+                 "r36s/SYSTEM", "r36s/Image",
+                 "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb",
+                 "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel2.dtb",
+                 "dtbs/rk3326/rk3326-r36s-v5.dtb"):
         assert f"::/{name}" in listing, listing
     assert "::/logs" not in listing and "::/SYSTEM" not in listing.split()
+    # boot-dtb-select D8: the DTBs only live in dtbs/<soc>/, and force is the user's
+    assert "::/ga36/dtbs" not in listing and "::/r36s/rk3326" not in listing
+    assert "::/dtbs/force" not in listing
+
+
+def test_ga36_zimage_has_no_appended_dtb():
+    # the kernel reloaded by kexec: the plain zImage, the boot image minus the DTB
+    zimage = (GA36 / "kernel/zImage").read_bytes()
+    listing = _sh(f"MTOOLS_SKIP_CHECK=1 mtype -i /out/console.img@@{START * S} ::/ga36/zImage "
+                  "| sha256sum")
+    assert listing.split()[0] == hashlib.sha256(zimage).hexdigest()
 
 
 def test_boot_root_has_the_factory_files():

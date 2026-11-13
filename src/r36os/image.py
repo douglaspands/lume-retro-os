@@ -83,10 +83,12 @@ _VM_RAW = ("dd if=/usr/share/syslinux/mbr.bin of=$W/disk.img bs=440 count=1 "
            "conv=notrunc status=none")
 
 
-# Console (design D5): BOOT with one folder per console and, at the root, the boot.ini that
-# the R36S U-Boot reads. GA36: SYSTEM, DTBs (reference) and the boot images of both panels
-# (the kernel with the built-in initramfs is the Android boot image at 172032). R36S:
-# SYSTEM, the Image (initramfs built in) and the DTB loaded by boot.ini.
+# Console (design D5; boot-dtb-select D8): BOOT with one folder per console, one folder of
+# DTBs per SoC (dtbs/<soc>/, read by lume-bootsel) and, at the root, the boot.ini that the
+# R36S U-Boot reads. GA36: SYSTEM, the zImage without an appended DTB (reloaded by kexec)
+# and the boot images of both panels (the kernel with the built-in initramfs and the
+# appended DTB is the Android boot image at 172032). R36S: SYSTEM and the Image
+# (initramfs built in); boot.ini loads the default DTB from dtbs/rk3326/.
 _CONSOLE = """
 W=/out/imgwork
 rm -rf $W && mkdir -p $W
@@ -98,13 +100,14 @@ $M /out/VERSION ::VERSION
 $M /board/boot.ini ::boot.ini
 # factory files the R36S U-Boot reads from the root: RG351 DTBs and the boot logo (task 4.5)
 $M /out/factory-boot/* ::
-mmd -i $W/boot.img ::ga36 ::ga36/dtbs ::ga36/android-boot ::r36s
+mmd -i $W/boot.img ::ga36 ::ga36/android-boot ::r36s ::dtbs ::dtbs/{ga36_soc} ::dtbs/{r36s_soc}
 $M /ga36/SYSTEM ::ga36/SYSTEM
-$M /ga36/kernel/dtbs/*.dtb ::ga36/dtbs/
+$M /ga36/kernel/zImage ::ga36/zImage
 $M /ga36/kernel/android-boot-*.img ::ga36/android-boot/
+$M /ga36/kernel/dtbs/*.dtb ::dtbs/{ga36_soc}/
 $M /r36s/SYSTEM ::r36s/SYSTEM
 $M /r36s/kernel/Image ::r36s/Image
-$M /r36s/kernel/dtbs/{r36s_dtb} ::r36s/{r36s_dtb}
+$M /r36s/kernel/dtbs/*.dtb ::dtbs/{r36s_soc}/
 # at least {min_free} bytes free on BOOT (updates and the panel switch need room)
 free=$(mdir -i $W/boot.img :: | sed -n 's/ *bytes free.*//p' | tr -d ' ')
 echo "BOOT: $free bytes free"
@@ -125,6 +128,8 @@ rm -rf $W
 """
 
 R36S_DTB = "rk3326-r36s-v5.dtb"
+# console -> folder of its SoC under BOOT/dtbs/ (the initramfs reads it from /etc/soc)
+SOC_DIR = {"ga36": "a33", "r36s": "rk3326"}
 BOOT_MIN_FREE = 64 * 2**20
 _CLUSTER = 4096                 # mkfs.vfat -F 32 on 1 to 2 GiB
 _FAT_OVERHEAD = 16 * 2**20      # FATs, reserved sectors and directories (upper bound)
@@ -143,14 +148,42 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
     files = {**(factory or {}),
              "boot.ini": REPO_ROOT / "board/r36s/boot.ini",
              "ga36/SYSTEM": ga36_out / "SYSTEM",
+             "ga36/zImage": ga36_out / "kernel/zImage",
              "r36s/SYSTEM": r36s_out / "SYSTEM",
              "r36s/Image": r36s_out / "kernel/Image",
-             f"r36s/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
-    for dtb in sorted((ga36_out / "kernel/dtbs").glob("*.dtb")):
-        files[f"ga36/dtbs/{dtb.name}"] = dtb
+             f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
+    for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
+        for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
+            files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
     for img in sorted((ga36_out / "kernel").glob("android-boot-*.img")):
         files[f"ga36/android-boot/{img.name}"] = img
     return files
+
+
+def check_soc_dtbs(files: dict[str, Path]) -> None:
+    """Every BOOT/dtbs/<soc>/ folder (boot-dtb-select D3): each DTB has the lume-select
+    node, the ids are unique and exactly one DTB is the default of its SoC."""
+    from r36os import fdt
+
+    by_soc: dict[str, dict[str, dict]] = {}
+    for path, src in sorted(files.items()):
+        parts = path.split("/")
+        if len(parts) != 3 or parts[0] != "dtbs" or not path.endswith(".dtb"):
+            continue
+        info = fdt.select_info(fdt.parse(src.read_bytes()))
+        if info is None or not info["id"]:
+            raise ConsoleImageError(f"{path} has no lume-select node with lume,id")
+        by_soc.setdefault(parts[1], {})[path] = info
+    for soc, dtbs in by_soc.items():
+        ids = [i["id"] for i in dtbs.values()]
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        if dup:
+            raise ConsoleImageError(f"dtbs/{soc}/: repeated lume,id {', '.join(dup)}")
+        defaults = [p for p, i in dtbs.items() if i["default"]]
+        if len(defaults) != 1:
+            raise ConsoleImageError(
+                f"dtbs/{soc}/ needs exactly one default DTB, has {len(defaults)}"
+                + (f": {', '.join(defaults)}" if defaults else ""))
 
 
 def check_console_boot(sizes: dict[str, int]) -> None:
@@ -225,6 +258,7 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     missing = [str(src) for src in files.values() if not src.exists()]
     if missing:
         raise ConsoleImageError("missing layer outputs: " + ", ".join(missing))
+    check_soc_dtbs(files)
     check_console_boot({path: src.stat().st_size for path, src in files.items()})
     (out / "VERSION").write_text(
         version.boot_version_file("console", v) + f"language: {language}\n")
@@ -235,7 +269,8 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
         boot_sectors=boot_sectors("console"),
         image_bytes=(boot_start("console") + boot_sectors("console")) * 512,
         disk_id=disk_id("console"),
-        r36s_dtb=R36S_DTB,
+        ga36_soc=SOC_DIR["ga36"],
+        r36s_soc=SOC_DIR["r36s"],
         min_free=BOOT_MIN_FREE,
         area_file=area.name,
         area_sectors=bootarea.AREA_SECTORS - 1,

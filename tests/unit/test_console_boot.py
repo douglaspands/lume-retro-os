@@ -340,8 +340,9 @@ MiB = 2**20
 
 def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB):
     return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
-            "r36s/Image": image, "r36s/rk3326-r36s-v5.dtb": 60_000,
-            "ga36/dtbs/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
+            "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
+            "ga36/zImage": 6 * MiB,
+            "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
             "ga36/android-boot/android-boot-panel1.img": 12 * MiB,
             "ga36/android-boot/android-boot-panel2.img": 12 * MiB}
 
@@ -350,14 +351,20 @@ def test_console_boot_files_layout(tmp_path):
     from r36os import image
 
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
-    assert {"boot.ini", "ga36/SYSTEM", "r36s/SYSTEM", "r36s/Image",
-            "r36s/rk3326-r36s-v5.dtb"} <= set(files)
+    assert {"boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
+            "dtbs/rk3326/rk3326-r36s-v5.dtb"} <= set(files)
     assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
+    assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
     (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
     (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
+    (tmp_path / "r36s/kernel/dtbs").mkdir(parents=True)
+    (tmp_path / "r36s/kernel/dtbs/b.dtb").write_bytes(b"d")
     (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
-    assert "ga36/dtbs/a.dtb" in files and "ga36/android-boot/android-boot-panel2.img" in files
+    assert "dtbs/a33/a.dtb" in files and "dtbs/rk3326/b.dtb" in files
+    assert "ga36/android-boot/android-boot-panel2.img" in files
+    # boot-dtb-select D8: the DTBs only live in the SoC folders
+    assert not [p for p in files if p.startswith("ga36/dtbs/") or p.startswith("r36s/r")]
     # task 4.5: the factory files go to the root of BOOT
     factory = {"rg351mp-kernel.dtb": tmp_path / "a", "logo.bmp": tmp_path / "b"}
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s", factory)
@@ -403,10 +410,18 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     from r36os import image, version
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    for f in ("ga36/SYSTEM", "ga36/kernel/dtbs/a.dtb", "ga36/kernel/android-boot-panel1.img",
+    for f in ("ga36/SYSTEM", "ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
+              "ga36/kernel/android-boot-panel1.img",
               "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
+    # the build checks the lume-select node of every DTB (boot-dtb-select D3)
+    from r36os import fdt
+    for f, ident in (("ga36/kernel/dtbs/a.dtb", "a"),
+                     ("r36s/kernel/dtbs/rk3326-r36s-v5.dtb", "r36s-v5")):
+        node = fdt.Node(props={"lume,id": fdt.s(ident), "lume,priority": fdt.u32(0),
+                               "lume,default": b""})
+        (tmp_path / f).write_bytes(fdt.build(fdt.Node(children={"lume-select": node})))
 
     def fake_area(dest):
         dest.write_bytes(b"area")
@@ -447,7 +462,7 @@ def test_boot_ini_loads_the_r36s_kernel_and_dtb():
     ini = (image.REPO_ROOT / "board/r36s/boot.ini").read_text()
     assert ini.startswith("odroidgoa-uboot-config\n")   # the header the factory U-Boot wants
     assert "load mmc 1:1 ${loadaddr} r36s/Image" in ini
-    assert f"load mmc 1:1 ${{dtb_loadaddr}} r36s/{image.R36S_DTB}" in ini
+    assert f"load mmc 1:1 ${{dtb_loadaddr}} dtbs/rk3326/{image.R36S_DTB}" in ini
     assert "booti ${loadaddr} - ${dtb_loadaddr}" in ini      # no uInitrd: built in
     assert "bootargs" not in ini.replace("no bootargs", "")  # CMDLINE_FORCE in the kernel
 

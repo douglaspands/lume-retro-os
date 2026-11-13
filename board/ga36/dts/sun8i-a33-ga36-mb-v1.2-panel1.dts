@@ -10,6 +10,13 @@
 / {
 	model = "GA36-MB V1.2 (painel 1)";
 	compatible = "ga36mb,ga36-mb-v1.2", "allwinner,sun8i-a33";
+
+	/* DTB selection (boot-dtb-select D3): default of BOOT/dtbs/a33/, no rules yet */
+	lume-select {
+		lume,id = "ga36-panel1";
+		lume,priority = <0>;
+		lume,default;
+	};
 };
 
 &panel {

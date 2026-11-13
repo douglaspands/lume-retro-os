@@ -11,6 +11,15 @@
 / {
 	model = "GA36-MB V1.2 (painel 2)";
 	compatible = "ga36mb,ga36-mb-v1.2", "allwinner,sun8i-a33";
+
+	/*
+	 * DTB selection (boot-dtb-select D3): no rules until a measured signature tells the
+	 * two panels apart, so it is chosen only from the list or BOOT/dtbs/force
+	 */
+	lume-select {
+		lume,id = "ga36-panel2";
+		lume,priority = <0>;
+	};
 };
 
 &panel {
