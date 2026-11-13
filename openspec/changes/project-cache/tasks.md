@@ -32,7 +32,7 @@
 ## 6. Integração
 
 - [x] 6.1 `uv run pytest tests/unit` passa por inteiro. *Resultado (2026-11-13):* 381 passed, nenhum pulado (os testes que leem o cache o acham em `.cache/`).
-- [ ] 6.2 `uv run r36os build vm` reaproveita o cache migrado (sem baixar o kernel de novo e com acertos do ccache) e `uv run r36os test-vm` passa; `git status` não mostra nada em `.cache/`. Verificação: log do build sem download do `linux-*.tar.xz` e resultado do `test-vm` anotado no `design.md`.
+- [x] 6.2 `uv run r36os build vm` reaproveita o cache migrado (sem baixar o kernel de novo e com acertos do ccache) e `uv run r36os test-vm` passa; `git status` não mostra nada em `.cache/`. Verificação: log do build sem download do `linux-*.tar.xz` e resultado do `test-vm` anotado no `design.md`.
 
 ## Workflow follow-up
 

@@ -128,3 +128,19 @@ Feita uma vez, com nenhum build rodando (`podman ps` vazio):
 
 **Rollback:** mover as pastas de volta para `~/data/r36os`, recriar o symlink e voltar ao
 commit anterior (ou exportar `R36OS_CACHE=~/data/r36os`).
+
+**Resultado da migração nesta máquina (2026-11-13):**
+
+- `r36os clean --yes` (com `R36OS_CACHE=~/data/r36os`): 18 itens, 13,9 GiB liberados;
+  nenhuma árvore `kbuild/` era do digest atual, e o cache ficou com 4,3 GB.
+- `stat`: o mesmo dispositivo (56) para `~/data/r36os` e o projeto; os `mv` foram só trocas de
+  nome. `lsattr -d .cache` mostra `C`; `du -sh .cache` dá os mesmos 4,3 GB.
+- Symlink `~/.cache/r36os` e pasta `~/data/r36os` removidos.
+- `ctx index` + `ctx search "st7703" --scope reference` acham `panel-sitronix-st7703.c` em
+  `.cache/src/` (o ctx não descartou o caminho; nenhum M-NN necessário).
+- `uv run r36os build vm`: usou `.cache/abuild`, `.cache/distfiles` e `.cache/ccache/x86_64`
+  (assinatura do repositório com as chaves migradas). A VM usa o kernel empacotado do Alpine
+  (`linux-virt`), então não há `linux-*.tar.xz` a baixar; o reaproveitamento da árvore do
+  kernel só é exercido por um `build console`, que desta vez recompila o kernel (`kbuild/`
+  vazio depois da limpeza).
+- `uv run r36os test-vm`: **67/67 checks ok em 323 s**; `git status` sem nada em `.cache/`.
