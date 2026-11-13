@@ -66,6 +66,8 @@ def expected_checks() -> list[str]:
         "boot-no-logs-dir", "logs-dirs", "logs-hw", "logs-game-events", "logs-metrics-game",
         "logs-cost", "logs-abrupt", "logs-metrics-last-batch", "logs-frontend-fail-event",
         "logs-recreated", "logs-service-fail", "logs-clean", "logs-disabled",
+        # OTG port sample of r36os-logd (usb-device-access 1.1)
+        "logs-usb",
     ]
     cores = [f"core-loaded-{c}" for c in sorted(testdata.core_tests(catalog.load()))]
     return base + cores

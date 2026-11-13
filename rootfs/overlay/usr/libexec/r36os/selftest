@@ -185,6 +185,9 @@ phase_first() {
 	# the session's frontend log, which this RetroArch run does not write (it logs to
 	# logs-game.log), so here it may be empty.
 	check logs-metrics-fps 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q ",content,fps,fps_nominal$" && grep -qE ",game,[^,]*,[^,]*,[0-9]+\.[0-9],[0-9.]*$" $LOGS/metrics/boot-1.csv' "$(grep ",game," $LOGS/metrics/boot-1.csv | tail -n 2 | tr '\n' '|')"
+	# OTG port sample (usb-device-access 1.1): the vm has no OTG port, so every trace line
+	# is "usb: none" and there is no usb event
+	check logs-usb 'grep -q " usb: none$" $LOGS/trace/boot-1.log && ! grep " usb: " $LOGS/trace/boot-1.log | grep -qv " usb: none$" && ! grep -q " usb " $LOGS/events.log' "$(grep -c " usb: " $LOGS/trace/boot-1.log 2>/dev/null) usb lines, $(grep -c " usb " $LOGS/events.log 2>/dev/null) usb events"
 	local pct
 	pct=$(logd_cpu_pct)
 	# exige um número: um valor vazio não pode passar como "menor que 1"
