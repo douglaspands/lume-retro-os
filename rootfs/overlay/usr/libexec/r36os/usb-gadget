@@ -36,7 +36,8 @@ BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
 CONFIGFS=${CONFIGFS:-/sys/kernel/config}
 UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
 FFS_DIR=${FFS_DIR:-/dev/ffs-mtp}
-UMTPRD=${UMTPRD:-/usr/bin/umtprd}
+# by name: the Alpine package installs /bin/umtprd (GA36 boot 26 died on /usr/bin/umtprd)
+UMTPRD=${UMTPRD:-umtprd}
 UMTPRD_CONF=${UMTPRD_CONF:-/etc/umtprd/umtprd.conf}
 USB_RUN=${USB_RUN:-/run/r36os/usb}
 SOC0_DIR=${SOC0_DIR:-/sys/devices/soc0}
@@ -285,7 +286,7 @@ cmd_start() {
 	mkdir -p "$FFS_DIR" "$USB_RUN"
 	$MOUNT -t functionfs mtp "$FFS_DIR" || { say "ERROR: cannot mount functionfs"; cmd_stop >/dev/null; return 1; }
 	write_umtprd_conf "$product" "$serial"
-	"$UMTPRD" > /dev/null 2>&1 &
+	"$UMTPRD" > "$USB_RUN/umtprd.log" 2>&1 &
 	pid=$!
 	echo "$pid" > "$USB_RUN/umtprd.pid"
 	# FunctionFS: the UDC can be bound only after umtprd wrote its descriptors, which
@@ -293,7 +294,13 @@ cmd_start() {
 	i=0
 	while [ ! -e "$FFS_DIR/ep1" ]; do
 		if [ $i -ge "$READY_TRIES" ] || ! kill -0 "$pid" 2>/dev/null; then
-			say "ERROR: umtprd not ready (no $FFS_DIR/ep1), gadget not bound"
+			if kill -0 "$pid" 2>/dev/null; then
+				say "ERROR: umtprd not ready after $((READY_TRIES / 10)) s (no $FFS_DIR/ep1), gadget not bound"
+			else
+				say "ERROR: umtprd exited before writing its descriptors, gadget not bound"
+			fi
+			# its own words, for the logd trace (the last lines are enough)
+			tail -n 5 "$USB_RUN/umtprd.log" 2>/dev/null | while IFS= read -r l; do say "umtprd: $l"; done
 			cmd_stop >/dev/null
 			return 1
 		fi

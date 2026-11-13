@@ -43,7 +43,7 @@ touch "\$FFS_DIR/ep0" "\$FFS_DIR/ep1" "\$FFS_DIR/ep2" "\$FFS_DIR/ep3"
 while :; do sleep 1; done
 EOF
 # umtprd that dies before writing its descriptors
-printf '#!/bin/sh\nexit 1\n' > "$W/bin/umtprd-broken"
+printf '#!/bin/sh\necho "uMTPrd: cannot open the configuration file" >&2\nexit 1\n' > "$W/bin/umtprd-broken"
 cat > "$W/bin/ip" <<EOF
 #!/bin/sh
 echo "ip \$*" >> "$LOG"
@@ -124,7 +124,9 @@ check "stop: a second stop is harmless" '[ $rc = 0 ]'
 ### umtprd that never becomes ready: no bind, everything removed, failure
 : > "$LOG"
 out=$(UMTPRD="$W/bin/umtprd-broken" READY_TRIES=5 $GADGET_SH start); rc=$?
-check "broken umtprd: start fails and says why" '[ $rc = 1 ] && printf "%s\n" "$out" | grep -q "^usb: ERROR: umtprd not ready"'
+check "broken umtprd: start fails and says why" '[ $rc = 1 ] && printf "%s\n" "$out" | grep -q "^usb: ERROR: umtprd exited before writing its descriptors"'
+check "broken umtprd: its own error reaches the log" 'printf "%s\n" "$out" | grep -qx "usb: umtprd: uMTPrd: cannot open the configuration file"'
+check "umtprd is found by name (Alpine installs /bin/umtprd)" 'grep -qx "UMTPRD=\${UMTPRD:-umtprd}" rootfs/overlay/usr/libexec/r36os/usb-gadget'
 check "broken umtprd: nothing left bound or built" '[ ! -e "$G" ] && grep -qx "umount $W/ffs" "$LOG"'
 
 ### R36S: the SoC serial number when the kernel gives one
