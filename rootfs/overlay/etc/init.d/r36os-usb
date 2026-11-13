@@ -1,0 +1,39 @@
+#!/sbin/openrc-run
+# USB device role of the OTG port (usb-device-access D2): the "Lume" gadget with MTP (ROMS)
+# and the USB network, and on the R36S the port role from the ID pin. Without a USB device
+# controller (the vm) it starts nothing.
+
+description="USB gadget of the OTG port: ROMS over MTP and the USB network"
+supervisor="supervise-daemon"
+command="/usr/libexec/r36os/usb-gadget"
+command_args="run"
+respawn_delay=2
+respawn_max=5
+UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
+
+depend() {
+	need localmount
+	after r36os-logd
+	before frontend
+}
+
+has_udc() {
+	local d
+	for d in "$UDC_CLASS"/*; do
+		[ -e "$d" ] && return 0
+	done
+	return 1
+}
+
+start() {
+	if ! has_udc; then
+		einfo "No USB device controller: no gadget"
+		return 0
+	fi
+	default_start
+}
+
+stop() {
+	has_udc || return 0
+	default_stop
+}

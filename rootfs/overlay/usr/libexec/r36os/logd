@@ -343,51 +343,74 @@ pcm_pos() {
 #   host_devs=<n>        USB devices behind the host ports (root hubs not counted)
 # "none" when the console has none of them (the vm). SYS_ROOT is overridden by the tests.
 SYS_ROOT=${SYS_ROOT:-/sys}
-usb_state() {
-	local f d n s out="" devs=0
+# usb_scan sets USB_S without a subshell (logd runs every few seconds: one fork less per
+# sample, see the logs-cost check of test-vm); usb_state prints it
+# (all reads are the shell's own read: no process per file)
+usb_state() { usb_scan; echo "$USB_S"; }
+_rd() { V=""; [ -r "$1" ] && read -r V < "$1" 2>/dev/null; return 0; }   # first line -> V
+usb_scan() {
+	local f d l s out="" devs=0
 	for f in "$SYS_ROOT"/class/extcon/*/state; do
 		[ -r "$f" ] || continue
-		s=$(tr '\n' ',' < "$f" 2>/dev/null)
+		s=""
+		while IFS= read -r l; do s="$s,$l"; done < "$f"
 		case "$s" in *USB*) ;; *) continue ;; esac
 		d=${f%/state}
-		n=$(cat "$d/name" 2>/dev/null) || n=""
-		out="$out extcon=${n:-${d##*/}}:${s%,}"
+		_rd "$d/name"
+		out="$out extcon=${V:-${d##*/}}:${s#,}"
 	done
 	for f in "$SYS_ROOT"/bus/platform/devices/musb-hdrc.*/mode; do
-		[ -r "$f" ] && out="$out musb=$(cat "$f" 2>/dev/null)"
+		[ -r "$f" ] && _rd "$f" && out="$out musb=$V"
 	done
 	for f in "$SYS_ROOT"/class/usb_role/*/role; do
 		[ -r "$f" ] || continue
 		d=${f%/role}
-		out="$out role=${d##*/}:$(cat "$f" 2>/dev/null)"
+		_rd "$f"
+		out="$out role=${d##*/}:$V"
 	done
 	for f in "$SYS_ROOT"/class/udc/*/state; do
 		[ -r "$f" ] || continue
 		d=${f%/state}
-		out="$out udc=${d##*/}:$(cat "$f" 2>/dev/null | tr ' ' '_')"
+		_rd "$f"
+		out="$out udc=${d##*/}:${V// /_}"
 	done
 	for d in "$SYS_ROOT"/class/power_supply/*; do
-		[ "$(cat "$d/type" 2>/dev/null)" = USB ] || continue
-		out="$out vbus=${d##*/}:$(cat "$d/online" 2>/dev/null)"
+		_rd "$d/type"
+		[ "$V" = USB ] || continue
+		_rd "$d/online"
+		out="$out vbus=${d##*/}:$V"
 	done
 	for d in "$SYS_ROOT"/bus/usb/devices/[0-9]*-*; do
 		[ -e "$d" ] || continue
 		case "${d##*/}" in *:*) continue ;; esac
 		devs=$((devs + 1))
 	done
-	[ -z "$out" ] && [ "$devs" = 0 ] && { echo none; return 0; }
-	echo "${out# } host_devs=$devs"
+	if [ -z "$out" ] && [ "$devs" = 0 ]; then
+		USB_S=none
+	else
+		USB_S="${out# } host_devs=$devs"
+	fi
+	return 0
 }
 
-# One "usb:" trace line per sample, and a usb event when the state changes
-USB_LAST=none
+# One "usb:" trace line per sample, and a usb event when the state changes. The gadget
+# (r36os-usb, D2) is "connected" while its UDC is configured by a PC.
+USB_LAST=none USB_CONNECTED=0
 usb_watch() {
 	local s
-	s=$(usb_state)
+	usb_scan
+	s=$USB_S
 	trace "usb: $s"
 	[ "$s" = "$USB_LAST" ] && return 0
 	USB_LAST=$s
 	event usb OK "otg: $s"
+	case " $s " in
+	*" udc="*":configured "*)
+		[ "$USB_CONNECTED" = 1 ] || { USB_CONNECTED=1; event usb OK "device: connected"; } ;;
+	*)
+		[ "$USB_CONNECTED" = 0 ] || { USB_CONNECTED=0; event usb OK "device: disconnected"; } ;;
+	esac
+	return 0
 }
 
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang

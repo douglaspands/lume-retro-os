@@ -1,0 +1,384 @@
+#!/bin/sh
+# USB device role of the OTG port (usb-device-access D2, D3): the "Lume" gadget.
+#
+# usb-gadget start: builds the gadget in configfs with two functions, ffs.mtp (MTP through
+# FunctionFS, served by umtprd from /storage, the ROMS) and ncm.usb0 (the USB network),
+# starts umtprd and binds the gadget to the UDC of the OTG port only after umtprd wrote its
+# descriptors (FunctionFS refuses to bind before). Without a UDC (the vm) it does nothing.
+# usb-gadget stop: unbinds the gadget, stops umtprd and removes everything it created.
+#
+# usb-gadget run: start, then follow the port until TERM, then stop (the r36os-usb service
+# under supervise-daemon).
+#
+# The port role (D1) comes from the ID pin: the gadget stays bound and enumerates only
+# when a PC is on the port while no OTG adapter pulls ID low. On the GA36 the MUSB follows
+# the ID pin by itself; on the R36S the dwc2 role switch is device by default, so run sets
+# host while the PHY reports USB-HOST=1 (ID low) and device otherwise.
+#
+# USB network (D5): when the PC brings the NCM link up, the console takes 10.55.0.1/30 and
+# udhcpd hands out 10.55.0.2 only, with no router and no DNS, so the PC keeps its own
+# route and DNS. Root over that network (D4): dropbear, only with BOOT/ssh/authorized_keys,
+# key logins only (-s), no forwarding (-j -k), listening on 10.55.0.1 only, with the host
+# key of BOOT/ssh/ converted in RAM. Both stop when the link goes down.
+#
+# Every message also goes to the kernel log (KMSG), so the logd trace keeps it; port,
+# network and login changes are usb events of events.log (logs.sh).
+#
+# Environment for the tests: BOARD_FILE, CONFIGFS (default /sys/kernel/config), UDC_CLASS
+# (default /sys/class/udc), FFS_DIR (default /dev/ffs-mtp), UMTPRD, UMTPRD_CONF, USB_RUN
+# (pid files), SOC0_DIR, MMC_DEVICE (card with the serial number), GAME_UID, GAME_GID,
+# MOUNT, UMOUNT, MOUNTPOINT, RMDIR, KMSG, READY_TRIES (tenths of a second waiting for
+# umtprd), ROLE_CLASS (default /sys/class/usb_role), EXTCON_CLASS (default
+# /sys/class/extcon), POLL (seconds between two looks at the port), USB_LIBDIR (lib.sh and
+# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR,
+# DROPBEARCONVERT, BOOT_SSH (default /boot/ssh), ROOT_SSH (default /root/.ssh).
+BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
+CONFIGFS=${CONFIGFS:-/sys/kernel/config}
+UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
+FFS_DIR=${FFS_DIR:-/dev/ffs-mtp}
+UMTPRD=${UMTPRD:-/usr/bin/umtprd}
+UMTPRD_CONF=${UMTPRD_CONF:-/etc/umtprd/umtprd.conf}
+USB_RUN=${USB_RUN:-/run/r36os/usb}
+SOC0_DIR=${SOC0_DIR:-/sys/devices/soc0}
+MMC_DEVICE=${MMC_DEVICE:-/sys/block/mmcblk0/device}
+MOUNT=${MOUNT:-mount}
+UMOUNT=${UMOUNT:-umount}
+MOUNTPOINT=${MOUNTPOINT:-mountpoint}
+RMDIR=${RMDIR:-rmdir}
+KMSG=${KMSG:-/dev/kmsg}
+READY_TRIES=${READY_TRIES:-50}
+ROLE_CLASS=${ROLE_CLASS:-/sys/class/usb_role}
+EXTCON_CLASS=${EXTCON_CLASS:-/sys/class/extcon}
+POLL=${POLL:-1}
+NET_CLASS=${NET_CLASS:-/sys/class/net}
+IP=${IP:-ip}
+UDHCPD=${UDHCPD:-udhcpd}
+DROPBEAR=${DROPBEAR:-dropbear}
+DROPBEARCONVERT=${DROPBEARCONVERT:-dropbearconvert}
+BOOT_SSH=${BOOT_SSH:-/boot/ssh}
+ROOT_SSH=${ROOT_SSH:-/root/.ssh}
+
+. "${USB_LIBDIR:-/usr/libexec/r36os}/lib.sh"
+. "${USB_LIBDIR:-/usr/libexec/r36os}/logs.sh"
+
+# USB network (D5): a /30 with the console and the PC only
+CONSOLE_ADDR=10.55.0.1
+PC_ADDR=10.55.0.2
+NETMASK=255.255.255.252
+
+# USB IDs: Linux Foundation multifunction composite gadget (test IDs of the configfs
+# guides; a VID/PID of our own is an open question of the design)
+VENDOR_ID=0x1d6b
+PRODUCT_ID=0x0104
+MANUFACTURER="Lume Retro OS"
+GADGET=$CONFIGFS/usb_gadget/lume
+STORAGE=/storage
+
+say() {
+	echo "usb: $1"
+	[ -w "$KMSG" ] && echo "r36os-usb: $1" > "$KMSG" 2>/dev/null
+	return 0
+}
+
+# first UDC of the system (the OTG controller; the consoles have only one)
+udc_name() {
+	local d
+	for d in "$UDC_CLASS"/*; do
+		[ -e "$d" ] && { echo "${d##*/}"; return 0; }
+	done
+	return 1
+}
+
+# "Lume GA36", "Lume R36S"
+product_name() {
+	local b
+	b=$(cat "$BOARD_FILE" 2>/dev/null)
+	echo "Lume $(echo "${b:-console}" | tr '[:lower:]' '[:upper:]')"
+}
+
+# The same serial number on every boot: the SoC serial when the kernel gives one (R36S),
+# else the serial of the card (the A33 has no soc0), else 0
+serial_number() {
+	local s=""
+	[ -r "$SOC0_DIR/serial_number" ] && s=$(tr -cd '[:alnum:]' < "$SOC0_DIR/serial_number")
+	case "$s" in *[!0]*) echo "$s"; return 0 ;; esac
+	[ -r "$MMC_DEVICE/serial" ] && s=$(tr -cd '[:alnum:]' < "$MMC_DEVICE/serial")
+	case "$s" in *[!0]*) echo "$s"; return 0 ;; esac
+	echo 0
+}
+
+# Fixed MAC addresses from the serial number (locally administered), so the PC sees the
+# same network interface on every boot: 02:... on the console, 06:... on the PC side
+mac() {  # prefix serial
+	local h
+	h=$(printf '%s' "$2" | md5sum | cut -c1-10)
+	echo "$1:$(echo "$h" | sed 's/\(..\)/\1:/g; s/:$//')"
+}
+
+game_id() {  # -u|-g
+	id "$1" game 2>/dev/null || echo 1000
+}
+
+# umtprd configuration (D3): one storage "ROMS" on /storage with the frontend's user, so
+# files copied from the PC belong to it; nothing outside /storage (BOOT is not exported)
+write_umtprd_conf() {  # product serial
+	mkdir -p "$(dirname "$UMTPRD_CONF")"
+	cat > "$UMTPRD_CONF" <<EOF
+# Generated by /usr/libexec/r36os/usb-gadget at every start (usb-device-access D3).
+loop_on_disconnect 1
+storage "$STORAGE" "ROMS" "rw,uid=${GAME_UID:-$(game_id -u)},gid=${GAME_GID:-$(game_id -g)}"
+manufacturer "$MANUFACTURER"
+product "$1"
+serial "$2"
+firmware_version "1"
+interface "MTP"
+usb_vendor_id $VENDOR_ID
+usb_product_id $PRODUCT_ID
+usb_class 0x6
+usb_subclass 0x1
+usb_protocol 0x1
+usb_dev_version 0x3008
+usb_functionfs_mode 0x1
+usb_dev_path "$FFS_DIR/ep0"
+usb_epin_path "$FFS_DIR/ep1"
+usb_epout_path "$FFS_DIR/ep2"
+usb_epint_path "$FFS_DIR/ep3"
+usb_max_packet_size 0x200
+EOF
+}
+
+build_gadget() {  # product serial
+	local c="$GADGET/configs/c.1"
+	mkdir -p "$GADGET/strings/0x409" "$c/strings/0x409" \
+		"$GADGET/functions/ffs.mtp" "$GADGET/functions/ncm.usb0"
+	echo "$VENDOR_ID" > "$GADGET/idVendor"
+	echo "$PRODUCT_ID" > "$GADGET/idProduct"
+	echo 0x0100 > "$GADGET/bcdDevice"
+	echo 0x0200 > "$GADGET/bcdUSB"
+	echo "$MANUFACTURER" > "$GADGET/strings/0x409/manufacturer"
+	echo "$1" > "$GADGET/strings/0x409/product"
+	echo "$2" > "$GADGET/strings/0x409/serialnumber"
+	echo "MTP + NCM" > "$c/strings/0x409/configuration"
+	mac 02 "$2" > "$GADGET/functions/ncm.usb0/dev_addr"
+	mac 06 "$2" > "$GADGET/functions/ncm.usb0/host_addr"
+	ln -s "$GADGET/functions/ffs.mtp" "$c/ffs.mtp"
+	ln -s "$GADGET/functions/ncm.usb0" "$c/ncm.usb0"
+}
+
+# network interface of the NCM function: its name once the gadget is bound ("usb0")
+ncm_ifname() {
+	local n
+	n=$(cat "$GADGET/functions/ncm.usb0/ifname" 2>/dev/null)
+	case "$n" in ''|*[!a-z0-9]*) n=usb0 ;; esac
+	echo "$n"
+}
+
+write_udhcpd_conf() {  # interface
+	cat > "$USB_RUN/udhcpd.conf" <<EOF
+# Generated by /usr/libexec/r36os/usb-gadget (usb-device-access D5): one address for the
+# PC, no router and no DNS, so the PC keeps its own route and DNS.
+interface $1
+start $PC_ADDR
+end $PC_ADDR
+max_leases 1
+lease_file $USB_RUN/udhcpd.leases
+pidfile $USB_RUN/udhcpd.pid
+option subnet $NETMASK
+option lease 86400
+EOF
+	: > "$USB_RUN/udhcpd.leases"
+}
+
+# dropbear log lines (stderr, -E) -> one usb event per login accepted or refused
+ssh_log() {
+	local l
+	while IFS= read -r l; do
+		case "$l" in
+		*"auth succeeded for"*)
+			event usb OK "ssh: login accepted: ${l#*auth succeeded for }" ;;
+		*"Exit before auth"*)
+			event usb FAIL "ssh: login refused: ${l#*Exit before auth }" ;;
+		esac
+	done
+}
+
+# Root over the USB network (D4), only with BOOT/ssh/authorized_keys
+ssh_start() {
+	local hostkey="$USB_RUN/dropbear_ed25519_host_key" keyarg
+	if [ ! -s "$BOOT_SSH/authorized_keys" ]; then
+		event usb OK "ssh: disabled (no authorized_keys)"
+		return 0
+	fi
+	# the FAT has no permissions: a copy in the RAM layer with the modes dropbear wants
+	mkdir -p "$ROOT_SSH"
+	chmod 700 "$ROOT_SSH"
+	cp "$BOOT_SSH/authorized_keys" "$ROOT_SSH/authorized_keys"
+	chmod 600 "$ROOT_SSH/authorized_keys"
+	if [ -s "$hostkey" ] || { [ -s "$BOOT_SSH/ssh_host_ed25519_key" ] &&
+		"$DROPBEARCONVERT" openssh dropbear "$BOOT_SSH/ssh_host_ed25519_key" "$hostkey" \
+			>/dev/null 2>&1; }; then
+		keyarg="-r $hostkey"
+	else
+		# no host key of this PC on the card: dropbear makes one (the PC will warn)
+		keyarg="-R"
+		event usb FAIL "ssh: no usable host key in BOOT/ssh/, using a generated one"
+	fi
+	rm -f "$USB_RUN/dropbear.fifo"
+	mkfifo "$USB_RUN/dropbear.fifo"
+	ssh_log < "$USB_RUN/dropbear.fifo" &
+	# shellcheck disable=SC2086
+	"$DROPBEAR" -F -E -s -j -k -p "$CONSOLE_ADDR:22" $keyarg 2> "$USB_RUN/dropbear.fifo" &
+	echo $! > "$USB_RUN/dropbear.pid"
+	say "ssh on $CONSOLE_ADDR:22 (keys of BOOT/ssh/authorized_keys only)"
+}
+
+stop_pid() {  # name
+	local pid
+	pid=$(cat "$USB_RUN/$1.pid" 2>/dev/null)
+	[ -n "$pid" ] && kill "$pid" 2>/dev/null
+	rm -f "$USB_RUN/$1.pid"
+}
+
+NET_UP=0
+net_up() {  # interface
+	$IP addr replace "$CONSOLE_ADDR/30" dev "$1"
+	write_udhcpd_conf "$1"
+	"$UDHCPD" -f "$USB_RUN/udhcpd.conf" > /dev/null 2>&1 &
+	echo $! > "$USB_RUN/udhcpd.pid"
+	NET_UP=1
+	event usb OK "network: up on $1 (console $CONSOLE_ADDR, PC $PC_ADDR)"
+	ssh_start
+}
+
+net_down() {  # interface
+	[ "$NET_UP" = 1 ] || return 0
+	stop_pid dropbear
+	stop_pid udhcpd
+	rm -f "$USB_RUN/dropbear.fifo"
+	$IP addr flush dev "$1" 2>/dev/null
+	NET_UP=0
+	event usb OK "network: down on $1"
+}
+
+# The PC brings the link up when it configures the gadget (carrier 1)
+net_watch() {
+	local n carrier
+	n=$(ncm_ifname)
+	[ -e "$NET_CLASS/$n" ] || return 0
+	carrier=$(cat "$NET_CLASS/$n/carrier" 2>/dev/null)
+	if [ "$carrier" = 1 ] && [ "$NET_UP" = 0 ]; then
+		net_up "$n"
+	elif [ "$carrier" != 1 ] && [ "$NET_UP" = 1 ]; then
+		net_down "$n"
+	fi
+	return 0
+}
+
+cmd_start() {
+	local udc product serial i pid
+	udc=$(udc_name) || { say "no USB device controller, nothing to do"; return 0; }
+	[ -d "$GADGET" ] && cmd_stop >/dev/null
+	product=$(product_name)
+	serial=$(serial_number)
+	$MOUNTPOINT -q "$CONFIGFS" || $MOUNT -t configfs none "$CONFIGFS" || return 1
+	build_gadget "$product" "$serial"
+	mkdir -p "$FFS_DIR" "$USB_RUN"
+	$MOUNT -t functionfs mtp "$FFS_DIR" || { say "ERROR: cannot mount functionfs"; cmd_stop >/dev/null; return 1; }
+	write_umtprd_conf "$product" "$serial"
+	"$UMTPRD" > /dev/null 2>&1 &
+	pid=$!
+	echo "$pid" > "$USB_RUN/umtprd.pid"
+	# FunctionFS: the UDC can be bound only after umtprd wrote its descriptors, which
+	# creates the endpoint files
+	i=0
+	while [ ! -e "$FFS_DIR/ep1" ]; do
+		if [ $i -ge "$READY_TRIES" ] || ! kill -0 "$pid" 2>/dev/null; then
+			say "ERROR: umtprd not ready (no $FFS_DIR/ep1), gadget not bound"
+			cmd_stop >/dev/null
+			return 1
+		fi
+		sleep 0.1
+		i=$((i + 1))
+	done
+	echo "$udc" > "$GADGET/UDC"
+	# the NCM interface exists once bound; up, so the carrier follows the PC
+	$IP link set "$(ncm_ifname)" up 2>/dev/null
+	say "gadget \"$product\" bound to $udc (MTP, NCM), serial $serial"
+}
+
+cmd_stop() {
+	local c="$GADGET/configs/c.1" f pid
+	net_down "$(ncm_ifname)"
+	stop_pid dropbear
+	stop_pid udhcpd
+	[ -e "$GADGET/UDC" ] && echo "" > "$GADGET/UDC" 2>/dev/null
+	pid=$(cat "$USB_RUN/umtprd.pid" 2>/dev/null)
+	if [ -n "$pid" ]; then
+		kill "$pid" 2>/dev/null
+		wait "$pid" 2>/dev/null
+		rm -f "$USB_RUN/umtprd.pid"
+	fi
+	$MOUNTPOINT -q "$FFS_DIR" 2>/dev/null && $UMOUNT "$FFS_DIR"
+	[ -d "$GADGET" ] || return 0
+	# configfs: links first, then the directories from the inside out
+	for f in "$c/ffs.mtp" "$c/ncm.usb0"; do [ -L "$f" ] && rm -f "$f"; done
+	for f in "$c/strings/0x409" "$c" "$GADGET/functions/ffs.mtp" \
+		"$GADGET/functions/ncm.usb0" "$GADGET/strings/0x409" "$GADGET"; do
+		[ -d "$f" ] && $RMDIR "$f"
+	done
+	say "gadget removed"
+	return 0
+}
+
+# role file of the USB role switch (R36S); none on the GA36
+role_switch() {
+	local f
+	for f in "$ROLE_CLASS"/*/role; do
+		[ -e "$f" ] && { echo "$f"; return 0; }
+	done
+	return 1
+}
+
+# ID pin low (OTG adapter): a PHY extcon with USB-HOST=1
+id_low() {
+	local f
+	for f in "$EXTCON_CLASS"/*/state; do
+		grep -qx "USB-HOST=1" "$f" 2>/dev/null && return 0
+	done
+	return 1
+}
+
+ROLE_LAST=""
+role_watch() {
+	local sw want
+	sw=$(role_switch) || return 0
+	if id_low; then want=host; else want=device; fi
+	[ "$want" = "$ROLE_LAST" ] && return 0
+	if echo "$want" > "$sw" 2>/dev/null; then
+		ROLE_LAST=$want
+		if [ "$want" = host ]; then
+			say "port role host (ID pin low: OTG adapter)"
+		else
+			say "port role device (ID pin high)"
+		fi
+	fi
+	return 0
+}
+
+cmd_run() {
+	cmd_start || exit 1
+	trap 'cmd_stop; exit 0' TERM INT
+	while :; do
+		role_watch
+		net_watch
+		sleep "$POLL" &
+		wait $!
+	done
+}
+
+case "$1" in
+start) cmd_start ;;
+stop) cmd_stop ;;
+run) cmd_run ;;
+*) echo "usage: $0 start|stop|run" >&2; exit 2 ;;
+esac

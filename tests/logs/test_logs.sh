@@ -238,10 +238,16 @@ usb_watch; usb_watch
 usb_fake 1 0 b_peripheral configured 1 0
 usb_watch; usb_watch
 check "usb: one trace line per sample" '[ "$(grep -c " usb: " $LOGS_RAM/trace.pending)" = 4 ]'
-check "usb: one event per change only" '[ "$(grep -c " usb OK otg: " $LOGS_RAM/events.pending)" = 2 ] && tail -n 1 $LOGS_RAM/events.pending | grep -q "usb OK otg: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral"'
+check "usb: one event per change only" '[ "$(grep -c " usb OK otg: " $LOGS_RAM/events.pending)" = 2 ] && grep " usb OK otg: " $LOGS_RAM/events.pending | tail -n 1 | grep -q "usb OK otg: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral"'
+check "usb: a PC that configures the gadget is connected" 'grep -q " usb OK device: connected$" $LOGS_RAM/events.pending'
+usb_fake 1 0 b_peripheral configured 1 0
+usb_watch
+usb_fake 0 0 b_idle "not attached" 0 0
+usb_watch
+check "usb: unplugging the PC is disconnected, each once" '[ "$(grep -c " usb OK device: connected$" $LOGS_RAM/events.pending)" = 1 ] && [ "$(grep -c " usb OK device: disconnected$" $LOGS_RAM/events.pending)" = 1 ]'
 rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending
 rm -rf "$SYS_ROOT"
-SYS_ROOT=/sys USB_LAST=none
+SYS_ROOT=/sys USB_LAST=none USB_CONNECTED=0
 
 ### logd: game FPS from the GET_STATUS frame counter (RetroArch patch 0004)
 pidof() { return 0; }

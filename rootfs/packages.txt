@@ -30,6 +30,13 @@ pciutils
 exfatprogs
 jq
 
+# USB device role on the OTG port (usb-device-access D3, D4): MTP server for ROMS and the
+# SSH server of the USB network, both started by r36os-usb (no dropbear-openrc service);
+# dropbearconvert turns the OpenSSH host key of BOOT/ssh/ into the dropbear format
+umtprd
+dropbear
+dropbear-convert
+
 # Frontend
 retroarch
 libretro-core-info
