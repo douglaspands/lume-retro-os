@@ -362,9 +362,14 @@
 	status = "okay";
 };
 
+/*
+ * OTG port role by the ID pin only (usb-device-access D1, measured 2026-11-13): the VBUS of
+ * the OTG port reaches nothing the kernel reads, and the AXP USB input is the DC charging
+ * port, so usb0_vbus_power-supply made a charger look like a PC. Without a VBUS source the
+ * PHY reports VBUS present: ID high (no OTG adapter) is device, ID low is host.
+ */
 &usbphy {
 	usb0_id_det-gpios = <&pio 7 8 GPIO_ACTIVE_HIGH>;	/* PH8 */
-	usb0_vbus_power-supply = <&usb_power_supply>;
 	status = "okay";
 };
 

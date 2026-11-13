@@ -254,6 +254,15 @@ def test_stick_channels_and_directions_as_tested_on_the_device():
     assert inverted == {"ABS_X", "ABS_Y"}
 
 
+def test_otg_port_is_device_by_default_with_a_role_switch():
+    # usb-device-access D1: the u2phy does not see the VBUS of the OTG port, so the dwc2
+    # role switch overrides the session bits; r36os-usb sets host from the ID pin
+    otg = _node("&usb20_otg")
+    assert "usb-role-switch;" in otg
+    assert 'role-switch-default-mode = "peripheral";' in otg
+    assert "dr_mode" not in otg              # "otg" from px30.dtsi: host stays possible
+
+
 def test_leds():
     assert _gpio(_node("red_led: led-0")) == (0, 5, "GPIO_ACTIVE_HIGH")
     assert _gpio(_node("blue_led: led-1")) == (0, 0, "GPIO_ACTIVE_HIGH")

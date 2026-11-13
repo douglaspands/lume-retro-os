@@ -4,11 +4,11 @@
 
 - [x] 1.1 `logd`: amostra da porta OTG a cada intervalo de métricas (nível do pino ID, VBUS visto pelo PHY, papel do controlador em `/sys` e `/sys/class/udc/*/state` quando houver), gravada como linhas `usb:` no `trace` e como evento só na mudança; descrito em `docs/LOGS.md`. Verificação: teste de shell do `logd` com um `/sys` falso cobrindo as quatro situações; a linha aparece no log de boot da VM sem erro.
 - [x] 1.2 Prova nos dois consoles com o build da 1.1: num mesmo boot, deixar 20 s em cada situação (nada ligado, carregador na DC, cabo do PC na OTG, adaptador OTG com pendrive na OTG), anotando a ordem. Verificação: tabela situação → ID, VBUS e papel de cada console anotada no Context do `design.md`, com a decisão do D1 (troca automática ou papel padrão device) registrada nele.
-- [ ] 1.3 GA36: procurar o comando `ums` no U-Boot 2017 de fábrica (strings do binário da área de fábrica `R36OS_GA36_FACTORY`, sem gravar nada). Verificação: resultado anotado nas Open Questions do `design.md`; se existir, pendência nova no `docs/PENDENCIAS.md`.
+- [x] 1.3 GA36: procurar o comando `ums` no U-Boot 2017 de fábrica (strings do binário da área de fábrica `R36OS_GA36_FACTORY`, sem gravar nada). Verificação: resultado anotado nas Open Questions do `design.md`; se existir, pendência nova no `docs/PENDENCIAS.md`.
 
 ## 2. Kernel e device trees
 
-- [ ] 2.1 `board/ga36/kernel.config` e `board/r36s/kernel.config`: `USB_CONFIGFS`, `USB_CONFIGFS_F_FS`, `USB_CONFIGFS_NCM` embutidos (`=y`) e o controlador da OTG em dual-role nos dois. Verificação: testes de config de kernel dos dois consoles cobrem as opções e passam; o `.config` gerado pelo `r36os build` as tem.
+- [x] 2.1 `board/ga36/kernel.config` e `board/r36s/kernel.config`: `USB_CONFIGFS`, `USB_CONFIGFS_F_FS`, `USB_CONFIGFS_NCM` embutidos (`=y`) e o controlador da OTG em dual-role nos dois. Verificação: testes de config de kernel dos dois consoles cobrem as opções e passam; o `.config` gerado pelo `r36os build` as tem.
 - [ ] 2.2 DTS dos dois consoles conforme a decisão da 1.2 (`dr_mode`, ID e VBUS no `usbphy` do GA36; `usb20_otg`/`u2phy` no R36S, com `usb-role-switch` se a troca for explícita). Verificação: testes de DTS (`dt-validate` do build) passam; no aparelho, o log mostra o papel certo nas quatro situações da 1.2.
 
 ## 3. Gadget USB e arquivos por MTP (D2, D3)

@@ -46,6 +46,10 @@ def test_kernel_target_is_arm64():
     "CONFIG_ZRAM_DEF_COMP_LZ4",
     # DTB selection (boot-dtb-select D2/D7): kexec and the keys read in the initramfs
     "CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_GPIO",
+    # USB gadget on the OTG port (usb-device-access D1/D2): configfs with MTP and NCM on
+    # the DWC2 in dual-role, with the role switch
+    "CONFIG_USB_DWC2_DUAL_ROLE", "CONFIG_USB_ROLE_SWITCH", "CONFIG_USB_CONFIGFS",
+    "CONFIG_USB_CONFIGFS_F_FS", "CONFIG_USB_CONFIGFS_NCM",
 ])
 def test_fragment_builds_in(option):
     assert _options(FRAGMENT).get(option) == "y", option  # built in, not a module

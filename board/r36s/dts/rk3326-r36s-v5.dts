@@ -803,7 +803,15 @@
 	};
 };
 
+/*
+ * OTG port (usb-device-access D1, measured 2026-11-13): the u2phy sees the ID pin but not
+ * the VBUS of the OTG port, so the controller never gets a B-session for a PC. The role
+ * switch overrides the session valid bits; the port is device by default and r36os-usb
+ * sets host when the ID pin goes low (USB-HOST in the u2phy extcon).
+ */
 &usb20_otg {
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
 	status = "okay";
 };
 

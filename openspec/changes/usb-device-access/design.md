@@ -233,3 +233,9 @@ arquivo dentro da `BOOT`), o que não é possível.
 - VID/PID próprio para uma distribuição pública (não muda o design: é uma constante).
 - Se o U-Boot de fábrica do GA36 tem o comando `ums` (tarefa 1.3): se tiver, vira uma
   pendência própria de acesso ao cartão antes do Linux.
+  **Resposta (2026-11-13, strings de `.cache/vendor/ga36-factory-128M.bin`, só leitura):**
+  o U-Boot `2017.09-g05bceb2-dirty` **não tem `ums`**. Tem o código USB da Allwinner
+  (`sunxi_usb`): o comando `mass_test` ("do a usb mass test"), o modo `efex` (gravação do
+  PhoenixSuit) e um "Android Fastboot". Os nomes `ums_*` e `mass_storage` da área são de um
+  kernel Linux de recuperação, não do U-Boot. Se o `mass_test` expõe o cartão ao PC e como
+  chegar a ele sem a serial (env em 139264, tecla no boot) ficou como P-49.

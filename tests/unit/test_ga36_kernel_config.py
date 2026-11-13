@@ -51,6 +51,15 @@ def test_fragment_enables_kexec_and_the_selection_keys():
         assert opts.get(o) == "y", o
 
 
+def test_fragment_builds_in_the_usb_gadget():
+    # usb-device-access D2: configfs gadget with MTP (FunctionFS) and NCM, built in, on the
+    # MUSB in dual-role
+    opts = _options(FRAGMENT)
+    for o in ("CONFIG_USB_MUSB_DUAL_ROLE", "CONFIG_USB_CONFIGFS", "CONFIG_USB_CONFIGFS_F_FS",
+              "CONFIG_USB_CONFIGFS_NCM"):
+        assert opts.get(o) == "y", o
+
+
 def test_a33_secondary_cpus_can_be_killed_for_kexec():
     # machine_kexec_prepare() refuses SMP without .cpu_kill (GA36 boot 20): patch 0027
     # gives the sun8i enable method of the A33 .cpu_die and .cpu_kill

@@ -82,6 +82,15 @@ def test_board_pins():
     assert 'stdout-path = "serial1:115200n8"' in DTSI
 
 
+def test_otg_role_by_the_id_pin_only():
+    # usb-device-access D1: the AXP USB input is the DC port, so it must not be the VBUS of
+    # the OTG PHY; without a VBUS source the PHY reports VBUS present (device by default)
+    phy = _node("usbphy")
+    assert "usb0_id_det-gpios" in phy
+    assert "vbus" not in phy
+    assert 'dr_mode = "otg"' in _node("usb_otg")
+
+
 def test_backlight_and_volume_keys():
     code = _code(DTSI)
     assert "pwms = <&pwm 0 50000 0>" in code                    # PWM0, 20 kHz
