@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Fri, 13 Nov 2026 12:00:00 -0300
+Subject: [PATCH] ASoC: rk817: drive the speaker path with the vendor values
+
+On the R36S V5 the speaker stays silent with the playback mux on SPK. The
+register dump taken during bring-up (boot 19) shows the path powered by DAPM, but
+four registers differ from what the vendor driver (rk817_codec.c of the
+factory 4.4 kernel, SPK_PATH) writes for the internal class D amplifier:
+
+  ADAC_CFG1         0x03 -> 0x00  (DAC L and R on as well as the SPK DAC)
+  DDAC_MUTE_MIXCTL  0xb0 -> 0x10  (no high pass filter, bit 5 clear)
+  ACLASSD_CFG1      0xa9 -> 0xa5  (mute rate bits 3:2 = 01, off 0x69)
+  ACLASSD_CFG2      0x77 -> 0xc4  (bit 7 "restart class D", over-current
+                                    levels at their reset value)
+
+The registers are read from the chip (the RK817 regmap has no cache), and
+bit 3 of ACLASSD_CFG2, which no driver writes, was set by the chip after the
+first playback: likely a latched over-current flag with the levels this
+driver selects.
+
+Make DAC L and R shared supplies of the speaker and headphone paths,
+replace the over-current supplies with the restart bit, invert the mute
+rate supplies and clear bits 7 and 5 of DDAC_MUTE_MIXCTL at init, so the
+speaker path ends with the vendor values.
+
+diff --git a/sound/soc/codecs/rk817_codec.c b/sound/soc/codecs/rk817_codec.c
+index 229feef..492b11e 100644
+--- a/sound/soc/codecs/rk817_codec.c
++++ b/sound/soc/codecs/rk817_codec.c
+@@ -42,6 +42,13 @@ static int rk817_init(struct snd_soc_component *component)
+ 	snd_soc_component_write(component, RK817_CODEC_DDAC_SR_LMT0, 0x02);
+ 	snd_soc_component_write(component, RK817_CODEC_DADC_SR_ACL0, 0x02);
+ 	snd_soc_component_write(component, RK817_CODEC_DTOP_VUCTIME, 0xf4);
++	/*
++	 * The reset value of DDAC_MUTE_MIXCTL is 0xa0; the vendor driver clears it before playback
++	 * and writes 0x10 for the speaker: clear the high pass filter (bit 7) and the undocumented
++	 * bit 5 the same way.
++	 */
++	snd_soc_component_update_bits(component, RK817_CODEC_DDAC_MUTE_MIXCTL,
++				      BIT(7) | BIT(5), 0);
+ 	if (rk817->mic_in_differential) {
+ 		snd_soc_component_update_bits(component, RK817_CODEC_AMIC_CFG0, MIC_DIFF_MASK,
+ 			MIC_DIFF_EN);
+@@ -146,27 +153,30 @@ static const struct snd_soc_dapm_widget rk817_dapm_widgets[] = {
+ 	SND_SOC_DAPM_SUPPLY("I2S RX Channel Enable", RK817_CODEC_DTOP_DIGEN_CLKE, 0, 0, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("DAC Bias", RK817_CODEC_ADAC_CFG1, 3, 1, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("DAC Mute Off", RK817_CODEC_DDAC_MUTE_MIXCTL, 0, 1, NULL, 0),
+-
+-	/* playback path speaker */
++	/* the vendor driver powers DAC L and R for the speaker too, so they are shared supplies */
++	SND_SOC_DAPM_SUPPLY("DAC L Power", RK817_CODEC_ADAC_CFG1, 1, 1, NULL, 0),
++	SND_SOC_DAPM_SUPPLY("DAC R Power", RK817_CODEC_ADAC_CFG1, 0, 1, NULL, 0),
++
++	/*
++	 * playback path speaker, with the vendor values: DDAC_MUTE_MIXCTL 0x10 (class D mode, no
++	 * high pass filter), ACLASSD_CFG1 0xa5 on and 0x69 off, ACLASSD_CFG2 0xc4 (restart the
++	 * class D, over-current levels left at their reset value).
++	 */
+ 	SND_SOC_DAPM_SUPPLY("Class D Mode", RK817_CODEC_DDAC_MUTE_MIXCTL, 4, 0, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("High Pass Filter", RK817_CODEC_DDAC_MUTE_MIXCTL, 7, 0, NULL, 0),
+ 	SND_SOC_DAPM_DAC("SPK DAC", "Playback", RK817_CODEC_ADAC_CFG1, 2, 1),
+ 	SND_SOC_DAPM_SUPPLY("Enable Class D", RK817_CODEC_ACLASSD_CFG1, 7, 0, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("Disable Class D Mute Ramp", RK817_CODEC_ACLASSD_CFG1, 6, 1, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D Mute Rate 1", RK817_CODEC_ACLASSD_CFG1, 3, 0, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D Mute Rate 2", RK817_CODEC_ACLASSD_CFG1, 2, 1, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D OCPP 2", RK817_CODEC_ACLASSD_CFG2, 5, 0, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D OCPP 3", RK817_CODEC_ACLASSD_CFG2, 4, 0, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D OCPN 2", RK817_CODEC_ACLASSD_CFG2, 1, 0, NULL, 0),
+-	SND_SOC_DAPM_SUPPLY("Class D OCPN 3", RK817_CODEC_ACLASSD_CFG2, 0, 0, NULL, 0),
++	SND_SOC_DAPM_SUPPLY("Class D Mute Rate 1", RK817_CODEC_ACLASSD_CFG1, 3, 1, NULL, 0),
++	SND_SOC_DAPM_SUPPLY("Class D Mute Rate 2", RK817_CODEC_ACLASSD_CFG1, 2, 0, NULL, 0),
++	SND_SOC_DAPM_SUPPLY("Class D Restart", RK817_CODEC_ACLASSD_CFG2, 7, 0, NULL, 0),
+ 
+ 	/* playback path headphones */
+ 	SND_SOC_DAPM_SUPPLY("Headphone Charge Pump", RK817_CODEC_AHP_CP, 4, 0, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("Headphone CP Discharge LDO", RK817_CODEC_AHP_CP, 3, 1, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("Headphone OStage", RK817_CODEC_AHP_CFG0, 6, 1, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY("Headphone Pre Amp", RK817_CODEC_AHP_CFG0, 5, 1, NULL, 0),
+-	SND_SOC_DAPM_DAC("DAC L", "Playback", RK817_CODEC_ADAC_CFG1, 1, 1),
+-	SND_SOC_DAPM_DAC("DAC R", "Playback", RK817_CODEC_ADAC_CFG1, 0, 1),
++	SND_SOC_DAPM_DAC("DAC L", "Playback", SND_SOC_NOPM, 0, 0),
++	SND_SOC_DAPM_DAC("DAC R", "Playback", SND_SOC_NOPM, 0, 0),
+ 
+ 	/* Mux for input/output path selection */
+ 	SND_SOC_DAPM_MUX("Playback Mux", SND_SOC_NOPM, 1, 0, &dac_mux),
+@@ -232,15 +242,13 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+ 	{"SPK DAC", NULL, "Class D Mode"},
+ 	{"SPK DAC", NULL, "DAC Bias"},
+ 	{"SPK DAC", NULL, "DAC Mute Off"},
++	{"SPK DAC", NULL, "DAC L Power"},
++	{"SPK DAC", NULL, "DAC R Power"},
+ 	{"SPK DAC", NULL, "Enable Class D"},
+ 	{"SPK DAC", NULL, "Disable Class D Mute Ramp"},
+ 	{"SPK DAC", NULL, "Class D Mute Rate 1"},
+ 	{"SPK DAC", NULL, "Class D Mute Rate 2"},
+-	{"SPK DAC", NULL, "Class D OCPP 2"},
+-	{"SPK DAC", NULL, "Class D OCPP 3"},
+-	{"SPK DAC", NULL, "Class D OCPN 2"},
+-	{"SPK DAC", NULL, "Class D OCPN 3"},
+-	{"SPK DAC", NULL, "High Pass Filter"},
++	{"SPK DAC", NULL, "Class D Restart"},
+ 
+ 	/* headphone path L */
+ 	{"DAC L", NULL, "LDO Regulator"},
+@@ -254,6 +262,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+ 	{"DAC L", NULL, "I2S RX Channel Enable"},
+ 	{"DAC L", NULL, "DAC Bias"},
+ 	{"DAC L", NULL, "DAC Mute Off"},
++	{"DAC L", NULL, "DAC L Power"},
+ 	{"DAC L", NULL, "Headphone Charge Pump"},
+ 	{"DAC L", NULL, "Headphone CP Discharge LDO"},
+ 	{"DAC L", NULL, "Headphone OStage"},
+@@ -271,6 +280,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+ 	{"DAC R", NULL, "I2S RX Channel Enable"},
+ 	{"DAC R", NULL, "DAC Bias"},
+ 	{"DAC R", NULL, "DAC Mute Off"},
++	{"DAC R", NULL, "DAC R Power"},
+ 	{"DAC R", NULL, "Headphone Charge Pump"},
+ 	{"DAC R", NULL, "Headphone CP Discharge LDO"},
+ 	{"DAC R", NULL, "Headphone OStage"},

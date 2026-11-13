@@ -32,6 +32,21 @@ ROMS/logs/
 `hw/boot-12.txt`, `metrics/boot-12.csv`, `trace/boot-12.log` e `frontend/boot-12.log`
 são do mesmo boot.
 
+**Cartão único (GA36 e R36S):** o mesmo cartão inicia nos dois consoles, e os dois
+gravam na mesma `ROMS/logs/`. A numeração dos boots é uma só: se o cartão iniciou no
+GA36 (boot 12), depois no R36S (13) e de novo no GA36 (14), os três logs ficam lado a
+lado, sem um sobrescrever o outro. Para saber de qual console é cada boot:
+
+- `boot/boot-<n>.log`: a segunda linha do cabeçalho, `== console: ga36` ou
+  `== console: r36s`;
+- `hw/boot-<n>.txt`: o campo `board`;
+- `events.log`: o evento `boot OK started: <console> kernel <versão> ...`, gravado no
+  início de cada boot. Para ver só os boots de um console:
+  `grep "boot OK started: r36s" events.log`.
+
+A arquitetura também diferencia: o campo `kernel` do `hw/boot-<n>.txt` traz a versão e
+a máquina (`armv7l` no GA36, `aarch64` no R36S).
+
 **Sem a partição de jogos** (por exemplo, quando a partição 2 não é exFAT), os logs
 ficam só na RAM, e o log de boot vai para `BOOT/logs/boot-<n>.log` (os 10 mais recentes),
 porque é justamente o caso que precisa de diagnóstico. O log do frontend que falhou vai
@@ -130,7 +145,7 @@ Serve para descobrir **onde** o RetroArch parou quando o aparelho congela. Cada 
 começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segundos):
 
 ```
-10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 vblank=2842 tasks= 312:S:do_poll 318:S:futex_wait_queue
+10:46:08 fe=no_answer pid=312 st=S utime=412 stime=96 threads=5 dri_fds=1 gpu_mhz=384 vblank=2842 pcm=RUNNING/48000/46.12/2211840 tasks= 312:S:do_poll 318:S:futex_wait_queue
 ```
 
 | Campo | Conteúdo |
@@ -143,6 +158,7 @@ começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segund
 | `dri_fds` | descritores abertos em `/dev/dri/` (mais de um pode indicar o dispositivo herdado do processo anterior) |
 | `gpu_mhz` | frequência da GPU (devfreq) em MHz; vazio sem devfreq. Mostra se o clock da GPU mudou quando o jogo abriu |
 | `vblank` | soma das interrupções do controlador de vídeo (`lcd-controller`, o vblank); vazio sem ele (VM). Com o display vivo, sobe ~55 por segundo; **parada, a tela congelou** |
+| `pcm` | primeira reprodução de áudio aberta, como `estado/taxa/uptime/hw_ptr` (`-` sem nenhuma). O `uptime` é o de `/proc/uptime`, lido logo antes do `hw_ptr`, que conta os quadros que o hardware já consumiu; entre duas linhas com o mesmo stream em `RUNNING`, `Δhw_ptr / Δuptime` é a taxa real de saída, que deve bater com a `taxa` |
 | `tasks` | por thread: `tid:estado:wchan`. O `wchan` é a função do kernel em que a thread está dormindo |
 
 Além disso:
@@ -193,6 +209,23 @@ Como ler: `st=S` com o mesmo `wchan` e `utime` parado entre amostras é um proce
 bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em laço, ocupado.
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
+
+## Diagnóstico de hardware no `boot/boot-<n>.log`
+
+Alguns drivers gravam no log do kernel o que leram do próprio hardware. Elas aparecem no
+`boot/boot-<n>.log` com a hora do kernel:
+
+- `panel state <before-init|after-init> <reg>: <bytes>`: o painel lido pelo DSI antes e
+  depois da sequência de inicialização (ID, energia, formato, autodiagnóstico e os
+  registradores do fabricante), mais uma linha `power:` decodificada e
+  `panel init sequence: <erro> (sent in command mode|in video mode)`. Hoje no painel do
+  R36S.
+- `SoC revision: PX30/RK3326` ou `PX30S/RK3326S` e `lane rate … Hz …`: a revisão do SoC do
+  R36S e a taxa do link de vídeo do D-PHY.
+- `dropped N stale read payload words`: o controlador DSI descartou uma resposta atrasada.
+
+Como ler cada linha: `docs/BRINGUP-R36S.md`, seção 5. Reunir essas leituras num relatório
+único de hardware é o P-40.
 
 ## `hw/boot-<n>.txt`
 

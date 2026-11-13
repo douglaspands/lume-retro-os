@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Wed, 11 Nov 2026 19:49:01 -0300
+Subject: [PATCH 09/10] dt-bindings: display: panel: add R36S V5 panel
+
+The 3.5 inch 640x480 MIPI-DSI panel of the R36S V5 handheld, driven by a Sitronix ST7703 compatible controller (it answers B9 F1 12 87).
+
+diff --git a/Documentation/devicetree/bindings/display/panel/rocktech,jh057n00900.yaml b/Documentation/devicetree/bindings/display/panel/rocktech,jh057n00900.yaml
+index 4ae152c..06512dc 100644
+--- a/Documentation/devicetree/bindings/display/panel/rocktech,jh057n00900.yaml
++++ b/Documentation/devicetree/bindings/display/panel/rocktech,jh057n00900.yaml
+@@ -28,6 +28,8 @@ properties:
+       - powkiddy,rgb10max3-panel
+       # Powkiddy RGB30 3.0" 720x720 TFT LCD panel
+       - powkiddy,rgb30-panel
++      # R36S V5 3.5" 640x480 TFT LCD panel
++      - r36s,r36s-v5-panel
+       # Rocktech JH057N00900 5.5" 720x1440 TFT LCD panel
+       - rocktech,jh057n00900
+       # Xingbangda XBD599 5.99" 720x1440 TFT LCD panel

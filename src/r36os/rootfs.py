@@ -16,6 +16,8 @@ from r36os.paths import REPO_ROOT, ensure_dir, out_dir
 from r36os.targets import TARGETS, Target
 
 SYSTEM_LIMIT_MIB = 768
+# On the console image both systems share the 2 GiB BOOT (r36s-single-card, system-image)
+CONSOLE_SYSTEM_LIMIT_MIB = 448
 MIRROR = "https://dl-cdn.alpinelinux.org/alpine"
 
 
@@ -25,6 +27,11 @@ class SystemTooLargeError(RuntimeError):
 
 def target_out(target: Target) -> Path:
     return out_dir() / target.name
+
+
+def system_limit_mib(target: Target) -> int:
+    """Size limit of the SYSTEM of a hardware layer."""
+    return CONSOLE_SYSTEM_LIMIT_MIB if target.is_console else SYSTEM_LIMIT_MIB
 
 
 def serial_console(target: Target) -> tuple[str, str]:

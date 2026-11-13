@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 11:40:00 -0300
+Subject: [PATCH] phy: rockchip: inno-dsidphy: optional non-inverted escape clock
+
+The INVERT_TXCLKESC bit is defined but never written, so it keeps its reset
+value (inverted). The factory firmware of the R36S V5 leaves it not inverted;
+there, the panel takes the low power init commands wrong and shows a washed
+out grey screen. The board asks for it with "rockchip,txclkesc-not-inverted".
+Same register write as the PX30S support of ROCKNIX (invert_txclkesc_disable).
+
+diff --git a/Documentation/devicetree/bindings/phy/rockchip,px30-dsi-dphy.yaml b/Documentation/devicetree/bindings/phy/rockchip,px30-dsi-dphy.yaml
+--- a/Documentation/devicetree/bindings/phy/rockchip,px30-dsi-dphy.yaml
++++ b/Documentation/devicetree/bindings/phy/rockchip,px30-dsi-dphy.yaml
+@@ -46,6 +46,12 @@ properties:
+     items:
+       - const: apb
+
++  rockchip,txclkesc-not-inverted:
++    type: boolean
++    description:
++      Keep the escape clock not inverted, as the factory firmware of some
++      boards leaves it. Without it, the panel takes the init commands wrong.
++
+ required:
+   - "#phy-cells"
+   - compatible
+diff --git a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+index d5b1a4e..5bfae12 100644
+--- a/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
++++ b/drivers/phy/rockchip/phy-rockchip-inno-dsidphy.c
+@@ -208,6 +208,7 @@ struct inno_dsidphy {
+ 	struct clk *pclk_phy;
+ 	struct clk *pclk_host;
+ 	const struct inno_video_phy_plat_data *pdata;
++	bool txclkesc_not_inverted;
+ 	void __iomem *phy_base;
+ 	void __iomem *host_base;
+ 	struct reset_control *rst;
+@@ -410,6 +411,14 @@ static void inno_dsidphy_mipi_mode_enable(struct inno_dsidphy *inno)
+ 	udelay(1);
+ 	phy_update_bits(inno, REGISTER_PART_DIGITAL, 0x00,
+ 			REG_DIG_RSTN_MASK, REG_DIG_RSTN_NORMAL);
++	/*
++	 * The escape clock is inverted after reset. Some boards need it as their
++	 * factory firmware leaves it (not inverted), or the panel receives the
++	 * low power commands wrong.
++	 */
++	if (inno->txclkesc_not_inverted)
++		phy_update_bits(inno, REGISTER_PART_DIGITAL, 0x01,
++				INVERT_TXCLKESC_MASK, INVERT_TXCLKESC_DISABLE);
+
+ 	txbyteclkhs = inno->pll.rate / 8;
+ 	t_txbyteclkhs = div_u64(PSEC_PER_SEC, txbyteclkhs);
+@@ -702,6 +711,8 @@ static int inno_dsidphy_probe(struct platform_device *pdev)
+
+ 	inno->dev = dev;
+ 	inno->pdata = of_device_get_match_data(inno->dev);
++	inno->txclkesc_not_inverted =
++		of_property_read_bool(dev->of_node, "rockchip,txclkesc-not-inverted");
+ 	platform_set_drvdata(pdev, inno);
+
+ 	inno->phy_base = devm_platform_ioremap_resource(pdev, 0);

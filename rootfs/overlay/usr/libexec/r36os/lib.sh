@@ -75,7 +75,7 @@ watch_tree() {
 # Para os handlers: um diretório novo pede para refazer a lista do inotifyd.
 note_new_dir() { [ "$1" = n ] && [ -d "$2/$3" ] && : > "$R36OS_RUN/rescan.${WATCH_NAME:-watch}"; return 0; }
 
-board() { cat /etc/r36os/board 2>/dev/null; }
+board() { cat "${BOARD_FILE:-/etc/r36os/board}" 2>/dev/null; }
 
 # Idioma das mensagens para o usuário: o user_language do RetroArch (escolhido no menu e
 # persistido pelo r36os-persist). Logs são sempre em inglês. Textos em en, pt e es (os

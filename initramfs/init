@@ -1,7 +1,7 @@
 #!/bin/busybox sh
-# init do initramfs do Lume Retro OS (D6).
-# BOOT (FAT32, ro) -> SYSTEM (squashfs, loop, ro) + tmpfs 32 MiB -> overlay -> switch_root.
-# Cria a partição ROMS no primeiro boot; nunca formata uma partição 2 existente.
+# Initramfs init of Lume Retro OS (D6).
+# BOOT (FAT32, ro) -> SYSTEM (squashfs, loop, ro) + 32 MiB tmpfs -> overlay -> switch_root.
+# Creates the ROMS partition on the first boot; never formats an existing partition 2.
 
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin
@@ -10,10 +10,18 @@ mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
-# O cpio não tem /dev/console: liga a saída ao console só agora.
+# The cpio has no /dev/console: tie the output to the console only now.
 exec 0</dev/console 1>/dev/console 2>&1
 
 . /lib/storage.sh
+
+# Console of this initramfs (written by the build, one initramfs per hardware layer)
+BOARD=$(cat /etc/board 2>/dev/null)
+
+# Status LED on as soon as the kernel reaches init (first sign of life without a serial)
+for led in /sys/class/leds/*:status; do
+	[ -w "$led/brightness" ] && echo 1 > "$led/brightness"
+done
 
 rescue() {
 	log "ERROR: $*"
@@ -21,21 +29,21 @@ rescue() {
 	exec setsid cttyhack sh
 }
 
-# Módulos (só na VM; nos consoles os drivers de boot são embutidos no kernel).
+# Modules (VM only; on the consoles the boot drivers are built into the kernel).
 if [ -f /etc/modules ]; then
 	while read -r m; do
 		[ -n "$m" ] && insmod "/lib/modules/$m" 2>/dev/null
 	done < /etc/modules
 fi
 
-# root=PARTUUID=<assinatura MBR>-01, vindo do extlinux.conf.
+# root=PARTUUID=<MBR signature>-01, from the kernel command line.
 SIG=""
 for arg in $(cat /proc/cmdline); do
 	case "$arg" in root=PARTUUID=*) SIG=${arg#root=PARTUUID=}; SIG=${SIG%-*} ;; esac
 done
 [ -n "$SIG" ] || rescue "cmdline without root=PARTUUID="
 
-# Espera o cartão pela assinatura do MBR (timeout de 10 s).
+# Wait for the card by its MBR signature (10 s timeout).
 find_disk() {
 	local d sig
 	for d in /sys/block/*; do
@@ -47,6 +55,7 @@ find_disk() {
 	done
 	return 1
 }
+log "console: $(console_label "$BOARD")"
 log "searching for boot disk (PARTUUID=$SIG-01)..."
 i=0
 until DISK=$(find_disk); do
@@ -58,25 +67,27 @@ BOOT=$(part_node "$DISK" 1)
 wait_node "$BOOT" || rescue "BOOT partition missing on $DISK"
 log "boot disk at $DISK"
 
-# Partição de jogos: antes de qualquer montagem do cartão (o kernel não relê
-# a tabela de um disco com partição montada).
+# Games partition: before any mount of the card (the kernel does not reread the
+# table of a disk with a mounted partition).
 ROMS_OK=$(setup_storage "$DISK")
 
 mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
-[ -f /boot/SYSTEM ] || rescue "BOOT missing SYSTEM file"
-mount -t squashfs -o ro,loop /boot/SYSTEM /lower || rescue "failed to mount SYSTEM"
+SYSTEM=$(system_file "$BOARD")
+# Never falls back to the SYSTEM of another console (another architecture)
+[ -f "/boot/$SYSTEM" ] || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
+mount -t squashfs -o ro,loop "/boot/$SYSTEM" /lower || rescue "failed to mount $SYSTEM"
 mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
 mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
 	|| rescue "failed to mount overlay"
-log "root: SYSTEM (read-only) + 32 MiB RAM layer"
+log "root: $SYSTEM (read-only) + 32 MiB RAM layer"
 
 if [ "$ROMS_OK" = ok ]; then
 	if mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
 		"$(part_node "$DISK" 2)" /newroot/storage; then
 		CATALOG=/newroot/usr/share/r36os/systems.json
 		if [ -f "$CATALOG" ]; then
-			# caminho absoluto: o PATH do initramfs não tem /usr/bin
+			# absolute path: the initramfs PATH has no /usr/bin
 			IDS=$(chroot /newroot /usr/bin/jq -r '.systems[].id' /usr/share/r36os/systems.json) \
 				|| log "ERROR: failed to read catalog"
 			make_folders /newroot/storage $IDS

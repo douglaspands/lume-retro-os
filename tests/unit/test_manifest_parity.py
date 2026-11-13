@@ -1,9 +1,11 @@
-"""Task 11.2: the vm and ga36 images of a build carry the same userland.
+"""Task 11.2 (and 6.5 of r36s-single-card): the vm, ga36 and r36s systems of a build carry
+the same userland.
 
-Reads the latest archived images (out/images/<target>/latest/manifest.txt); skipped when
-either is missing. Only the hardware layer may differ: the kernel and the packages of
-board/<target>/hw-packages.txt (with their dependencies), and Mesa, which on the VM is
-the local virgl build (aports/mesa, x86_64 only) instead of Alpine's.
+Reads the latest archived images: out/images/vm/latest/manifest.txt and, for the two
+systems of the console image, out/images/console/latest/manifest-<layer>.txt; skipped
+when one is missing. Only the hardware layer may differ: the kernel and the packages of
+board/<layer>/hw-packages.txt (with their dependencies), and Mesa, which on the VM is the
+local virgl build (aports/mesa, x86_64 only) instead of Alpine's.
 """
 
 import json
@@ -13,13 +15,17 @@ import pytest
 
 from r36os.paths import REPO_ROOT, out_dir
 
-TARGETS = ("vm", "ga36")
+TARGETS = ("vm", "ga36", "r36s")
 # the VM's Mesa is the local build with virgl (aports/mesa, arch x86_64)
 HW_VARIANTS = re.compile(r"^mesa(-.*)?$")
 
 
 def _manifest(target: str) -> dict[str, str]:
-    path = out_dir() / "images" / target / "latest" / "manifest.txt"
+    images = out_dir() / "images"
+    if target == "vm":
+        path = images / "vm" / "latest" / "manifest.txt"
+    else:
+        path = images / "console" / "latest" / f"manifest-{target}.txt"
     if not path.exists():
         pytest.skip(f"no {target} image built ({path})")
     pkgs = {}

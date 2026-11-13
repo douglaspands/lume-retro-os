@@ -162,7 +162,7 @@ trace_sample; trace_sample
 check "logd: 2 amostras sem resposta ainda não são congelamento" '! grep -q "no answer" $LOGS_RAM/events.pending 2>/dev/null && ! grep -q "no answer" $LOGS_DIR/events.log 2>/dev/null'
 trace_sample
 check "logd: 3ª amostra declara o congelamento (evento de falha)" 'grep -q "frontend FAIL retroarch pid $FAKE alive but no answer for 15s" $LOGS_DIR/events.log'
-check "logd: linha do rastreio com estado, threads e descritores DRM" 'grep -qE "fe=no_answer pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=[0-9]+ dri_fds=[0-9]+ gpu_mhz=[0-9]* vblank=[0-9]* tasks=" $LOGS_DIR/trace/boot-7.log'
+check "logd: linha do rastreio com estado, threads e descritores DRM" 'grep -qE "fe=no_answer pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=[0-9]+ dri_fds=[0-9]+ gpu_mhz=[0-9]* vblank=[0-9]* pcm=[^ ]+ tasks=" $LOGS_DIR/trace/boot-7.log'
 check "logd: instantâneo detalhado gravado de imediato no cartão" 'grep -q "=== snapshot of retroarch pid $FAKE" $LOGS_DIR/trace/boot-7.log && grep -q "^[0-9:]* thread $FAKE " $LOGS_DIR/trace/boot-7.log && { [ ! -s /proc/interrupts ] || grep -q " irq " $LOGS_DIR/trace/boot-7.log; }'
 i=0; while [ $i -lt 40 ]; do trace_sample; i=$((i + 1)); done
 check "logd: instantâneos limitados por boot (DEEP_MAX)" '[ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -le "$DEEP_MAX" ] && [ "$(grep -c "=== snapshot of" $LOGS_DIR/trace/boot-7.log)" -ge 2 ]'
@@ -413,6 +413,21 @@ rm -rf "$PERSIST_RAM"
 restore >/dev/null 2>&1
 check "language: a build with another language keeps the menu choice" 'grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg && grep -q "^user_language = \"3\"$" $PERSIST_SYS/retroarch/retroarch.cfg'
 check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" rootfs/overlay/usr/libexec/r36os/persist'
+
+### Single card (r36s-single-card, task 7.1): boots on the GA36, the R36S and the GA36
+### again share ROMS/logs/ with one boot sequence, and each boot names its console
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR/.boot"
+for console in ga36 r36s ga36; do
+	echo "$console" > "$W/board"
+	BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+done
+starts=$(sed -n 's/^[^ ]* \([0-9]*\) boot OK started: \([a-z0-9]*\) .*/\1 \2/p' "$LOGS_DIR/events.log" | tr '\n' ' ')
+check "single card: three boots in one sequence, each with its console" '[ "$starts" = "1 ga36 2 r36s 3 ga36 " ]'
+check "single card: the counter is shared on ROMS" '[ "$(cat "$LOGS_DIR/.boot")" = 3 ]'
+check "single card: the boot log header names the console" \
+	'grep -q "echo \"== console: \$(board)\"" rootfs/overlay/usr/libexec/r36os/bootlog'
+check "single card: the hardware snapshot names the board" \
+	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
 
 rm -rf "$W"
 echo "falhas: $FAILS"

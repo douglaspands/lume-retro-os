@@ -69,7 +69,7 @@ def test_log_text_is_english():
 def test_trace_documented_and_bounded():
     body = re.search(r"trace_sample\(\) \{(.*?)\n\}", LOGD, re.S).group(1)
     section = _section("trace/")
-    for field in ("fe", "pid", "st", "utime", "stime", "threads", "dri_fds", "gpu_mhz", "vblank", "tasks"):
+    for field in ("fe", "pid", "st", "utime", "stime", "threads", "dri_fds", "gpu_mhz", "vblank", "pcm", "tasks"):
         assert f"{field}=" in body, field
         assert f"`{field}`" in section, field
     # on the card and in RAM the trace has a cap, it is rotated, and the total cap drops it
@@ -95,6 +95,15 @@ def test_menu_language_choice_survives_builds():
     doc = (REPO_ROOT / "docs/FRONTEND.md").read_text()
     assert "system/etc/language" not in doc
     assert "nem por um build com outro idioma" in doc
+
+
+def test_single_card_logs_documented():
+    # r36s-single-card (task 7.2): both consoles share ROMS/logs/ and each log names its console
+    bootlog = (LIBEXEC / "bootlog").read_text()
+    assert 'echo "== console: $(board)"' in bootlog and "`== console: r36s`" in DOC
+    assert 'event boot OK "started: $(board) ' in LOGD and "boot OK started: <console>" in DOC
+    assert "numeração dos boots é uma só" in DOC
+    assert 'kv board "$(board)"' in (LIBEXEC / "hwinfo").read_text() and "o campo `board`" in DOC
 
 
 def test_conf_defaults_documented():

@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Wed, 11 Nov 2026 19:49:00 -0300
+Subject: [PATCH 08/10] dt-bindings: arm: rockchip: add R36S V5
+
+Board compatible of the R36S V5 handheld game console (Rockchip RK3326).
+
+diff --git a/Documentation/devicetree/bindings/arm/rockchip.yaml b/Documentation/devicetree/bindings/arm/rockchip.yaml
+index 6aceaa8..524d7e8 100644
+--- a/Documentation/devicetree/bindings/arm/rockchip.yaml
++++ b/Documentation/devicetree/bindings/arm/rockchip.yaml
+@@ -873,6 +873,11 @@ properties:
+           - const: qnap,ts433
+           - const: rockchip,rk3568
+ 
++      - description: R36S V5 handheld game console (RK3326)
++        items:
++          - const: r36s,r36s-v5
++          - const: rockchip,rk3326
++
+       - description: Radxa Compute Module 3 (CM3)
+         items:
+           - enum:

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Tarefa 2.2: cada core local carrega no RetroArch (dlopen + API libretro), sem conteúdo.
-# Roda num container alpine:3.24 com /repo (out/repo) e /keys montados.
+# Task 2.2: every local core loads in RetroArch (dlopen + libretro API), with no content.
+# Runs in an alpine:3.24 container with /repo (out/repo) and /keys mounted.
 set -u
 cp /keys/r36os.rsa.pub /etc/apk/keys/
-CORES="snes9x2005-plus snes9x genesis-plus-gx picodrive fbneo mame2003-plus pcsx-rearmed"
+CORES="snes9x2005-plus genesis-plus-gx picodrive fbneo pcsx-rearmed fbalpha2012-cps1 fbalpha2012-cps2 fbalpha2012-neogeo"
 PKGS="retroarch"
 for c in $CORES; do PKGS="$PKGS libretro-$c"; done
 apk add -q -X /repo $PKGS >/dev/null || exit 1

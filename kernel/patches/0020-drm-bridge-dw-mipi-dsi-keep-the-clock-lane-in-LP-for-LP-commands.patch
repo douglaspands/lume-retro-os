@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 19:00:00 -0300
+Subject: [PATCH] drm/bridge: dw-mipi-dsi: keep the clock lane in LP for LP commands
+
+The host requests the high speed clock (PHY_TXREQUESTCLKHS) as soon as it
+switches to command mode, so a panel initialised from prepare gets its
+whole init sequence with the clock lane running in HS. The Rockchip vendor
+kernel (4.4 BSP, drivers/gpu/drm/rockchip/dw-mipi-dsi.c) does the
+opposite: each low power message clears PHY_TXREQUESTCLKHS, and the clock
+only starts in enable, after the panel prepare, right before video mode.
+
+On the R36S V5 (ST7703 family panel, init sequence in LP) everything else
+of the link now matches the factory kernel register by register, and the
+panel still never shows the video. In command mode, when the peripheral
+takes its commands in low power (MIPI_DSI_MODE_LPM), leave the clock lane
+in LP; video mode and HS commands keep requesting the clock as before.
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+index 3c1fda9..c8e2156 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c
+@@ -666,7 +666,17 @@ static void dw_mipi_dsi_set_mode(struct dw_mipi_dsi *dsi,
+ 		dsi_write(dsi, DSI_MODE_CFG, ENABLE_CMD_MODE);
+ 	}
+
+-	val = PHY_TXREQUESTCLKHS;
++	/*
++	 * In command mode a peripheral that takes its commands in low power
++	 * (MIPI_DSI_MODE_LPM) needs no high speed clock: keep the clock lane in LP
++	 * until video starts, as the Rockchip vendor kernel does, so the init
++	 * sequence of a panel initialised from prepare is sent with the clock lane
++	 * at rest (R36S V5, ST7703 family).
++	 */
++	if (!(mode_flags & MIPI_DSI_MODE_VIDEO) && (dsi->mode_flags & MIPI_DSI_MODE_LPM))
++		val = 0;
++	else
++		val = PHY_TXREQUESTCLKHS;
+ 	if (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
+ 		val |= AUTO_CLKLANE_CTRL;
+ 	dsi_write(dsi, DSI_LPCLK_CTRL, val);

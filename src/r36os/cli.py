@@ -1,4 +1,4 @@
-"""Command line: `r36os build|flash|eject|vm|pkg|test-vm`."""
+"""Command line: `r36os build|flash|eject|vm|pkg|test-vm|clean`."""
 
 from __future__ import annotations
 
@@ -7,24 +7,26 @@ from pathlib import Path
 import sys
 
 from r36os import lang
-from r36os.targets import TARGETS, InvalidTargetError, get_target
+from r36os.targets import IMAGES, TARGETS, InvalidTargetError, get_image, get_target
 
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="r36os",
-        description="Builds the r36s/ga36/vm images and runs the test VM.",
+        description="Builds the console image (one card for the GA36 and the R36S) and the "
+                    "test VM image, and runs the test VM.",
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
 
     b = sub.add_parser("build", help="build the image of one target (or all with --all)")
-    b.add_argument("target", nargs="?", help=f"target: {', '.join(TARGETS)}")
-    b.add_argument("--all", action="store_true", help="build the vm, test it, then the consoles")
+    b.add_argument("target", nargs="?", help=f"image: {', '.join(IMAGES)}")
+    b.add_argument("--all", action="store_true",
+                   help="build the vm, test it, then the console image")
     b.add_argument("--lang", default=lang.DEFAULT, metavar="CODE",
                    help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en)")
 
     f = sub.add_parser("flash", help="write a built image to the card (run it in a terminal)")
-    f.add_argument("target", help=f"target: {', '.join(TARGETS)}")
+    f.add_argument("target", help=f"image: {', '.join(IMAGES)}")
     f.add_argument("device", help="whole card, e.g. /dev/sdc")
     mode = f.add_mutually_exclusive_group()
     mode.add_argument("--full", action="store_true",
@@ -33,7 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--update", action="store_true",
                       help="write only the boot area and BOOT, keeping ROMS (games and saves)")
     f.add_argument("--build", default="latest", metavar="TIMESTAMP",
-                   help="build from out/images/<target>/ (default: latest)")
+                   help="build from out/images/<image>/ (default: latest)")
     f.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     f.add_argument("--eject", action="store_true",
                    help="safely unmount and power off / eject the device after writing")
@@ -52,13 +54,19 @@ def _parser() -> argparse.ArgumentParser:
     v.add_argument("--no-gamepad", action="store_true",
                    help="do not pass the host gamepads through to the VM")
 
-    k = sub.add_parser("pkg", help="build packages from aports/ for a target")
-    k.add_argument("target", help=f"target: {', '.join(TARGETS)}")
+    k = sub.add_parser("pkg", help="build packages from aports/ for a hardware layer")
+    k.add_argument("target", help=f"layer: {', '.join(TARGETS)}")
     k.add_argument("names", nargs="+", help="directories under aports/")
     k.add_argument("--checksum", action="store_true", help="only update the sha512sums")
 
     t = sub.add_parser("test-vm", help="automated acceptance test of the vm image")
     t.add_argument("--keep", action="store_true", help="keep the VM disk after the test")
+
+    c = sub.add_parser("clean", help="free the space of build leftovers (dry run by default)")
+    c.add_argument("--yes", action="store_true", help="remove (without it, only list)")
+    c.add_argument("--keep", type=int, default=3, metavar="N",
+                   help="archived images to keep per image, besides latest and the ones "
+                        "cited in the docs (default 3)")
     return p
 
 
@@ -74,15 +82,15 @@ def main(argv: list[str] | None = None) -> int:
                 from r36os.release import build_all
 
                 return build_all(language=args.lang)
-            target = get_target(args.target)
-            from r36os.build import build_target
+            image = get_image(args.target)
+            from r36os.build import build_image_target
 
-            build_target(target, language=args.lang)
+            build_image_target(image, language=args.lang)
             return 0
         if args.command == "flash":
             from r36os.flash import main_flash
 
-            return main_flash(get_target(args.target), args.device, args.update,
+            return main_flash(get_image(args.target), args.device, args.update,
                               args.build, args.yes, args.eject)
         if args.command == "eject":
             from r36os.flash import main_eject
@@ -104,6 +112,10 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.selftest import test_vm
 
             return test_vm(keep=args.keep)
+        if args.command == "clean":
+            from r36os.clean import main_clean
+
+            return main_clean(yes=args.yes, keep=args.keep)
     except (InvalidTargetError, lang.InvalidLanguageError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

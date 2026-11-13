@@ -125,6 +125,24 @@ done
 check "nó: mmcblk0 -> mmcblk0p2" '[ "$(part_node /dev/mmcblk0 2)" = /dev/mmcblk0p2 ]'
 check "nó: vda -> vda2" '[ "$(part_node /dev/vda 2)" = /dev/vda2 ]'
 
+### 9. SYSTEM of each console on the single card (r36s-single-card, task 5.1)
+check "system: ga36 -> ga36/SYSTEM" '[ "$(system_file ga36)" = ga36/SYSTEM ]'
+check "system: r36s -> r36s/SYSTEM" '[ "$(system_file r36s)" = r36s/SYSTEM ]'
+check "system: vm -> SYSTEM" '[ "$(system_file vm)" = SYSTEM ]'
+check "system: no board -> SYSTEM" '[ "$(system_file "")" = SYSTEM ]'
+check "system: labels" '[ "$(console_label ga36)" = GA36 ] && [ "$(console_label r36s)" = R36S ]'
+# BOOT of a single card with only the GA36 system: the R36S must not take it
+B=$W/boot
+mkdir -p "$B/ga36" && : > "$B/ga36/SYSTEM"
+check "system: ga36 finds its SYSTEM" '[ -f "$B/$(system_file ga36)" ]'
+check "system: r36s does not find one" '[ ! -f "$B/$(system_file r36s)" ]'
+# the init rescues with the console and the file in the message, with no fallback
+INIT=../../initramfs/init
+check "system: init uses system_file" 'grep -q "SYSTEM=\$(system_file \"\$BOARD\")" "$INIT"'
+check "system: rescue names the file and the console" \
+	'grep -q "rescue \"BOOT has no \$SYSTEM, the system of the \$(console_label \"\$BOARD\")" "$INIT"'
+check "system: never mounts /boot/SYSTEM directly" '! grep -q "/boot/SYSTEM " "$INIT"'
+
 rm -rf "$W"
 echo "falhas: $FAILS"
 [ $FAILS -eq 0 ]

@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Fri, 13 Nov 2026 15:30:00 -0300
+Subject: [PATCH] clk: rockchip: keep the fractional divider input at 600 MHz
+ or less
+
+On the R36S V5 (PX30/RK3326) the sound plays low and slow. With the I2S1
+master clock reported at 12.288 MHz (48 kHz x 256), 10 s of 48 kHz frames
+written straight to hw:0,0 took 10.44 s (S16_LE) and 10.62 s (S32_LE), and
+in games the rate wandered between 45 700 and 47 200 frames/s; a 440 Hz
+sine came out near 411 Hz.
+
+The clock tree shows clk_i2s1_frac fed by clk_i2s1_src at 1200 MHz (the
+whole GPLL). The Rockchip vendor kernel caps the input of every PX30
+fractional divider (I2S, PDM, UART) at 600 MHz (PX30_FRAC_MAX_PRATE in its
+clk-px30.c, enforced in rockchip_fractional_approximation()), and the
+factory system runs clk_i2s1_src at GPLL / 2 (CLKSEL_CON30 0x0401).
+
+Apply the same 600 MHz cap here: when the divider input is above it, ask
+the clock above for its parent rate divided down to the cap, so the
+fractional divider works from 600 MHz.
+
+diff --git a/drivers/clk/rockchip/clk.c b/drivers/clk/rockchip/clk.c
+index 2d30b1e..2e69216 100644
+--- a/drivers/clk/rockchip/clk.c
++++ b/drivers/clk/rockchip/clk.c
+@@ -174,6 +174,14 @@ static int rockchip_clk_frac_notifier_cb(struct notifier_block *nb,
+ 	return notifier_from_errno(ret);
+ }
+ 
++/*
++ * Highest input rate of a fractional divider. The Rockchip vendor kernel caps
++ * it at 600 MHz on the PX30 (PX30_FRAC_MAX_PRATE, on the I2S, PDM and UART
++ * dividers). Fed with the 1200 MHz GPLL, the PX30 I2S1 master clock came out
++ * 2% to 6% slow and unsteady (R36S V5: 10 s of 48 kHz frames took 10.44 s).
++ */
++#define ROCKCHIP_FRAC_MAX_PRATE		600000000
++
+ /*
+  * fractional divider must set that denominator is 20 times larger than
+  * numerator to generate precise clock frequency.
+@@ -187,10 +195,15 @@ static void rockchip_fractional_approximation(struct clk_hw *hw,
+ 	struct clk_hw *p_parent;
+ 
+ 	p_rate = clk_hw_get_rate(clk_hw_get_parent(hw));
+-	if ((rate * 20 > p_rate) && (p_rate % rate != 0)) {
++	if (((rate * 20 > p_rate) && (p_rate % rate != 0)) ||
++	    p_rate > ROCKCHIP_FRAC_MAX_PRATE) {
+ 		p_parent = clk_hw_get_parent(clk_hw_get_parent(hw));
+-		p_parent_rate = clk_hw_get_rate(p_parent);
++		p_parent_rate = p_parent ? clk_hw_get_rate(p_parent) : p_rate;
+ 		*parent_rate = p_parent_rate;
++		/* ask the divider above for an input within the limit (GPLL / 2) */
++		if (p_parent_rate > ROCKCHIP_FRAC_MAX_PRATE)
++			*parent_rate = p_parent_rate /
++				       DIV_ROUND_UP(p_parent_rate, ROCKCHIP_FRAC_MAX_PRATE);
+ 	}
+ 
+ 	fd->flags |= CLK_FRAC_DIVIDER_POWER_OF_TWO_PS;

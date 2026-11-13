@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "systems": [
     {
       "id": "nes",
@@ -8,7 +8,8 @@
       "core": "fceumm",
       "core_by_arch": {},
       "alt_cores": ["nestopia"],
-      "bios": []
+      "bios": [],
+      "romset": null
     },
     {
       "id": "snes",
@@ -16,8 +17,9 @@
       "extensions": ["sfc", "smc", "fig", "swc", "zip", "7z"],
       "core": "snes9x2005_plus",
       "core_by_arch": {},
-      "alt_cores": ["snes9x"],
-      "bios": []
+      "alt_cores": [],
+      "bios": [],
+      "romset": null
     },
     {
       "id": "mastersystem",
@@ -26,7 +28,8 @@
       "core": "genesis_plus_gx",
       "core_by_arch": {"armv7": "picodrive"},
       "alt_cores": [],
-      "bios": []
+      "bios": [],
+      "romset": null
     },
     {
       "id": "megadrive",
@@ -35,7 +38,32 @@
       "core": "genesis_plus_gx",
       "core_by_arch": {"armv7": "picodrive"},
       "alt_cores": [],
-      "bios": []
+      "bios": [],
+      "romset": null
+    },
+    {
+      "id": "segacd",
+      "name": "Sega CD",
+      "extensions": ["cue", "chd", "iso", "m3u"],
+      "core": "genesis_plus_gx",
+      "core_by_arch": {"armv7": "picodrive"},
+      "alt_cores": ["picodrive"],
+      "bios": [
+        {"files": ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
+         "required": true,
+         "note": "Obrigatória: bios_CD_U.bin (EUA), bios_CD_E.bin (Europa) ou bios_CD_J.bin (Japão), conforme a região do jogo."}
+      ],
+      "romset": null
+    },
+    {
+      "id": "sega32x",
+      "name": "Sega 32X",
+      "extensions": ["32x", "zip", "7z"],
+      "core": "picodrive",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "bios": [],
+      "romset": null
     },
     {
       "id": "gb",
@@ -44,7 +72,8 @@
       "core": "gambatte",
       "core_by_arch": {},
       "alt_cores": [],
-      "bios": []
+      "bios": [],
+      "romset": null
     },
     {
       "id": "gbc",
@@ -53,7 +82,8 @@
       "core": "gambatte",
       "core_by_arch": {},
       "alt_cores": [],
-      "bios": []
+      "bios": [],
+      "romset": null
     },
     {
       "id": "gba",
@@ -62,16 +92,52 @@
       "core": "gpsp",
       "core_by_arch": {},
       "alt_cores": [],
-      "bios": []
+      "bios": [],
+      "romset": null
     },
     {
       "id": "arcade",
       "name": "Arcade",
       "extensions": ["zip", "7z"],
       "core": "fbneo",
-      "core_by_arch": {"armv7": "mame2003_plus"},
-      "alt_cores": ["mame2003_plus"],
-      "bios": []
+      "core_by_arch": {},
+      "alt_cores": [],
+      "bios": [],
+      "romset": "FBNeo (a versão do core da imagem)"
+    },
+    {
+      "id": "cps1",
+      "name": "CPS-1",
+      "extensions": ["zip"],
+      "core": "fbalpha2012_cps1",
+      "core_by_arch": {},
+      "alt_cores": ["fbneo"],
+      "bios": [],
+      "romset": "FB Alpha v0.2.97.29"
+    },
+    {
+      "id": "cps2",
+      "name": "CPS-2",
+      "extensions": ["zip"],
+      "core": "fbalpha2012_cps2",
+      "core_by_arch": {},
+      "alt_cores": ["fbneo"],
+      "bios": [],
+      "romset": "FB Alpha v0.2.97.29"
+    },
+    {
+      "id": "neogeo",
+      "name": "Neo Geo",
+      "extensions": ["zip"],
+      "core": "fbalpha2012_neogeo",
+      "core_by_arch": {},
+      "alt_cores": ["fbneo"],
+      "bios": [
+        {"files": ["neogeo.zip"],
+         "required": true,
+         "note": "Obrigatória: neogeo.zip vai na própria pasta roms/neogeo/, junto dos jogos (não em bios/)."}
+      ],
+      "romset": "FB Alpha v0.2.97.29"
     },
     {
       "id": "psx",
@@ -84,20 +150,22 @@
         {"files": ["scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"],
          "required": false,
          "note": "Opcional: sem BIOS o pcsx_rearmed usa a BIOS HLE embutida."}
-      ]
+      ],
+      "romset": null
     }
   ],
   "cores": {
     "fceumm": {"package": "libretro-fceumm", "file": "fceumm_libretro.so"},
     "nestopia": {"package": "libretro-nestopia", "file": "nestopia_libretro.so"},
     "snes9x2005_plus": {"package": "libretro-snes9x2005-plus", "file": "snes9x2005_plus_libretro.so"},
-    "snes9x": {"package": "libretro-snes9x", "file": "snes9x_libretro.so"},
     "genesis_plus_gx": {"package": "libretro-genesis-plus-gx", "file": "genesis_plus_gx_libretro.so"},
     "picodrive": {"package": "libretro-picodrive", "file": "picodrive_libretro.so"},
     "gambatte": {"package": "libretro-gambatte", "file": "gambatte_libretro.so"},
     "gpsp": {"package": "libretro-gpsp", "file": "gpsp_libretro.so"},
     "fbneo": {"package": "libretro-fbneo", "file": "fbneo_libretro.so"},
-    "mame2003_plus": {"package": "libretro-mame2003-plus", "file": "mame2003_plus_libretro.so"},
+    "fbalpha2012_cps1": {"package": "libretro-fbalpha2012-cps1", "file": "fbalpha2012_cps1_libretro.so"},
+    "fbalpha2012_cps2": {"package": "libretro-fbalpha2012-cps2", "file": "fbalpha2012_cps2_libretro.so"},
+    "fbalpha2012_neogeo": {"package": "libretro-fbalpha2012-neogeo", "file": "fbalpha2012_neogeo_libretro.so"},
     "pcsx_rearmed": {"package": "libretro-pcsx-rearmed", "file": "pcsx_rearmed_libretro.so"}
   }
 }

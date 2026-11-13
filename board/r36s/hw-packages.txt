@@ -1,4 +1,6 @@
-# Camada de hardware do R36S V5 (aarch64).
-# Kernel, DTB e U-Boot vêm do estágio 1 (cross-compile) e não são pacotes apk:
-# a imagem do kernel vai para a BOOT e os módulos entram direto no SYSTEM.
-# O r36os-padmerge (tarefa 10.3) entra aqui quando for empacotado.
+# Hardware layer of the R36S V5 (aarch64).
+# Kernel and DTB come from stage 1 (cross-compile) and are not apk packages: the kernel
+# image goes to BOOT and the modules go straight into SYSTEM.
+
+# One gamepad out of the buttons (gpio-keys) and the sticks (adc-joystick), r36s-single-card D8
+r36os-padmerge

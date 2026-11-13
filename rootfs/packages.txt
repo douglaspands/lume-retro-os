@@ -44,9 +44,10 @@ libretro-gpsp
 
 # Cores locais (aports/)
 libretro-snes9x2005-plus
-libretro-snes9x
 libretro-genesis-plus-gx
 libretro-picodrive
 libretro-fbneo
-libretro-mame2003-plus
+libretro-fbalpha2012-cps1
+libretro-fbalpha2012-cps2
+libretro-fbalpha2012-neogeo
 libretro-pcsx-rearmed

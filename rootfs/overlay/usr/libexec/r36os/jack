@@ -1,0 +1,64 @@
+#!/bin/sh
+# R36S headphone jack -> RK817 playback mux (r36s-single-card, task 6.6).
+#
+# Inside the RK817 the speaker output and the left headphone pin are the same, chosen by
+# the "Playback Mux" control (HP or SPK); nothing switches it on its own. This service
+# sets it from the jack state at start and again on every event of the jack input device
+# ("rk817_int Headphones", created by simple-audio-card from hp-det-gpios).
+#
+# Every message also goes to the kernel log (KMSG), so the logd trace keeps it: the
+# service runs under supervise-daemon, whose stdout goes nowhere.
+#
+# Environment for the tests: BOARD_FILE, AMIXER, JACK_EVDEV (the event device to read),
+# INPUT_SYSFS (default /sys/class/input), KMSG (default /dev/kmsg).
+BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
+AMIXER=${AMIXER:-amixer}
+INPUT_SYSFS=${INPUT_SYSFS:-/sys/class/input}
+KMSG=${KMSG:-/dev/kmsg}
+CARD=rk817int
+JACK_NAME="rk817_int Headphones"
+EVENT_SIZE=24   # struct input_event on aarch64 (any width works: each line only wakes us)
+
+[ "$(cat "$BOARD_FILE" 2>/dev/null)" = r36s ] || exit 0
+
+say() {
+	echo "$1"
+	[ -w "$KMSG" ] && echo "r36os-$1" > "$KMSG" 2>/dev/null
+	return 0
+}
+
+last=""
+apply() {
+	local state mux
+	state=$("$AMIXER" -c "$CARD" cget name='Headphones Jack' 2>/dev/null | sed -n 's/.*: values=//p')
+	case "$state" in
+	on) mux=HP ;;
+	off) mux=SPK ;;
+	*) return 0 ;;
+	esac
+	[ "$mux" = "$last" ] && return 0
+	if "$AMIXER" -c "$CARD" -q sset 'Playback Mux' "$mux" >/dev/null 2>&1; then
+		say "jack: headphones $state, playback mux $mux"
+		last=$mux
+	else
+		say "jack: FAILED to set playback mux $mux"
+	fi
+}
+
+find_evdev() {
+	local d
+	for d in "$INPUT_SYSFS"/event*; do
+		[ "$(cat "$d/device/name" 2>/dev/null)" = "$JACK_NAME" ] && { echo "/dev/input/${d##*/}"; return 0; }
+	done
+	return 1
+}
+
+apply
+dev=${JACK_EVDEV:-$(find_evdev)}
+if [ -z "$dev" ]; then
+	say "jack: no input device named \"$JACK_NAME\"; the playback mux stays on $last"
+	exit 1
+fi
+say "jack: watching $dev"
+# every event (switch and sync) wakes the loop; apply() only acts on a change
+od -An -v -tx1 -w"$EVENT_SIZE" "$dev" | while read -r _; do apply; done

@@ -1,4 +1,10 @@
-"""Supported build targets and their validation."""
+"""Build targets: hardware layers (one per system) and the images built from them.
+
+A layer (`ga36`, `r36s`, `vm`) has its own architecture, container platform and
+`board/<name>/` folder: packages, kernel, initramfs and SYSTEM are built per layer. The
+images are what `build` and `flash` take: `console` (one card for the GA36 and the R36S,
+with both layers) and `vm`.
+"""
 
 from __future__ import annotations
 
@@ -24,18 +30,40 @@ TARGETS: dict[str, Target] = {
 }
 
 
-class InvalidTargetError(ValueError):
-    """Target outside the list of supported targets."""
+@dataclass(frozen=True)
+class ImageTarget:
+    name: str
+    layers: tuple[str, ...]  # names in TARGETS, built in this order
+    description: str
 
-    def __init__(self, name: str) -> None:
+
+IMAGES: dict[str, ImageTarget] = {
+    "console": ImageTarget("console", ("ga36", "r36s"),
+                           "single card for the GA36 and the R36S V5"),
+    "vm": ImageTarget("vm", ("vm",), "test VM (QEMU x86_64)"),
+}
+
+
+class InvalidTargetError(ValueError):
+    """Target outside the list of valid targets."""
+
+    def __init__(self, name: str, valid: list[str] | None = None) -> None:
         self.name = name
-        valid = ", ".join(TARGETS)
-        super().__init__(f"invalid target: {name!r}. Valid targets: {valid}")
+        valid = valid if valid is not None else list(IMAGES)
+        super().__init__(f"invalid target: {name!r}. Valid targets: {', '.join(valid)}")
 
 
 def get_target(name: str) -> Target:
-    """Return the target by name or raise InvalidTargetError listing the valid ones."""
+    """Return the hardware layer by name or raise InvalidTargetError listing the layers."""
     try:
         return TARGETS[name]
     except KeyError:
-        raise InvalidTargetError(name) from None
+        raise InvalidTargetError(name, list(TARGETS)) from None
+
+
+def get_image(name: str) -> ImageTarget:
+    """Return the image target by name or raise InvalidTargetError listing console, vm."""
+    try:
+        return IMAGES[name]
+    except KeyError:
+        raise InvalidTargetError(name, list(IMAGES)) from None

@@ -1,0 +1,3 @@
+# The R36S buttons and sticks are joined by r36os-padmerge into "R36S Gamepad": the two
+# source devices are not gamepads of their own (RetroArch lists ID_INPUT_JOYSTICK only).
+SUBSYSTEM=="input", ATTRS{name}=="gpio-keys|adc-joystick", ENV{ID_INPUT_JOYSTICK}=""

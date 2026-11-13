@@ -38,18 +38,21 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | Pacote | Origem | Commit |
 |---|---|---|
 | libretro-snes9x2005-plus | novo, o core de SNES de fábrica do GA36 (build padrão, `USE_BLARGG_APU=1`; substitui o snes9x2010 desde 2026-11-11) | `fd45b0e0` |
-| libretro-snes9x | testing (edge) | `229933ea` |
+| libretro-snes9x | testing (edge); **desativado** (`arch=""`) desde 2026-11-11, a pedido do usuário | `229933ea` |
 | libretro-genesis-plus-gx | testing (edge) | `b72b8c96` |
 | libretro-picodrive | testing, atualizado + submódulos | `1890c293` |
 | libretro-fbneo | testing, atualizado (zlib embutido) | `77016b4d` |
-| libretro-mame2003-plus | novo | `4f6b3b46` |
+| libretro-mame2003-plus | novo; **desativado** (`arch=""`) desde 2026-11-11, a pedido do usuário | `4f6b3b46` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
 
 Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba` não entra
 nesta versão: o GBA usa o `gpsp` em todos os alvos.
 
 O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
-do catálogo nesta versão (pendência 12.1 do `tasks.md`).
+do catálogo nesta versão (pendência 12.1 do `tasks.md`). O `libretro-mame2003-plus` também,
+a pedido do usuário (2026-11-11): o arcade usa o `fbneo` em todos os consoles, o mesmo
+romset nos dois aparelhos do cartão único. E o `libretro-snes9x`, também a pedido do usuário
+(2026-11-11): o SNES usa o `snes9x2005_plus`, sem alternativo.
 
 Ajustes para o musl:
 

@@ -1,0 +1,52 @@
+#!/bin/sh
+# BRING-UP ONLY (r36s-single-card, task 4.6): measures the real playback rate of the sound
+# card without RetroArch, and plays a reference tone to check the pitch with a tuner.
+# Runs only when the flag file exists on the card (ROMS/system/etc/audiotest), so a normal
+# boot is not delayed; remove the service once the R36S sound is right.
+#
+# 1. aplay sends AUDIOTEST_SECONDS of silence at 48000 Hz straight to the hardware device
+#    (no plug, no resampling) and waits for it to drain: the wall time it takes, from
+#    /proc/uptime, gives the rate the hardware really consumes. At 48000 Hz, 10 s of frames
+#    take 10.0 s plus a few tens of milliseconds of start and drain.
+# 2. speaker-test plays a 440 Hz sine for AUDIOTEST_TONE seconds: a tuner shows A4 if the
+#    output clock is right (about 420 Hz would mean the 4.7% slowdown seen in RetroArch).
+#
+# Every line also goes to the kernel log, so the logd trace keeps it.
+#
+# Environment for the tests: AUDIOTEST_FLAG, KMSG, APLAY, SPEAKER_TEST, UPTIME_FILE,
+# AUDIOTEST_SECONDS, AUDIOTEST_TONE.
+FLAG=${AUDIOTEST_FLAG:-/storage/system/etc/audiotest}
+KMSG=${KMSG:-/dev/kmsg}
+APLAY=${APLAY:-aplay}
+SPEAKER_TEST=${SPEAKER_TEST:-speaker-test}
+UPTIME_FILE=${UPTIME_FILE:-/proc/uptime}
+SECS=${AUDIOTEST_SECONDS:-10}
+TONE=${AUDIOTEST_TONE:-8}
+RATE=48000
+
+[ -f "$FLAG" ] || exit 0
+
+say() {
+	echo "$1"
+	[ -w "$KMSG" ] && echo "r36os-$1" > "$KMSG" 2>/dev/null
+	return 0
+}
+uptime_s() { read -r u _ < "$UPTIME_FILE" && echo "$u"; }
+
+ERR=$(mktemp)
+say "audiotest: start ($SECS s of frames per format at $RATE Hz on hw:0,0, then a 440 Hz tone)"
+for fmt in S16_LE S32_LE; do
+	t0=$(uptime_s)
+	if "$APLAY" -q -D hw:0,0 -t raw -f "$fmt" -r "$RATE" -c 2 -d "$SECS" /dev/zero 2>"$ERR"; then
+		t1=$(uptime_s)
+		say "audiotest: $fmt $(awk -v a="$t0" -v b="$t1" -v s="$SECS" -v r="$RATE" \
+			'BEGIN { d = b - a; printf "%d s of frames played in %.2f s: real rate %d frames/s (%+.1f%%)", s, d, s * r / d, (s / d - 1) * 100 }')"
+	else
+		say "audiotest: $fmt FAILED: $(head -n 1 "$ERR")"
+	fi
+done
+say "audiotest: 440 Hz tone for $TONE s"
+timeout "$TONE" "$SPEAKER_TEST" -D plughw:0,0 -r "$RATE" -c 2 -t sine -f 440 >/dev/null 2>&1
+say "audiotest: done"
+rm -f "$ERR"
+exit 0

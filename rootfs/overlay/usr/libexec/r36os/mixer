@@ -37,6 +37,17 @@ case "$board" in
 		set_ctl "$c" 'Headphone' on
 		set_ctl "$c" 'Speaker' on
 		;;
+	r36s)
+		# R36S (RK817 codec, simple-audio-card "rk817_int"): the speaker output and the
+		# left headphone pin are the same inside the codec, so "Playback Mux" picks one;
+		# the speaker by default (switching to HP on headphone insertion is task 6.6).
+		# Only "Internal Speakers" is a pin switch in the DTS; the headphone widget has
+		# no switch on the real card (first boot on the R36S, 2026-11-12).
+		c=rk817int
+		set_ctl "$c" 'Playback Mux' SPK
+		set_ctl "$c" 'Master' 100%
+		set_ctl "$c" 'Internal Speakers' on
+		;;
 	*)
 		echo "mixer: no defaults for board '${board:-unknown}'"
 		;;

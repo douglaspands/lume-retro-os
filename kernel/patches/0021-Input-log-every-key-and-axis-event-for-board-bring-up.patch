@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Thu, 12 Nov 2026 21:00:00 -0300
+Subject: [PATCH] Input: log every key and axis event for board bring-up
+
+BRING-UP ONLY, not for a product: drop it once the R36S V5 gamepad works.
+
+On the R36S V5 no button, stick or volume key reaches RetroArch, and the
+path has three steps: the drivers (gpio-keys, adc-joystick), the user
+space merger r36os-padmerge (which grabs both and feeds a uinput device)
+and RetroArch. The old evbug handler is gone from mainline, and a handler
+would not see the events of a grabbed device anyway.
+
+With CONFIG_INPUT_EVLOG, log every key, axis and switch event in the input
+core, before the grab check, as "evlog: <name> (<inputN>) key|abs|sw code
+<c> value <v>", and every grab as "evlog: <name> (<inputN>) grabbed by
+<handler>". The switch events show the headphone jack.
+
+diff --git a/drivers/input/Kconfig b/drivers/input/Kconfig
+index 88ecdf5..985f6d1 100644
+--- a/drivers/input/Kconfig
++++ b/drivers/input/Kconfig
+@@ -152,6 +152,15 @@ config INPUT_EVDEV
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called evdev.
+
++config INPUT_EVLOG
++	bool "Input event log (board bring-up)"
++	help
++	  Say Y here to log in the kernel log every key and axis event that
++	  an input device reports, before a grab can hide it, and every grab
++	  of a device, to follow a key press from the driver to the user
++	  space consumers while bringing up a board. It floods the log:
++	  never leave it on in a product.
++
+ config INPUT_KUNIT_TEST
+ 	tristate "KUnit tests for Input" if !KUNIT_ALL_TESTS
+ 	depends on INPUT && KUNIT
+diff --git a/drivers/input/input.c b/drivers/input/input.c
+index a500e1e..aca9468 100644
+--- a/drivers/input/input.c
++++ b/drivers/input/input.c
+@@ -116,6 +116,16 @@ static void input_pass_values(struct input_dev *dev,
+
+ 	lockdep_assert_held(&dev->event_lock);
+
++	/* bring-up: every key and axis event, before a grab can hide it from the others */
++	if (IS_ENABLED(CONFIG_INPUT_EVLOG)) {
++		for (v = vals; v != vals + count; v++)
++			if (v->type == EV_KEY || v->type == EV_ABS || v->type == EV_SW)
++				pr_info("evlog: %s (%s) %s code %u value %d\n",
++					dev->name ?: "unknown", dev_name(&dev->dev),
++					v->type == EV_KEY ? "key" : v->type == EV_ABS ? "abs" : "sw",
++					v->code, v->value);
++	}
++
+ 	scoped_guard(rcu) {
+ 		handle = rcu_dereference(dev->grab);
+ 		if (handle) {
+@@ -528,6 +538,10 @@ int input_grab_device(struct input_handle *handle)
+ 		rcu_assign_pointer(dev->grab, handle);
+ 	}
+
++	if (IS_ENABLED(CONFIG_INPUT_EVLOG))
++		pr_info("evlog: %s (%s) grabbed by %s\n", dev->name ?: "unknown",
++			dev_name(&dev->dev), handle->name ?: "unknown");
++
+ 	return 0;
+ }
+ EXPORT_SYMBOL(input_grab_device);

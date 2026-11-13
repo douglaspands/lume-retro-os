@@ -1,5 +1,5 @@
-"""Release rule (11.1): the vm is built and tested first; the console images are only
-marked as released if the test-vm of the same build passes."""
+"""Release rule (11.1): the vm is built and tested first; the console image is only marked
+as released if the test-vm of the same build passes. Order: vm -> test-vm -> console."""
 
 from __future__ import annotations
 
@@ -9,15 +9,16 @@ import traceback
 
 from r36os.paths import ensure_dir, out_dir
 from r36os.rootfs import target_out
-from r36os.targets import TARGETS
+from r36os.targets import IMAGES
 
 MARKER = "RELEASED"
+CONSOLE_IMAGES = ("console",)
 
 
 def _build(name: str, language: str = "en") -> None:
-    from r36os.build import build_target
+    from r36os.build import build_image_target
 
-    build_target(TARGETS[name], language=language)
+    build_image_target(IMAGES[name], language=language)
 
 
 def _test_vm() -> int:
@@ -27,13 +28,13 @@ def _test_vm() -> int:
 
 
 def build_all(build=None, test=_test_vm, language: str = "en") -> int:
-    """Build the vm, run the acceptance test, then the consoles. Return 0 if all released."""
+    """Build the vm, run the acceptance test, then the console. Return 0 if all released."""
     if build is None:
         def build(name: str) -> None:
             _build(name, language)
     report: dict = {"started": time.strftime("%Y-%m-%dT%H:%M:%S"), "targets": {}}
-    for name in TARGETS:  # a new build never inherits the mark of an earlier one
-        (target_out(TARGETS[name]) / MARKER).unlink(missing_ok=True)
+    for name in IMAGES:  # a new build never inherits the mark of an earlier one
+        (target_out(IMAGES[name]) / MARKER).unlink(missing_ok=True)
 
     try:
         build("vm")
@@ -43,7 +44,7 @@ def build_all(build=None, test=_test_vm, language: str = "en") -> int:
         vm_ok = False
     report["targets"]["vm"] = {"built": True, "test_vm": "PASS" if vm_ok else "FAIL"}
 
-    for name in ("r36s", "ga36"):
+    for name in CONSOLE_IMAGES:
         entry: dict = {}
         try:
             build(name)
@@ -54,8 +55,8 @@ def build_all(build=None, test=_test_vm, language: str = "en") -> int:
             entry["error"] = str(e)
         entry["released"] = bool(entry["built"] and vm_ok)
         if entry["released"]:
-            ensure_dir(target_out(TARGETS[name]))
-            (target_out(TARGETS[name]) / MARKER).write_text(
+            ensure_dir(target_out(IMAGES[name]))
+            (target_out(IMAGES[name]) / MARKER).write_text(
                 f"released: the test-vm of the same build passed ({report['started']})\n")
         report["targets"][name] = entry
 
@@ -64,5 +65,5 @@ def build_all(build=None, test=_test_vm, language: str = "en") -> int:
     for name, e in report["targets"].items():
         state = "released" if e.get("released") else ("tested" if name == "vm" else "NOT released")
         print(f"{name}: {state}")
-    released = all(report["targets"][n]["released"] for n in ("r36s", "ga36"))
+    released = all(report["targets"][n]["released"] for n in CONSOLE_IMAGES)
     return 0 if vm_ok and released else 1

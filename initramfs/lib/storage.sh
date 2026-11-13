@@ -1,20 +1,19 @@
-# Lógica da partição de jogos (D6), compartilhada pelo init e pelos testes.
-# Funciona sobre um disco real (/dev/mmcblk0, /dev/vda) ou sobre um arquivo de
-# imagem: nos arquivos, as operações na partição usam uma cópia temporária que
-# depois é gravada de volta no offset certo.
+# Games partition logic (D6), shared by the init and the tests.
+# Works on a real disk (/dev/mmcblk0, /dev/vda) or on an image file: on files, the
+# operations on a partition use a temporary copy that is then written back at the
+# right offset.
 #
-# Regra central: uma partição 2 existente nunca é formatada, recriada ou
-# redimensionada.
+# Core rule: an existing partition 2 is never formatted, recreated or resized.
 
 SECTOR=512
-ALIGN=2048          # partições alinhadas a 1 MiB
-MIN_ROMS=131072     # só cria a ROMS com pelo menos 64 MiB livres
+ALIGN=2048          # partitions aligned to 1 MiB
+MIN_ROMS=131072     # ROMS is only created with at least 64 MiB free
 : "${TMPDIR:=/tmp}"
 
-# Mensagens vão para a tela (stderr) e para o dmesg, que entra no log de boot.
+# Messages go to the screen (stderr) and to dmesg, which ends up in the boot log.
 log() { echo "lume: $*" >&2; [ -w /dev/kmsg ] && echo "lume: $*" > /dev/kmsg; return 0; }
 
-# Nó de bloco da partição N (mmcblk0 -> mmcblk0p2, vda -> vda2).
+# Block node of partition N (mmcblk0 -> mmcblk0p2, vda -> vda2).
 part_node() {
 	case "$1" in
 	*[0-9]) echo "${1}p$2" ;;
@@ -30,7 +29,7 @@ disk_sectors() {
 	fi
 }
 
-# Campo (start|size|type) da partição N, lido da tabela pelo sfdisk.
+# Field (start|size|type) of partition N, read from the table by sfdisk.
 part_field() {
 	sfdisk -d "$1" 2>/dev/null | awk -v n="$2" -v f="$3" '
 		/ : start=/ { i++; if (i == n) {
@@ -65,7 +64,7 @@ fs_type_at() {
 	fi
 }
 
-# Primeiro setor livre alinhado depois da partição 1.
+# First free aligned sector after partition 1.
 free_start() {
 	local s z
 	s=$(part_field "$1" 1 start); z=$(part_field "$1" 1 size)
@@ -87,7 +86,7 @@ decide_p2() {
 	esac
 }
 
-# Roda "$@ <caminho da partição N>" no nó do kernel ou numa cópia (arquivo de imagem).
+# Run "$@ <path of partition N>" on the kernel node or on a copy (image file).
 with_part() {
 	local disk="$1" n="$2" rc; shift 2
 	if [ -b "$disk" ]; then
@@ -121,7 +120,7 @@ create_p2() {
 
 format_roms() { mkfs.exfat -L ROMS "$1" >/dev/null; }
 
-# fsck.exfat -p: 0 = limpa, 1 = erros corrigidos, outros = erros restantes.
+# fsck.exfat -p: 0 = clean, 1 = errors corrected, others = errors left.
 check_roms() {
 	local out rc=0
 	out=$(fsck.exfat -p "$1" 2>&1) || rc=$?
@@ -133,7 +132,7 @@ check_roms() {
 	return 0
 }
 
-# Prepara a partição de jogos. Imprime "ok" se a ROMS pode ser montada.
+# Prepare the games partition. Print "ok" if ROMS can be mounted.
 setup_storage() {
 	local disk="$1" action
 	action=$(decide_p2 "$disk")
@@ -163,9 +162,29 @@ setup_storage() {
 	esac
 }
 
-# Estrutura de pastas do contrato de jogos. Recria só o que falta.
+# Folder structure of the games contract. Only recreates what is missing.
 make_folders() {
 	local root="$1" s; shift
 	for s in "$@"; do mkdir -p "$root/roms/$s"; done
 	for s in bios saves states screenshots system; do mkdir -p "$root/$s"; done
+}
+
+# SYSTEM of this console on BOOT (design D6 of r36s-single-card): on the single card each
+# console has its own folder (ga36/SYSTEM, r36s/SYSTEM); the vm image keeps BOOT/SYSTEM.
+# $1: the board name built into the initramfs (/etc/board), empty on older builds.
+system_file() {
+	case "$1" in
+	""|vm) echo SYSTEM ;;
+	*) echo "$1/SYSTEM" ;;
+	esac
+}
+
+# Name of the console for the messages on the screen.
+console_label() {
+	case "$1" in
+	ga36) echo GA36 ;;
+	r36s) echo R36S ;;
+	""|vm) echo VM ;;
+	*) echo "$1" ;;
+	esac
 }

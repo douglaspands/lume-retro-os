@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=108
+pkgrel=109
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -22,7 +22,6 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0005-volume-percent-steps.patch
 	0006-reset-to-distro-defaults.patch
 	0007-config-autosave.patch
-	0008-audio-headroom.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -47,8 +46,10 @@ options="!check" # No tests
 # fixed keys, written by the frontend script), so a reset lands on the distro defaults.
 # 0007: the main config is saved one second after the last change in the menu (or volume
 # keys), not only on a clean quit, so a crash or a forced restart keeps the settings.
-# 0008: a fixed 3 dB headroom under the volume setting: 100% stays clean on the GA36
-# speaker (it was harsh on loud passages at 0 dB).
+# 0008 (a fixed 3 dB headroom under the volume setting, for the GA36 speaker) was
+# removed on 2026-11-13 at the user's request: the R36S speaker is too quiet, and the
+# loudness belongs to the analog volume on the mixer (docs/PENDENCIAS.md, P-29). The
+# number stays unused; the patch is in the git history.
 
 build() {
 	./configure \
@@ -96,5 +97,4 @@ b420163e9b26435ff2b65d2fac6203610f12c28e81b4acb7cac502a316f24dd22b1ea6ac6659e691
 30670d702c566a0a57da3cb13350c9f8239df859c7b15ffa285afd6b35726ab18a621ded94844777087de196d3733d1f3982b3e59d88e55ec85f509dc58cfaf8  0005-volume-percent-steps.patch
 b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2b7d1c5650d364cd42e1379a522e8f44033e27627282851f5  0006-reset-to-distro-defaults.patch
 898468d28e727b30b3f41824a04304b425c46a9c8447e6eb4eb3f9c36959489ab11ca52507c82e7b8831a0ec55b41af732fc54dd68d42cf730e1282be45c8e6e  0007-config-autosave.patch
-585eefb36dfdda44019e99145ef9bbb1c3a6d29673d2ad1f116cc1dfd5ee864ff54ed222f5c55c1662719bc4f48cae6aceeb6b62a1c954cde612366873a76b57  0008-audio-headroom.patch
 "
