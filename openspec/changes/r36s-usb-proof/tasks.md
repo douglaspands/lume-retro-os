@@ -26,6 +26,10 @@ log é lido depois, com o cabo de volta. Os scripts de captura saem da `ROMS` ao
 - [ ] 4.1 Nos dois consoles (GA36 com hub alimentado), ligar o dongle RTL8821CU. Verificação: no log do kernel, o `rtw88_8821cu` e o `btusb` associados e o firmware carregado sem erro; `wlan0` e `hci0` presentes; o menu Wi-Fi do RetroArch lista redes; anotado nos `docs/BRINGUP-*.md`.
 - [ ] 4.2 `docs/PENDENCIAS.md`: pendência nova para a prova completa do Wi-Fi e do Bluetooth (rede conectada pelo menu e de volta no boot seguinte, cabo USB e Wi-Fi juntos, controle Bluetooth pareado, UDP 55355 sem resposta de outro aparelho), que exige uma rede e um controle Bluetooth de teste. Verificação: item novo com estado e evidência.
 
+## 5. Módulos do kernel fora do `SYSTEM` (tarefa 3.3 da `kernel-modules-image`)
+
+- [ ] 5.1 R36S: `r36os push` de um build da `kernel-modules-image` (o primeiro manda o `r36s/SYSTEM` sem módulos), depois um build com uma mudança só no kernel do R36S (por exemplo `CONFIG_DUMMY=m` temporário no `board/r36s/kernel.config`, retirado depois). Verificação: o segundo `push` manda só `r36s/Image`, `r36s/modules` e o `VERSION`, sem nenhum `SYSTEM`; no console, `/lib/modules/$(uname -r)/modules.dep` existe, o `modprobe` de um módulo da imagem funciona (o `zram` é embutido, `CONFIG_ZRAM=y`) e o log de boot tem `lume: modules: r36s/modules (<versão>)`; tempo e volume do `push` anotados no `docs/BRINGUP-R36S.md`, como no GA36.
+
 ## Workflow follow-up
 
 - Archive desta change depois das provas; se uma falhar, a correção entra como tarefa nova aqui.
