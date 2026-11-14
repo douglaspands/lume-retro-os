@@ -1,5 +1,31 @@
 schema: spec-driven
 
+context: |
+  Interface própria do Lume Retro OS (lume-launcher), planejada em docs/lume-launcher/ (copiada
+  para o repositório em 2026-11-14; não há fonte fora dele).
+  Qualquer change que crie, planeje ou implemente essa interface (launcher, tema, capas, dock,
+  menu do jogo) MUST ler antes, com a ferramenta de leitura:
+  docs/lume-launcher/README.md
+  Ele traz a ordem de leitura da documentação, o protótipo de referência (candidato oficial
+  20261114-033157, em docs/lume-launcher/prototipo/) e os passos para criar o app (Rust + SDL2).
+  O protótipo HTML não é o app. As decisões da change lume-launcher valem sobre o que as notas
+  supõem do dArkOS.
+
+  Pontos que a documentação NÃO resolve e que o change deve tratar, porque este repositório
+  difere do que o protótipo assumiu:
+  - A documentação do cofre assume dArkOS/ArkOS com EmulationStation e o launcher como item do
+    menu Ports. Este repositório é o Lume Retro OS (Alpine, sem EmulationStation, sem X11). Aqui o
+    launcher entra como frontend pelo contrato de sessão em docs/FRONTEND.md
+    (/usr/libexec/r36os/frontends/<nome> e FRONTEND em /etc/conf.d/frontend), ver a spec
+    frontend-session. O change deve decidir de onde vêm os gamelist.xml e as capas nesta imagem
+    (hoje o RetroArch usa playlists, ver a spec game-library) e como o launcher abre o jogo com
+    core, aspecto, shader e save state pelo RetroArch.
+  - A spec frontend-session proíbe logotipos de fabricantes de console e exige menu sem
+    miniaturas. O protótipo usa logos de marca (copiados do tema Crystal, só uso pessoal) e capas.
+    O change deve trocar os logos por ícones livres ou próprios e atualizar a spec com delta.
+  - Nada do protótipo foi verificado no aparelho (consumo, gamepad, runner). Incluir tarefas de
+    medição no R36S e no clone mais fraco antes de dar o change por concluído.
+
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
 # Include constraints an agent cannot infer by reading the code.
