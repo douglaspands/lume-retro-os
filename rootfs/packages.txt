@@ -38,6 +38,19 @@ dropbear
 # udhcpd of the USB network: in Alpine it is in busybox-extras, not in busybox
 busybox-extras
 
+# Wi-Fi and Bluetooth by USB dongle (usb-device-access D9, D10): NetworkManager drives the
+# Wi-Fi menu of RetroArch (nmcli; it starts wpa_supplicant through D-Bus), bluez the
+# Bluetooth menu (bluetoothctl). The dongle firmware is hardware: board/<console>/hw-packages.txt.
+dbus
+dbus-openrc
+networkmanager
+networkmanager-openrc
+networkmanager-wifi
+networkmanager-cli
+wpa_supplicant
+bluez
+bluez-openrc
+
 # Frontend
 retroarch
 libretro-core-info

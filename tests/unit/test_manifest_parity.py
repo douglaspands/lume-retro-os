@@ -69,9 +69,12 @@ def test_every_catalog_core_is_in_both_images():
 
 
 def test_hardware_packages_are_in_their_own_image_only():
+    # a hardware package may be listed by several layers (the dongle firmware of both
+    # consoles, usb-device-access D9), but never shows up in a layer that does not list it
     manifests = {t: _manifest(t) for t in TARGETS}
+    listed = {t: _listed(REPO_ROOT / f"board/{t}/hw-packages.txt") for t in TARGETS}
     for target in TARGETS:
-        for name in _listed(REPO_ROOT / f"board/{target}/hw-packages.txt"):
+        for name in listed[target]:
             assert name in manifests[target], f"{name} not in the {target} image"
-            others = [t for t in TARGETS if t != target]
+            others = [t for t in TARGETS if name not in listed[t]]
             assert not any(name in manifests[o] for o in others), f"{name} leaked out of {target}"

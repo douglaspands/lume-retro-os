@@ -55,6 +55,17 @@ def test_fragment_builds_in(option):
     assert _options(FRAGMENT).get(option) == "y", option  # built in, not a module
 
 
+def test_fragment_has_the_host_role_and_the_usb_radios():
+    # usb-device-access D8-D10 (P-38, P-15): the same block as the GA36
+    from tests.unit.test_ga36_kernel_config import HOST_BUILTIN, HOST_MODULES
+
+    opts = _options(FRAGMENT)
+    for o in HOST_BUILTIN:
+        assert opts.get(o) == "y", o
+    for o in HOST_MODULES:
+        assert opts.get(o) == "m", o
+
+
 def test_kernel_cmdline_and_boot_options():
     tty, baud = (BOARD / "serial").read_text().split()
     assert (tty, baud) == ("ttyS2", "1500000")  # the speed of the factory bootloader

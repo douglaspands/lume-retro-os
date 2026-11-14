@@ -17,7 +17,7 @@ SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
-           "0007-config-autosave.patch"]
+           "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
@@ -36,6 +36,22 @@ def test_patches_are_listed_in_order_with_matching_checksums():
 
 def test_pkgrel_is_high_so_the_local_package_wins():
     assert int(re.search(r"^pkgrel=(\d+)", APKBUILD, re.M).group(1)) >= 100
+
+
+def test_wifi_and_bluetooth_menus_are_built():
+    # usb-device-access D11: the Wi-Fi (nmcli) and Bluetooth (bluetoothctl) drivers
+    build = re.search(r"^build\(\) \{(.*?)^\}", APKBUILD, re.S | re.M).group(1)
+    assert "--enable-wifi" in build and "--enable-bluetooth" in build
+    assert "--disable-wifi" not in build and "--disable-bluetooth" not in build
+    assert "--disable-ssl" in build
+
+
+def test_network_commands_listen_on_localhost_only():
+    # usb-device-access D11: with Wi-Fi, UDP 55355 must not be reachable from the network
+    text = (APORT / "0009-network-commands-on-localhost.patch").read_text()
+    assert '-   int fd = socket_init((void**)&res, port, NULL,' in text
+    assert '+   int fd = socket_init((void**)&res, port, "127.0.0.1",' in text
+    assert text.count("\n+") - text.count("\n+++") == 3 and text.count("\n-") - text.count("\n---") == 1
 
 
 def test_confirmation_patch_only_touches_the_menu_item_and_the_message():

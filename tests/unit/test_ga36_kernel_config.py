@@ -60,6 +60,25 @@ def test_fragment_builds_in_the_usb_gadget():
         assert opts.get(o) == "y", o
 
 
+HOST_BUILTIN = ("CONFIG_USB_STORAGE", "CONFIG_HID_GENERIC", "CONFIG_FW_LOADER_COMPRESS",
+                "CONFIG_FW_LOADER_COMPRESS_ZSTD", "CONFIG_WIRELESS", "CONFIG_WLAN",
+                "CONFIG_BT_BREDR", "CONFIG_BT_LE", "CONFIG_BT_HCIBTUSB_RTL")
+HOST_MODULES = ("CONFIG_JOYSTICK_XPAD", "CONFIG_HID_PLAYSTATION", "CONFIG_HID_SONY",
+                "CONFIG_HID_NINTENDO", "CONFIG_CFG80211", "CONFIG_MAC80211", "CONFIG_RFKILL",
+                "CONFIG_RTW88", "CONFIG_RTW88_8821CU", "CONFIG_RTL8XXXU", "CONFIG_ATH9K_HTC",
+                "CONFIG_BT", "CONFIG_BT_HIDP", "CONFIG_BT_HCIBTUSB", "CONFIG_UHID")
+
+
+def test_fragment_has_the_host_role_and_the_usb_radios():
+    # usb-device-access D8-D10 (P-38, P-15): pendrive built in, the rest as modules that
+    # udev loads when the device shows up; zstd firmware (Alpine's linux-firmware-*)
+    opts = _options(FRAGMENT)
+    for o in HOST_BUILTIN:
+        assert opts.get(o) == "y", o
+    for o in HOST_MODULES:
+        assert opts.get(o) == "m", o
+
+
 def test_a33_secondary_cpus_can_be_killed_for_kexec():
     # machine_kexec_prepare() refuses SMP without .cpu_kill (GA36 boot 20): patch 0027
     # gives the sun8i enable method of the A33 .cpu_die and .cpu_kill

@@ -68,6 +68,8 @@ def expected_checks() -> list[str]:
         "logs-recreated", "logs-service-fail", "logs-clean", "logs-disabled",
         # OTG port sample of r36os-logd (usb-device-access 1.1)
         "logs-usb",
+        # Wi-Fi and Bluetooth services, RetroArch commands on 127.0.0.1 (usb-device-access 8.2, 8.3)
+        "wireless-services", "netcmd-localhost",
     ]
     cores = [f"core-loaded-{c}" for c in sorted(testdata.core_tests(catalog.load()))]
     return base + cores

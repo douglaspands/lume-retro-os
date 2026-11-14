@@ -41,6 +41,8 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "quit_press_twice", "input_exit_emulator", "input_exit_emulator_btn",
         "input_exit_emulator_axis", "input_enable_hotkey", "ozone_font_scale",
         "core_info_cache_enable", "midi_driver",
+        # Wi-Fi and Bluetooth by USB dongle (usb-device-access D11)
+        "wifi_driver", "bluetooth_driver",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both

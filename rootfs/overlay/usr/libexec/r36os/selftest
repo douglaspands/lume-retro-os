@@ -164,6 +164,9 @@ phase_first() {
 	# Save state seguido de reset abrupto
 	ra_run "$R36OS_RUN/state.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
 	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	# usb-device-access 8.3 (patch 0009): while RetroArch answers GET_STATUS, its command
+	# socket (UDP 55355 = D83B) is on 127.0.0.1 (0100007F) only, not on every interface
+	check netcmd-localhost 'grep -q " 0100007F:D83B " /proc/net/udp && ! grep -q " 00000000:D83B " /proc/net/udp' "$(grep ":D83B " /proc/net/udp | cut -c1-60 | tr "\n" "|")"
 	ra_cmd SAVE_STATE >/dev/null
 	check state-saved 'wait_for 10 "ls /storage/states/nes/*.state >/dev/null 2>&1"'
 	check state-synced 'wait_for 5 "grep -q /storage/states/nes/ $R36OS_RUN/savesync.log"'
@@ -185,6 +188,10 @@ phase_first() {
 	# the session's frontend log, which this RetroArch run does not write (it logs to
 	# logs-game.log), so here it may be empty.
 	check logs-metrics-fps 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q ",content,fps,fps_nominal$" && grep -qE ",game,[^,]*,[^,]*,[0-9]+\.[0-9],[0-9.]*$" $LOGS/metrics/boot-1.csv' "$(grep ",game," $LOGS/metrics/boot-1.csv | tail -n 2 | tr '\n' '|')"
+	# Wi-Fi and Bluetooth by USB dongle (usb-device-access 8.2, 8.3): the services run in
+	# the vm too (no dongle), and the RetroArch network commands (UDP 55355 = D83B) listen
+	# on 127.0.0.1 (0100007F) only, never on every interface (00000000)
+	check wireless-services 'rc-service dbus status >/dev/null 2>&1 && rc-service networkmanager status >/dev/null 2>&1 && rc-service bluetooth status >/dev/null 2>&1' "$(for s in dbus networkmanager bluetooth; do printf "%s=%s " $s "$(rc-service $s status 2>&1 | tr -d " *" | head -c 20)"; done)"
 	# OTG port sample (usb-device-access 1.1): the vm has no OTG port, so every trace line
 	# is "usb: none" and there is no usb event
 	check logs-usb 'grep -q " usb: none$" $LOGS/trace/boot-1.log && ! grep " usb: " $LOGS/trace/boot-1.log | grep -qv " usb: none$" && ! grep -q " usb " $LOGS/events.log' "$(grep -c " usb: " $LOGS/trace/boot-1.log 2>/dev/null) usb lines, $(grep -c " usb " $LOGS/events.log 2>/dev/null) usb events"
