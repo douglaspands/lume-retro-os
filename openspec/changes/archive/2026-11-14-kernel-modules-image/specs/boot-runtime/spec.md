@@ -7,7 +7,7 @@ No cartão da imagem `console`, o boot MUST montar `BOOT/<console>/modules` do c
 
 #### Scenario: Módulos carregados no boot
 - **WHEN** o GA36 ou o R36S inicia um cartão com `<console>/modules` do mesmo build do kernel
-- **THEN** `/lib/modules/$(uname -r)/modules.dep` existe, `modprobe zram` funciona, e o log de boot registra a montagem dos módulos
+- **THEN** `/lib/modules/$(uname -r)/modules.dep` existe, o `modprobe` de um módulo da imagem funciona, e o log de boot registra a montagem dos módulos
 
 #### Scenario: Módulos do outro console nunca são usados
 - **WHEN** o mesmo cartão inicia no GA36 e depois no R36S
