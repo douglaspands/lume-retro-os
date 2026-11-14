@@ -74,7 +74,7 @@ def expected_checks() -> list[str]:
         # Wi-Fi and Bluetooth services, RetroArch commands on 127.0.0.1 (usb-device-access 8.2, 8.3)
         "wireless-services", "netcmd-localhost",
         # lume-launcher as the frontend (lume-launcher 1.1, 3.5, 3.6, 6.1, 8.1)
-        "lume-ui-kms-gles", "input-daemon", "cgroup-delegated", "lume-new-game-unlisted",
+        "lume-ui-kms-gles", "lume-ui-idle-cpu", "input-daemon", "cgroup-delegated", "lume-new-game-unlisted",
         "lume-update-lists", "lume-runner-returns", "lume-quit-combo", "lume-game-events",
         "lume-retroarch-menu", "lume-retroarch-returns",
     ]

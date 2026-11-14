@@ -310,8 +310,13 @@ fn retroarch_item_opens_the_menu_with_code_65() {
     assert_eq!(a.exit, Some(Exit::RetroArch));
     assert!(fs::read_to_string(c.root.join("run/launch")).unwrap().starts_with("kind=menu\n"));
     a.current_state().save(&a.runtime).unwrap();
-    // back from the menu: the Settings again
-    assert_eq!(app(&c, FakeSystem::default()).screen, Screen::Settings);
+    // back from the menu: the Settings again, with the volume and brightness read (not "—",
+    // seen on the GA36 on 2026-11-14)
+    let mut b = app(&c, FakeSystem { vol: 60, bri: 70, ..Default::default() });
+    assert_eq!(b.screen, Screen::Settings);
+    let mut canvas = FakeCanvas::new(640, 480);
+    b.draw(&mut canvas);
+    assert!(canvas.has_text("‹60% ›") && canvas.has_text("‹70% ›") && !canvas.has_text("—"));
 }
 
 #[test]

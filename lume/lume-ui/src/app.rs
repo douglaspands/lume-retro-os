@@ -319,7 +319,12 @@ impl<S: SystemAdapter> App<S> {
                     self.scroll_to_focus();
                 }
             }
-            "settings" => self.screen = Screen::Settings,
+            "settings" => {
+                // back from RetroArch opened by the Settings: the levels are read again, as
+                // when the screen is opened from the Dock
+                self.screen = Screen::Settings;
+                self.read_levels();
+            }
             _ => self.screen = Screen::Dock,
         }
     }

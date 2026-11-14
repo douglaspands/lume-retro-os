@@ -152,9 +152,20 @@ phase_first() {
 	wait_for 20 'grep -q "lume-ui: video " /var/log/frontend.log'
 	local ui
 	ui=$(grep -m 1 "lume-ui: video " /var/log/frontend.log | sed 's/.*lume-ui: //')
-	# a GPU renderer, not software: opengl in the VM (virgl has desktop GL), opengles2 on the
-	# consoles (lima and panfrost only have GLES)
-	check lume-ui-kms-gles 'echo "$ui" | grep -qE "^video KMSDRM, renderer (opengl|opengles2)," ' "${ui:-no video line in the log}"
+	# KMSDRM with the GLES renderer that lume-ui asks for: SDL's default "opengl" only clears
+	# the screen on lima (GA36, 2026-11-14), so the VM checks the same choice as the consoles
+	check lume-ui-kms-gles 'echo "$ui" | grep -q "^video KMSDRM, renderer opengles2," ' "${ui:-no video line in the log}"
+	# lume-ui idle on the Dock sleeps: SDL_WaitEvent polled every millisecond on KMSDRM and
+	# took 42% of a core on the GA36 (2026-11-14). Budget 1% (task 9.1); 2% here for VM noise:
+	# at most 20 ticks of 1/100 s in 10 s
+	sleep 3
+	local up t0 t1
+	up=$(ui_pid)
+	t0=$(cut -d' ' -f14,15 "/proc/$up/stat" 2>/dev/null | tr ' ' '+')
+	sleep 10
+	t1=$(cut -d' ' -f14,15 "/proc/$up/stat" 2>/dev/null | tr ' ' '+')
+	local idle=$(( (${t1:-0}) - (${t0:-0}) ))
+	check lume-ui-idle-cpu '[ -n "$t0" ] && [ -n "$t1" ] && [ "$idle" -le 20 ]' "lume-ui pid $up used $idle ticks in 10 s"
 	cp /var/log/frontend.log "$T/results/frontend-first.log" 2>/dev/null
 	# games cgroup handed to game before the frontend (tasks 1.1 and 6.1)
 	check cgroup-delegated '[ "$(stat -c %U /sys/fs/cgroup/lume)" = game ] && [ -e /sys/fs/cgroup/lume/cgroup.kill ] && grep -q pids /sys/fs/cgroup/cgroup.controllers && grep -q memory /sys/fs/cgroup/cgroup.controllers' "lume: $(ls /sys/fs/cgroup/lume 2>/dev/null | tr '\n' ' ')| mounts: $(grep cgroup /proc/mounts | cut -d' ' -f1-4 | tr '\n' ';')| controllers: $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null)| cgroups service: $(rc-service cgroups status 2>&1 | tr -d ' *' | head -c 30)"

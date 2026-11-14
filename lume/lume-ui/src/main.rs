@@ -2,9 +2,10 @@
 //! exits with 0 (Shut down), 64 (open the game of $XDG_RUNTIME_DIR/lume/launch) or 65 (the
 //! RetroArch menu). Any other code is a failure.
 //!
-//! The loop sleeps in SDL_WaitEvent: with no input and no animation nothing is drawn. Threads
+//! The loop sleeps on a channel: with no input and no animation nothing is drawn. Threads
 //! only wake it up: the gamepad reader, the index watcher (inotify on cache/index/GEN) and,
-//! while "Update game lists" runs, the reader of lume-index's progress.
+//! while "Update game lists" runs, the reader of lume-index's progress. SDL's queue is only
+//! drained, never waited on (SDL_WaitEvent polls every millisecond on KMSDRM).
 
 use std::process::ExitCode;
 
@@ -46,6 +47,15 @@ fn main() -> ExitCode {
     if let Some(out) = std::env::var_os("LUME_SCREENSHOT") {
         return screenshot(&mut app, font, std::path::Path::new(&out));
     }
+    // GLES first: on lima (GA36) the default "opengl" renderer only clears the screen, no
+    // tiles and no text (seen with r36os-shot, 2026-11-14). SDL falls back to the other
+    // renderers when GLES is missing; SDL_RENDER_DRIVER in the environment still wins.
+    if std::env::var_os("SDL_RENDER_DRIVER").is_none() {
+        sdl2::hint::set("SDL_RENDER_DRIVER", "opengles2");
+    }
+    // SDL turns SIGTERM into a quit event, which this loop does not act on: the process would
+    // outlive a plain kill and keep the display (an orphan held the GA36 screen, 2026-11-14)
+    sdl2::hint::set("SDL_NO_SIGNAL_HANDLERS", "1");
     let sdl = match sdl2::init() {
         Ok(s) => s,
         Err(e) => {
@@ -54,6 +64,12 @@ fn main() -> ExitCode {
         }
     };
     let video = sdl.video().expect("SDL video");
+    // without the display (KMSDRM busy right after a restart) SDL falls back to a driver that
+    // shows nothing: fail, so the session starts the frontend again (seen on the GA36)
+    if matches!(video.current_video_driver(), "offscreen" | "dummy") {
+        log(&format!("no display: SDL chose the {} video driver", video.current_video_driver()));
+        return ExitCode::FAILURE;
+    }
     let (w, h) = video.current_display_mode(0).map(|m| (m.w as u32, m.h as u32)).unwrap_or((640, 480));
     let window = match video.window("lume", w, h).fullscreen_desktop().build() {
         Ok(win) => win,
@@ -68,22 +84,25 @@ fn main() -> ExitCode {
     sdl.mouse().show_cursor(false);
     let creator = canvas.texture_creator();
     let mut c = SdlCanvas::new(canvas, creator, font);
-    let events = sdl.event().expect("SDL events");
-    events.register_custom_event::<Ev>().expect("custom event");
     let mut pump = sdl.event_pump().expect("SDL event pump");
+    // The threads wake the loop through this channel, not SDL's queue: SDL_WaitEvent has no
+    // real wait on KMSDRM and polls every millisecond (42% of a core on the GA36, 2026-11-14).
+    // `tx` stays alive here, so recv never fails with Disconnected and never spins.
+    let (tx, rx) = std::sync::mpsc::channel::<Ev>();
 
     // gamepad reader
-    let tx = events.event_sender();
+    let t = tx.clone();
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
-        let _ = tx.push_custom_event(Ev::Input(a, rep));
+        let _ = t.send(Ev::Input(a, rep));
     }));
     // index watcher: lume-index bumps cache/index/GEN after a scan
-    let tx = events.event_sender();
+    let t = tx.clone();
     let index_dir = card.join("cache/index");
     std::thread::spawn(move || lume_ui::watch::gen(&index_dir, move || {
-        let _ = tx.push_custom_event(Ev::Reload);
+        let _ = t.send(Ev::Reload);
     }));
 
+    const IDLE: Duration = Duration::from_secs(1);
     let mut redraw = true;
     let code = loop {
         if redraw {
@@ -94,7 +113,7 @@ fn main() -> ExitCode {
         }
         if app.start_update {
             app.start_update = false;
-            let tx = events.event_sender();
+            let tx = tx.clone();
             std::thread::spawn(move || {
                 let child = std::process::Command::new("/usr/bin/lume-index").arg("--progress").stdout(std::process::Stdio::piped()).spawn();
                 let ok = match child {
@@ -103,7 +122,7 @@ fn main() -> ExitCode {
                             for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
                                 let f: Vec<&str> = line.split(' ').collect();
                                 if f.len() >= 3 && f[0] == "progress" {
-                                    let _ = tx.push_custom_event(Ev::Progress(f[1].parse().unwrap_or(0), f[2].parse().unwrap_or(0)));
+                                    let _ = tx.send(Ev::Progress(f[1].parse().unwrap_or(0), f[2].parse().unwrap_or(0)));
                                 }
                             }
                         }
@@ -111,21 +130,19 @@ fn main() -> ExitCode {
                     }
                     Err(_) => false,
                 };
-                let _ = tx.push_custom_event(Ev::UpdateDone(ok));
+                let _ = tx.send(Ev::UpdateDone(ok));
             });
         }
+        // idle: wake once a second only to drain SDL's queue; an animation: its next frame
         let event = match app.wait() {
-            None => Some(pump.wait_event()),
-            Some(d) => pump.wait_event_timeout(d.max(Duration::from_millis(1)).as_millis() as u32),
+            None => rx.recv_timeout(IDLE).ok(),
+            Some(d) => Some(rx.recv_timeout(d.max(Duration::from_millis(1))).unwrap_or(Ev::Tick)),
         };
-        redraw = match event {
-            None => app.handle(Ev::Tick),
-            Some(e) => match e.as_user_event_type::<Ev>() {
-                Some(ev) => app.handle(ev),
-                // window exposed again (VT switch back): draw
-                None => matches!(e, sdl2::event::Event::Window { .. }),
-            },
-        };
+        redraw = event.map(|ev| app.handle(ev)).unwrap_or(false);
+        // SDL's own events, without waiting: a window exposed again (VT switch back) draws
+        for e in pump.poll_iter() {
+            redraw |= matches!(e, sdl2::event::Event::Window { .. });
+        }
     };
     if let Err(e) = app.current_state().save(&app.runtime) {
         log(&format!("state not saved: {e}"));
