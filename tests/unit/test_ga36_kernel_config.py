@@ -58,6 +58,8 @@ def test_fragment_builds_in_the_usb_gadget():
     for o in ("CONFIG_USB_MUSB_DUAL_ROLE", "CONFIG_USB_CONFIGFS", "CONFIG_USB_CONFIGFS_F_FS",
               "CONFIG_USB_CONFIGFS_NCM"):
         assert opts.get(o) == "y", o
+    # umtprd's control channel: without it "msgget error 38" on every boot
+    assert opts.get("CONFIG_SYSVIPC") == "y"
 
 
 HOST_BUILTIN = ("CONFIG_USB_STORAGE", "CONFIG_HID_GENERIC", "CONFIG_FW_LOADER_COMPRESS",
