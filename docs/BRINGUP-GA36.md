@@ -283,6 +283,29 @@ monta, depois de reiniciar o USB do console. Dois detalhes do `umtprd` 1.6.8, se
 aqui: a resposta "sessão já aberta" sai com 13 bytes em vez de 16, e o gid do armazenamento
 recebe o uid (os dois são 1000).
 
+### Ver a tela e apertar botões pelo cabo
+
+- **Tela:** `r36os-shot /tmp/s.png` (pacote `r36os-input`) grava a imagem do que está na tela,
+  lida do DRM; serve para o lume, o menu do RetroArch e os jogos. Como o `dropbear` não tem
+  `scp`, a imagem vem pelo ssh com `cat`.
+- **Botões:** escrever `struct input_event` de 32 bits (16 bytes: dois `long` de tempo, tipo,
+  código e valor, seguidos de um `EV_SYN`) num nó de entrada. No `/dev/input/event3` (o
+  controle virtual do `r36os-input`) chegam ao lume e ao RetroArch. Combinações do
+  `r36os-input` (Fn+Start) vão no `/dev/input/event2` (o controle do kernel) e numa escrita só:
+  o driver relê o estado real dos botões em poucos ms e solta o botão injetado.
+
+### Medidas do lume-launcher (2026-11-14, build `20261114-143705`, boot 46)
+
+- **Boot:** `boot OK completed: frontend in 32.5s from kernel`, mais ~0,9 s até o `lume-ui`
+  ter o renderer pronto. O kernel e o `initramfs` terminam em 3,2 s; o resto é o OpenRC
+  (P-58).
+- **Fim do jogo até a grade:** 0,80–0,93 s em 3 rodadas (meta de 1 s), sempre no mesmo jogo
+  de antes. Do aperto de Fn+Start até a grade, 1,70–1,78 s, dos quais 0,85–0,90 s são o
+  RetroArch fechando.
+- **Parado na grade:** `lume-ui` com 0,1% de um núcleo e 59 MB de RSS; o menu do RetroArch
+  parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `r36os-input` (500 KB) sem CPU.
+  Detalhes em [orcamento-de-performance.md](lume-launcher/orcamento-de-performance.md).
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |

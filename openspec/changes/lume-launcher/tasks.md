@@ -269,6 +269,23 @@
   passa; com `SDL_RENDER_DRIVER=opengles2` à mão o GA36 já desenhou o Dock certo.)*
   *(2026-11-14, noite: o `lume-ui` do r2, trocado à mão no GA36, desenha o Dock com tiles e
   texto e loga `renderer opengles2`. `test-vm` 81/81 com o r3.)*
+- [x] 8.6 Volume e controle depois de um reinício do `r36os-input` (achados da 9.4 no GA36):
+  (a) o perfil `ga36.conf` pedia `1c21800.lradc`, mas o LRADC do A33 é o `1c22800.lradc`:
+  os botões de volume nunca passavam pelo `r36os-input` (o RetroArch abria o nó direto e o
+  lume não tinha volume); corrigido no perfil e no teste, `r36os-input` r2. (b) Com o
+  `r36os-input` reiniciado (o serviço o recria se ele cair), o `lume-ui` parava de responder:
+  o controle virtual volta num nó novo, e o `input.rs` só procurava dispositivos com a lista
+  vazia, mas o controle do kernel capturado continuava aberto e mudo. Agora um inotify no
+  `/dev/input` (criação e dono trocado pelo udev) abre os nós novos; check novo no self-test,
+  `lume-input-after-restart`; `lume-launcher` r4. Verificação: no GA36, Vol+ muda o DAC e,
+  depois de `rc-service r36os-input restart`, os botões mexem no lume; `test-vm` verde.
+  *(2026-11-14: com o perfil corrigido copiado à mão, o `r36os-input` passou a segurar o
+  `event0` e Vol+ levou o DAC de 160 para 166. Com o `lume-ui` do r4 trocado à mão, depois de
+  `rc-service r36os-input restart` o lume reabriu o `event3` e Down mexeu no Settings,
+  conferido por captura. `test-vm` com o r4: `lume-input-after-restart` verde, 81/82, só o
+  `logs-cost` em 1,00% (o `logd` não mudou; P-60). Build console 20261114-155915 por push,
+  boot 47: o `r36os-input` segura o `event0`, Vol- leva o DAC de 160 a 154 e Vol+ de volta a
+  160, e depois de reiniciar o `r36os-input` o Dock andou duas posições, por captura.)*
 - [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
   `SDL_WaitEvent`, que no KMSDRM não espera de verdade e acorda a cada 1 ms; no GA36, parado,
   usou 42% de um núcleo (1529 ticks em 60 s) com RSS de 58 MB. As threads (controle, índice,
@@ -283,22 +300,49 @@
 
 ## 9. Medição no aparelho (GA36 e R36S)
 
-- [ ] 9.1 GA36: RSS e CPU do `lume-ui` parado na grade (meta: CPU abaixo de 1% de um núcleo
+- [x] 9.1 GA36: RSS e CPU do `lume-ui` parado na grade (meta: CPU abaixo de 1% de um núcleo
   em 60 s) e RSS do `lume-run` e do `r36os-input` durante um jogo (meta: abaixo de 2 MB cada),
   pelas métricas do `logd`. Comparar com o menu atual do RetroArch e preencher a tabela de
   `docs/lume-launcher/orcamento-de-performance.md`.
   *(2026-11-14, parcial, GA36 pelo `/proc`, fora de jogo: `lume-ui` r3 parado 0,22% de um
   núcleo e RSS 58 MB; `lume-run` 752 KB e `r36os-input` 500 KB. Falta: durante um jogo, pelas
-  métricas do `logd`, e a comparação com o menu do RetroArch.)*
-- [ ] 9.2 GA36: tempo do boot até o Dock e tempo do fim do jogo até a grade (meta: até 1 s),
+  métricas do `logd`, e a comparação com o menu do RetroArch.)* *(2026-11-14, durante um jogo
+  de NES (fceumm, 60,3 fps), 60 s pelo `/proc` e pelas métricas do `logd`, que batem:
+  `lume-run` 696 KB e 0 ticks, `r36os-input` 500 KB e 0 ticks; o RetroArch, 83 MB e 68% de um
+  núcleo. Achado: a coluna `core` das métricas traz o `system_id` do `GET_STATUS` (`nes`), não
+  o core, ao contrário do que diz o `docs/LOGS.md`. Menu do RetroArch parado: 79 MB e 73% de um
+  núcleo. Tabela preenchida no orçamento, com a RSS do `lume-ui` por mapeamento (P-59).)*
+- [x] 9.2 GA36: tempo do boot até o Dock e tempo do fim do jogo até a grade (meta: até 1 s),
   medidos pelo `events.log` e pelas métricas. Anotar em `docs/BRINGUP-GA36.md`.
-- [ ] 9.3 GA36: tempo do scan inicial e do scan sem mudança numa coleção grande (ROMs de teste
+  *(2026-11-14, build 20261114-143705, boot 46: boot até o `frontend` em 32,5 s desde o kernel
+  (mais ~0,9 s até o renderer do `lume-ui`), pendência P-58. Fim do jogo até a grade, 3
+  rodadas com Fn+Start injetado no `/dev/input/event2` pelo próprio GA36: aperto → RetroArch
+  fecha em 0,85–0,90 s, RetroArch fechado → `lume-ui` com o renderer pronto em 0,80–0,93 s
+  (meta de 1 s cumprida), total de 1,70–1,78 s do aperto à grade, sempre de volta ao mesmo
+  jogo. Anotado no `docs/BRINGUP-GA36.md`.)*
+- [x] 9.3 GA36: tempo do scan inicial e do scan sem mudança numa coleção grande (ROMs de teste
   do usuário), com o total de jogos por sistema só em contagem agregada.
+  *(2026-11-14, GA36, boot 46: as ROMs de teste são só 158 arquivos, então a coleção grande foi
+  sintética, 3.000 arquivos vazios em 7 sistemas numa pasta de teste no cartão
+  (`LUME_STORAGE=/storage/lume-scan-test`, apagada no fim). Scan inicial com o cache do kernel
+  limpo: 2,15 s no `ms=` do evento (2,44 s de relógio); sem mudança: 131–137 ms (0,17 s); com
+  10 jogos novos: 307 ms. Índice e `gamelist.xml` gerados: 1,3 MB. No boot, o scan das 33 ROMs
+  do cartão sem mudança leva 51 ms. Os 4 eventos `index` de teste ficaram no `events.log` do
+  boot 46, só com contagens.)*
 - [ ] 9.4 GA36: latência de entrada com e sem o `r36os-input` (mesma medição do jogo antes e
   depois) e mapeamento real de A, B, X, Y, L1, R1 e Fn no launcher.
+  *(2026-11-14, GA36, parcial: atraso do `r36os-input` medido sem câmera, com L2 escrito no
+  controle do kernel (`event2`, passa pelo daemon) e R2 direto no virtual (`event3`), lado a
+  lado, 40 rodadas alternando a ordem, carimbos lidos no `event3`: o daemon acrescenta ~1 ms
+  na mediana (0,03 ms com L2 antes, 2,04 ms com R2 antes) e ~20 ms na pior amostra. O
+  caminho do hardware (driver serial do controle) é o mesmo com ou sem o daemon. Falta, com
+  alguém no aparelho: o mapeamento físico de A, B, X, Y, L1, R1 e Fn no launcher.)*
 - [ ] 9.5 GA36: Fn+Start em cada tipo de runner (RetroArch, LÖVE, um script de `ports` e um
   emulador falso travado): todos voltam ao launcher. Fn sozinho abre o menu do RetroArch. O
   volume funciona nos três.
+  *(2026-11-14, GA36: RetroArch volta por Fn+Start em 3 de 3 rodadas, `end=quit-combo`
+  (9.2). Achado para decidir: o Vol+ passa do 0 dB do DAC (160 → 166 = +4,5 dB de ganho
+  digital), o que pode distorcer; o teto do volume no `r36os-input` ainda não existe.)*
 - [ ] 9.6 R36S: repetir de 9.1 a 9.5 quando o aparelho estiver em mãos e anotar em
   `docs/BRINGUP-R36S.md`. Se o aparelho não estiver disponível antes do fim do change, mover a
   tarefa para a `r36s-usb-proof`, como foi feito na `push-boot-swap`.

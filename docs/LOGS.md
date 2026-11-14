@@ -139,7 +139,7 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `bat_ma` | corrente da bateria em mA |
 | `bat_status` | `Charging`, `Discharging`, `Full`… |
 | `frontend` | `launcher` (a interface do lume-launcher na tela), `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
-| `core` | core do jogo em execução (vazio fora de jogo); num runner nativo do launcher, o nome do runner (`love`, `sh`) |
+| `core` | no RetroArch, o sistema que o core informa no `GET_STATUS` (`nes` com o fceumm, não o nome do core; o core exato está no evento `game` do `events.log`); vazio fora de jogo; num runner nativo do launcher, o nome do runner (`love`, `sh`) |
 | `content` | nome do jogo em execução (vazio fora de jogo); sempre vazio com o lume-launcher |
 | `fps` | quadros por segundo do jogo desde a amostra anterior: diferença do contador de quadros do `GET_STATUS` (patch 0004 do RetroArch) dividida pelo tempo. Vazio no menu, na pausa, na primeira amostra de um jogo e quando o contador recomeça |
 | `fps_nominal` | FPS nominal do core (linha `Geometry: ... FPS:` do log do RetroArch), para comparar com `fps`; vazio fora de jogo |
