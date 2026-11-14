@@ -178,6 +178,11 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   pequenas, e só a conferência depois de desmontar e montar só leitura é confiável.
 - **Mudança proposta:** opção `--remount-ro <dispositivo>` (desmontar, montar só leitura e conferir)
   ou ler com `O_DIRECT` / depois de `posix_fadvise(DONTNEED)`.
+- **Visto também no `r36os flash` (2026-11-13), e corrigido nele:** a leitura de volta pelo
+  `/dev/sdX` vinha do cache de páginas, então o SHA256 não lia o cartão; e a gravação pelo cache
+  enchia o limite global de páginas sujas (256 MiB no PC do usuário) e travava o desktop (o
+  Chrome primeiro). O `flash` passou a usar `oflag=direct` e `iflag=direct`. A mesma ideia
+  serve à `copy-verify`.
 
 ### M-09. Referências fora do workspace com caminho versionado — proposta
 

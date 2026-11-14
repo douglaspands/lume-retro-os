@@ -6,6 +6,7 @@ import pytest
 
 from r36os import bootarea, flash
 from r36os.image import boot_sectors, boot_start, disk_id
+from r36os.targets import IMAGES
 
 BOOT_START = boot_start("console")  # 128 MiB: after the boot area of both consoles
 BOOT_SECTORS = boot_sectors("console")  # 2 GiB
@@ -269,6 +270,22 @@ def test_reader_ids_of_a_non_usb_disk(tmp_path):
     (tmp_path / "block/mmcblk0").mkdir(parents=True)
     (tmp_path / "block/mmcblk0/device").symlink_to(tmp_path / "devices/platform/mmc0")
     assert flash.usb_reader_ids("/dev/mmcblk0", tmp_path) is None
+
+
+def test_card_is_written_and_read_back_with_direct_io():
+    # the write must not fill the page cache (it froze the whole PC through the global
+    # dirty limit), and the read-back must come from the card, not from that cache
+    w = flash.write_cmd(flash.Path("/x/console.img"), "/dev/sdc", 8192, 1 << 20)
+    assert "oflag=direct,seek_bytes" in w and "conv=notrunc,fsync" in w
+    r = flash.read_cmd("/dev/sdc", 8192, 1 << 20)
+    assert "iflag=direct,skip_bytes,count_bytes" in r
+
+
+@pytest.mark.parametrize("target", ["console", "vm"])
+def test_regions_are_whole_sectors_for_direct_io(target):
+    # O_DIRECT needs offsets and lengths in whole 512-byte sectors
+    for offset, length in flash.update_regions(IMAGES[target]):
+        assert offset % flash.SECTOR == 0 and length % flash.SECTOR == 0
 
 
 def test_wipe_disk_and_rereadpt(monkeypatch):

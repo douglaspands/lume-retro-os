@@ -270,10 +270,27 @@ def _sha256_file(path: Path, offset: int, length: int) -> str:
     return h.hexdigest()
 
 
+# Direct I/O on the card, both ways (offsets and lengths are whole 512-byte sectors):
+# - writing through the page cache filled the global dirty limit (vm.dirty_bytes, 256 MiB on
+#   the user's PC for its slow SSD) with pages of a slow USB card, and the kernel then held
+#   every process that writes, on any disk (Chrome froze first);
+# - reading back through the page cache returned what had just been written, still cached,
+#   so the SHA256 check did not read the card (the 14cd:125d reader corrupts writes).
+def read_cmd(device: str, offset: int, length: int) -> list[str]:
+    return ["sudo", "dd", f"if={device}", "bs=4M", "iflag=direct,skip_bytes,count_bytes",
+            f"skip={offset}", f"count={length}", "status=none"]
+
+
+def write_cmd(img: Path, device: str, offset: int, length: int) -> list[str]:
+    return ["sudo", "dd", f"if={img}", f"of={device}", "bs=4M",
+            "iflag=skip_bytes,count_bytes", "oflag=direct,seek_bytes",
+            f"skip={offset}", f"seek={offset}", f"count={length}",
+            "conv=notrunc,fsync", "status=progress"]
+
+
 def _sudo_read(device: str, offset: int, length: int) -> bytes | str:
     """Read from the device with sudo; return the bytes (short) or the sha256 (long)."""
-    cmd = ["sudo", "dd", f"if={device}", "bs=4M", "iflag=skip_bytes,count_bytes",
-           f"skip={offset}", f"count={length}", "status=none"]
+    cmd = read_cmd(device, offset, length)
     if length <= SECTOR:
         return subprocess.run(cmd, check=True, capture_output=True, env=_ENV).stdout
     h = hashlib.sha256()
@@ -292,11 +309,7 @@ def _sudo_read(device: str, offset: int, length: int) -> bytes | str:
 
 
 def _sudo_write(img: Path, device: str, offset: int, length: int) -> None:
-    subprocess.run(
-        ["sudo", "dd", f"if={img}", f"of={device}", "bs=4M",
-         "iflag=skip_bytes,count_bytes", "oflag=seek_bytes",
-         f"skip={offset}", f"seek={offset}", f"count={length}",
-         "conv=notrunc,fsync", "status=progress"], check=True, env=_ENV)
+    subprocess.run(write_cmd(img, device, offset, length), check=True, env=_ENV)
 
 
 # USB card readers known to corrupt cards: the 14cd:125d ("Mass Storage Device") wrote
