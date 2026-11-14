@@ -244,6 +244,62 @@ def mark_flashed(build_dir: Path) -> None:
     link.symlink_to(build_dir.name)
 
 
+class Progress:
+    """One line per stage on the terminal, rewritten in place:
+
+        writing    1.24 / 2.13 GiB   58%   9.8 MB/s   1:31 left
+
+    The count is what really got through (with direct I/O, what reached the card), against
+    one total for the whole stage, so it neither freezes on a hidden fsync nor goes past
+    the total. Without a terminal (a log), a line every 10 s instead.
+    """
+
+    def __init__(self, label: str, total: int, out=None, interval: float = 0.5):
+        self.label, self.total, self.count = label, max(total, 1), 0
+        self.out = out if out is not None else sys.stderr
+        self.tty = hasattr(self.out, "isatty") and self.out.isatty()
+        self.interval = interval if self.tty else 10.0
+        self.t0 = time.monotonic()
+        self.last = 0.0
+
+    def add(self, n: int) -> None:
+        self.set(self.count + n)
+
+    def set(self, count: int) -> None:
+        self.count = count
+        now = time.monotonic()
+        if now - self.last >= self.interval:
+            self.last = now
+            self._show(now)
+
+    def line(self, now: float) -> str:
+        unit, div = ("GiB", 2**30) if self.total >= 2**30 else ("MiB", 2**20)
+        elapsed = max(now - self.t0, 1e-6)
+        rate = self.count / elapsed
+        pct = min(100, self.count * 100 // self.total)
+        if self.count >= self.total:
+            left = f"{int(elapsed) // 60}:{int(elapsed) % 60:02d} total"
+        elif rate > 0:
+            secs = int((self.total - self.count) / rate)
+            left = f"{secs // 60}:{secs % 60:02d} left"
+        else:
+            left = "-:-- left"
+        return (f"{self.label:<11}{self.count / div:6.2f} / {self.total / div:.2f} {unit}"
+                f"  {pct:3d}%  {rate / 1e6:5.1f} MB/s  {left}")
+
+    def _show(self, now: float) -> None:
+        if self.tty:
+            self.out.write("\r" + self.line(now) + "\x1b[K")
+        else:
+            self.out.write(self.line(now) + "\n")
+        self.out.flush()
+
+    def finish(self) -> None:
+        now = time.monotonic()
+        self.out.write(("\r" if self.tty else "") + self.line(now) + ("\x1b[K\n" if self.tty else "\n"))
+        self.out.flush()
+
+
 def _decompress(zst: Path) -> Path:
     """Decompress into the cache (reused if the same build is already there)."""
     from compression import zstd
@@ -253,21 +309,15 @@ def _decompress(zst: Path) -> Path:
         for old in dest.parent.glob("*.img"):
             old.unlink()
         tmp = dest.with_suffix(".part")
-        with zstd.open(zst, "rb") as fin, tmp.open("wb") as fout:
-            shutil.copyfileobj(fin, fout, CHUNK)
+        # progress over the compressed file: the decompressed size is not known before
+        bar = Progress("unpacking", zst.stat().st_size)
+        with zst.open("rb") as raw, zstd.open(raw, "rb") as fin, tmp.open("wb") as fout:
+            while chunk := fin.read(CHUNK):
+                fout.write(chunk)
+                bar.set(raw.tell())
+        bar.finish()
         tmp.replace(dest)
     return dest
-
-
-def _sha256_file(path: Path, offset: int, length: int) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        f.seek(offset)
-        left = length
-        while left and (chunk := f.read(min(CHUNK, left))):
-            h.update(chunk)
-            left -= len(chunk)
-    return h.hexdigest()
 
 
 # Direct I/O on the card, both ways (offsets and lengths are whole 512-byte sectors):
@@ -281,14 +331,17 @@ def read_cmd(device: str, offset: int, length: int) -> list[str]:
             f"skip={offset}", f"count={length}", "status=none"]
 
 
-def write_cmd(img: Path, device: str, offset: int, length: int) -> list[str]:
-    return ["sudo", "dd", f"if={img}", f"of={device}", "bs=4M",
-            "iflag=skip_bytes,count_bytes", "oflag=direct,seek_bytes",
-            f"skip={offset}", f"seek={offset}", f"count={length}",
-            "conv=notrunc,fsync", "status=progress"]
+def write_cmd(device: str, offset: int) -> list[str]:
+    """dd that writes its stdin to the card at `offset`: the image goes through a pipe from
+    _sudo_write, which counts it for the progress bar (fullblock: whole 4 MiB blocks out of
+    the pipe, as direct I/O wants)."""
+    return ["sudo", "dd", f"of={device}", "bs=4M", "iflag=fullblock",
+            "oflag=direct,seek_bytes", f"seek={offset}", "conv=notrunc,fsync",
+            "status=none"]
 
 
-def _sudo_read(device: str, offset: int, length: int) -> bytes | str:
+def _sudo_read(device: str, offset: int, length: int,
+               progress: Progress | None = None) -> bytes | str:
     """Read from the device with sudo; return the bytes (short) or the sha256 (long)."""
     cmd = read_cmd(device, offset, length)
     if length <= SECTOR:
@@ -300,6 +353,8 @@ def _sudo_read(device: str, offset: int, length: int) -> bytes | str:
         while chunk := p.stdout.read(CHUNK):
             bytes_read += len(chunk)
             h.update(chunk)
+            if progress is not None:
+                progress.add(len(chunk))
     if p.returncode != 0:
         raise FlashError(f"failed to read {device} at {offset}+{length} (exit code {p.returncode})")
     if bytes_read != length:
@@ -307,9 +362,37 @@ def _sudo_read(device: str, offset: int, length: int) -> bytes | str:
     return h.hexdigest()
 
 
-
-def _sudo_write(img: Path, device: str, offset: int, length: int) -> None:
-    subprocess.run(write_cmd(img, device, offset, length), check=True, env=_ENV)
+def _sudo_write(img: Path, device: str, offset: int, length: int,
+                progress: Progress | None = None) -> str:
+    """Write [offset, offset + length) of the image to the card; return the sha256 of what
+    was sent, so the check needs no second read of the image."""
+    h = hashlib.sha256()
+    with img.open("rb") as f, subprocess.Popen(write_cmd(device, offset), stdin=subprocess.PIPE,
+                                               env=_ENV) as p:
+        assert p.stdin is not None
+        f.seek(offset)
+        left = length
+        try:
+            while left:
+                chunk = f.read(min(CHUNK, left))
+                if not chunk:
+                    raise FlashError(f"{img} ends before {offset}+{length}")
+                p.stdin.write(chunk)
+                h.update(chunk)
+                left -= len(chunk)
+                if progress is not None:
+                    progress.add(len(chunk))
+        except BrokenPipeError:
+            pass                                 # dd stopped: its exit code says why
+        finally:
+            try:
+                p.stdin.close()
+            except BrokenPipeError:
+                pass
+    if p.returncode != 0 or left:
+        raise FlashError(f"writing {device} at {offset}+{length} failed (dd exit code "
+                         f"{p.returncode}, {left} bytes not written)")
+    return h.hexdigest()
 
 
 # USB card readers known to corrupt cards: the 14cd:125d ("Mass Storage Device") wrote
@@ -436,22 +519,27 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
         _wipe_disk(device, img.stat().st_size)
         regions = [(0, img.stat().st_size)]
 
-    for offset, length in regions:
-        _sudo_write(img, device, offset, length)
+    # sudo asks for the password now, not in the middle of the progress line
+    subprocess.run(["sudo", "-v"], check=True, env=_ENV)
+    total = sum(length for _, length in regions)
+    bar = Progress("writing", total)
+    expected = [_sudo_write(img, device, offset, length, bar) for offset, length in regions]
+    bar.finish()
     subprocess.run(["sync"], check=True, env=_ENV)
 
     if not update:
         _rereadpt(device)
 
-
-    for offset, length in regions:
-        actual_hash = _sudo_read(device, offset, length)
-        expected_hash = _sha256_file(img, offset, length)
+    bar = Progress("checking", total)
+    for (offset, length), expected_hash in zip(regions, expected):
+        actual_hash = _sudo_read(device, offset, length, bar)
         if actual_hash != expected_hash:
+            bar.finish()
             raise FlashError(
                 f"verification failed at {offset}+{length}: "
                 f"expected {expected_hash[:16]}..., got {actual_hash[:16]}...: write it again"
             )
+    bar.finish()
 
     if not update:
         _create_roms(device, img, build_language(zst))
