@@ -92,6 +92,35 @@ A, B, X, Y, L1, R1, L2, R2, Start, Select, direcional, L3, R3 e os dois analógi
 abre o menu; **Start + Select** também. Os botões de volume ajustam de 5 em 5% (0 a 100%).
 No menu, A confirma e B volta.
 
+## Pelo cabo USB
+
+Ligue o PC na porta **OTG** do GA36, não na de carga (DC), e sem adaptador. O console
+aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funções:
+
+- **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
+- **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
+  `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
+  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
+  `README.md`).
+
+**Como funciona no GA36:** o VBUS da porta OTG não chega a nada que o kernel leia, e a
+entrada USB do AXP é a da porta DC (medição de 2026-11-13, change `usb-device-access`). Por
+isso o DTS não liga VBUS ao PHY, e o papel vem só do pino ID (PH8): sem adaptador, o MUSB fica
+pronto como device. Um carregador na DC não aciona nada na porta OTG.
+
+**Diagnóstico:**
+- a linha `usb:` do `ROMS/logs/trace/boot-<n>.log` mostra o PHY (`extcon`), o modo do MUSB e
+  o estado do gadget (`udc=…:configured` com o PC ligado);
+- no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
+  `ssh: login accepted`;
+- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` e `umtprd:` (a saída do servidor MTP).
+
+**Medido (2026-11-13):** com o build `20261113-192923`, o PC enumerou o "Lume GA36" em
+high-speed, com MTP e NCM: o papel pelo pino ID funciona. Naquele build, o PC ficou sem
+endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte) e o
+MTP não abria (`libmtp`: "Unable to read device information"; em investigação). O pendrive
+no adaptador OTG (papel host) ainda não enumera no GA36 (P-38).
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |

@@ -223,9 +223,35 @@ sistema achava que havia fone e ficava mudo).
 - **Abertos:** o som é muito mais baixo que no ArkOS de fábrica e há zumbido em silêncio
   (P-45); a troca de saída com o fone não acontece (P-42).
 
-## 9. Checklist de conferência
+## Pelo cabo USB
 
-## 8. Checklist de conferência
+Ligue o PC na porta **OTG** do R36S, não na de carga (DC), e sem adaptador. O console
+aparece no PC como **"Lume R36S"** (fabricante "Lume Retro OS"), com duas funções:
+
+- **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
+- **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
+  `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
+  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
+  `README.md`).
+
+**Como funciona no R36S:** o `u2phy` vê o pino ID, mas não o VBUS da porta OTG (medição de
+2026-11-13, change `usb-device-access`). O controlador (dwc2) usa um *role switch* que começa
+como device e força a sessão por override. O serviço `r36os-usb` lê o `USB-HOST` do `extcon`
+e troca para host quando um adaptador OTG puxa o ID para baixo, para o pendrive no adaptador
+continuar funcionando. Ele enumerou na medição, antes do role switch; com o role switch
+ainda não foi provado.
+
+**Diagnóstico:**
+- a linha `usb:` do `ROMS/logs/trace/boot-<n>.log` mostra o PHY (`extcon`), o papel do role
+  switch (`role=`) e o estado do gadget (`udc=…:configured` com o PC ligado);
+- no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
+  `ssh: login accepted`;
+- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` (inclusive `port role host|device`) e
+  `umtprd:` (a saída do servidor MTP).
+
+**Medido:** o modo device ainda não foi provado no R36S (a prova com o PC foi feita no GA36).
+
+## 9. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
 |---|---|---|
