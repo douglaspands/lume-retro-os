@@ -23,8 +23,9 @@ PANEL1 = b"android boot image panel 1"
 
 class FakeConsole:
     def __init__(self, board="ga36", battery=80, roms_free=8 << 30, boot_free=1 << 30,
-                 boot=None, sector=b"old panel image", corrupt=None):
+                 boot=None, sector=b"old panel image", corrupt=None, ro_busy=False):
         self.board, self.battery = board, battery
+        self.ro_busy = ro_busy          # vfat refuses ro: the replaced SYSTEM is still open
         self.roms_free, self.boot_free = roms_free, boot_free
         self.boot = dict(boot if boot is not None else
                          {"boot.ini": b"ini", "ga36/SYSTEM": b"old", "ga36/zImage": b"old z",
@@ -76,6 +77,11 @@ class FakeConsole:
             self.log.append("write sector")
             return ""
         if cmd == "sync; mount -o remount,ro /boot":
+            if self.ro_busy:
+                self.log.append("boot ro refused")
+                raise push.PushError("on the console, `sync; mount -o remount,ro /boot` failed "
+                                     "(255): mount: mounting /dev/mmcblk0p1 on /boot failed: "
+                                     "Resource busy")
             self.log.append("boot ro")
             return ""
         if cmd == "rm -rf /storage/.lume-push":
@@ -130,6 +136,31 @@ def test_push_sends_checks_swaps_and_reboots_in_order(build, tmp_path):
     assert swaps[-1] == "swap VERSION"                      # VERSION last
     assert steps[-3:] == ["boot ro", "cleanup", "reboot"]
     assert steps.index("boot ro") > steps.index("swap VERSION")
+
+
+def test_boot_busy_for_read_only_after_the_swap_still_cleans_up_and_reboots(build, tmp_path):
+    # GA36 2026-11-13: the old ga36/SYSTEM stays open by loop0 after the mv, so vfat refuses
+    # `remount,ro` with "Resource busy"; the files are already written and synced
+    c = FakeConsole(ro_busy=True)
+    rc, out = run_push(tmp_path, c)
+    assert rc == 0
+    assert c.boot == {**NEW}
+    assert c.log[-3:] == ["boot ro refused", "cleanup", "reboot"]
+    assert any(line.startswith("note:    BOOT stays read-write") for line in out)
+
+
+def test_a_failed_swap_is_still_the_error_shown_when_ro_is_refused(build, tmp_path):
+    c = FakeConsole(ro_busy=True)
+    real = c.run
+
+    def run(cmd, stdin=None):
+        if cmd.startswith("mkdir -p /boot/ga36 && cp"):
+            raise push.PushError("on the console, `cp` failed (1): no space")
+        return real(cmd, stdin)
+    with pytest.raises(push.PushError, match="no space"):
+        push.push("latest", type("R", (), {"run": staticmethod(run)})(), yes=True,
+                  extractor=extractor(tmp_path), out=lambda _: None)
+    assert "reboot" not in c.log
 
 
 def test_only_the_files_that_differ_are_sent(build, tmp_path):

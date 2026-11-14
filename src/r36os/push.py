@@ -14,7 +14,9 @@ root@10.55.0.1 (root has no password on the USB cable, D4):
    one, VERSION last, so an interrupted push leaves the old VERSION and the next push sends
    everything again; on the GA36, the boot image of panel 1 at sector 172032 when it
    changed, read back and compared;
-5. BOOT read-only again, the staging folder removed, reboot.
+5. BOOT read-only again, the staging folder removed, reboot. When the swap replaced the
+   SYSTEM the console runs on, the old one stays open by its loop device and vfat refuses
+   read-only ("Resource busy"): BOOT then stays read-write until the reboot.
 
 There is no rsync on the console: each file goes as `cat > file` over ssh.
 """
@@ -227,6 +229,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
 
     # 4. BOOT, file by file, VERSION last
     remote.run("mount -o remount,rw /boot")
+    ro_refused = None
     try:
         for p, _ in files:
             dest = f"/boot/{p}"
@@ -245,7 +248,17 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
                                 f"{ANDROID_SECTOR} differs: do not reboot; write the card "
                                 "with `r36os flash --update` from the reader")
     finally:
-        remote.run("sync; mount -o remount,ro /boot")
+        try:
+            remote.run("sync; mount -o remount,ro /boot")
+        except PushError as e:
+            # the SYSTEM the console runs on stays open by its loop device after the swap
+            # (deleted, not gone), and vfat refuses read-only while it is open ("Resource
+            # busy", GA36 2026-11-13): everything is written and synced, and the reboot
+            # unmounts BOOT cleanly
+            ro_refused = e
+    if ro_refused is not None:
+        out("note:    BOOT stays read-write until the reboot (the replaced SYSTEM is still "
+            "open by the running system)")
     remote.run(f"rm -rf {_q(STAGING)}")
     out("swapped: BOOT updated, rebooting the console")
     remote.run("(sleep 1; reboot) >/dev/null 2>&1 &")
