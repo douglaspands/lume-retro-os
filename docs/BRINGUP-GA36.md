@@ -189,8 +189,29 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
 
 **Medido (2026-11-13):** com o build `20261113-192923`, o PC enumerou o "Lume GA36" em
 high-speed, com MTP e NCM: o papel pelo pino ID funciona. Naquele build, o PC ficou sem
-endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte). O
-pendrive no adaptador OTG (papel host) ainda não enumera no GA36 (P-38).
+endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte).
+
+### Adaptador OTG: controles, teclado e pendrive (só com hub alimentado)
+
+**A porta OTG do GA36 não fornece energia.** Com um adaptador OTG, o console troca para host
+(o pino ID funciona), mas nada ligado direto nele acende. Medido em 2026-11-14: o kernel liga
+o pino DRIVEVBUS do AXP223, mas a porta fica sem 5 V, e o log do kernel mostra
+`musb-hdrc ... VBUS_ERROR in a_wait_vrise`. O pino que liga os 5 V, se existir, está no P-54.
+
+**Com um hub USB alimentado (fonte própria) na porta OTG, o host funciona:**
+
+- **Controle USB:** reconhecido pelo RetroArch como jogador 2; o controle do console continua
+  como jogador 1. Qualquer controle mexe no menu (*Configurações → Entrada → Todos os usuários
+  controlam o menu*, ligado de fábrica). Testado com um controle Xbox 360 com fio.
+- **Teclado e mouse:** funcionam no menu (testado com um receptor sem fio).
+- **Pendrive:** cada partição `vfat`, `exfat` ou `ext4` aparece em `/storage/usb/<rótulo>`
+  (*Carregar conteúdo* → `/storage/usb/`) e é desmontada ao tirar. Partições de outros tipos
+  (por exemplo, `iso9660` de um pendrive de instalação) ficam de fora, com um aviso
+  `usb FAIL storage` no `events.log`.
+- Hubs USB-C com vídeo mostram um dispositivo a mais sem driver (classe Billboard): é normal.
+
+O `events.log` registra cada troca na linha `usb OK otg: ... musb=a_host ... host_devs=<n>`
+e cada pendrive (`storage: mounted|removed`). Para voltar ao PC, tire o hub e ligue o cabo.
 
 **MTP no GA36 (2026-11-13, build `20261113-221126`):** rede e ssh funcionam pelo cabo, mas o
 GNOME não montava o MTP. Causa: no kernel, o driver MUSB descarta o pacote que chega antes

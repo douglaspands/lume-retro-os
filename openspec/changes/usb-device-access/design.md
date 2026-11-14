@@ -317,6 +317,13 @@ enquanto o RetroArch rodar os jogos por baixo de outro frontend.
   tarefa 4.4 (memória e tempo de boot até o frontend). O NetworkManager, o `bluez` e o
   `dbus` (D9, D10) rodam desde o boot; o custo deles entra na mesma medição, e o
   NetworkManager não pode atrasar o frontend (ele não é dependência do `frontend`).
+  **Medido no GA36 (2026-11-14):** RSS do `umtprd` 452 KB e do `dropbear` 768 KB (+~560 KB
+  por sessão); frontend em 24,4 a 25,4 s (boots 30 a 34) contra 23,6 a 23,8 s antes do USB
+  (boots 26 a 28): ~+1 s, somando o USB, o NetworkManager, o `bluez` e o `dbus`.
+- **[A porta OTG do GA36 não alimenta o papel host]** → medido em 2026-11-14: o DRIVEVBUS do
+  AXP223 liga, mas não aparecem 5 V na porta (nada acende, `VBUS_ERROR in a_wait_vrise`). Com
+  um hub alimentado, o host funciona (controle, teclado, pendrive). Documentado no
+  `docs/BRINGUP-GA36.md`; o pino que liga os 5 V, se existir, fica no P-54.
 - **[Pendrive arrancado sem desmontar]** → numa FAT, a montagem com `flush` reduz a perda ao
   que estava sendo gravado no momento; o `umount -l` na remoção libera o ponto de montagem.
 - **[O RetroArch muda de comportamento com Wi-Fi e Bluetooth ligados no build]** → os itens
