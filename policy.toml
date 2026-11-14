@@ -351,6 +351,10 @@ base_url = "https://raw.githubusercontent.com/christianhaitian/linux/{version}/{
 [upstream.rocknix]
 base_url = "https://raw.githubusercontent.com/ROCKNIX/distribution/{version}/{path}"
 
+# uMTP-Responder (umtprd, the MTP side of the USB gadget). version = release tag (umtprd-1.6.8).
+[upstream.umtprd]
+base_url = "https://raw.githubusercontent.com/viveris/uMTP-Responder/{version}/{path}"
+
 # ctx:section recall
 # Memória local entre sessões (`ctx recall`, `ctx fact`). Nada sai da máquina; `paths.deny` é respeitado.
 # [recall]

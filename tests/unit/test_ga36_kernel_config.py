@@ -90,6 +90,20 @@ def test_a33_secondary_cpus_can_be_killed_for_kexec():
     assert "+\t.cpu_die\t\t= sun8i_cpu_die," in patch
 
 
+def test_musb_gadget_keeps_an_rx_packet_that_arrived_early():
+    # mainline 3fc137386c46 flushes the Rx FIFO when a request is queued, dropping the
+    # MTP command libmtp sends right after an answer (umtprd reads one command at a
+    # time): patch 0028 hands that packet to musb_g_rx() from a work item instead
+    patch = (REPO_ROOT / "kernel/patches/"
+             "0028-usb-musb-gadget-keep-an-Rx-packet-that-arrived-before-the-request.patch"
+             ).read_text()
+    assert "+++ b/drivers/usb/musb/musb_gadget.c" in patch
+    assert "+\t\tif (csr & MUSB_RXCSR_RXPKTRDY) {\n+\t\t\tschedule_work(&musb->rx_pending_work);" in patch
+    assert "+\tINIT_WORK(&musb->rx_pending_work, musb_g_rx_pending_work);" in patch
+    assert "+\tcancel_work_sync(&musb->rx_pending_work);" in patch
+    assert "musb_gadget.c" in OWN_DRIVER_FILES
+
+
 def _off(text: str) -> set[str]:
     return set(re.findall(r"^# (CONFIG_\w+) is not set$", text, re.M))
 
