@@ -11,7 +11,8 @@
  *  - Fn chord: Fn alone gives a Fn press and release when it is let go (the RetroArch menu);
  *    Fn+Start sends "quit" to the clients of /run/r36os/input.sock and neither key goes
  *    out; Fn with any other key gives both keys;
- *  - volume keys change the ALSA mixer in fixed steps and are not forwarded.
+ *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
+ *    goes to the clients of the socket (the launcher shows the level).
  *
  * usage: r36os-input --profile FILE [--socket PATH] [--timeout SECONDS]
  *        r36os-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
@@ -37,6 +38,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define PROG "r36os-input"
@@ -94,6 +96,7 @@ struct profile {
 	int fn, quit;	/* output codes, -1 if none */
 	char mixer_card[64], mixer_ctl[64];
 	int mixer_step;
+	int mixer_max;	/* raw ceiling of the control (0: none), e.g. 0 dB of a digital DAC */
 };
 
 static volatile sig_atomic_t stop;
@@ -209,11 +212,12 @@ static int load_profile(const char *path, struct profile *p)
 		} else if (!strcmp(s, "quit") && (a = parse_code(arg)) >= 0) {
 			p->quit = a;
 		} else if (!strcmp(s, "mixer") &&
-			   sscanf(arg, "%63s %63[^0-9] %d", p->mixer_card, p->mixer_ctl, &p->mixer_step) == 3) {
+			   sscanf(arg, "%63s %63[^0-9] %d %d", p->mixer_card, p->mixer_ctl, &p->mixer_step,
+				  &p->mixer_max) >= 3) {
 			char *c = trim(p->mixer_ctl);
 
 			memmove(p->mixer_ctl, c, strlen(c) + 1);
-			if (p->mixer_step < 1 || p->mixer_step > 25)
+			if (p->mixer_step < 1 || p->mixer_step > 25 || p->mixer_max < 0)
 				goto bad;
 		} else {
 			goto bad;
@@ -425,12 +429,15 @@ static void drop_client(int i)
 	clients[i] = clients[--nclients];
 }
 
-/* "quit" to every client; with no client the combo does nothing (the launcher is on
- * screen, or no frontend listens). */
-static void send_quit(void)
+/* A message to every client: "quit" for Fn+Start (with no client the combo does nothing),
+ * "volume" after a volume key. Clients ignore what they do not know. A client that cannot
+ * take it is dropped (only in the main process: a child just skips it). */
+static void send_all(const char *msg, int drop)
 {
+	size_t len = strlen(msg);
+
 	for (int i = 0; i < nclients;) {
-		if (send(clients[i], "quit", 4, MSG_NOSIGNAL) != 4)
+		if (send(clients[i], msg, len, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)len && drop)
 			drop_client(i);
 		else
 			i++;
@@ -439,6 +446,69 @@ static void send_quit(void)
 
 /* ---- volume ---- */
 
+/* "amixer sget" of the control: the raw limits and the first channel's raw value. 0 if read. */
+static int mixer_get(const char *amixer, const struct profile *p, int *lo, int *hi, int *cur)
+{
+	char buf[4096], *l;
+	size_t n = 0;
+	ssize_t r;
+	int fds[2], have_lim = 0, have_cur = 0;
+	pid_t pid;
+
+	if (pipe(fds) < 0)
+		return -1;
+	pid = fork();
+	if (pid == 0) {
+		dup2(fds[1], 1);
+		close(fds[0]);
+		close(fds[1]);
+		execlp(amixer, "amixer", "-c", p->mixer_card, "sget", p->mixer_ctl, (char *)NULL);
+		_exit(127);
+	}
+	close(fds[1]);
+	while (pid > 0 && n < sizeof(buf) - 1 && (r = read(fds[0], buf + n, sizeof(buf) - 1 - n)) > 0)
+		n += (size_t)r;
+	close(fds[0]);
+	buf[n] = 0;
+	if (pid > 0)
+		waitpid(pid, NULL, 0);
+	/* "  Limits: Playback 0 - 192" and "  Front Left: Playback 160 [83%] [0.00dB] [on]" */
+	for (l = strtok(buf, "\n"); l; l = strtok(NULL, "\n")) {
+		char *pb = strstr(l, "Playback ");
+
+		if (!pb)
+			continue;
+		if (strstr(l, "Limits:"))
+			have_lim = sscanf(pb, "Playback %d - %d", lo, hi) == 2;
+		else if (!have_cur && strchr(pb, '['))
+			have_cur = sscanf(pb, "Playback %d", cur) == 1;
+	}
+	return have_lim && have_cur && *hi > *lo ? 0 : -1;
+}
+
+/* "amixer sset" of the control to `value`, waited for. */
+static void mixer_set(const char *amixer, const struct profile *p, const char *value)
+{
+	pid_t pid = fork();
+
+	if (pid == 0) {
+		int null = open("/dev/null", O_RDWR);
+
+		if (null >= 0)
+			dup2(null, 1);
+		execlp(amixer, "amixer", "-c", p->mixer_card, "-q", "sset", p->mixer_ctl, value,
+		       (char *)NULL);
+		_exit(127);
+	}
+	if (pid > 0)
+		waitpid(pid, NULL, 0);
+}
+
+/* One volume step. With a ceiling (mixer_max) the new raw value is computed here and set as
+ * a number, so the control never goes above it, not even for a moment (GA36: DAC 160 is
+ * 0 dB, above it the digital gain clips). Then "volume" goes to the clients (the launcher
+ * shows the level), also when the level was already at a limit. Runs in a child: the input
+ * loop never waits. */
 static void volume(const struct profile *p, int up)
 {
 	const char *amixer = getenv("R36OS_INPUT_AMIXER");
@@ -447,18 +517,38 @@ static void volume(const struct profile *p, int up)
 
 	if (!p->mixer_step)
 		return;
-	snprintf(step, sizeof(step), "%d%%%c", p->mixer_step, up ? '+' : '-');
+	if (!amixer)
+		amixer = "amixer";
 	pid = fork();
 	if (pid == 0) {
 		int null = open("/dev/null", O_RDWR);
 
-		if (null >= 0) {
-			dup2(null, 1);
+		signal(SIGCHLD, SIG_DFL);	/* this child waits for its own amixer */
+		if (null >= 0)
 			dup2(null, 2);
+		snprintf(step, sizeof(step), "%d%%%c", p->mixer_step, up ? '+' : '-');
+		if (p->mixer_max > 0) {
+			int lo, hi, cur, d, v, top;
+
+			if (mixer_get(amixer, p, &lo, &hi, &cur) < 0)
+				_exit(1);
+			d = (p->mixer_step * (hi - lo) + 50) / 100;
+			if (d < 1)
+				d = 1;
+			top = p->mixer_max < hi ? p->mixer_max : hi;
+			v = up ? cur + d : cur - d;
+			if (v > top)
+				v = top;
+			if (v < lo)
+				v = lo;
+			snprintf(step, sizeof(step), "%d", v);
+			if (v != cur)
+				mixer_set(amixer, p, step);
+		} else {
+			mixer_set(amixer, p, step);
 		}
-		execlp(amixer ? amixer : "amixer", "amixer", "-c", p->mixer_card, "-q", "sset",
-		       p->mixer_ctl, step, (char *)NULL);
-		_exit(127);
+		send_all("volume", 0);
+		_exit(0);
 	}
 }
 
@@ -501,7 +591,7 @@ static void key_event(const struct profile *p, struct chord *c, int out, int cod
 	if (c->fn_down && value == 1) {
 		c->fn_used = 1;
 		if (code == p->quit && !c->fn_forwarded) {
-			send_quit();
+			send_all("quit", 1);
 			c->swallow[code] = 1;
 			return;
 		}

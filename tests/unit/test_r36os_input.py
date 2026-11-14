@@ -141,9 +141,20 @@ class Daemon:
         self.out = tmp / "out"
         self.sock = tmp / "input.sock"
         self.amixer_log = tmp / "amixer.log"
+        # a fake mixer with one raw value (0-192, as the GA36 DAC): "sget" prints it, a
+        # numeric "sset" stores it, a percent "sset" is only logged
+        self.mixer_raw = tmp / "mixer.raw"
         amixer = tmp / "amixer"
-        amixer.write_text(f'#!/bin/sh\necho "$*" >> "{self.amixer_log}"\n')
+        amixer.write_text(
+            "#!/bin/sh\n"
+            f'echo "$*" >> "{self.amixer_log}"\n'
+            'case "$3" in\n'
+            f'sget) printf "Simple mixer control \'%s\',0\\n  Limits: Playback 0 - 192\\n'
+            f'  Front Left: Playback %s [83%%] [0.00dB] [on]\\n" "$4" "$(cat "{self.mixer_raw}")" ;;\n'
+            f'-q) case "$6" in *[!0-9]*) ;; *) echo "$6" > "{self.mixer_raw}" ;; esac ;;\n'
+            "esac\n")
         amixer.chmod(0o755)
+        self.mixer_raw.write_text("154\n")
         self.fifos = {}
         args = [str(exe), "--profile", str(APORT / f"{board}.conf"), "--test", str(self.out),
                 "--socket", str(self.sock)]
@@ -265,14 +276,18 @@ def test_fn_start_without_a_client_does_nothing(r36s):
 
 
 def test_volume_keys_change_the_mixer_and_are_not_forwarded(r36s):
+    c = r36s.client()
     for code in (CODES["KEY_VOLUMEUP"], CODES["KEY_VOLUMEDOWN"]):
         r36s.press("volume-keys", code)
         r36s.send("volume-keys", (EV_KEY, code, 2), SYN)   # autorepeat: no extra step
         r36s.release("volume-keys", code)
+        # the launcher hears of each step, after the mixer changed
+        assert c.recv(16) == b"volume"
     time.sleep(0.2)
     assert r36s.amixer_log.read_text().splitlines() == [
         "-c rk817int -q sset Master 5%+", "-c rk817int -q sset Master 5%-"]
     assert r36s.keys() == []
+    c.close()
 
 
 def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
@@ -288,10 +303,33 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
         assert c.recv(16) == b"quit"
         d.release("GA36-MB Gamepad", CODES["BTN_START"])
         d.release("GA36-MB Gamepad", CODES["BTN_MODE"])
-        d.press("1c22800.lradc", CODES["KEY_VOLUMEUP"])
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
-        time.sleep(0.2)
-        assert d.amixer_log.read_text().strip() == "-c GA36MB -q sset DAC 3%+"
+        # ceiling 160 (0 dB): 154 + 3% of 192 = 160, then Vol+ at the ceiling sets nothing,
+        # and Vol- goes back to 154; the volume keys never reach the virtual gamepad. Each
+        # press tells the client, the one at the ceiling too (the launcher shows the bar)
+        for key, raw in (("KEY_VOLUMEUP", "160"), ("KEY_VOLUMEUP", "160"), ("KEY_VOLUMEDOWN", "154")):
+            d.press("1c22800.lradc", CODES[key])
+            d.release("1c22800.lradc", CODES[key])
+            assert c.recv(16) == b"volume"
+            assert d.mixer_raw.read_text().strip() == raw
+        assert d.amixer_log.read_text().splitlines() == [
+            "-c GA36MB sget DAC", "-c GA36MB -q sset DAC 160",
+            "-c GA36MB sget DAC",
+            "-c GA36MB sget DAC", "-c GA36MB -q sset DAC 154"]
+        assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
+    finally:
+        d.stop()
+
+
+def test_volume_ceiling_brings_a_louder_mixer_back(daemon_exe, tmp_path):
+    # a level left above the ceiling (by an older build or by hand) comes back to it on Vol+
+    d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
+    try:
+        d.mixer_raw.write_text("166\n")
+        d.press("1c22800.lradc", CODES["KEY_VOLUMEUP"])
+        d.release("1c22800.lradc", CODES["KEY_VOLUMEUP"])
+        time.sleep(0.3)
+        assert d.mixer_raw.read_text().strip() == "160"
     finally:
         d.stop()
 
