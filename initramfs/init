@@ -6,7 +6,7 @@
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin
 
-mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp /roms
+mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp /roms /modules
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
@@ -128,6 +128,11 @@ mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
 	|| rescue "failed to mount overlay"
 log "root: $SYSTEM (read-only) + 32 MiB RAM layer"
+
+# Kernel modules of this console (kernel-modules-image D4): BOOT/<console>/modules on
+# /lib/modules of the new root. After select_dtb: an open loop on BOOT would stop the
+# umount before the kexec.
+mount_modules "$BOARD" /boot /modules /newroot
 
 if [ -n "$ROMS_MOUNTED" ]; then
 	if mount --move /roms /newroot/storage; then

@@ -277,6 +277,25 @@ a confirmação na tela `boot OK device tree confirmed on screen: …`, a do fro
 fallback, a falta de resposta e os erros do `lume-bootsel` viram `boot FAIL device tree …`.
 O `hw/boot-<n>.txt` traz o DTB em uso e o arquivo de estado no campo `dt in use`.
 
+## Módulos do kernel no `boot/boot-<n>.log`
+
+Nos consoles, os módulos do kernel ficam fora do `SYSTEM`, num squashfs por console
+(`BOOT/ga36/modules`, `BOOT/r36s/modules`). O initramfs o monta em `/lib/modules` antes do
+`switch_root`, só se a pasta de versão da imagem for igual à do kernel em execução
+(`uname -r`), e registra uma destas linhas com o prefixo `lume:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `modules: <file> (<release>)` | imagem montada em `/lib/modules`, com a versão do kernel |
+| `ERROR: BOOT has no <file>; starting without kernel modules` | o arquivo não está na `BOOT` |
+| `ERROR: failed to mount <file>; starting without kernel modules` | o arquivo existe mas não montou (imagem corrompida) |
+| `ERROR: <file> holds modules for <found>, the running kernel is <release>; starting without kernel modules` | a versão da imagem é outra (por exemplo, um `push` interrompido entre o kernel e os módulos); `<found>` lista as pastas da imagem, ou `no kernel` se ela está vazia |
+| `ERROR: failed to move <file> to /lib/modules; starting without kernel modules` | a imagem montou mas não foi para a raiz nova |
+
+Sem módulos o console sobe e abre o frontend (os drivers de boot estão embutidos no kernel),
+mas fica sem `zram`, USB host e dongles. Cada linha `ERROR` vira `boot FAIL …` no
+`events.log`. Na VM não há linha: os módulos dela ficam no `SYSTEM`.
+
 ## Diagnóstico de hardware no `boot/boot-<n>.log`
 
 Alguns drivers gravam no log do kernel o que leram do próprio hardware. Elas aparecem no

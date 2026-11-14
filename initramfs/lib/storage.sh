@@ -179,6 +179,56 @@ system_file() {
 	esac
 }
 
+# Kernel modules image of this console (kernel-modules-image D1, D4): BOOT/<board>/modules,
+# next to its kernel and SYSTEM. Nothing on the vm, which keeps its modules in SYSTEM.
+modules_file() {
+	case "$1" in
+	""|vm) ;;
+	*) echo "$1/modules" ;;
+	esac
+}
+
+# The release folders at the root of a mounted modules image, on one line.
+modules_found() { echo $(ls -A "$1" 2>/dev/null); }
+
+# Does the modules image mounted at $1 hold exactly one folder, named $2 (uname -r)?
+modules_match() {
+	[ -n "$2" ] && [ "$(ls -A "$1" 2>/dev/null)" = "$2" ] && [ -d "$1/$2" ]
+}
+
+# Mount the modules image of console $1 from the BOOT at $2 on $4/lib/modules, through the
+# mount point $3, only when its release folder is the running kernel's. When it is missing,
+# does not mount or is for another kernel, the system starts without modules (the boot
+# drivers are built into the kernel) with an ERROR line in the log.
+mount_modules() {
+	local board="$1" boot="$2" mnt="$3" root="$4" file running found
+	file=$(modules_file "$board")
+	[ -n "$file" ] || return 0
+	running=$(uname -r)
+	if [ ! -f "$boot/$file" ]; then
+		log "ERROR: BOOT has no $file; starting without kernel modules"
+		return 0
+	fi
+	mkdir -p "$mnt"
+	if ! mount -t squashfs -o ro,loop "$boot/$file" "$mnt"; then
+		log "ERROR: failed to mount $file; starting without kernel modules"
+		return 0
+	fi
+	if ! modules_match "$mnt" "$running"; then
+		found=$(modules_found "$mnt")
+		umount "$mnt"
+		log "ERROR: $file holds modules for ${found:-no kernel}, the running kernel is $running; starting without kernel modules"
+		return 0
+	fi
+	mkdir -p "$root/lib/modules"
+	if mount --move "$mnt" "$root/lib/modules"; then
+		log "modules: $file ($running)"
+	else
+		umount "$mnt"
+		log "ERROR: failed to move $file to /lib/modules; starting without kernel modules"
+	fi
+}
+
 # Name of the console for the messages on the screen.
 console_label() {
 	case "$1" in
