@@ -115,11 +115,88 @@ pronto como device. Um carregador na DC não aciona nada na porta OTG.
   `ssh: login accepted`;
 - no `boot/boot-<n>.log`, as mensagens `r36os-usb:` e `umtprd:` (a saída do servidor MTP).
 
+### Guia rápido pelo cabo (sem precisar de ajuda)
+
+Todos os comandos rodam no PC. Para não repetir as opções do ssh, crie um apelido no
+`~/.bashrc`:
+
+```sh
+alias lume='ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR root@10.55.0.1'
+```
+
+**1. O PC está vendo o console?**
+
+```sh
+lsusb -d 1d6b:0104          # deve listar "Linux Foundation Multifunction Composite Gadget"
+ip -br addr | grep 10.55    # a interface enp...u...i1 com 10.55.0.2/30
+journalctl -k -f            # ao ligar o cabo: "Product: Lume GA36" e "cdc_ncm ... usb0"
+```
+
+Se o `lsusb` não mostra nada: o console terminou de ligar? O cabo está na porta OTG? O cabo
+transmite dados (muitos só carregam)? Teste outro cabo ou outra porta do PC.
+
+**2. Entrar no console:** `lume` (shell de root). Um comando só: `lume <comando>`.
+
+| Para quê | Comando |
+|---|---|
+| Bateria (%) e estado | `lume cat /sys/class/power_supply/axp20x-battery/capacity /sys/class/power_supply/axp20x-battery/status` |
+| Versão do build | `lume cat /boot/VERSION` |
+| Log do kernel | `lume dmesg` (ou `lume dmesg \| tail -n 30`) |
+| Eventos do sistema | `lume cat /storage/logs/events.log` |
+| Saída do servidor MTP | `lume cat /run/r36os/usb/umtprd.log` |
+| Processos | `lume ps` |
+| Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- r36os-usb restart` |
+| Reiniciar o console | `lume reboot` |
+
+- O restart do USB derruba a rede do cabo por uns 2 s, e o ssh volta sozinho. Ele precisa
+  rodar desligado da sessão (`start-stop-daemon -b`), senão o ssh cai no meio e o serviço
+  fica parado. O `setsid` do busybox não tem `-f`.
+- O sistema do console é só leitura com uma camada em RAM: uma mudança feita pelo ssh fora
+  da `ROMS` (`/storage`) some no próximo boot. Bom para testar, ruim para guardar.
+
+**3. Arquivos por MTP**
+
+O gerenciador de arquivos mostra "Lume GA36". Pelo terminal:
+
+```sh
+gio mount -li | grep -A3 Lume                        # o volume e o endereço mtp://
+gio mount mtp://Lume_Retro_OS_Lume_GA36_<serial>/    # montar
+gio list mtp://Lume_Retro_OS_Lume_GA36_<serial>/ROMS/
+gio copy arquivo.zip mtp://Lume_Retro_OS_Lume_GA36_<serial>/ROMS/roms/<sistema>/
+gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
+```
+
+- Copie para dentro de uma pasta (`ROMS/roms/<sistema>/`, `ROMS/bios/`…). Uma cópia para a
+  raiz da `ROMS` pelo GNOME falhou ("Não foi possível escrever neste local") na prova de
+  2026-11-13, ainda com o problema do kernel descrito abaixo.
+- Se o MTP não montar ("Não foi possível abrir o dispositivo MTP" ou "Unable to read device
+  information"): reinicie o USB do console (tabela acima) e monte de novo. O ssh continua
+  sendo o caminho garantido para ler `logs/`, porque não depende do MTP.
+- Para copiar sem MTP, use o ssh. O console não tem `scp`, `sftp` nem `rsync`, então o
+  arquivo vai pela entrada do comando (é assim que o `r36os push` envia o build):
+
+  ```sh
+  lume 'cat > /storage/roms/<sistema>/jogo.zip' < jogo.zip                  # PC -> console
+  lume 'cat /storage/logs/events.log' > events.log                         # console -> PC
+  sha256sum jogo.zip ; lume sha256sum /storage/roms/<sistema>/jogo.zip     # conferir
+  ```
+
+**4. Atualizar o console:** `uv run r36os push --build <carimbo>` (ver o `README.md`).
+
 **Medido (2026-11-13):** com o build `20261113-192923`, o PC enumerou o "Lume GA36" em
 high-speed, com MTP e NCM: o papel pelo pino ID funciona. Naquele build, o PC ficou sem
-endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte) e o
-MTP não abria (`libmtp`: "Unable to read device information"; em investigação). O pendrive
-no adaptador OTG (papel host) ainda não enumera no GA36 (P-38).
+endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte). O
+pendrive no adaptador OTG (papel host) ainda não enumera no GA36 (P-38).
+
+**MTP no GA36 (2026-11-13, build `20261113-221126`):** rede e ssh funcionam pelo cabo, mas o
+GNOME não montava o MTP. Causa: no kernel, o driver MUSB descarta o pacote que chega antes
+de o `umtprd` voltar a ler o endpoint (commit upstream `3fc137386c46`), e o PC manda o
+próximo pedido MTP uns 30 µs depois de cada resposta. Medido do PC: sem intervalo entre os
+pedidos, o primeiro já se perde; com 5 ms, 50 de 50 respondidos. A correção é o patch
+`0028` do kernel (tarefa 3.6 da change `usb-device-access`). Sem ele, uma tentativa às vezes
+monta, depois de reiniciar o USB do console. Dois detalhes do `umtprd` 1.6.8, sem efeito
+aqui: a resposta "sessão já aberta" sai com 13 bytes em vez de 16, e o gid do armazenamento
+recebe o uid (os dois são 1000).
 
 ## 5. Checklist de conferência
 

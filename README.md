@@ -172,7 +172,9 @@ como "Lume GA36" ou "Lume R36S" e oferece duas coisas:
   ```
 
   As duas opções evitam o aviso de chave trocada, porque o console gera uma chave de host
-  nova a cada boot. O SSH só escuta na rede do cabo: só quem tem o console e um cabo chega
+  nova a cada boot. Comandos do dia a dia (bateria, logs, reiniciar o USB, copiar arquivos
+  sem MTP) e o que fazer quando o MTP não monta: "Guia rápido pelo cabo" em
+  `docs/BRINGUP-GA36.md`. O SSH só escuta na rede do cabo: só quem tem o console e um cabo chega
   a ele, e essa pessoa já pode tirar o cartão.
 
 ### Atualizar pelo cabo USB (`r36os push`)
