@@ -102,10 +102,11 @@ mkdir -p $S/bin $S/sbin $S/proc $S/sys $S/dev $S/tmp $S/boot $S/lower $S/rw $S/n
 cp /bin/busybox.static $S/bin/busybox
 cp /usr/lib/r36os/initramfs/bin/* $S/bin/
 cd $S
-# fixed mtimes: the stage is made again on every build, and the cpio goes into the kernel
-# image, which must not change when nothing in it did (r36os push skips it)
+# fixed mtimes and inode numbers (--reproducible): the stage is made again on every build,
+# and the cpio goes into the kernel image, which must not change when nothing in it did
+# (r36os push skips it; plain newc carries the inode numbers of this build)
 find . -exec touch -h -d @0 {} +
-find . | sort | cpio -o -H newc -R 0:0 --quiet > /out/initramfs.cpio
+find . | sort | cpio -o -H newc -R 0:0 --reproducible --quiet > /out/initramfs.cpio
 gzip -9n < /out/initramfs.cpio > /out/initramfs
 """
 

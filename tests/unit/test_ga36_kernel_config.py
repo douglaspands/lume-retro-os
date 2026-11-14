@@ -144,6 +144,8 @@ def test_kernel_image_does_not_carry_the_build_time_or_machine():
 def test_initramfs_files_have_a_fixed_mtime():
     from r36os.initramfs import _PACK
     assert _PACK.index("touch -h -d @0") < _PACK.index("cpio -o")
+    # newc carries inode numbers: two identical stages gave different archives without it
+    assert "--reproducible" in _PACK
 
 
 def test_own_drivers_are_the_patched_files():
