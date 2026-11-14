@@ -39,8 +39,8 @@ A mesma nos dois consoles (`docs/BRINGUP-R36S.md` tem a mesma tabela):
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM` e `zImage` (o kernel recarregado na troca de DTB) |
-| `r36s/` | `SYSTEM` e `Image` |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
+| `r36s/` | `SYSTEM`, `Image` e `modules` |
 
 A `BOOT` tem só o que os consoles leem. O GA36 inicia pela imagem de boot do setor 172032,
 fora da `BOOT`; as imagens dos dois painéis ficam na pasta do build no PC
@@ -190,6 +190,27 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
 **Medido (2026-11-13):** com o build `20261113-192923`, o PC enumerou o "Lume GA36" em
 high-speed, com MTP e NCM: o papel pelo pino ID funciona. Naquele build, o PC ficou sem
 endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build seguinte).
+
+**Módulos do kernel fora do `SYSTEM` (change `kernel-modules-image`, 2026-11-14):**
+- Primeiro `push` com o build `20261114-013857`, saindo do `20261114-002340`: mandou os dois
+  `SYSTEM` (agora sem módulos), os kernels e `ga36/modules` e `r36s/modules`, ~650 MB em
+  376 s. No boot seguinte, `/lib/modules/6.18.62-r36os/modules.dep` existe, o log de boot tem
+  `lume: modules: ga36/modules (6.18.62-r36os)`, o `bluetooth` sobe no boot e o
+  `modprobe uhid` carrega e descarrega. O `zram` é embutido no kernel (`CONFIG_ZRAM=y`) e não
+  aparece no `lsmod`; o `zram0` fica ativo como swap.
+- Mudança só de kernel (build `20261114-022015`, `CONFIG_DUMMY=m` temporário no
+  `board/ga36/kernel.config`): os dois `SYSTEM` e todos os arquivos do R36S saíram com o mesmo
+  SHA256, e o `push` mandou só `ga36/modules`, `ga36/zImage` e `VERSION` (~9 MB) e a imagem
+  de boot do painel 1, em 60 s no total (10 s descompactando a imagem no PC), contra ~650 MB
+  em 376 s antes. No boot seguinte, o `modprobe dummy` carrega o módulo novo.
+- Sem a imagem (`ga36/modules` renomeado pelo `ssh`, boot 37): o RetroArch abre,
+  `/lib/modules` fica vazio, e o log de boot e o `events.log` têm
+  `ERROR: BOOT has no ga36/modules; starting without kernel modules`. Com o arquivo de volta,
+  o boot 38 monta os módulos de novo.
+- Antes desse `push`, a `BOOT` tinha só 313 MiB livres: cada `push` anterior que trocou o
+  `SYSTEM` deixou o antigo como cadeia de clusters perdida na FAT (ele é apagado ainda aberto
+  pelo loop e o desligamento não libera). O `fsck.vfat -a` pelo PC as salvou como 4
+  `FSCK000N.REC` de 283 MB, apagados depois pelo `ssh`.
 
 ### Adaptador OTG: controles, teclado e pendrive (só com hub alimentado)
 

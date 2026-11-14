@@ -195,6 +195,11 @@ uv run r36os push --build 20261114-100000  # um build específico
    mudou, e confere lendo de volta.
 5. Remonta a `BOOT` só leitura, apaga a pasta temporária e reinicia o console.
 
+- Os módulos do kernel de cada console ficam fora do `SYSTEM`, em `ga36/modules` e
+  `r36s/modules` na `BOOT`, e o build é reprodutível. Uma mudança só de kernel manda o
+  kernel e a imagem de módulos de cada console (`ga36/zImage`, `ga36/modules`, `r36s/Image`,
+  `r36s/modules`), a imagem de boot do painel 1 no GA36 e o `VERSION`, sem nenhum `SYSTEM`.
+  O `SYSTEM` só volta a ser enviado quando muda um pacote ou o overlay.
 - O comando recusa com a bateria abaixo de 20% e sem espaço livre na `ROMS` ou na `BOOT`.
 - Um `push` interrompido deixa o `VERSION` antigo, e o próximo `push` reenvia tudo. Se o
   console não iniciar, `r36os flash --update` pelo leitor continua sendo a recuperação.

@@ -106,8 +106,10 @@ da troca, como o `SYSTEM`, e o `push` já segue quando o `remount,ro` volta `EBU
   módulos no initramfs (só a VM). Se um dia carregarem, terão de vir da imagem montada em
   `/modules`.
 - [A imagem do R36S passa de ~20 MB] → a `BOOT` não cresce no total (os módulos saem do
-  `SYSTEM`), e o `check_console_boot()` já soma todos os arquivos. O tamanho medido vai para o
-  build e para os Riscos.
+  `SYSTEM`), e o `check_console_boot()` já soma todos os arquivos. Medido no build
+  `20261114-013857`: `ga36/modules` com 1,3 MB e `r36s/modules` com 15,8 MB (zstd 19). Os
+  `SYSTEM` caíram o mesmo tanto em relação ao build `20261114-002340`: GA36 de 290,2 para
+  288,9 MB e R36S de 309,7 para 293,9 MB.
 - [Cartões gravados antes desta change] → um `push` ou `flash --update` de um build novo leva o
   `SYSTEM` sem módulos e o arquivo de módulos juntos. Um `SYSTEM` antigo com um initramfs novo
   não acontece: o initramfs está embutido no kernel, que vem do mesmo build.

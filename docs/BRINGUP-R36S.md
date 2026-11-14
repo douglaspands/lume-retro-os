@@ -77,8 +77,8 @@ sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM` e `zImage` (o kernel recarregado na troca de DTB) |
-| `r36s/` | `SYSTEM` e `Image` |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
+| `r36s/` | `SYSTEM`, `Image` e `modules` |
 
 A `BOOT` tem só o que os consoles leem; as imagens de boot dos painéis do GA36 ficam na pasta
 do build no PC (`docs/BRINGUP-GA36.md`, seção 3).
@@ -167,8 +167,11 @@ nitidez e cores e o histórico completo estão na tarefa 4.6 da change `r36s-sin
 Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 
 1. `uv run r36os build console` (com `podman ps` vazio antes).
-2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e, se o DTS
-   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`.
+2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e
+   `out/r36s/kernel/modules` para `BOOT/r36s/modules` (os dois juntos: com módulos de outra
+   versão o console sobe sem módulos e o log de boot tem uma linha `ERROR`) e, se o DTS
+   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`. Pelo cabo,
+   `uv run r36os push` faz isso sozinho.
 3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
    desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
    (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos
