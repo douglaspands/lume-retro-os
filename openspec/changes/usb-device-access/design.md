@@ -212,8 +212,13 @@ Incluído em 2026-11-13 a pedido do usuário. A detecção é a do D1 (pino ID);
 **fornecer** os 5 V em modo host, o que explica o pendrive que não enumerou no GA36 na
 medição (o MUSB ficou em `b_idle`):
 
-- **GA36:** `usb0_vbus-supply = <&reg_drivevbus>` no `usbphy` (a saída DRIVEVBUS do AXP223,
-  já habilitada no DTS). O `phy-sun4i-usb` liga esse regulador quando o ID vai a nível baixo.
+- **GA36:** `usb0_vbus-supply = <&reg_drivevbus>` no `usbphy` (a saída DRIVEVBUS do AXP223).
+  O `phy-sun4i-usb` liga esse regulador quando o ID vai a nível baixo. **Visto no aparelho
+  (boot 29, build `20261113-214629`):** sem `x-powers,drive-vbus-en` no nó do AXP223, o
+  `axp20x-regulator` não registra o `reg_drivevbus`, e o PHY ficou em "Couldn't get regulator
+  usb0_vbus... Deferring probe": nem a OTG nem o EHCI subiram. A propriedade entrou no DTS. A
+  configuração de fábrica confirma a ligação: `[usbc0] usb_drv_vbus_gpio = port:power4<1><0>`,
+  um pino do AXP como saída, como no `sun8i-reference-design-tablet.dtsi` do mainline.
 - **R36S:** `vbus-supply = <&otg_switch>` no `usb20_otg` (o `OTG_SWITCH` do RK817), como o
   DTS do ROCKNIX para os R36S. Hoje o kernel desliga esse regulador aos 30 s por estar sem
   consumidor (`otg_switch: disabling` no boot 25); com o consumidor, o dwc2 o liga no papel

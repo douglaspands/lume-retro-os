@@ -249,6 +249,14 @@
 		interrupt-parent = <&r_intc>;
 		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_LOW>;
 		/*
+		 * N_VBUSEN as the DRIVEVBUS output: the 5 V of the OTG port in the host role
+		 * (usb-device-access D7). The factory sys_config has [usbc0] usb_drv_vbus_gpio =
+		 * port:power4<1><0>, an AXP pin as output, as the A23/A33 tablet reference design
+		 * of mainline does. Without it the axp20x driver never registers reg_drivevbus,
+		 * the USB PHY waits for it forever and no USB comes up (GA36 boot 29).
+		 */
+		x-powers,drive-vbus-en;
+		/*
 		 * Sem system-power-controller: no 6.18 o driver axp20x registra o corte de
 		 * energia no poweroff sempre (exceto na AXP288), e o binding não aceita a
 		 * propriedade. O goodluckOS precisava da antiga
