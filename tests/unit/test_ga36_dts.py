@@ -87,8 +87,14 @@ def test_otg_role_by_the_id_pin_only():
     # the OTG PHY; without a VBUS source the PHY reports VBUS present (device by default)
     phy = _node("usbphy")
     assert "usb0_id_det-gpios" in phy
-    assert "vbus" not in phy
+    assert "vbus_det" not in phy and "vbus_power-supply" not in phy
     assert 'dr_mode = "otg"' in _node("usb_otg")
+
+
+def test_otg_host_role_powers_the_port():
+    # usb-device-access D7: 5 V from the AXP DRIVEVBUS output while an OTG adapter is on
+    assert "usb0_vbus-supply = <&reg_drivevbus>;" in _node("usbphy")
+    assert 'status = "okay"' in _node("reg_drivevbus")
 
 
 def test_backlight_and_volume_keys():

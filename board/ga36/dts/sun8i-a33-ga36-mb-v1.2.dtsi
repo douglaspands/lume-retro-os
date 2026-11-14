@@ -367,9 +367,12 @@
  * the OTG port reaches nothing the kernel reads, and the AXP USB input is the DC charging
  * port, so usb0_vbus_power-supply made a charger look like a PC. Without a VBUS source the
  * PHY reports VBUS present: ID high (no OTG adapter) is device, ID low is host.
+ * Host role (usb-device-access D7): the PHY turns on the AXP DRIVEVBUS output (5 V on the
+ * port) while ID is low; without it a pendrive never powered up (MUSB stayed b_idle).
  */
 &usbphy {
 	usb0_id_det-gpios = <&pio 7 8 GPIO_ACTIVE_HIGH>;	/* PH8 */
+	usb0_vbus-supply = <&reg_drivevbus>;
 	status = "okay";
 };
 

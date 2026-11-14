@@ -263,6 +263,12 @@ def test_otg_port_is_device_by_default_with_a_role_switch():
     assert "dr_mode" not in otg              # "otg" from px30.dtsi: host stays possible
 
 
+def test_otg_host_role_powers_the_port():
+    # usb-device-access D7: 5 V from the RK817 OTG_SWITCH in the host role
+    assert "vbus-supply = <&otg_switch>;" in _node("&usb20_otg")
+    assert "otg_switch: OTG_SWITCH {" in CODE
+
+
 def test_leds():
     assert _gpio(_node("red_led: led-0")) == (0, 5, "GPIO_ACTIVE_HIGH")
     assert _gpio(_node("blue_led: led-1")) == (0, 0, "GPIO_ACTIVE_HIGH")
