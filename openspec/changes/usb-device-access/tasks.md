@@ -32,10 +32,24 @@
 - [x] 5.2 `src/r36os/push.py` e `r36os push [build]` na CLI: leitura do console (`VERSION`, placa, bateria, espaço livre na `ROMS` e na `BOOT`), `rsync` para `/storage/.lume-push/<build>/`, `sha256sum -c` no console, troca por `.new` + `mv` com `VERSION` por último, imagem de boot do painel 1 no setor 172032 só no GA36 e só se mudou (com leitura de volta), `remount,ro`, limpeza e reboot. Verificação: testes unitários com um executor SSH falso cobrem a ordem dos passos e cada recusa (SHA256 diferente, sem espaço, bateria abaixo de 20%; o console fora do cabo é o erro do `ssh`).
 - [ ] 5.3 Prova nos dois consoles: `r36os push` de um build novo e, no GA36, de um build com kernel novo. Verificação: o próximo boot registra a versão nova no `events.log`; no GA36, `Linux version` do log de boot é o do build enviado; a troca do `SYSTEM` em uso não gera erro de FAT no log (risco do `design.md`); `README.md` e `docs/BRINGUP-*.md` com o ciclo `push`.
 
+## 7. Papel host: pendrive, controles, teclado e mouse (D7, D8; P-38, incluído em 2026-11-13)
+
+- [ ] 7.1 VBUS de host: `usb0_vbus-supply = <&reg_drivevbus>` no `usbphy` do GA36 e `vbus-supply = <&otg_switch>` no `usb20_otg` do R36S. Verificação: testes de DTS dos dois consoles; `dt-validate` do build sem erro.
+- [ ] 7.2 Kernel: `USB_STORAGE` no GA36; nos dois, `JOYSTICK_XPAD`, `HID_PLAYSTATION`, `HID_SONY`, `HID_NINTENDO` e `HID_GENERIC`. Verificação: testes de config de kernel dos dois consoles; o `.config` gerado as tem.
+- [ ] 7.3 Pendrive: regra do udev e `/usr/libexec/r36os/usb-storage` (monta cada partição `vfat`/`exfat`/`ext4` de um disco USB em `/storage/usb/<rótulo ou sdXN>` com o dono `game`, desmonta na remoção, eventos `usb OK storage: mounted|removed`). Verificação: teste de shell com `mount`/`blkid` falsos (montar, rótulo repetido, sistema de arquivos desconhecido, remoção).
+- [ ] 7.4 Prova nos dois consoles com o adaptador OTG: pendrive (montado, arquivo lido pelo RetroArch, removido), um controle USB como jogador 2, teclado e mouse. Verificação: eventos no `events.log`, `host_devs` na linha `usb:`, controle do console no jogador 1; `docs/BRINGUP-*.md` atualizados.
+
+## 8. Wi-Fi e Bluetooth por dongle USB (D9 a D11; P-15, incluído em 2026-11-13)
+
+- [ ] 8.1 Kernel dos dois consoles: `CFG80211`, `MAC80211`, `RTW88` com `RTW88_8821CU` (e os outros Realtek USB), `RTL8XXXU`, `ATH9K_HTC`, `BT`, `BT_HCIBTUSB` (+ `BT_HCIBTUSB_RTL`), `BT_HIDP`, `UHID`, `RFKILL` como módulos, e `FW_LOADER_COMPRESS_ZSTD` embutido. Verificação: testes de config; o build passa e instala os módulos.
+- [ ] 8.2 Userland: `networkmanager`, `networkmanager-wifi`, `networkmanager-cli`, `wpa_supplicant`, `dbus`, `bluez` e o firmware `linux-firmware-rtw88`, `-rtlwifi`, `-ath9k_htc`, `-rtl_bt`; serviços `dbus`, `networkmanager` e `bluetooth` no runlevel padrão, sem atrasar o frontend; `/etc/NetworkManager/conf.d/lume.conf` (só Wi-Fi, `auth-polkit=false`) e a política de D-Bus do `bluez` para o `game`. Verificação: paridade de manifestos; testes unitários da configuração; `test-vm` sem erro de serviço nem atraso no frontend.
+- [ ] 8.3 RetroArch (aport): `--enable-wifi --enable-bluetooth`, patch numerado com os comandos de rede em `127.0.0.1`, `wifi_driver = "nmcli"` e `bluetooth_driver = "bluetoothctl"` na configuração da Lume. Verificação: testes do aport (flags, patch, `sha512sums`) e da configuração; no `test-vm`, o UDP 55355 só em `127.0.0.1` e o `logd` com `GET_STATUS` funcionando.
+- [ ] 8.4 Prova com o RTL8821CU nos dois consoles: rede escolhida e conectada pelo menu (e de volta no boot seguinte), cabo USB e Wi-Fi juntos, um controle Bluetooth pareado pelo menu, UDP 55355 sem resposta de outro aparelho da rede. Verificação: eventos e linhas do log; custo de memória e boot anotado nos Riscos; `docs/BRINGUP-*.md` com a seção de Wi-Fi e Bluetooth.
+
 ## 6. Integração
 
 - [ ] 6.1 Ciclo completo sem tirar o cartão, nos dois consoles: `push` de um build, reboot, ler `logs/boot/boot-<n>.log` por MTP e por `ssh`. Verificação: os três passos funcionam em sequência nos dois aparelhos com o mesmo comando no PC.
-- [ ] 6.2 `docs/PENDENCIAS.md`: P-48 aponta para esta change e, ao concluir, vai para "Concluídas"; o P-38 registra que usa a detecção de papel do D1. Verificação: os dois itens atualizados.
+- [ ] 6.2 `docs/PENDENCIAS.md`: P-48, P-38 e P-15 apontam para esta change e, ao concluir, vão para "Concluídas". Verificação: os três itens atualizados.
 
 ## Workflow follow-up
 

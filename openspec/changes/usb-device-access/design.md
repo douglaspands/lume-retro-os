@@ -206,6 +206,76 @@ e no `push`.
 --update`): exigiria desmontar a `BOOT` com o sistema rodando a partir dela (`SYSTEM` é um
 arquivo dentro da `BOOT`), o que não é possível.
 
+### D7. Papel host: VBUS de host pelo regulador do PMIC (P-38)
+
+Incluído em 2026-11-13 a pedido do usuário. A detecção é a do D1 (pino ID); falta a porta
+**fornecer** os 5 V em modo host, o que explica o pendrive que não enumerou no GA36 na
+medição (o MUSB ficou em `b_idle`):
+
+- **GA36:** `usb0_vbus-supply = <&reg_drivevbus>` no `usbphy` (a saída DRIVEVBUS do AXP223,
+  já habilitada no DTS). O `phy-sun4i-usb` liga esse regulador quando o ID vai a nível baixo.
+- **R36S:** `vbus-supply = <&otg_switch>` no `usb20_otg` (o `OTG_SWITCH` do RK817), como o
+  DTS do ROCKNIX para os R36S. Hoje o kernel desliga esse regulador aos 30 s por estar sem
+  consumidor (`otg_switch: disabling` no boot 25); com o consumidor, o dwc2 o liga no papel
+  host, que o `r36os-usb` escolhe pelo ID (D1).
+
+### D8. Pendrive, controles, teclado e mouse
+
+- **Kernel:** `USB_STORAGE` (já no R36S; falta no GA36), `JOYSTICK_XPAD` (Xbox),
+  `HID_PLAYSTATION`, `HID_SONY`, `HID_NINTENDO` e `HID_GENERIC` (8BitDo e genéricos), como
+  módulos carregados pelo udev quando o aparelho aparece. Teclado e mouse são HID genéricos.
+- **Pendrive:** uma regra do udev chama `/usr/libexec/r36os/usb-storage` para cada partição
+  de um disco USB (`vfat`, `exfat`, `ext4`), que monta em `/storage/usb/<rótulo ou sdXN>`,
+  leitura e escrita, com o dono do frontend (`game`) e `flush`/`sync` nas FAT (um pendrive
+  arrancado não perde a FAT). Na remoção, desmonta (`umount -l`). `/storage/usb` fica na
+  `ROMS`, então o navegador de arquivos do RetroArch chega lá. Cada montagem e remoção é um
+  evento `usb` no `events.log`.
+- **Controles:** o RetroArch já autoconfigura por udev e aceita conexão a quente. O controle
+  do console sobe no boot e fica com a porta 1; um controle USB ligado depois fica com a
+  porta seguinte. Isso se confere no aparelho.
+
+### D9. Wi-Fi: NetworkManager com `wpa_supplicant`, só para as interfaces sem fio (P-15)
+
+Incluído em 2026-11-13 a pedido do usuário. O menu de Wi-Fi do RetroArch 1.22 só existe
+com o driver `nmcli` (o `connmanctl` só compila em builds Lakka, `HAVE_LAKKA`), então o
+NetworkManager é obrigatório para a rede ser escolhida pelo menu.
+
+- **Pacotes:** `networkmanager`, `networkmanager-wifi`, `networkmanager-cli`,
+  `wpa_supplicant`, `dbus` (cerca de 9 MiB no total).
+- **Configuração** (`/etc/NetworkManager/conf.d/lume.conf`): só as interfaces Wi-Fi são
+  gerenciadas (`unmanaged-devices=*,except:type:wifi`), para o NetworkManager não tocar na
+  rede USB (`usb0`, D5) nem na rede da VM; `auth-polkit=false`, para o RetroArch, que roda
+  como `game`, poder conectar sem polkit (não há outro usuário no console).
+- **Drivers e firmware:** `rtw88` com `RTW88_8821CU` (o dongle de referência) e os outros
+  Realtek USB da família; `rtl8xxxu` (RTL8188/8192/8723 USB); `ath9k_htc` (Atheros AR9271).
+  Firmware: `linux-firmware-rtw88`, `linux-firmware-rtlwifi`, `linux-firmware-ath9k_htc`
+  (menos de 1,1 MiB). Os arquivos do Alpine vêm em zstd, então os dois kernels ganham
+  `FW_LOADER_COMPRESS_ZSTD`. **Fora:** MediaTek (`mt76`, 28 MiB de firmware) e o
+  `linux-firmware-other` (5 MiB).
+
+### D10. Bluetooth: `bluez` com o driver `bluetoothctl` do RetroArch
+
+- **Pacotes:** `bluez` e o firmware `linux-firmware-rtl_bt` (o Bluetooth do RTL8821CU e dos
+  adaptadores Realtek, 0,8 MiB).
+- **Kernel:** `BT` com `BT_HCIBTUSB` (+ `BT_HCIBTUSB_RTL`), `BT_HIDP` (controles e teclados
+  Bluetooth clássicos) e `UHID` (controles BLE pelo `bluez`), como módulos.
+- **RetroArch:** o driver `bluetoothctl` chama o `bluetoothctl` por `popen`, sem D-Bus no
+  build. A política de D-Bus do `bluez` libera o `org.bluez` ao usuário `game`
+  (`/etc/dbus-1/system.d/lume-bluetooth.conf`).
+
+### D11. RetroArch com Wi-Fi e Bluetooth, e os comandos de rede só no `127.0.0.1`
+
+- **Build:** `--enable-wifi --enable-bluetooth` no aport (hoje `--disable-*`), mantendo
+  `--disable-ssl`. Na configuração da Lume, `wifi_driver = "nmcli"` e
+  `bluetooth_driver = "bluetoothctl"`.
+- **Comandos de rede (UDP 55355):** o `command_network_new()` abre o socket com o host
+  `NULL`, ou seja, em todas as interfaces. Com Wi-Fi, qualquer um na rede poderia mandar
+  comandos ao RetroArch. Um patch numerado do aport passa `"127.0.0.1"`: o `logd`, que fala
+  com ele por `nc -u 127.0.0.1 55355`, continua funcionando, e nenhuma outra interface o
+  alcança.
+- **Serviços na rede sem fio:** com isso, nada do console escuta no Wi-Fi. O SSH (D4) escuta
+  só em `10.55.0.1` e o MTP só existe no cabo.
+
 ## Risks / Trade-offs
 
 - **[O GA36 não distingue PC de carregador]** → D1: papel padrão device e troca explícita
@@ -228,7 +298,14 @@ arquivo dentro da `BOOT`), o que não é possível.
   uma rede de verdade (Wi-Fi, P-15) exige rever isso antes.
 - **[Consumo e tempo de boot]** → o `umtprd` precisa estar rodando antes do `UDC`, mesmo
   sem cabo; o `dropbear` e o `udhcpd` só sobem quando a `usb0` fica ativa. Custo medido na
-  tarefa 4.4 (memória e tempo de boot até o frontend).
+  tarefa 4.4 (memória e tempo de boot até o frontend). O NetworkManager, o `bluez` e o
+  `dbus` (D9, D10) rodam desde o boot; o custo deles entra na mesma medição, e o
+  NetworkManager não pode atrasar o frontend (ele não é dependência do `frontend`).
+- **[Pendrive arrancado sem desmontar]** → numa FAT, a montagem com `flush` reduz a perda ao
+  que estava sendo gravado no momento; o `umount -l` na remoção libera o ponto de montagem.
+- **[O RetroArch muda de comportamento com Wi-Fi e Bluetooth ligados no build]** → os itens
+  novos do menu e os drivers só agem quando chamados; o `test-vm` confere que o frontend, o
+  jogo e o menu continuam iguais, e a VM não tem dongle.
 
 ## Migration Plan
 

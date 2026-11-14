@@ -13,8 +13,15 @@ de usuário e em modo root, para parar de tirar o cartão (P-48 em `docs/PENDENC
 - **Porta OTG com dois papéis, por projeto:** o GA36 e o R36S têm duas portas USB, uma de
   carga (DC) e uma marcada OTG. A OTG passa a ter um papel definido: **device** quando um PC
   está ligado nela e **host** quando um adaptador OTG está ligado. Esta change mede como cada
-  console distingue os dois casos (pino ID, VBUS) e implementa só o papel device. O papel
-  host (pendrive, controles, teclado) continua no P-38 e usa a mesma detecção.
+  console distingue os dois casos (pino ID, VBUS) e implementa os dois papéis.
+- **Papel host (P-38, incluído em 2026-11-13 a pedido do usuário):** com um adaptador OTG, a
+  porta alimenta e reconhece **pendrive** (montado em `/storage/usb/`, ao alcance do menu do
+  RetroArch), **controles USB** (genéricos, Xbox, PlayStation, Nintendo, 8BitDo), **teclado**
+  e **mouse**, com o controle do console sempre como jogador 1.
+- **Wi-Fi e Bluetooth por dongle USB (P-15, incluído em 2026-11-13 a pedido do usuário):**
+  nenhum dos consoles tem rádio. Pela porta host, um dongle Realtek (RTL8821CU de referência,
+  Wi-Fi e Bluetooth no mesmo dongle; os chips da família `rtl8xxxu`) ou Atheros (`ath9k_htc`)
+  dá Wi-Fi e Bluetooth, configurados pelo menu do RetroArch (rede e pareamento de controles).
 - **Gadget USB "Lume" no papel device**, igual nos dois consoles, com duas funções:
   - **arquivos sempre**: a `ROMS` (jogos, BIOS, saves, `logs/`, `system/`) aparece no PC
     por MTP, sem parar o RetroArch e sem senha;
@@ -29,9 +36,10 @@ de usuário e em modo root, para parar de tirar o cartão (P-48 em `docs/PENDENC
   arquivos **no próprio console**, só então troca os arquivos da `BOOT` (e, no GA36, a
   imagem de boot do setor 172032, onde fica o kernel) e reinicia.
 
-Fora do escopo: o papel host da porta (P-38); exportar a `ROMS` inteira como disco USB
-(mass storage), que exige parar o RetroArch; Wi-Fi e Bluetooth (P-15); acesso ao cartão
-pelo bootloader (comando `ums` do U-Boot), que fica como investigação registrada.
+Fora do escopo: exportar a `ROMS` inteira como disco USB (mass storage), que exige parar o
+RetroArch; acesso ao cartão pelo bootloader (comando `ums` do U-Boot), que fica como
+investigação registrada (P-49); dongles MediaTek (`mt76`), cujo firmware tem 28 MiB; hora
+pela rede (NTP, P-07/P-31), que fica para depois do Wi-Fi provado.
 
 ## Capabilities
 
@@ -39,7 +47,9 @@ pelo bootloader (comando `ums` do U-Boot), que fica como investigação registra
 
 - `usb-otg`: a porta OTG dos consoles: detecção do papel (host ou device), o gadget do
   papel device, o acesso aos arquivos por MTP e o acesso root por SSH, sem senha e só pelo
-  cabo.
+  cabo; no papel host, pendrive, controles, teclado e mouse.
+- `wireless`: Wi-Fi e Bluetooth por dongle USB, configurados pelo menu do RetroArch, sem
+  expor serviços do console na rede sem fio.
 
 ### Modified Capabilities
 
@@ -59,5 +69,10 @@ pelo bootloader (comando `ums` do U-Boot), que fica como investigação registra
 - **Segurança:** o root não tem senha e entrava só pela serial de debug. Pelo cabo, ele
   passa a entrar também por SSH, sem senha (decisão do usuário, 2026-11-13), e o SSH não
   escuta em outra interface: só quem tem o console e um cabo chega a ele.
-- **Pendências:** `docs/PENDENCIAS.md`: o P-48 aponta para esta change; o P-38 passa a
-  depender da detecção de papel definida aqui.
+- **Host e rádio:** VBUS de host nos dois DTS; no kernel, `USB_STORAGE`, drivers de controle,
+  `cfg80211`/`mac80211`, `rtw88`, `rtl8xxxu`, `ath9k_htc`, Bluetooth (`btusb`, `hidp`,
+  `uhid`) e o firmware comprimido em zstd; no userland, NetworkManager com `wpa_supplicant`,
+  `bluez` e `dbus`, o firmware só dos chips escolhidos e a montagem do pendrive; no
+  RetroArch (aport), `--enable-wifi --enable-bluetooth` e um patch que limita os comandos de
+  rede (UDP 55355) ao `127.0.0.1`.
+- **Pendências:** `docs/PENDENCIAS.md`: o P-48, o P-38 e o P-15 apontam para esta change.

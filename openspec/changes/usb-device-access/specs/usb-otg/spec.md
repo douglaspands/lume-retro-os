@@ -69,6 +69,27 @@ descoberta, e MUST NOT oferecer rota para outras redes nem encaminhamento de pac
 - **WHEN** o cabo é conectado a um PC Linux com NetworkManager
 - **THEN** o PC recebe um endereço na rede USB e alcança o console pelo endereço fixo documentado
 
+### Requirement: Papel host com adaptador OTG
+Com um adaptador OTG na porta (pino ID em nível baixo), a porta MUST assumir o papel host e
+MUST fornecer os 5 V da porta, nos dois consoles. Sem o adaptador, os 5 V MUST ficar
+desligados.
+
+#### Scenario: Pendrive no adaptador
+- **WHEN** um pendrive com uma partição `vfat`, `exfat` ou `ext4` é ligado ao adaptador OTG
+- **THEN** a partição é montada em `/storage/usb/<rótulo ou sdXN>`, com leitura e escrita para o frontend, e o `events.log` registra `usb OK storage: mounted …`
+
+#### Scenario: Pendrive retirado
+- **WHEN** o pendrive é retirado
+- **THEN** o ponto de montagem é liberado e o `events.log` registra `usb OK storage: removed …`
+
+#### Scenario: Controle USB como jogador 2
+- **WHEN** um controle USB (genérico, Xbox, PlayStation, Nintendo ou 8BitDo) é ligado ao adaptador com o RetroArch aberto
+- **THEN** o RetroArch o reconhece e o atribui à porta seguinte, e o controle do console continua como jogador 1
+
+#### Scenario: Teclado e mouse
+- **WHEN** um teclado ou um mouse USB é ligado ao adaptador
+- **THEN** o RetroArch passa a recebê-los (teclado no menu e nos cores; mouse no menu)
+
 ### Requirement: Funções iguais nos dois consoles
 O GA36 e o R36S MUST expor as mesmas funções USB, com o mesmo nome de dispositivo e os mesmos
 endereços, de modo que o PC use os mesmos comandos nos dois. O nome do dispositivo MUST
