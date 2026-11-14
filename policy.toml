@@ -58,6 +58,12 @@ allow = [
     "dnf list",
     "dnf info",
     "dnf search",
+    # steps of the built-in copy-verify recipe (docs/ctx/MELHORIAS.md, M-07): it never ran
+    # here, every step fell outside this list; the path rules still ask for writes outside
+    # the workspace
+    "cp",
+    "sync",
+    "sha256sum",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
@@ -156,7 +162,8 @@ ask_fallback = "deny"
 # Leitura/escrita de arquivos via shell (cat/head/tail/sed -n, sed -i, >, >>, heredoc, tee) -> ferramenta nativa do harness.
 # "off": só instruções (AGENTS.md/CLAUDE.md/GEMINI.md). "coach": o guardrail nega com a ferramenta certa na mensagem.
 # Meça antes e depois com `ctx metrics` (ver guia, seção "Ferramentas Nativas de Arquivo").
-mode = "off"
+# "coach" since 2026-11-13 (ctx evaluate: search adoption 1%; MELHORIAS.md M-23)
+mode = "coach"
 # Codex só recebe orientação de escrita (apply_patch): ele não tem ferramenta de leitura e lê via shell por design.
 harnesses = ["claude", "antigravity"]
 

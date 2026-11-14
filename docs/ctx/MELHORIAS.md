@@ -157,12 +157,19 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 - **Mudança:** com o trecho maior que a prévia, ela começa 3 linhas antes da primeira linha que
   contém um dos termos. Cada linha é cortada em 200 caracteres, com a contagem do resto.
 
-### M-07. Receita `copy-verify` barrada pela própria política — proposta
+### M-07. Receita `copy-verify` barrada pela própria política — medida (política do projeto)
 
 - **Problema:** os passos da receita embutida (`cp`, `sync`, `sha256sum`) não estão no
   `commands.allow` padrão; a receita não roda sem `--yes`.
 - **Mudança proposta:** liberar esses comandos na política padrão quando chamados pela receita, ou
   a receita declarar os comandos de que precisa.
+- **Medido (2026-11-13):** as 5 execuções do `.ctx/events.jsonl` terminaram em
+  `needs_confirmation` com 0 etapas executadas (o `evaluate` mostrava "4 execuções, 0 ok").
+  Com `cp`, `sync` e `sha256sum` no `commands.allow` do `policy.toml` deste projeto, a receita
+  rodou: 5/5 etapas numa chamada, 4 chamadas economizadas. As regras de caminho continuam
+  pedindo confirmação para escrita fora do workspace.
+- **Para levar ao upstream:** a receita declarar os comandos que usa (`requires = [...]`), e o
+  `ctx init` colocar os da receita embutida no `allow` gerado.
 
 ### M-08. `copy-verify` confere o cache, não o disco — proposta
 
@@ -351,6 +358,14 @@ O texto abaixo é a proposta original.
 - **Falta (proposta):** o guardrail avisar no momento da descoberta, por exemplo quando uma mesma
   sessão faz um `ctx search` seguido de 3 ou mais leituras no mesmo arquivo, ou ao fim da sessão
   (`ctx fact review` já existe para candidatos).
+- **Primeiro uso (2026-11-13):** a pedido do usuário, depois do `evaluate`, 13 fatos da sessão da
+  change `usb-device-access` (fatos #1 a #13: `udhcpd` no `busybox-extras`, `umtprd` em `/bin`,
+  medição da porta OTG, fallback de VBUS do `phy-sun4i-usb`, role switch do dwc2, drivers de Wi-Fi
+  do RetroArch, socket dos comandos de rede, firmware em zstd, dependência do `HID_PLAYSTATION`,
+  VM sem Bluetooth, `dropbear -B`, U-Boot de fábrica sem `ums`, `flash` com `sudo`). Todos com
+  fonte `arquivo:linha`, para o `ctx fact stale` avisar quando a fonte mudar. O registro só
+  aconteceu porque o `evaluate` recomendou e o usuário pediu: o agente não o fez sozinho ao
+  descobrir, o que reforça a proposta acima.
 
 ### M-22. Adoção por sessão, não só por chamada — protótipo
 
@@ -358,6 +373,28 @@ O texto abaixo é a proposta original.
   pouco": 8 de 15 sessões usaram `ctx search` e 13 de 15 algum comando do ctx.
 - **Implementado:** a evidência de "busca e índice" mostra as duas medidas. Combina com o M-14, que
   limpa os desvios que o `ctx search` não substitui.
+
+### M-23. Coach das ferramentas de arquivo ligado — medição em andamento
+
+- **Problema:** com `[file_tools] mode = "off"`, só as instruções pedem a ferramenta nativa em vez
+  de `cat`/`head`/`sed -n`. O `evaluate` de 2026-11-13 (23 sessões, provisório) recomendou o
+  modo `coach` junto com a adoção de 1% da busca.
+- **Mudança (2026-11-13):** `mode = "coach"` no `policy.toml` e `ctx rule sync`; o bloco gerado
+  ganhou uma linha avisando do modo.
+- **Medir:** no próximo `evaluate`, os bloqueios da regra de ferramentas de arquivo (quantos e se
+  se repetem na mesma sessão) e se a média de bloqueios por sessão volta a cair. Se o coach só
+  somar bloqueios sem mudar o hábito, voltar para `off`.
+
+## Avaliação de 2026-11-13
+
+`ctx evaluate` (23 sessões, veredito provisório): **não compensa**, saldo ≈ −31.612 tokens
+(−1.374 por sessão): ganho ≈ 24.250 (97 chamadas), custo ≈ 55.862 (instruções 1.744 por sessão +
+bloqueios 15.750). Por recurso: coaching do guardrail e recall **compensam**; upstream marginal;
+busca (36 `ctx search` contra 2.999 `rg`/`grep`/`sed`, 1% por chamada, 14 de 23 sessões) e
+receitas (4 execuções, 0 ok, ver M-07) **não compensam**; fatos sem dados (registrados depois, ver
+M-21). Bloqueio mais caro: encadeamento de comandos (35, ≈ 8.750 tokens). Feito na sequência:
+M-07 medida, M-21 primeiro uso, M-23 ligado. O Antigravity continua em `[harnesses].enabled`
+até o usuário dizer se o usa (o custo fixo é o M-15).
 
 ## Métricas a acompanhar
 

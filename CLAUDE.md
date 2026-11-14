@@ -14,7 +14,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 ### 2. Cache de Ferramentas, Toolchains Sandbox-Safe e Receitas One-Shot
 - **Zero turnos de sondagem**: NÃO rode `which`, `whereis` ou `--version`. Consulte `.ctx/bins.json`.
 - Ferramentas pré-verificadas disponíveis no ambiente:
-  `asdf`, `cargo`, `cat`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sqlite3`, `systemctl`, `tail`, `tree`, `uv`, `wc`
+  `asdf`, `cargo`, `cat`, `cp`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sha256sum`, `sqlite3`, `sync`, `systemctl`, `tail`, `tree`, `uv`, `wc`
 - **Toolchains**:
 - **Python**: Invoque via `uv run` ou `.venv/bin/ctx` ou `.venv/bin/python` ou `.venv/bin/python3`. Proibido: `python`, `python3`, `/usr/bin/python`, `/usr/bin/python3`, `/usr/local/bin/python`, `/usr/local/bin/python3`. (Python deve ser executado via 'uv run' ou pelo .venv do workspace ('.venv/bin/ctx' / '.venv/bin/python'), nunca pelo python global. Sem uv, o python da máquina serve só para criar o venv: 'python3 -m venv .venv'.)
 - **Nodejs**: Invoque via `asdf exec`. Proibido: `/usr/bin/node`, `/usr/bin/npm`, `/usr/bin/npx`, `/usr/local/bin/node`. (Node.js/npm/npx devem usar a versão gerenciada pelo asdf (~/.asdf/shims ou 'asdf exec').)
@@ -49,6 +49,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - **Ler**: ferramenta `Read` (use `offset`/`limit` para trechos indicados pelo `ctx search`). Vários arquivos: várias chamadas `Read` no mesmo turno.
 - **Editar**: `Edit` (substituição exata). **Criar/reescrever**: `Write`.
 - **Não use o shell para isso**: nada de `cat`/`head`/`tail`/`sed -n` para ler, nem `sed -i`, `>`, `>>`, heredoc (`<<EOF`) ou `tee` para escrever. O shell fica para executar programas, testes, git e buscas (`ctx search`, `rg`).
+- O guardrail está em modo `coach`: leitura/escrita de arquivo via shell recebe `deny` com a ferramenta correta.
 
 ### 7. Índice saudável, memória, upstream e receitas
 - **Busca nunca trava**: `.venv/bin/ctx search` não escreve no índice e para em 3 s (`--timeout`); ao estourar devolve o `rg` equivalente pronto — rode-o. Algo lento ou estranho: `.venv/bin/ctx doctor` e, se falhar, `.venv/bin/ctx doctor --fix`.
