@@ -240,6 +240,14 @@ Incluído em 2026-11-13 a pedido do usuário. O menu de Wi-Fi do RetroArch 1.22 
 com o driver `nmcli` (o `connmanctl` só compila em builds Lakka, `HAVE_LAKKA`), então o
 NetworkManager é obrigatório para a rede ser escolhida pelo menu.
 
+**Frontend futuro (o RetroArch deve deixar de ser o frontend, P-44):** o Wi-Fi e o
+Bluetooth ficam em serviços do sistema com API de D-Bus estável (NetworkManager e bluez),
+que guardam as redes e os pareamentos. Um frontend novo os configura pela mesma API (ou
+pelo `nmcli`/`bluetoothctl`), sem mudar o sistema. Só os pontos ligados ao RetroArch saem
+com ele: as chaves `wifi_driver`/`bluetooth_driver` da configuração da Lume, o
+`--enable-wifi --enable-bluetooth` do aport e o patch 0009 (D11), que continua valendo
+enquanto o RetroArch rodar os jogos por baixo de outro frontend.
+
 - **Pacotes:** `networkmanager`, `networkmanager-wifi`, `networkmanager-cli`,
   `wpa_supplicant`, `dbus` (cerca de 9 MiB no total).
 - **Configuração** (`/etc/NetworkManager/conf.d/lume.conf`): só as interfaces Wi-Fi são
