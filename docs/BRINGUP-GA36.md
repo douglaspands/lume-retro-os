@@ -212,6 +212,17 @@ endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build s
   pelo loop e o desligamento não libera). O `fsck.vfat -a` pelo PC as salvou como 4
   `FSCK000N.REC` de 283 MB, apagados depois pelo `ssh`.
 
+**Troca sem vazamento (change `push-boot-swap`):** desde essa change, o `push` renomeia o
+`ga36/SYSTEM` e o `ga36/modules` em uso para `.old` em vez de apagá-los, então nada aberto
+perde o nome, a `BOOT` volta a somente leitura antes do reboot e nenhum cluster se perde. O
+`push` seguinte apaga os `.old` antes de copiar e conta esse espaço. Se a `BOOT` já tiver
+espaço perdido (de `push` antigos ou de um corte de energia), o `push` avisa com
+`warning: BOOT has <N> MiB in lost clusters` e segue; a recuperação é pelo PC, com o cartão
+no leitor: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
+`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
+o log tem `ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build`.
+*Prova no GA36 pendente (tarefas 6.1 a 6.3 da change).*
+
 ### Adaptador OTG: controles, teclado e pendrive (só com hub alimentado)
 
 **A porta OTG do GA36 não fornece energia.** Com um adaptador OTG, o console troca para host

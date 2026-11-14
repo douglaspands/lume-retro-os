@@ -237,6 +237,16 @@ aparece no PC como **"Lume R36S"** (fabricante "Lume Retro OS"), com duas funç�
   senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
   `README.md`).
 
+**Espaço da `BOOT` no `push` (change `push-boot-swap`):** o `push` renomeia o
+`r36s/SYSTEM` e o `r36s/modules` em uso para `.old` (apagados no `push` seguinte), para não
+perder clusters na FAT. Os `push` anteriores a essa change perdiam ~290 MB a cada troca do
+`SYSTEM`; se o cartão do R36S tiver esse resto, o `push` avisa com
+`warning: BOOT has <N> MiB in lost clusters` e segue. Para recuperar, com o cartão no leitor
+do PC: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
+`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
+com uma linha `ERROR ... using r36s/SYSTEM.old from the previous build` no log.
+*Primeiro `push` no R36S com a change: pendente (tarefa 6.4).*
+
 **Como funciona no R36S:** o `u2phy` vê o pino ID, mas não o VBUS da porta OTG (medição de
 2026-11-13, change `usb-device-access`). O controlador (dwc2) usa um *role switch* que começa
 como device e força a sessão por override. O serviço `r36os-usb` lê o `USB-HOST` do `extcon`

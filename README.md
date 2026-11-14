@@ -186,13 +186,16 @@ uv run r36os push                          # o build mais recente (out/images/co
 uv run r36os push --build 20261114-100000  # um build específico
 ```
 
-1. Lê o console: build atual, placa, bateria e espaço livre.
+1. Lê o console: build atual, placa, bateria, espaço livre e espaço perdido na `BOOT`.
 2. Separa os arquivos da `BOOT` do build que diferem dos do console.
 3. Envia esses arquivos para `/storage/.lume-push/` (na `ROMS`) e confere o SHA256 **no
    próprio console**. Se algum arquivo diferir, a `BOOT` não é tocada.
-4. Troca os arquivos na `BOOT` um a um (`.new` e depois renomeia), com o `VERSION` por
-   último. No GA36, grava também a imagem de boot do painel 1 no setor 172032, só se ela
-   mudou, e confere lendo de volta.
+4. Apaga os `*.old` e `*.new` deixados pelo `push` anterior e troca os arquivos na `BOOT`
+   um a um (`.new` e depois renomeia), com o `VERSION` por último. O `SYSTEM` e o `modules`
+   do console que está rodando continuam abertos pelo sistema: o antigo é renomeado para
+   `<arquivo>.old` em vez de apagado, e fica na `BOOT` até o `push` seguinte. No GA36, grava
+   também a imagem de boot do painel 1 no setor 172032, só se ela mudou, e confere lendo
+   de volta.
 5. Remonta a `BOOT` só leitura, apaga a pasta temporária e reinicia o console.
 
 - Os módulos do kernel de cada console ficam fora do `SYSTEM`, em `ga36/modules` e
@@ -201,8 +204,16 @@ uv run r36os push --build 20261114-100000  # um build específico
   `r36s/modules`), a imagem de boot do painel 1 no GA36 e o `VERSION`, sem nenhum `SYSTEM`.
   O `SYSTEM` só volta a ser enviado quando muda um pacote ou o overlay.
 - O comando recusa com a bateria abaixo de 20% e sem espaço livre na `ROMS` ou na `BOOT`.
-- Um `push` interrompido deixa o `VERSION` antigo, e o próximo `push` reenvia tudo. Se o
+- Um `push` interrompido deixa o `VERSION` antigo, e o próximo `push` reenvia tudo. Se a
+  energia cair bem no meio da troca do `SYSTEM` (ou do `modules`), o console sobe com o
+  `<arquivo>.old`, o build anterior, e registra uma linha `ERROR` no log de boot. Se o
   console não iniciar, `r36os flash --update` pelo leitor continua sendo a recuperação.
+- **Clusters perdidos:** quando o espaço usado da `BOOT` passa em mais de 32 MB o que os
+  arquivos ocupam, o `push` avisa (`warning: BOOT has <N> MiB in lost clusters`) e segue.
+  Isso sobra de cartões atualizados por versões antigas do `push`, que vazavam ~290 MB por
+  troca do `SYSTEM`, ou de um corte de energia. Para recuperar, com o cartão no leitor do
+  PC: `sudo fsck.vfat -a /dev/sdX1` (a `BOOT` é a partição 1) e apague os `FSCK*.REC` que
+  ele cria na raiz da `BOOT`; ou regrave com `r36os flash --update`.
 - Os arquivos do MTP e o `push` usam o mesmo cabo: dá para ler `logs/` pelo gerenciador de
   arquivos do PC antes e depois.
 

@@ -287,7 +287,8 @@ Nos consoles, os módulos do kernel ficam fora do `SYSTEM`, num squashfs por con
 | Linha | Significado |
 | :--- | :--- |
 | `modules: <file> (<release>)` | imagem montada em `/lib/modules`, com a versão do kernel |
-| `ERROR: BOOT has no <file>; starting without kernel modules` | o arquivo não está na `BOOT` |
+| `ERROR: BOOT has no <file>; starting without kernel modules` | o arquivo não está na `BOOT`, nem o `<file>.old` |
+| `ERROR: BOOT has no <file>; using <file>.old from the previous build` | um `push` foi cortado entre os dois `mv` da troca (change `push-boot-swap`): monta o `.old`, que ainda passa pela conferência de versão abaixo. A mesma linha vale para o `SYSTEM` (`<console>/SYSTEM`); sem ele nem o `.old`, o boot vai para o modo de resgate |
 | `ERROR: failed to mount <file>; starting without kernel modules` | o arquivo existe mas não montou (imagem corrompida) |
 | `ERROR: <file> holds modules for <found>, the running kernel is <release>; starting without kernel modules` | a versão da imagem é outra (por exemplo, um `push` interrompido entre o kernel e os módulos); `<found>` lista as pastas da imagem, ou `no kernel` se ela está vazia |
 | `ERROR: failed to move <file> to /lib/modules; starting without kernel modules` | a imagem montou mas não foi para a raiz nova |
