@@ -1,7 +1,7 @@
 """Update a console over the USB cable: `r36os push [--build <timestamp>]` (usb-device-access D6).
 
-The console must have BOOT/ssh/ from `r36os flash --ssh-key`. Steps, all through ssh to
-root@10.55.0.1 with the known_hosts of this PC (r36os.sshkeys):
+The console must be on with the cable on its OTG port. Steps, all through ssh to
+root@10.55.0.1 (root has no password on the USB cable, D4):
 
 1. read the console: VERSION, board, battery, free space on ROMS and BOOT, and the SHA256
    of the files on BOOT; refuse below 20% battery;
@@ -28,11 +28,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from r36os import image, sshkeys
+from r36os import image
 from r36os.archive import images_dir
 from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import IMAGES
 
+CONSOLE_ADDR = "10.55.0.1"       # the console on the USB network (D5)
 STAGING = "/storage/.lume-push"
 MIN_BATTERY = 20
 ANDROID_SECTOR = 172032          # GA36 kernel boot image (r36os.vendor.ANDROID_BOOT_SECTOR)
@@ -45,18 +46,15 @@ class PushError(RuntimeError):
 
 
 class Remote:
-    """Commands on the console over ssh (replaced by a fake in the tests)."""
+    """Commands on the console over ssh (replaced by a fake in the tests).
 
-    def __init__(self, host: str = sshkeys.CONSOLE_ADDR, identity: Path | None = None):
-        known = sshkeys.known_hosts_path()
-        if not known.exists():
-            raise PushError(f"no {known}: write the card once with "
-                            "`r36os flash console /dev/sdX --update --ssh-key ~/.ssh/<key>.pub`")
-        self.base = ["ssh", "-o", f"UserKnownHostsFile={known}", "-o", "StrictHostKeyChecking=yes",
-                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]
-        if identity is not None:
-            self.base += ["-i", str(identity), "-o", "IdentitiesOnly=yes"]
-        self.base.append(f"root@{host}")
+    Root has no password on the USB cable (D4) and the console makes a new host key every
+    boot, so nothing is checked against or written to the user's known_hosts."""
+
+    def __init__(self, host: str = CONSOLE_ADDR):
+        self.base = ["ssh", "-o", "UserKnownHostsFile=/dev/null",
+                     "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
+                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"root@{host}"]
 
     def run(self, cmd: str, stdin: Path | None = None) -> str:
         with (stdin.open("rb") if stdin else open("/dev/null", "rb")) as f:
@@ -64,8 +62,8 @@ class Remote:
         if r.returncode != 0:
             err = (r.stderr or b"").decode(errors="replace").strip()
             if r.returncode == 255:
-                raise PushError(f"ssh to the console failed: {err or 'no answer'} (is the cable "
-                                "on the OTG port, and the key of `flash --ssh-key` yours?)")
+                raise PushError(f"ssh to the console failed: {err or 'no answer'} (is the "
+                                "console on, with the cable on its OTG port?)")
             raise PushError(f"on the console, `{cmd}` failed ({r.returncode}): {err}")
         return r.stdout.decode(errors="replace")
 
@@ -254,9 +252,9 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     return 0
 
 
-def main_push(build: str, yes: bool, identity: Path | None) -> int:
+def main_push(build: str, yes: bool) -> int:
     try:
-        return push(build, Remote(identity=identity), yes)
-    except (PushError, sshkeys.SshKeyError) as e:
+        return push(build, Remote(), yes)
+    except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

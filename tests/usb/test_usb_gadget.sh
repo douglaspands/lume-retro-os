@@ -63,11 +63,6 @@ echo "dropbear \$*" >> "$LOG"
 [ -f "$W/db.lines" ] && cat "$W/db.lines" >&2
 while :; do sleep 1; done
 EOF
-cat > "$W/bin/dropbearconvert" <<EOF
-#!/bin/sh
-echo "dropbearconvert \$*" >> "$LOG"
-cp "\$3" "\$4"
-EOF
 chmod +x "$W/bin/"*
 
 export BOARD_FILE="$W/board" CONFIGFS="$W/cfg" UDC_CLASS="$W/udc" FFS_DIR="$W/ffs" \
@@ -76,8 +71,7 @@ export BOARD_FILE="$W/board" CONFIGFS="$W/cfg" UDC_CLASS="$W/udc" FFS_DIR="$W/ff
 	MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" MOUNTPOINT="$W/bin/mountpoint" \
 	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os" \
 	LOGS_RAM="$W/logs" NET_CLASS="$W/net" IP="$W/bin/ip" UDHCPD="$W/bin/udhcpd" \
-	DROPBEAR="$W/bin/dropbear" DROPBEARCONVERT="$W/bin/dropbearconvert" \
-	BOOT_SSH="$W/bootssh" ROOT_SSH="$W/rootssh"
+	DROPBEAR="$W/bin/dropbear"
 EV="$W/logs/events.pending"
 G="$W/cfg/usb_gadget/lume"
 echo ga36 > "$W/board"
@@ -170,13 +164,12 @@ sleep 1
 kill -TERM $RUN; wait $RUN
 check "run: GA36 has no role switch, the MUSB follows the ID pin by itself" '! grep -q "port role" $W/run.out && [ ! -e "$G" ]'
 
-### USB network and root by key (4.1, 4.2): the PC brings the NCM link up and down
-mkdir -p "$W/net/usb0" "$W/bootssh"
+### USB network and root without a password (4.1, 4.2): the PC brings the NCM link up and down
+mkdir -p "$W/net/usb0"
 echo 0 > "$W/net/usb0/carrier"
-echo "ssh-ed25519 AAAAC3Nza user@pc" > "$W/bootssh/authorized_keys"
-echo "-----BEGIN OPENSSH PRIVATE KEY-----" > "$W/bootssh/ssh_host_ed25519_key"
-printf '%s\n' "[201] Nov 13 19:00:00 Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:abc from 10.55.0.2:40000" \
-	"[202] Nov 13 19:00:05 Exit before auth from <10.55.0.2:40002>: (user 'root', 1 fails): Max auth tries reached - user 'root'" > "$W/db.lines"
+# the lines dropbear 2026.91 writes (seen in Alpine with dropbear -B and an empty root password)
+printf '%s\n' "[201] Nov 13 19:00:00 Auth succeeded with blank password for 'root' from 10.55.0.2:40000" \
+	"[202] Nov 13 19:00:05 Exit before auth from <10.55.0.2:40002>: (user 'game', 1 fails): Max auth tries reached - user 'game'" > "$W/db.lines"
 rm -f "$EV"; : > "$LOG"
 $GADGET_SH run > "$W/run.out" 2>&1 &
 RUN=$!
@@ -189,19 +182,17 @@ check "net: 10.55.0.1/30 on the interface when the link comes up" 'grep -qx "ip 
 C="$W/udhcpd.conf.seen"
 check "net: udhcpd hands out 10.55.0.2 only" 'grep -qx "start 10.55.0.2" $C && grep -qx "end 10.55.0.2" $C && grep -qx "max_leases 1" $C && grep -qx "interface usb0" $C && grep -qx "option subnet 255.255.255.252" $C'
 check "net: no router and no DNS for the PC" '! grep -v "^#" $C | grep -qiE "router|dns|domain"'
-check "ssh: authorized_keys copied with mode 0600" 'cmp -s $W/bootssh/authorized_keys $W/rootssh/authorized_keys && [ "$(stat -c %a $W/rootssh/authorized_keys)" = 600 ] && [ "$(stat -c %a $W/rootssh)" = 700 ]'
-check "ssh: host key of BOOT converted in RAM" 'grep -qx "dropbearconvert openssh dropbear $W/bootssh/ssh_host_ed25519_key $W/run/dropbear_ed25519_host_key" "$LOG"'
-check "ssh: keys only, no forwarding, on 10.55.0.1 only, with that host key" 'grep -qx "dropbear -F -E -s -j -k -p 10.55.0.1:22 -r $W/run/dropbear_ed25519_host_key" "$LOG"'
-check "ssh: events for the network and both logins" 'grep -q " usb OK network: up on usb0 (console 10.55.0.1, PC 10.55.0.2)$" $EV && grep -q " usb OK ssh: login accepted: .root. with ssh-ed25519 key SHA256:abc from 10.55.0.2:40000$" $EV && grep -q " usb FAIL ssh: login refused: from <10.55.0.2:40002>: (user .root., 1 fails)" $EV'
+check "ssh: root with no password, host key made in RAM, no forwarding, on 10.55.0.1 only" 'grep -qx "dropbear -F -E -R -B -j -k -p 10.55.0.1:22" "$LOG"'
+check "ssh: events for the network and both logins" 'grep -q " usb OK network: up on usb0 (console 10.55.0.1, PC 10.55.0.2)$" $EV && grep -q " usb OK ssh: login accepted: with blank password for .root. from 10.55.0.2:40000$" $EV && grep -q " usb FAIL ssh: login refused: from <10.55.0.2:40002>: (user .game., 1 fails)" $EV'
 db=$(cat "$W/run/dropbear.pid"); dh=$(cat "$W/run/udhcpd.pid")
 echo 0 > "$W/net/usb0/carrier"
 sleep 0.8
 check "net: link down stops udhcpd and dropbear and clears the address" '! kill -0 $db 2>/dev/null && ! kill -0 $dh 2>/dev/null && grep -qx "ip addr flush dev usb0" "$LOG" && grep -q " usb OK network: down on usb0$" $EV'
-### without authorized_keys: no SSH server at all
-rm -f "$W/bootssh/authorized_keys" "$W/run/dropbear_ed25519_host_key"; : > "$LOG"
+### the link comes up again: both serve again, with nothing to set up on the card
+: > "$LOG"
 echo 1 > "$W/net/usb0/carrier"
 sleep 0.8
-check "ssh: without authorized_keys no dropbear, and an event says so" '! grep -q "^dropbear " "$LOG" && grep -q " usb OK ssh: disabled (no authorized_keys)$" $EV && grep -q "^udhcpd " "$LOG"'
+check "ssh: a new link starts udhcpd and dropbear again" 'grep -q "^udhcpd " "$LOG" && grep -q "^dropbear " "$LOG"'
 kill -TERM $RUN; wait $RUN
 check "run: TERM with the link up stops everything" '[ ! -e "$G" ] && [ ! -e "$W/run/udhcpd.pid" ]'
 

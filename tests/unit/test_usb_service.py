@@ -41,8 +41,17 @@ def test_the_usb_network_has_its_dhcp_server():
     # Alpine's busybox has no udhcpd applet: it comes with busybox-extras (GA36 proof with
     # build 20261113-192923, the PC got no address)
     packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
-    for name in ("umtprd", "dropbear", "dropbear-convert", "busybox-extras"):
+    for name in ("umtprd", "dropbear", "busybox-extras"):
         assert name in packages, name
+    assert "dropbear-convert" not in packages      # no host key on the card any more (D4)
+
+
+def test_root_logs_in_without_a_password_on_the_cable_only():
+    # D4 (decided 2026-11-13): open root over ssh, on the USB network address only
+    gadget = GADGET.read_text()
+    assert '"$DROPBEAR" -F -E -R -B -j -k -p "$CONSOLE_ADDR:22"' in gadget
+    assert "CONSOLE_ADDR=10.55.0.1" in gadget
+    assert "passwd -d root" in CONFIGURE
 
 
 def test_overlay_scripts_are_executable():

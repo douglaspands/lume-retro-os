@@ -3,8 +3,8 @@
 ## Purpose
 
 Define a porta OTG dos consoles: como o papel da porta (host ou device) é escolhido e o que
-um PC ligado a ela pode fazer, com acesso aos arquivos para qualquer usuário e acesso root
-só com chave.
+um PC ligado a ela pode fazer: acesso aos arquivos e acesso root, os dois sem senha e só pelo
+cabo.
 
 ## ADDED Requirements
 
@@ -43,22 +43,23 @@ saves, `logs/` e `system/`), para leitura e escrita, sem senha e sem parar o fro
 - **WHEN** o usuário lista o que o console expõe por MTP
 - **THEN** só o conteúdo da `ROMS` aparece, sem a `BOOT` nem o `SYSTEM`
 
-### Requirement: Acesso root só com chave
+### Requirement: Acesso root sem senha, só pelo cabo
 No papel device, o console MUST oferecer uma rede USB com um servidor SSH que aceita login de
-root **só** por chave pública listada em `BOOT/ssh/authorized_keys`. Login por senha MUST
-ser recusado, e o servidor SSH MUST NOT escutar em outra interface além da rede USB.
+root sem senha e sem chave, em todo cartão, sem configuração no PC nem no cartão. O servidor
+SSH MUST NOT escutar em outra interface além da rede USB e MUST NOT permitir encaminhamento
+de portas nem de agente.
 
-#### Scenario: PC com a chave
-- **WHEN** o cartão tem `BOOT/ssh/authorized_keys` com a chave do PC e o PC abre `ssh root@<endereço do console>` pela rede USB
-- **THEN** o login é aceito sem senha e o `events.log` registra `usb OK ssh: root login from <endereço>`
+#### Scenario: Root pelo cabo
+- **WHEN** o PC, ligado à porta OTG, abre `ssh root@<endereço do console>` pela rede USB
+- **THEN** o login é aceito sem pedir senha nem chave e o `events.log` registra `usb OK ssh: login accepted: … for 'root' from <endereço>`
 
-#### Scenario: Cartão sem chave
-- **WHEN** o cartão não tem `BOOT/ssh/authorized_keys`
-- **THEN** o servidor SSH não é iniciado, a função de arquivos continua disponível e o `events.log` registra `usb OK ssh: disabled (no authorized_keys)`
+#### Scenario: Login recusado
+- **WHEN** uma conexão termina antes de autenticar (por exemplo, outro usuário que não o root)
+- **THEN** o `events.log` registra `usb FAIL ssh: login refused: from <endereço>…`
 
-#### Scenario: Chave desconhecida ou senha
-- **WHEN** o PC tenta entrar com uma chave fora da lista ou com senha
-- **THEN** o login é recusado e o `events.log` registra `usb FAIL ssh: login refused from <endereço>`
+#### Scenario: Nenhuma outra interface
+- **WHEN** o console tem outra interface de rede ativa
+- **THEN** o servidor SSH não aceita conexões por ela
 
 ### Requirement: Endereços fixos da rede USB
 A rede USB MUST usar endereços fixos e iguais nos dois consoles, conhecidos pelo PC sem

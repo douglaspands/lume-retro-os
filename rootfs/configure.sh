@@ -11,7 +11,8 @@ adduser -D -u 1000 -h /home/game -s /sbin/nologin game
 for g in video input audio; do addgroup game "$g"; done
 getent group seat >/dev/null && addgroup game seat
 
-# root without a password, accepted only on the debug serial (validation phase).
+# root without a password: on the debug serial (securetty) and over ssh on the USB cable
+# (dropbear -B on 10.55.0.1 only, usb-device-access D4); never on another interface.
 passwd -d root >/dev/null
 echo "$SERIAL_TTY" > /etc/securetty
 

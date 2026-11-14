@@ -136,26 +136,31 @@ rodando e não há risco de dois sistemas montarem a mesma partição.
 desmontar a `ROMS` (o RetroArch para) e um PC que não ejeta pode corromper o exFAT. Fica
 como extra futuro, fora desta change.
 
-### D4. Root por `dropbear` com chave, e chave de host única por PC
+### D4. Root por `dropbear`, aberto e sem senha, só no cabo USB
 
-- O `dropbear` sobe só se `/boot/ssh/authorized_keys` existir, com `-s` (sem senha), `-p
-  10.55.0.1:22` (só a rede USB) e sem encaminhamento (`-j -k`). Como a FAT não tem
-  permissões, o serviço copia a lista para `/root/.ssh/authorized_keys` (camada em RAM)
-  com modo `0600`.
-- **Chave de host:** o `r36os flash --ssh-key <pub>` gera uma vez, no PC, uma chave
-  ed25519 em `~/.config/r36os/ssh_host_ed25519` e a grava em `BOOT/ssh/` junto com a
-  chave pública do usuário. No console, o `dropbearconvert` a converte para a RAM a cada
-  boot. Assim:
-  - o console não grava nada no cartão para ter SSH;
-  - a chave privada fica na `BOOT`, que o MTP não expõe;
-  - todos os cartões gravados por esse PC têm a mesma chave de host, e o `known_hosts`
-    não avisa ao trocar de cartão ou de console.
-- **Alternativas descartadas:** gerar a chave no console e guardá-la em `ROMS/system/`
-  (ficaria visível por MTP e mudaria a lista de persistência do `boot-runtime`); gerar a
-  cada boot (o PC avisaria de troca de chave a cada reinício); OpenSSH (maior que o
-  `dropbear`, sem ganho aqui).
-- O `flash --update` preserva `BOOT/ssh/` (lê antes e regrava depois), porque a `BOOT` é
-  regravada inteira.
+**Revisto em 2026-11-13 (decisão do usuário):** o root pelo cabo é aberto em todo cartão,
+sem chave a gravar. A primeira versão (chave pública em `BOOT/ssh/authorized_keys`, gravada
+por `r36os flash --ssh-key`, com uma chave de host por PC) foi implementada e retirada.
+
+- O `dropbear` sobe sempre que o PC liga a rede USB, com `-B` (aceita a senha vazia do
+  root, que o `rootfs/configure.sh` já deixa vazia para a serial de debug), `-p
+  10.55.0.1:22` (só a rede USB, nunca outra interface) e sem encaminhamento (`-j -k`).
+- **Chave de host:** o `dropbear -R` gera a chave no primeiro login, em `/etc/dropbear/`,
+  que no console fica na camada em RAM. Ela muda a cada boot. O `push` não confere a chave
+  de host nem grava no `known_hosts` do usuário (`StrictHostKeyChecking=no`,
+  `UserKnownHostsFile=/dev/null`). Num `ssh` à mão, as mesmas duas opções evitam o aviso
+  de chave trocada.
+- **Medido no Alpine (dropbear 2026.91 com `-B`):** o cliente OpenSSH em `BatchMode` entra
+  sem pedir nada, e o log registra `Auth succeeded with blank password for 'root' from
+  <endereço>`, que vira o evento `usb OK ssh: login accepted`.
+- **Por que é aceitável:** só alcança o SSH quem tem o console e um cabo na porta OTG, e
+  essa pessoa já pode tirar o cartão e ler ou gravar tudo. A senha do root continua vazia
+  só na serial de debug e na rede do cabo.
+- **Alternativas descartadas:** chave pública por usuário em `BOOT/ssh/` (a primeira
+  versão: exigia um `flash --ssh-key` pelo leitor antes do primeiro uso); um par de chaves
+  do projeto publicado no repositório (P-51: equivale a uma senha conhecida, com mais
+  passos); senha fixa documentada (pede a senha a cada login sem proteger nada, porque ela
+  seria pública); OpenSSH (maior que o `dropbear`, sem ganho aqui).
 
 ### D5. Rede USB fixa: console 10.55.0.1, PC 10.55.0.2, sem rota
 
@@ -192,8 +197,11 @@ e no `push`.
   reenvia tudo.
 - A troca arquivo a arquivo exige, na `BOOT`, espaço livre para o maior arquivo (um
   `SYSTEM`, até 448 MiB); o `push` confere isso antes do passo 4.
-- O `push` usa `ssh` com `UserKnownHostsFile` próprio (`~/.config/r36os/known_hosts`),
-  preenchido com a chave de host do D4: não toca no `known_hosts` do usuário.
+- O `push` entra como root sem senha (D4), sem conferir a chave de host, que muda a cada
+  boot, e sem tocar no `known_hosts` do usuário.
+- **Implementação (2026-11-13):** o console não tem `rsync`; cada arquivo vai por `ssh ...
+  "cat > arquivo"`, sem pacote a mais, e só os arquivos cujo SHA256 difere da `BOOT` atual
+  são enviados.
 
 **Alternativa descartada:** gravar a `BOOT` inteira como imagem pelo cabo (como o `flash
 --update`): exigiria desmontar a `BOOT` com o sistema rodando a partir dela (`SYSTEM` é um
@@ -216,20 +224,20 @@ arquivo dentro da `BOOT`), o que não é possível.
   aceita isso sem erro.
 - **[Windows e macOS]** → o Windows 10/11 tem driver de NCM e de MTP; o macOS não tem MTP
   nativo. Fora do alvo; documentado.
-- **[Chave privada de host na BOOT]** → quem tem o cartão na mão lê a chave e pode se passar
-  pelo console. Aceito: quem tem o cartão já tem tudo; a chave serve a um cabo, não a uma
-  rede.
+- **[Root sem senha pelo cabo]** → qualquer pessoa com o console e um cabo entra como root.
+  Aceito (D4): essa pessoa já pode tirar o cartão. O SSH nunca escuta fora de `10.55.0.1`;
+  uma rede de verdade (Wi-Fi, P-15) exige rever isso antes.
 - **[Consumo e tempo de boot]** → o `umtprd` precisa estar rodando antes do `UDC`, mesmo
   sem cabo; o `dropbear` e o `udhcpd` só sobem quando a `usb0` fica ativa. Custo medido na
   tarefa 4.4 (memória e tempo de boot até o frontend).
 
 ## Migration Plan
 
-- Cartões existentes: sem a opção `--ssh-key`, nada muda além do MTP, que aparece ao ligar
-  o cabo. Para ter root pelo cabo, um `flash --update --ssh-key ~/.ssh/id_ed25519.pub`
-  pelo leitor, uma vez; depois disso, `r36os push`.
-- Rollback: tirar `BOOT/ssh/` desliga o SSH; o serviço `r36os-usb` pode ser desligado sem
-  afetar o resto do boot.
+- Cartões existentes: um `flash --update` com um build desta change, pelo leitor, uma vez;
+  depois disso MTP, `ssh root@10.55.0.1` e `r36os push` funcionam pelo cabo. Uma
+  `BOOT/ssh/` deixada pela primeira versão do D4 é ignorada e some no próximo
+  `flash --update`.
+- Rollback: o serviço `r36os-usb` pode ser desligado sem afetar o resto do boot.
 
 ## Open Questions
 

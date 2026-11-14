@@ -31,11 +31,10 @@ exfatprogs
 jq
 
 # USB device role on the OTG port (usb-device-access D3, D4): MTP server for ROMS and the
-# SSH server of the USB network, both started by r36os-usb (no dropbear-openrc service);
-# dropbearconvert turns the OpenSSH host key of BOOT/ssh/ into the dropbear format
+# SSH server of the USB network, both started by r36os-usb (the dropbear service that
+# Alpine adds with OpenRC is not enabled)
 umtprd
 dropbear
-dropbear-convert
 # udhcpd of the USB network: in Alpine it is in busybox-extras, not in busybox
 busybox-extras
 

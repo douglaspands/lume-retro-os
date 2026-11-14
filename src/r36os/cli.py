@@ -39,17 +39,12 @@ def _parser() -> argparse.ArgumentParser:
     f.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     f.add_argument("--eject", action="store_true",
                    help="safely unmount and power off / eject the device after writing")
-    f.add_argument("--ssh-key", type=Path, metavar="PUB",
-                   help="public key allowed to log in as root over the USB cable "
-                        "(BOOT/ssh/; --update keeps the keys already on the card)")
 
     u = sub.add_parser("push", help="update the console over the USB cable (OTG port), "
                                     "without taking the card out")
     u.add_argument("--build", default="latest", metavar="TIMESTAMP",
                    help="console build from out/images/console/ (default: latest)")
     u.add_argument("--yes", action="store_true", help="do not ask for confirmation")
-    u.add_argument("--identity", type=Path, metavar="KEY",
-                   help="private key for ssh (default: your ssh agent and ~/.ssh keys)")
 
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
@@ -102,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.flash import main_flash
 
             return main_flash(get_image(args.target), args.device, args.update,
-                              args.build, args.yes, args.eject, args.ssh_key)
+                              args.build, args.yes, args.eject)
         if args.command == "push":
             from r36os.push import main_push
 
-            return main_push(args.build, args.yes, args.identity)
+            return main_push(args.build, args.yes)
         if args.command == "eject":
             from r36os.flash import main_eject
 

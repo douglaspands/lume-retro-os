@@ -192,10 +192,14 @@ def test_no_room_on_boot_is_refused(build, tmp_path):
     assert not [s for s in c.log if s.startswith("send")]
 
 
-def test_without_the_key_of_flash_it_refuses(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
-    with pytest.raises(push.PushError, match="--ssh-key"):
-        push.Remote()
+def test_ssh_needs_no_key_and_leaves_known_hosts_alone():
+    # root has no password on the cable (D4) and the host key is new every boot: batch
+    # mode, nothing read from or written to the user's known_hosts
+    base = push.Remote().base
+    assert base[-1] == "root@10.55.0.1"
+    for opt in ("UserKnownHostsFile=/dev/null", "StrictHostKeyChecking=no", "BatchMode=yes"):
+        assert opt in base
+    assert "-i" not in base
 
 
 def test_a_build_without_the_boot_list_is_refused(build, tmp_path):
@@ -206,4 +210,4 @@ def test_a_build_without_the_boot_list_is_refused(build, tmp_path):
 
 def test_cli_push():
     args = cli._parser().parse_args(["push", "--build", BUILD, "--yes"])
-    assert (args.command, args.build, args.yes, args.identity) == ("push", BUILD, True, None)
+    assert (args.command, args.build, args.yes) == ("push", BUILD, True)

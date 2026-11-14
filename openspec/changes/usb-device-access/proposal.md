@@ -18,17 +18,16 @@ de usuário e em modo root, para parar de tirar o cartão (P-48 em `docs/PENDENC
 - **Gadget USB "Lume" no papel device**, igual nos dois consoles, com duas funções:
   - **arquivos sempre**: a `ROMS` (jogos, BIOS, saves, `logs/`, `system/`) aparece no PC
     por MTP, sem parar o RetroArch e sem senha;
-  - **root só com chave**: uma rede USB (NCM) com um servidor SSH que aceita só as chaves
-    públicas de `BOOT/ssh/authorized_keys`. Sem esse arquivo, o console não aceita login
-    pelo cabo.
+  - **root pelo cabo**: uma rede USB (NCM) com um servidor SSH que aceita o root sem senha
+    e sem chave, só nessa rede (revisto em 2026-11-13: a primeira versão exigia uma chave
+    pública em `BOOT/ssh/`).
 - **Kernel:** gadget por configfs com as funções MTP (FunctionFS), NCM e o controlador da
   OTG em modo dual-role nos dois consoles (no GA36 o configfs hoje está desligado).
 - **Userland:** servidor MTP e servidor SSH na lista comum de pacotes, iniciados só quando o
   papel device está ativo; nenhum deles escuta fora da interface USB.
 - **Host:** `r36os push` envia um build para o console pelo cabo, confere o SHA256 dos
   arquivos **no próprio console**, só então troca os arquivos da `BOOT` (e, no GA36, a
-  imagem de boot do setor 172032, onde fica o kernel) e reinicia. A chave pública do
-  usuário e a chave de host do console entram na `BOOT/ssh/` por opção explícita do `flash`.
+  imagem de boot do setor 172032, onde fica o kernel) e reinicia.
 
 Fora do escopo: o papel host da porta (P-38); exportar a `ROMS` inteira como disco USB
 (mass storage), que exige parar o RetroArch; Wi-Fi e Bluetooth (P-15); acesso ao cartão
@@ -39,12 +38,13 @@ pelo bootloader (comando `ums` do U-Boot), que fica como investigação registra
 ### New Capabilities
 
 - `usb-otg`: a porta OTG dos consoles: detecção do papel (host ou device), o gadget do
-  papel device, o acesso aos arquivos por MTP e o acesso root por SSH com chave.
+  papel device, o acesso aos arquivos por MTP e o acesso root por SSH, sem senha e só pelo
+  cabo.
 
 ### Modified Capabilities
 
-- `system-image`: a `BOOT` pode levar `ssh/` (só por opção explícita do `flash`), e o
-  console aceita atualização pelo cabo (`r36os push`), além do `flash --update`.
+- `system-image`: o console aceita atualização pelo cabo (`r36os push`), além do
+  `flash --update`.
 
 ## Impact
 
@@ -55,9 +55,9 @@ pelo bootloader (comando `ums` do U-Boot), que fica como investigação registra
 - **Rootfs:** `rootfs/packages.txt` (servidor MTP e SSH), serviço OpenRC novo do gadget em
   `rootfs/overlay/etc/init.d/`, scripts em `rootfs/overlay/usr/libexec/r36os/`, eventos
   novos no `events.log` (`docs/LOGS.md`).
-- **Host:** `src/r36os/cli.py` e módulo novo do `push`; `flash` com a opção da chave;
-  `README.md` e `docs/BRINGUP-*.md`.
-- **Segurança:** hoje o root não tem senha e só entra pela serial de debug; continua assim.
-  Pelo cabo, root só com chave, e o SSH não escuta em outra interface.
+- **Host:** `src/r36os/cli.py` e módulo novo do `push`; `README.md` e `docs/BRINGUP-*.md`.
+- **Segurança:** o root não tem senha e entrava só pela serial de debug. Pelo cabo, ele
+  passa a entrar também por SSH, sem senha (decisão do usuário, 2026-11-13), e o SSH não
+  escuta em outra interface: só quem tem o console e um cabo chega a ele.
 - **Pendências:** `docs/PENDENCIAS.md`: o P-48 aponta para esta change; o P-38 passa a
   depender da detecção de papel definida aqui.

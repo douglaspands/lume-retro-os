@@ -17,9 +17,8 @@
 #
 # USB network (D5): when the PC brings the NCM link up, the console takes 10.55.0.1/30 and
 # udhcpd hands out 10.55.0.2 only, with no router and no DNS, so the PC keeps its own
-# route and DNS. Root over that network (D4): dropbear, only with BOOT/ssh/authorized_keys,
-# key logins only (-s), no forwarding (-j -k), listening on 10.55.0.1 only, with the host
-# key of BOOT/ssh/ converted in RAM. Both stop when the link goes down.
+# route and DNS. Root over that network (D4): dropbear, root with no password, no
+# forwarding, listening on 10.55.0.1 only. Both stop when the link goes down.
 #
 # Every message also goes to the kernel log (KMSG), so the logd trace keeps it; port,
 # network and login changes are usb events of events.log (logs.sh).
@@ -30,8 +29,7 @@
 # MOUNT, UMOUNT, MOUNTPOINT, RMDIR, KMSG, READY_TRIES (tenths of a second waiting for
 # umtprd), ROLE_CLASS (default /sys/class/usb_role), EXTCON_CLASS (default
 # /sys/class/extcon), POLL (seconds between two looks at the port), USB_LIBDIR (lib.sh and
-# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR,
-# DROPBEARCONVERT, BOOT_SSH (default /boot/ssh), ROOT_SSH (default /root/.ssh).
+# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR.
 BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
 CONFIGFS=${CONFIGFS:-/sys/kernel/config}
 UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
@@ -55,9 +53,6 @@ NET_CLASS=${NET_CLASS:-/sys/class/net}
 IP=${IP:-ip}
 UDHCPD=${UDHCPD:-udhcpd}
 DROPBEAR=${DROPBEAR:-dropbear}
-DROPBEARCONVERT=${DROPBEARCONVERT:-dropbearconvert}
-BOOT_SSH=${BOOT_SSH:-/boot/ssh}
-ROOT_SSH=${ROOT_SSH:-/root/.ssh}
 
 . "${USB_LIBDIR:-/usr/libexec/r36os}/lib.sh"
 . "${USB_LIBDIR:-/usr/libexec/r36os}/logs.sh"
@@ -195,42 +190,26 @@ ssh_log() {
 	local l
 	while IFS= read -r l; do
 		case "$l" in
-		*"auth succeeded for"*)
-			event usb OK "ssh: login accepted: ${l#*auth succeeded for }" ;;
+		*"uth succeeded "*)
+			event usb OK "ssh: login accepted: ${l#*uth succeeded }" ;;
 		*"Exit before auth"*)
 			event usb FAIL "ssh: login refused: ${l#*Exit before auth }" ;;
 		esac
 	done
 }
 
-# Root over the USB network (D4), only with BOOT/ssh/authorized_keys
+# Root over the USB network (D4, decided 2026-11-13): open, root with its empty password
+# (-B), on 10.55.0.1 only, no forwarding (-j -k). Only someone holding the console and a
+# cable reaches it, and that person can take the card out anyway. The host key is made by
+# dropbear at the first login (-R) in /etc/dropbear, which is RAM: a new one every boot.
 ssh_start() {
-	local hostkey="$USB_RUN/dropbear_ed25519_host_key" keyarg
-	if [ ! -s "$BOOT_SSH/authorized_keys" ]; then
-		event usb OK "ssh: disabled (no authorized_keys)"
-		return 0
-	fi
-	# the FAT has no permissions: a copy in the RAM layer with the modes dropbear wants
-	mkdir -p "$ROOT_SSH"
-	chmod 700 "$ROOT_SSH"
-	cp "$BOOT_SSH/authorized_keys" "$ROOT_SSH/authorized_keys"
-	chmod 600 "$ROOT_SSH/authorized_keys"
-	if [ -s "$hostkey" ] || { [ -s "$BOOT_SSH/ssh_host_ed25519_key" ] &&
-		"$DROPBEARCONVERT" openssh dropbear "$BOOT_SSH/ssh_host_ed25519_key" "$hostkey" \
-			>/dev/null 2>&1; }; then
-		keyarg="-r $hostkey"
-	else
-		# no host key of this PC on the card: dropbear makes one (the PC will warn)
-		keyarg="-R"
-		event usb FAIL "ssh: no usable host key in BOOT/ssh/, using a generated one"
-	fi
 	rm -f "$USB_RUN/dropbear.fifo"
 	mkfifo "$USB_RUN/dropbear.fifo"
 	ssh_log < "$USB_RUN/dropbear.fifo" > /dev/null 2>&1 &
-	# shellcheck disable=SC2086
-	"$DROPBEAR" -F -E -s -j -k -p "$CONSOLE_ADDR:22" $keyarg 2> "$USB_RUN/dropbear.fifo" &
+	mkdir -p /etc/dropbear 2>/dev/null
+	"$DROPBEAR" -F -E -R -B -j -k -p "$CONSOLE_ADDR:22" 2> "$USB_RUN/dropbear.fifo" &
 	echo $! > "$USB_RUN/dropbear.pid"
-	say "ssh on $CONSOLE_ADDR:22 (keys of BOOT/ssh/authorized_keys only)"
+	say "ssh on $CONSOLE_ADDR:22 (root, no password, USB cable only)"
 }
 
 stop_pid() {  # name
