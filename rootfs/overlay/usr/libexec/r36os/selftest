@@ -188,10 +188,10 @@ phase_first() {
 	# the session's frontend log, which this RetroArch run does not write (it logs to
 	# logs-game.log), so here it may be empty.
 	check logs-metrics-fps 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q ",content,fps,fps_nominal$" && grep -qE ",game,[^,]*,[^,]*,[0-9]+\.[0-9],[0-9.]*$" $LOGS/metrics/boot-1.csv' "$(grep ",game," $LOGS/metrics/boot-1.csv | tail -n 2 | tr '\n' '|')"
-	# Wi-Fi and Bluetooth by USB dongle (usb-device-access 8.2, 8.3): the services run in
-	# the vm too (no dongle), and the RetroArch network commands (UDP 55355 = D83B) listen
-	# on 127.0.0.1 (0100007F) only, never on every interface (00000000)
-	check wireless-services 'rc-service dbus status >/dev/null 2>&1 && rc-service networkmanager status >/dev/null 2>&1 && rc-service bluetooth status >/dev/null 2>&1' "$(for s in dbus networkmanager bluetooth; do printf "%s=%s " $s "$(rc-service $s status 2>&1 | tr -d " *" | head -c 20)"; done)"
+	# Wi-Fi and Bluetooth by USB dongle (usb-device-access 8.2): dbus and NetworkManager run
+	# in the vm too (no dongle); bluetooth is enabled on the consoles only (the vm kernel
+	# has no Bluetooth), so here it must not be in the default runlevel
+	check wireless-services 'rc-service dbus status >/dev/null 2>&1 && rc-service networkmanager status >/dev/null 2>&1 && [ ! -e /etc/runlevels/default/bluetooth ]' "$(for s in dbus networkmanager bluetooth; do printf "%s=%s " $s "$(rc-service $s status 2>&1 | tr -d " *" | head -c 20)"; done)"
 	# OTG port sample (usb-device-access 1.1): the vm has no OTG port, so every trace line
 	# is "usb: none" and there is no usb event
 	check logs-usb 'grep -q " usb: none$" $LOGS/trace/boot-1.log && ! grep " usb: " $LOGS/trace/boot-1.log | grep -qv " usb: none$" && ! grep -q " usb " $LOGS/events.log' "$(grep -c " usb: " $LOGS/trace/boot-1.log 2>/dev/null) usb lines, $(grep -c " usb " $LOGS/events.log 2>/dev/null) usb events"

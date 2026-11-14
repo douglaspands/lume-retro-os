@@ -267,6 +267,9 @@ enquanto o RetroArch rodar os jogos por baixo de outro frontend.
   adaptadores Realtek, 0,8 MiB).
 - **Kernel:** `BT` com `BT_HCIBTUSB` (+ `BT_HCIBTUSB_RTL`), `BT_HIDP` (controles e teclados
   Bluetooth clássicos) e `UHID` (controles BLE pelo `bluez`), como módulos.
+- **Serviço `bluetooth` só nos consoles:** o kernel da VM (`linux-virt` do Alpine) não tem
+  Bluetooth (`# CONFIG_BT is not set`), e o `bluetoothd` caía lá (`test-vm` de 2026-11-13,
+  `bluetooth=crashed`). O `dbus` e o NetworkManager rodam nos três sistemas.
 - **RetroArch:** o driver `bluetoothctl` chama o `bluetoothctl` por `popen`, sem D-Bus no
   build. A política de D-Bus do `bluez` libera o `org.bluez` ao usuário `game`
   (`/etc/dbus-1/system.d/lume-bluetooth.conf`).

@@ -36,10 +36,11 @@ sed -i -e 's/^#*rc_logger=.*/rc_logger="YES"/' /etc/rc.conf
 add() { rc-update add "$1" "$2" >/dev/null; }
 for s in devfs dmesg udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done
-# dbus, networkmanager and bluetooth: Wi-Fi and Bluetooth by USB dongle (usb-device-access
-# D9, D10); the frontend does not wait for them (no dependency)
+# dbus and networkmanager: Wi-Fi by USB dongle (usb-device-access D9); the frontend does not
+# wait for them (no dependency). bluetooth only on the consoles, below (the vm kernel has no
+# Bluetooth, so bluetoothd would crash there).
 for s in seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb r36os-savesync r36os-hostshare \
-	r36os-playlists r36os-hwsummary frontend r36os-selftest dbus networkmanager bluetooth; do
+	r36os-playlists r36os-hwsummary frontend r36os-selftest dbus networkmanager; do
 	add "$s" default
 done
 # Services of the hardware layer (board/<board>/hw-packages.txt), when the board has them
@@ -49,5 +50,9 @@ done
 # Board services that live in the common overlay
 case "$BOARD" in
 r36s) add r36os-jack default; add r36os-audiotest default ;;
+esac
+# Bluetooth by USB dongle (usb-device-access D10): the consoles' kernels have it
+case "$BOARD" in
+ga36|r36s) add bluetooth default ;;
 esac
 for s in killprocs mount-ro savecache; do add "$s" shutdown; done

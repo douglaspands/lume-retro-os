@@ -50,8 +50,12 @@ def test_bluez_answers_the_frontend_user():
 
 def test_services_start_without_holding_the_frontend():
     line = re.search(r'^for s in seatd .*?; do', CONFIGURE, re.S | re.M).group(0)
-    for service in ("dbus", "networkmanager", "bluetooth"):
+    for service in ("dbus", "networkmanager"):
         assert re.search(rf"\b{service}\b", line), service
+    # bluetooth on the consoles only: the vm kernel (linux-virt) has no Bluetooth, and
+    # bluetoothd crashed there (test-vm, 2026-11-13)
+    assert not re.search(r"\bbluetooth\b", line)
+    assert re.search(r"^ga36\|r36s\) add bluetooth default ;;$", CONFIGURE, re.M)
     deps = (OVERLAY / "etc/init.d/frontend").read_text()
     assert not re.search(r"\b(net|networkmanager|bluetooth|dbus)\b",
                          re.search(r"depend\(\) \{(.*?)\n\}", deps, re.S).group(1))
