@@ -383,7 +383,14 @@ phase_lume() {
 	# Settings -> RetroArch (one row above Shut down): the menu opens as launched by the lume
 	# (task 3.6: "Quit" goes back to the launcher) and Fn+Start brings the interface back
 	lume_open screen=settings settings=99
+	# r36os-input restarted under the interface (its service respawns it): the virtual
+	# gamepad comes back as a new node and the lume opens it (the GA36 stopped answering,
+	# 2026-11-14)
+	rc-service r36os-input restart >/dev/null 2>&1
+	wait_for 10 '[ "$(grep -c "^N: Name=\"Lume VM Keyboard\"" /proc/bus/input/devices)" = 1 ]'
+	sleep 1
 	keys up x
+	check lume-input-after-restart 'wait_for 20 ra_running' "r36os-input=$(pidof r36os-input) lume-ui=$(ui_pid)"
 	check lume-retroarch-menu 'wait_for 20 ra_running && tr "\0" "\n" < /proc/$(ra_pid)/environ | grep -qx LUME_RETROARCH_QUIT=launcher' "retroarch=$(ra_pid)"
 	sleep 3
 	request keys-fn-start

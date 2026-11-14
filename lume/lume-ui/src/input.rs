@@ -138,6 +138,7 @@ const fn ioc_read(nr: u64, size: u64) -> u64 {
 }
 
 struct Device {
+    path: std::path::PathBuf,
     fd: OwnedFd,
     abs: [(i32, i32); 2],
     last_dir: [i32; 4], // stick x, stick y, hat x, hat y
@@ -147,13 +148,14 @@ fn has_bit(bits: &[u8], n: usize) -> bool {
     bits.get(n / 8).is_some_and(|b| b & (1 << (n % 8)) != 0)
 }
 
-/// Opens every event device with gamepad buttons or Enter (keyboards).
-fn open_devices() -> Vec<Device> {
+/// Opens every event device with gamepad buttons or Enter (keyboards), except the ones
+/// already open.
+fn open_devices(open: &[Device]) -> Vec<Device> {
     let mut out = Vec::new();
     let Ok(dir) = std::fs::read_dir("/dev/input") else { return out };
     for e in dir.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("event") {
+        if !name.starts_with("event") || open.iter().any(|d| d.path == e.path()) {
             continue;
         }
         let path = std::ffi::CString::new(e.path().as_os_str().as_encoded_bytes()).unwrap();
@@ -174,15 +176,30 @@ fn open_devices() -> Vec<Device> {
                 abs[i] = (info.min, info.max);
             }
         }
-        out.push(Device { fd, abs, last_dir: [0; 4] });
+        out.push(Device { path: e.path(), fd, abs, last_dir: [0; 4] });
     }
     out
 }
 
+/// inotify on /dev/input: a node created, or its owner changed by udev right after.
+fn watch_input_dir() -> Option<OwnedFd> {
+    let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+    if fd < 0 {
+        return None;
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let dir = std::ffi::CString::new("/dev/input").unwrap();
+    (unsafe { libc::inotify_add_watch(fd.as_raw_fd(), dir.as_ptr(), libc::IN_CREATE | libc::IN_ATTRIB) } >= 0).then_some(fd)
+}
+
 /// Runs forever on its own thread: reads the devices and calls `send` for each action
-/// (`true` for a repeat). A device that goes away is dropped.
+/// (`true` for a repeat). A device that goes away is dropped, and a new one is opened: the
+/// virtual gamepad comes back under a new node when r36os-input restarts (respawned by its
+/// service), while the kernel gamepad it grabs stays open here and silent (seen on the GA36,
+/// 2026-11-14: the launcher stopped answering).
 pub fn run(mut send: impl FnMut(Action, bool)) {
-    let mut devs = open_devices();
+    let mut devs = open_devices(&[]);
+    let watch = watch_input_dir();
     let mut rep = Repeater::default();
     loop {
         let now = Instant::now();
@@ -190,10 +207,16 @@ pub fn run(mut send: impl FnMut(Action, bool)) {
             send(a, true);
         }
         let mut pfds: Vec<libc::pollfd> = devs.iter().map(|d| libc::pollfd { fd: d.fd.as_raw_fd(), events: libc::POLLIN, revents: 0 }).collect();
-        let timeout = rep.timeout(Instant::now()).map(|d| d.as_millis() as i32).unwrap_or(if devs.is_empty() { 2000 } else { -1 });
+        if let Some(w) = &watch {
+            pfds.push(libc::pollfd { fd: w.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        }
+        // without the watch, look for devices every 2 s while there is none
+        let idle = if devs.is_empty() && watch.is_none() { 2000 } else { -1 };
+        let timeout = rep.timeout(Instant::now()).map(|d| d.as_millis() as i32).unwrap_or(idle);
         let n = unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as _, timeout) };
-        if devs.is_empty() {
-            devs = open_devices();
+        let dir_changed = watch.is_some() && pfds.pop().is_some_and(|p| p.revents & libc::POLLIN != 0);
+        if watch.is_none() && devs.is_empty() {
+            devs = open_devices(&[]);
             continue;
         }
         if n <= 0 {
@@ -256,6 +279,13 @@ pub fn run(mut send: impl FnMut(Action, bool)) {
         }
         for i in gone.into_iter().rev() {
             devs.remove(i);
+        }
+        // after the removals: a node that comes back under the same name is opened again
+        if let (true, Some(w)) = (dir_changed, &watch) {
+            let mut buf = [0u8; 1024];
+            while unsafe { libc::read(w.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
+            let new = open_devices(&devs);
+            devs.extend(new);
         }
     }
 }

@@ -76,7 +76,7 @@ def expected_checks() -> list[str]:
         # lume-launcher as the frontend (lume-launcher 1.1, 3.5, 3.6, 6.1, 8.1)
         "lume-ui-kms-gles", "lume-ui-idle-cpu", "input-daemon", "cgroup-delegated", "lume-new-game-unlisted",
         "lume-update-lists", "lume-runner-returns", "lume-quit-combo", "lume-game-events",
-        "lume-retroarch-menu", "lume-retroarch-returns",
+        "lume-input-after-restart", "lume-retroarch-menu", "lume-retroarch-returns",
     ]
     cores = [f"core-loaded-{c}" for c in sorted(testdata.core_tests(catalog.load()))]
     return base + cores
