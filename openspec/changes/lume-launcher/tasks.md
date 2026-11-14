@@ -286,6 +286,29 @@
   `logs-cost` em 1,00% (o `logd` não mudou; P-60). Build console 20261114-155915 por push,
   boot 47: o `r36os-input` segura o `event0`, Vol- leva o DAC de 160 a 154 e Vol+ de volta a
   160, e depois de reiniciar o `r36os-input` o Dock andou duas posições, por captura.)*
+- [x] 8.7 Teto do volume em 0 dB no GA36 (decisão do usuário, 2026-11-14): a linha `mixer` do
+  perfil ganha um quarto número opcional, o valor bruto máximo (`mixer GA36MB DAC 3 160`).
+  Com ele, o `r36os-input` lê o valor atual (`amixer sget`), soma ou tira o passo em valor
+  bruto e grava o número limitado ao teto, num processo filho; um nível acima do teto volta a
+  ele no Vol+. O `lume-ui` lê a linha por palavras (o controle pode ter espaços) e, com teto,
+  o 100% do Settings é o teto. R36S e VM ficam como estão. `r36os-input` r3, `lume-launcher`
+  r5. Verificação: testes do host (`test_r36os_input.py` com um mixer falso, `system.rs`) e,
+  no GA36, Vol+ para em 160, Vol- desce, e o Settings mostra 100% em 160.
+  Feito em 2026-11-14 no GA36 com `lume-launcher` r5 e `r36os-input` r3 instalados pelo apk:
+  Vol+ para em 160, Vol- vai a 154/148, 166 volta a 160; o Settings mostra 100% em 160, a
+  seta para a esquerda leva a 95% (152, -6 dB) e duas para a direita voltam a 100% em 160.
+- [x] 8.8 Volume na tela (pedido do usuário, 2026-11-14): o `r36os-input` manda `volume` aos
+  clientes do socket depois de cada Vol+/Vol- aplicado, inclusive no limite; o `lume-ui` fica
+  conectado (reconecta se o daemon reinicia), lê o nível pelo `Mixer` do Settings e, nas
+  Configurações, só atualiza o percentual; nas outras telas, desenha uma barra vertical na
+  lateral direita com os tokens do tema, que some 1,5 s depois do último aperto. `r36os-input`
+  r4, `lume-launcher` r6. Verificação: testes do host (cliente recebe `volume` no limite e fora
+  dele; `lume-ui` com socketpair; tela com a barra e Settings sem ela) e, no GA36, a barra na
+  Dock e na grade e o percentual nas Configurações, por `r36os-shot`.
+  Feito em 2026-11-14 no GA36 (r4 e r6 pelo apk): Vol- na Dock mostra a barra com o nível
+  real (142 = 88%), Vol+ leva a 148 = 92%, a barra some depois do prazo; nas Configurações o
+  Volume vai a 96% (154) sem barra; três Vol+ na Dock param em 160 e a barra mostra 100% também
+  no teto.
 - [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
   `SDL_WaitEvent`, que no KMSDRM não espera de verdade e acorda a cada 1 ms; no GA36, parado,
   usou 42% de um núcleo (1529 ticks em 60 s) com RSS de 58 MB. As threads (controle, índice,
@@ -346,6 +369,30 @@
 - [ ] 9.6 R36S: repetir de 9.1 a 9.5 quando o aparelho estiver em mãos e anotar em
   `docs/BRINGUP-R36S.md`. Se o aparelho não estiver disponível antes do fim do change, mover a
   tarefa para a `r36s-usb-proof`, como foi feito na `push-boot-swap`.
+
+## 10. Fidelidade ao protótipo (pedido do usuário, 2026-11-14)
+
+O `lume-ui` ficou mais simples que o protótipo aprovado (`docs/lume-launcher/prototipo/`,
+`CANDIDATO.md`). Cada item compara a tela do protótipo no navegador, em 640x480, com a do GA36
+pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
+
+- [ ] 10.1 Inventário tela a tela (Dock, grade, menu do jogo, opções do console e do jogo,
+  busca, Configurações, painel Sistema), com o usuário no aparelho: cada diferença vira um
+  item deste grupo. Verificação: lista anotada aqui, com as capturas dos dois lados.
+- [ ] 10.2 Barra de estado: bateria horizontal (nível e carregando) em todas as telas, Wi-Fi
+  e Bluetooth só quando conectados, sem relógio. Verificação: captura no GA36 e o nível igual
+  ao do `/sys/class/power_supply`.
+- [ ] 10.3 Rodapé: botões de letra (A, B, X, Y) na cor de destaque do tema e setas (◀▶ ▲▼) em
+  chip tonal, como no protótipo, em todas as telas. Verificação: captura nos dois temas.
+- [ ] 10.4 Grade: a capa sem o nome escrito dentro; o nome do jogo em foco embaixo, perto do
+  rodapé; cabeçalho com o nome do console e o contador. Verificação: captura com e sem capa.
+- [ ] 10.5 Nomes dos consoles: rótulo grande abaixo do ícone do Dock e no cabeçalho das
+  listas, com o nome do catálogo. Verificação: captura de cada sistema com jogos.
+- [ ] 10.6 Logos dos consoles no quadrado: **decisão pendente do usuário.** A spec
+  `frontend-session` proíbe a distro de trazer logotipo de fabricante, e a `game-launcher`
+  deixa um tema do usuário no cartão trazer imagens próprias. Opções: o `lume-ui` aceita os
+  ícones de um tema no cartão (SVG fornecidos pelo usuário, a imagem sem nenhum) ou fica a
+  sigla. Verificação: conforme a decisão.
 
 ## Workflow follow-up
 

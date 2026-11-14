@@ -278,7 +278,10 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
     atalhos que já usam o Fn.
 - **Socket:** `/run/r36os/input.sock` (`SOCK_SEQPACKET`, grupo `game`). O `lume-run` se conecta
   e recebe `quit`. Sem cliente conectado, o evento é descartado, e é isso que faz o Fn+Start
-  fora de um jogo não fazer nada.
+  fora de um jogo não fazer nada. O `lume-ui` também fica conectado, ignora o `quit` e recebe
+  `volume` depois de cada Vol+ ou Vol- aplicado, inclusive quando o nível já estava no limite;
+  então lê o nível pelo mesmo controle do Settings. Os clientes ignoram mensagens que não
+  conhecem.
 - **Volume:** `KEY_VOLUMEUP` e `KEY_VOLUMEDOWN` mudam o volume do ALSA pelo mesmo controle que o
   `r36os-mixer` usa, em passos fixos, e não são repassados. O `input_volume_*` sai da
   configuração de fábrica do RetroArch. A tarefa 3.4 confere que o `test_retroarch_cfg.py` muda

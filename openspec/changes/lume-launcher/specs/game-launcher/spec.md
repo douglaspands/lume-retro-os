@@ -107,6 +107,17 @@ O item Configurações MUST oferecer Idioma, Tema, Modo lite, Volume, Brilho, Si
 - **WHEN** o usuário escolhe o item RetroArch
 - **THEN** o menu completo do RetroArch abre sem jogo e, ao sair dele, o launcher reaparece nas Configurações
 
+### Requirement: Volume na tela
+Com o launcher na tela, cada aperto dos botões de volume MUST aparecer na hora: nas Configurações, como o percentual do item Volume; nas outras telas, como uma barra vertical na lateral direita, nas cores do tema, que some sozinha pouco depois do último aperto. O aperto no limite (0% ou 100%) MUST mostrar a barra também.
+
+#### Scenario: Barra fora das Configurações
+- **WHEN** o usuário aperta volume - na grade de jogos
+- **THEN** uma barra vertical aparece na lateral direita com o novo nível e some cerca de 1,5 s depois
+
+#### Scenario: Percentual nas Configurações
+- **WHEN** o usuário aperta volume + com as Configurações abertas
+- **THEN** o percentual do item Volume muda na hora, sem a barra
+
 ### Requirement: Desligar com confirmação
 O item Desligar MUST pedir confirmação, com Cancelar como opção inicial. Confirmado, o aparelho MUST gravar o pendente e desligar.
 
