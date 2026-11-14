@@ -290,9 +290,82 @@ pub fn run(mut send: impl FnMut(Action, bool)) {
     }
 }
 
+/// The input daemon's socket (r36os-input, design D8): "volume" after each volume key it
+/// applied, "quit" for Fn+Start (not for the launcher: ignored).
+pub const INPUT_SOCK: &str = "/run/r36os/input.sock";
+
+fn connect_seqpacket(path: &std::path::Path) -> Option<OwnedFd> {
+    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
+    if fd < 0 {
+        return None;
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    let bytes = path.as_os_str().as_encoded_bytes();
+    if bytes.len() >= addr.sun_path.len() {
+        return None;
+    }
+    for (i, b) in bytes.iter().enumerate() {
+        addr.sun_path[i] = *b as libc::c_char;
+    }
+    let len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
+    (unsafe { libc::connect(fd.as_raw_fd(), (&addr as *const libc::sockaddr_un).cast(), len) } == 0).then_some(fd)
+}
+
+/// Reads the messages of one connection until the daemon closes it: on each "volume",
+/// `level` reads the mixer and `send` gets the result.
+pub fn serve_volume(fd: &OwnedFd, level: &mut impl FnMut() -> Option<u8>, send: &mut impl FnMut(u8)) {
+    let mut buf = [0u8; 64];
+    loop {
+        let n = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+        if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if n <= 0 {
+            return;
+        }
+        if &buf[..n as usize] == b"volume" {
+            if let Some(v) = level() {
+                send(v);
+            }
+        }
+    }
+}
+
+/// Runs forever on its own thread: stays connected to the input daemon and reports the
+/// volume level after each volume key. The daemon restarts under its service (and is
+/// missing in a test without it): connect again every 2 s.
+pub fn watch_volume(sock: &std::path::Path, mut level: impl FnMut() -> Option<u8>, mut send: impl FnMut(u8)) {
+    loop {
+        if let Some(fd) = connect_seqpacket(sock) {
+            serve_volume(&fd, &mut level, &mut send);
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn volume_messages_read_the_level_and_quit_is_ignored() {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) }, 0);
+        let (ours, daemon) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        for m in [&b"quit"[..], b"volume", b"other", b"volume"] {
+            assert_eq!(unsafe { libc::send(daemon.as_raw_fd(), m.as_ptr().cast(), m.len(), 0) }, m.len() as isize);
+        }
+        drop(daemon); // the daemon went away: serve returns
+        let mut reads = 0;
+        let mut got = Vec::new();
+        serve_volume(&ours, &mut || {
+            reads += 1;
+            Some(40 + reads * 5)
+        }, &mut |v| got.push(v));
+        assert_eq!(got, [45, 50]);
+    }
 
     #[test]
     fn gamepad_and_vm_keyboard_map_the_same() {

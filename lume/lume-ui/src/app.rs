@@ -40,6 +40,8 @@ pub enum Ev {
     /// a line of `lume-index --progress`
     Progress(usize, usize),
     UpdateDone(bool),
+    /// a volume key changed the level (percent), told by the input daemon
+    Volume(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +150,8 @@ pub struct App<S: SystemAdapter> {
     pub screen: Screen,
     overlay: Option<Overlay>,
     toast: Option<(String, Instant)>,
+    /// the volume bar outside the Settings: level and when it goes away
+    pub volume_bar: Option<(u8, Instant)>,
     pub dock: Vec<DockItem>,
     pub dock_focus: usize,
     pub grid: Option<Grid>,
@@ -178,6 +182,8 @@ pub struct Paths {
 }
 
 const TOAST: Duration = Duration::from_millis(1800);
+/// the volume bar stays this long after the last volume key
+pub const VOLUME_BAR: Duration = Duration::from_millis(1500);
 const FRAME: Duration = Duration::from_millis(33);
 
 impl<S: SystemAdapter> App<S> {
@@ -212,6 +218,7 @@ impl<S: SystemAdapter> App<S> {
             screen: Screen::Dock,
             overlay: None,
             toast: None,
+            volume_bar: None,
             dock: Vec::new(),
             dock_focus: 0,
             grid: None,
@@ -403,6 +410,10 @@ impl<S: SystemAdapter> App<S> {
                     self.toast = None;
                     redraw = true;
                 }
+                if self.volume_bar.is_some_and(|(_, t)| now >= t) {
+                    self.volume_bar = None;
+                    redraw = true;
+                }
                 if self.on_system_row() && self.info.as_ref().is_none_or(|(t, _)| now.duration_since(*t) >= Duration::from_millis(950)) {
                     self.info = Some((now, self.sys.info()));
                     redraw = true;
@@ -434,6 +445,12 @@ impl<S: SystemAdapter> App<S> {
                 }
                 true
             }
+            Ev::Volume(v) => {
+                // the Settings show it in the Volume row; elsewhere, the bar
+                self.level.insert("volume", v);
+                self.volume_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
+                true
+            }
             Ev::Input(a, repeat) => {
                 if self.updating.is_some() {
                     return false; // the lists are being rebuilt
@@ -463,6 +480,9 @@ impl<S: SystemAdapter> App<S> {
             min(FRAME);
         }
         if let Some((_, t)) = &self.toast {
+            min(t.saturating_duration_since(now));
+        }
+        if let Some((_, t)) = &self.volume_bar {
             min(t.saturating_duration_since(now));
         }
         if self.on_system_row() {
@@ -1065,7 +1085,31 @@ impl<S: SystemAdapter> App<S> {
                 c.fill(Rect::new(bar.x, bar.y, bar.w * i as i32 / n as i32, bar.h), bar.h / 2, th.color("accent"));
             }
         }
+        if let Some((v, _)) = self.volume_bar.filter(|_| self.screen != Screen::Settings) {
+            self.draw_volume_bar(c, w, h, v);
+        }
         c.present();
+    }
+
+    /// The volume bar: a panel on the right edge, a vertical track filled from the bottom
+    /// with the accent, and the percent under it (theme tokens only).
+    fn draw_volume_bar(&self, c: &mut dyn Canvas, w: i32, h: i32, v: u8) {
+        let th = &self.theme;
+        let px = th.em("label_px", w) as f32 * 0.8;
+        let pw = (w / 13).max(px as i32 * 3);
+        let ph = h / 2;
+        let panel = Rect::new(w - pw - w / 40, (h - ph) / 2, pw, ph);
+        c.fill(panel, th.em("radius_panel", w).min(pw / 2), th.color("panel_bg"));
+        let tw = (pw / 4).max(4);
+        let top = panel.y + pw / 2;
+        let track = Rect::new(panel.x + (pw - tw) / 2, top, tw, panel.bottom() - px as i32 * 2 - top);
+        c.fill(track, tw / 2, th.color("tile_bg"));
+        let filled = track.h * v.min(100) as i32 / 100;
+        if filled > 0 {
+            c.fill(Rect::new(track.x, track.bottom() - filled, tw, filled), tw / 2, th.color("accent"));
+        }
+        let label = format!("{v}%");
+        c.text(&label, panel.x + pw / 2, track.bottom() + px as i32 / 2, px, th.color("fg"), Align::Center, pw - 4);
     }
 
     fn label(&self, item: DockItem) -> (String, String) {

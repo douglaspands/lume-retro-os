@@ -24,27 +24,66 @@ pub trait SystemAdapter {
 pub struct RealSystem {
     pub sys: PathBuf,
     pub proc_: PathBuf,
-    pub mixer: Option<(String, String)>,
+    pub mixer: Option<Mixer>,
 }
 
-/// The mixer line of the r36os-input profile of this board ("mixer <card> <control> <step>").
-pub fn board_mixer(profile: &Path) -> Option<(String, String)> {
+/// The mixer of the board: the ALSA card and control, and the raw ceiling (0 dB of a
+/// digital DAC) when the profile gives one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mixer {
+    pub card: String,
+    pub ctl: String,
+    pub max: Option<u32>,
+}
+
+/// The mixer line of the r36os-input profile of this board
+/// ("mixer <card> <control, may have spaces> <step> [<raw ceiling>]").
+pub fn board_mixer(profile: &Path) -> Option<Mixer> {
     let text = std::fs::read_to_string(profile).ok()?;
     let line = text.lines().find(|l| l.trim_start().starts_with("mixer "))?;
-    let rest = line.trim_start()["mixer ".len()..].trim();
-    let (card, rest) = rest.split_once(' ')?;
-    let ctl = rest.trim_end_matches(|c: char| c.is_ascii_digit()).trim();
-    Some((card.to_string(), ctl.to_string()))
+    let mut words = line.split_whitespace().skip(1);
+    let card = words.next()?.to_string();
+    let rest: Vec<&str> = words.collect();
+    // the control is every word before the first number (the step)
+    let n = rest.iter().position(|w| w.parse::<u32>().is_ok())?;
+    let ctl = rest[..n].join(" ");
+    let max = rest.get(n + 1).and_then(|w| w.parse().ok());
+    (!ctl.is_empty()).then_some(Mixer { card, ctl, max })
+}
+
+/// The first channel's raw value of an `amixer sget` output ("Playback 160 [83%]").
+pub fn parse_raw(out: &str) -> Option<u32> {
+    out.lines()
+        .filter(|l| !l.contains("Limits:"))
+        .find_map(|l| l.split_once("Playback ").and_then(|(_, r)| r.split_whitespace().next()?.parse().ok()))
+}
+
+/// The mixer of the board this runs on (/etc/r36os/board names the profile).
+pub fn this_board_mixer() -> Option<Mixer> {
+    let board = std::fs::read_to_string("/etc/r36os/board").unwrap_or_default();
+    board_mixer(Path::new(&format!("/usr/share/r36os/input/{}.conf", board.trim())))
+}
+
+impl Mixer {
+    /// The level in percent. With a ceiling, 100% is the ceiling (0 dB), as the volume
+    /// buttons of r36os-input.
+    pub fn level(&self) -> Option<u8> {
+        let out = output("amixer", &["-c", &self.card, "sget", &self.ctl])?;
+        self.level_of(&out)
+    }
+
+    /// The level of an `amixer sget` output.
+    pub fn level_of(&self, out: &str) -> Option<u8> {
+        match self.max {
+            Some(max) if max > 0 => parse_raw(out).map(|raw| (raw.min(max) * 100 / max) as u8),
+            _ => parse_percent(out),
+        }
+    }
 }
 
 impl RealSystem {
     pub fn new() -> RealSystem {
-        let board = std::fs::read_to_string("/etc/r36os/board").unwrap_or_default();
-        RealSystem {
-            sys: "/sys".into(),
-            proc_: "/proc".into(),
-            mixer: board_mixer(Path::new(&format!("/usr/share/r36os/input/{}.conf", board.trim()))),
-        }
+        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer() }
     }
 
     fn backlight(&self) -> Option<PathBuf> {
@@ -96,14 +135,16 @@ impl SystemAdapter for RealSystem {
     }
 
     fn volume(&self) -> Option<u8> {
-        let (card, ctl) = self.mixer.as_ref()?;
-        let out = output("amixer", &["-c", card, "sget", ctl])?;
-        parse_percent(&out)
+        self.mixer.as_ref()?.level()
     }
 
     fn set_volume(&mut self, pct: u8) {
-        if let Some((card, ctl)) = &self.mixer {
-            let _ = Command::new("amixer").args(["-c", card, "-q", "sset", ctl, &format!("{}%", pct.min(100))]).status();
+        if let Some(m) = &self.mixer {
+            let value = match m.max {
+                Some(max) if max > 0 => (max * pct.min(100) as u32 / 100).to_string(),
+                _ => format!("{}%", pct.min(100)),
+            };
+            let _ = Command::new("amixer").args(["-c", &m.card, "-q", "sset", &m.ctl, &value]).status();
         }
     }
 
@@ -248,8 +289,34 @@ mod tests {
     #[test]
     fn mixer_from_the_input_profile() {
         let prof = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/r36os-input");
-        assert_eq!(board_mixer(&prof.join("r36s.conf")), Some(("rk817int".into(), "Master".into())));
-        assert_eq!(board_mixer(&prof.join("ga36.conf")), Some(("GA36MB".into(), "DAC".into())));
-        assert_eq!(board_mixer(&prof.join("vm.conf")), Some(("0".into(), "Master".into())));
+        let m = |card: &str, ctl: &str, max: Option<u32>| Some(Mixer { card: card.into(), ctl: ctl.into(), max });
+        assert_eq!(board_mixer(&prof.join("r36s.conf")), m("rk817int", "Master", None));
+        // GA36: ceiling 160 = 0 dB of the DAC
+        assert_eq!(board_mixer(&prof.join("ga36.conf")), m("GA36MB", "DAC", Some(160)));
+        assert_eq!(board_mixer(&prof.join("vm.conf")), m("0", "Master", None));
+        // a control name with spaces
+        let p = std::env::temp_dir().join(format!("lume-mixer-{}.conf", std::process::id()));
+        std::fs::write(&p, "name X\nmixer card0 AIF1 DA0 5 120\n").unwrap();
+        assert_eq!(board_mixer(&p), m("card0", "AIF1 DA0", Some(120)));
+        std::fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn amixer_raw_value() {
+        let out = "Simple mixer control 'DAC',0\n  Limits: Playback 0 - 192\n  Front Left: Playback 160 [83%] [0.00dB] [on]\n";
+        assert_eq!(parse_raw(out), Some(160));
+        assert_eq!(parse_raw("  Limits: Playback 0 - 192\n"), None);
+    }
+
+    #[test]
+    fn level_is_a_share_of_the_ceiling() {
+        let out = |raw: u32| format!("  Limits: Playback 0 - 192\n  Front Left: Playback {raw} [83%] [0.00dB] [on]\n");
+        let ga36 = Mixer { card: "GA36MB".into(), ctl: "DAC".into(), max: Some(160) };
+        assert_eq!(ga36.level_of(&out(160)), Some(100));
+        assert_eq!(ga36.level_of(&out(152)), Some(95));
+        assert_eq!(ga36.level_of(&out(192)), Some(100)); // above the ceiling: still 100%
+        // without a ceiling, amixer's own percent
+        let r36s = Mixer { card: "rk817int".into(), ctl: "Master".into(), max: None };
+        assert_eq!(r36s.level_of(&out(160)), Some(83));
     }
 }

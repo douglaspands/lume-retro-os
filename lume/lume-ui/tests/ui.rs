@@ -320,6 +320,39 @@ fn retroarch_item_opens_the_menu_with_code_65() {
 }
 
 #[test]
+fn volume_keys_show_a_bar_or_the_settings_percent() {
+    let c = card("volbar", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
+    let mut canvas = FakeCanvas::new(640, 480);
+    // on the Dock: the bar on the right edge, with the level, gone after its time
+    assert!(a.handle(Ev::Volume(35)));
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("35%"));
+    // the bar's shapes (the Dock itself runs off both edges on purpose)
+    let screen = lume_ui::canvas::Rect::new(0, 0, 640, 480);
+    let bar: Vec<_> = canvas.fills.iter().filter(|(r, _)| r.x > 560 && r.h >= 100).collect();
+    assert!(!bar.is_empty() && bar.iter().all(|(r, _)| screen.contains(r)), "{bar:?}");
+    let wait = a.wait().unwrap();
+    assert!(wait <= lume_ui::app::VOLUME_BAR && wait > Duration::from_millis(1000));
+    a.volume_bar = a.volume_bar.map(|(v, _)| (v, Instant::now()));
+    assert!(a.handle(Ev::Tick));
+    assert_eq!(a.volume_bar, None);
+    assert_eq!(a.wait(), None);
+    // in the Settings: the Volume row changes, no bar
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    assert!(a.handle(Ev::Volume(100)));
+    assert_eq!(a.volume_bar, None);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("‹100% ›") && !canvas.has_text("100%"), "only the row shows it");
+    // and the next step of the row starts from there
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
+    press(&mut a, Action::Left);
+    assert_eq!(a.sys.vol, 95);
+}
+
+#[test]
 fn cover_cache_stays_under_its_ceiling() {
     let c = card("covers", 220, true);
     let mut a = app(&c, FakeSystem::default());

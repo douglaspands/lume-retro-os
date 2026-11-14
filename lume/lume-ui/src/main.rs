@@ -3,7 +3,8 @@
 //! RetroArch menu). Any other code is a failure.
 //!
 //! The loop sleeps on a channel: with no input and no animation nothing is drawn. Threads
-//! only wake it up: the gamepad reader, the index watcher (inotify on cache/index/GEN) and,
+//! only wake it up: the gamepad reader, the volume watcher (the input daemon's socket), the
+//! index watcher (inotify on cache/index/GEN) and,
 //! while "Update game lists" runs, the reader of lume-index's progress. SDL's queue is only
 //! drained, never waited on (SDL_WaitEvent polls every millisecond on KMSDRM).
 
@@ -95,6 +96,15 @@ fn main() -> ExitCode {
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
         let _ = t.send(Ev::Input(a, rep));
     }));
+    // volume keys: r36os-input applies them and tells its socket clients; the level is read
+    // here with the same mixer as the Settings
+    if let Some(mixer) = lume_ui::system::this_board_mixer() {
+        let t = tx.clone();
+        let sock = std::env::var_os("LUME_INPUT_SOCK").map(std::path::PathBuf::from).unwrap_or_else(|| lume_ui::input::INPUT_SOCK.into());
+        std::thread::spawn(move || lume_ui::input::watch_volume(&sock, || mixer.level(), move |v| {
+            let _ = t.send(Ev::Volume(v));
+        }));
+    }
     // index watcher: lume-index bumps cache/index/GEN after a scan
     let t = tx.clone();
     let index_dir = card.join("cache/index");
