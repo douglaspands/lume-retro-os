@@ -158,8 +158,7 @@ por `r36os flash --ssh-key`, com uma chave de host por PC) foi implementada e re
   só na serial de debug e na rede do cabo.
 - **Alternativas descartadas:** chave pública por usuário em `BOOT/ssh/` (a primeira
   versão: exigia um `flash --ssh-key` pelo leitor antes do primeiro uso); um par de chaves
-  do projeto publicado no repositório (P-51: equivale a uma senha conhecida, com mais
-  passos); senha fixa documentada (pede a senha a cada login sem proteger nada, porque ela
+  do projeto publicado no repositório (equivale a uma senha conhecida, com mais passos); senha fixa documentada (pede a senha a cada login sem proteger nada, porque ela
   seria pública); OpenSSH (maior que o `dropbear`, sem ganho aqui).
 
 ### D5. Rede USB fixa: console 10.55.0.1, PC 10.55.0.2, sem rota
