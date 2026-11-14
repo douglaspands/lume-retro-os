@@ -382,3 +382,8 @@ base_url = "https://raw.githubusercontent.com/viveris/uMTP-Responder/{version}/{
 # tokens_per_call = 250               # custo médio de uma chamada de ferramenta evitada
 # recall_hit_calls = 2                # chamadas que um acerto de recall/fato costuma evitar
 # search_adoption_ok = 0.5            # fração de buscas via ctx (vs rg/grep/sed) para "compensa"
+
+# --- ctx 0.5.0: seções novas (defaults comentados; descomente para customizar) ---
+# ctx:section metrics-confidence
+# Na tabela [metrics.evaluate] (ctx 0.5):
+# confident_sessions = 30             # abaixo disso o veredito do `ctx evaluate` sai como "provisório"

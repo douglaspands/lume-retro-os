@@ -5,15 +5,16 @@ Este projeto serve de banco de testes para o `ctx` do
 primeiro aqui, como protótipo no `.venv`, medidas no trabalho real e acumuladas neste arquivo.
 Quando o usuário pedir, este arquivo vira o prompt para aplicar as melhorias no agent-harness-hub.
 
-- **Versão de base:** agent-harness-hub 0.4.0 (`main` @ `65beecc`), instalada só no `.venv` com
-  `uv pip install --reinstall` (fora do `pyproject.toml`).
-- **Protótipo local:** [`ctx-0.4.0-local.patch`](ctx-0.4.0-local.patch), diff contra a 0.4.0
-  intacta (`ctx/rag.py`, `ctx/cli.py` e os módulos novos `ctx/chunkers.py` e `ctx/semantic.py`).
-  Uma reinstalação do `ctx` apaga o protótipo; para reaplicar, aplicar o patch dentro de
-  `.venv/lib/python3.14/site-packages/` e rodar `.venv/bin/ctx index`.
-- **Dependências do protótipo** (no `.venv`, fora do `pyproject.toml`): `tree-sitter`,
-  `tree-sitter-c`, `model2vec` (traz `numpy`, `tokenizers`, `safetensors`, `huggingface-hub`).
-  Todas opcionais no código: sem elas, o `ctx` volta ao comportamento anterior.
+- **Versão instalada:** agent-harness-hub **0.5.0** (`main` @ `feaf71e`, PR #4), desde
+  2026-11-14, só no `.venv` com `uv pip install --reinstall "agent-harness-hub[all]"` (fora do
+  `pyproject.toml`). O `ctx upgrade` regenerou `scripts/guardrail.py`, skills e blocos de
+  instruções a partir do kit; as mudanças locais de M-18 e M-19 agora vêm do gerador.
+- **Protótipo da 0.4.0 (obsoleto):** [`ctx-0.4.0-local.patch`](ctx-0.4.0-local.patch) e
+  `ctx-0.4.0-local-m19-m22.patch` eram diffs contra o `site-packages` da 0.4.0. Tudo o que eles
+  faziam foi levado na 0.5.0; não reaplicar.
+- **Dependências opcionais:** os extras `c` (`tree-sitter`, `tree-sitter-c`) e `semantic`
+  (`model2vec`, que traz `numpy`, `tokenizers`, `safetensors`, `huggingface-hub`) do
+  agent-harness-hub, instalados com `[all]`. Sem eles, o `ctx` volta ao comportamento anterior.
 - **Configuração deste projeto:** `[index.reference]` no `policy.toml` (DTS de fábrica e
   drivers de vídeo/DSI/PHY e DTS do PX30/RK3326 da árvore do kernel com patches).
 
@@ -54,7 +55,31 @@ recall passou a ser usado. As propostas M-14 a M-17 vêm desta medição.
 Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste projeto),
 **medida** (com resultado registrado), **levada** (enviada ao agent-harness-hub).
 
-### M-01. Recuo da consulta quando todos os termos não casam — protótipo
+### Entrega da 0.5.0 (2026-11-14, PR #4)
+
+- **Levadas:** M-01 a M-07, M-11, M-13, M-18 a M-20, M-22, M-24 a M-26, e a parte de relatório do
+  M-21. Detalhes no `CHANGELOG.md` do agent-harness-hub.
+- **Só desenho**, com decisão e custo em `docs/design/ctx-propostas.md` do agent-harness-hub: M-08,
+  M-09, M-10, M-12, M-14, M-15, M-16 + M-27, M-17 e o resto do M-21 (aviso no momento da descoberta).
+- **Não levadas:** o modelo multilíngue como padrão (só com M-10) e a mudança de padrão do M-23
+  (medição continua aqui).
+- **Diferenças em relação ao protótipo**, achadas na prova neste projeto:
+  - esquema do índice 4, e não 3 (o protótipo já tinha usado o 3); as colunas também são conferidas;
+  - o recuo da consulta (M-01) completa a lista com o passo seguinte quando faltam resultados:
+    `dsidph` citado em `docs/ctx/` não esconde mais `phy-rockchip-inno-dsidphy.c`;
+  - a sobra curta de uma função longa (M-03) fica na parte anterior: `get_lane_mbps` trazia só
+    as 4 linhas finais da função;
+  - a reindexação dos resultados desatualizados (M-26) só acontece com
+    `[search].refresh = "incremental"`; o padrão `off` mantém a regra de a busca não escrever;
+  - o modelo semântico (M-05) só é baixado pelo `ctx index`, e só os arquivos que o model2vec
+    usa (30 MB em vez de 59 MB);
+  - bloqueios antigos (sem id de regra) contam na mesma linha que os novos no `evaluate` (M-19).
+- **Prova (2026-11-14):** as 5 consultas do prompt trazem o esperado em 1º, os falsos
+  positivos do M-24/M-25 passam e os destrutivos continuam barrados, e o `evaluate` mostra os
+  bloqueios por regra (`chaining` 41×, 54 repetidos na mesma sessão). A busca com a semântica
+  ligada ficou com p95 de ~1 s (carga do modelo a cada chamada, ver M-10).
+
+### M-01. Recuo da consulta quando todos os termos não casam — levada (0.5.0)
 
 - **Problema:** a consulta exige todos os termos (`"a" "b" "c"`). Uma frase em linguagem natural
   com uma palavra que não aparece no código volta vazia. Exemplo: `factory dtb backlight pwms`
@@ -66,14 +91,14 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 - **Resultado:** `factory dtb backlight pwms` passou a trazer os nós `backlight` do DTS do R36S e
   de outras placas PX30.
 
-### M-02. Pesos por coluna no BM25 — protótipo
+### M-02. Pesos por coluna no BM25 — levada (0.5.0)
 
 - **Problema:** `bm25(chunks)` dá o mesmo peso a caminho, título e corpo. Um casamento no nome do
   símbolo vale tanto quanto uma menção de passagem.
 - **Mudança:** `bm25(chunks, 2.0, 6.0, 0.5, 0, 0, 1.0, 0)` (caminho, título, tipo, —, —,
   conteúdo, —). Só rende junto com M-03, que põe o nome do símbolo no título.
 
-### M-03. Corte estrutural para C e Device Tree — protótipo
+### M-03. Corte estrutural para C e Device Tree — levada (0.5.0)
 
 - **Problema:** C e DTS caem no corte genérico de janelas fixas de 50 linhas. A função fica partida,
   o título não diz o que há no trecho e a busca por `get_lane_mbps` trazia a tabela `hstt_table`
@@ -91,7 +116,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   `get_lane_mbps` traz a função inteira.
 - **Próximo:** shell, TOML e YAML ainda usam o corte genérico.
 
-### M-04. Índice de trigramas para pedaços de identificador — protótipo
+### M-04. Índice de trigramas para pedaços de identificador — levada (0.5.0)
 
 - **Problema:** o tokenizador `unicode61` só casa palavras inteiras. `dsidph` ou `lane_mb` não
   acham nada, e é aí que o agente recorre ao `rg`.
@@ -100,7 +125,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 - **Resultado:** `dsidph` traz as definições de `phy-rockchip-inno-dsidphy.c`.
 - **Custo:** índice de 4 MB para 24 MB (com M-05 e as referências), quase tudo dos trigramas.
 
-### M-05. Busca semântica local, híbrida com BM25 — protótipo
+### M-05. Busca semântica local, híbrida com BM25 — levada (0.5.0, extra `semantic`)
 
 - **Problema:** a busca é só lexical; uma pergunta ("onde o glue calcula a taxa da lane") só acha
   algo se repetir as palavras do código.
@@ -150,14 +175,14 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   - pular a semântica quando o BM25 já trouxe `top_k` resultados com todos os termos;
   - baixar direto para `.ctx/models/` (`snapshot_download(local_dir=…)`), sem o cache duplicado.
 
-### M-06. Prévia centrada no termo e com linha cortada — protótipo
+### M-06. Prévia centrada no termo e com linha cortada — levada (0.5.0)
 
 - **Problema:** a prévia começava no início do trecho, às vezes o cabeçalho de licença, e não na
   linha que casou. Uma linha longa (JSONL) inundava a saída.
 - **Mudança:** com o trecho maior que a prévia, ela começa 3 linhas antes da primeira linha que
   contém um dos termos. Cada linha é cortada em 200 caracteres, com a contagem do resto.
 
-### M-07. Receita `copy-verify` barrada pela própria política — medida (política do projeto)
+### M-07. Receita `copy-verify` barrada pela própria política — levada (0.5.0, `requires`)
 
 - **Problema:** os passos da receita embutida (`cp`, `sync`, `sha256sum`) não estão no
   `commands.allow` padrão; a receita não roda sem `--yes`.
@@ -171,7 +196,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 - **Para levar ao upstream:** a receita declarar os comandos que usa (`requires = [...]`), e o
   `ctx init` colocar os da receita embutida no `allow` gerado.
 
-### M-08. `copy-verify` confere o cache, não o disco — proposta
+### M-08. `copy-verify` confere o cache, não o disco — proposta (desenho no hub)
 
 - **Problema:** o SHA256 é calculado logo depois do `sync`, na mesma montagem, e pode ler o cache
   de página do sistema em vez do dispositivo. Neste projeto o leitor USB corrompe gravações
@@ -184,7 +209,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   Chrome primeiro). O `flash` passou a usar `oflag=direct` e `iflag=direct`. A mesma ideia
   serve à `copy-verify`.
 
-### M-09. Referências fora do workspace com caminho versionado — proposta
+### M-09. Referências fora do workspace com caminho versionado — proposta (desenho no hub)
 
 - **Problema:** a árvore do kernel deste projeto muda de nome a cada mudança nos patches
   (`linux-6.18.62-<hash>`). O `[index.reference]` resolve com curinga, mas os caminhos dos
@@ -193,7 +218,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 - **Mudança proposta:** fonte de referência com nome (`[index.reference.kernel] root = "…"`,
   `globs = […]`), mostrada nos resultados como `kernel:drivers/…`.
 
-### M-10. Processo residente para a busca — proposta
+### M-10. Processo residente para a busca — proposta (desenho no hub)
 
 - **Problema:** cada `ctx search` é um processo novo, que importa o numpy e carrega o modelo de novo:
   ~0,3 s com o `potion-base-8M` e ~3,3 s com o multilíngue (M-05).
@@ -201,7 +226,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   busca e encerrado depois de N minutos parado) que mantém o modelo e a matriz de vetores em
   memória; o CLI só repassa a consulta. Sem o servidor, o CLI busca sozinho, como hoje.
 
-### M-11. Glossário do projeto para expandir a consulta — protótipo
+### M-11. Glossário do projeto para expandir a consulta — levada (0.5.0)
 
 - **Implementado (2026-11-12):**
   - `[search].glossary` no `policy.toml`: lista de grupos de termos equivalentes, com 23 grupos
@@ -233,7 +258,7 @@ O texto abaixo é a proposta original.
 - **Por quê:** é a "ontologia" que este RAG precisa — leve, editável, versionada no projeto — e
   pode tornar desnecessário o modelo multilíngue de 480 MB.
 
-### M-12. Ligações entre trechos (grafo de código) — proposta
+### M-12. Ligações entre trechos (grafo de código) — proposta (desenho no hub)
 
 - **Problema:** a busca devolve trechos soltos. Neste projeto as perguntas reais atravessam
   ligações: patch → arquivo → função; `compatible` no DTS → `of_match_table` do driver; rótulo
@@ -242,7 +267,7 @@ O texto abaixo é a proposta original.
   com o que já é extraído (símbolos dos patches, nomes de função C, rótulos e `compatible` do DTS),
   e `ctx search --related` ou `ctx refs <símbolo>` para seguir as ligações num passo só.
 
-### M-13. Seções longas de markdown dominam o BM25 — proposta
+### M-13. Seções longas de markdown dominam o BM25 — levada (0.5.0)
 
 - **Problema:** o corte de markdown faz um trecho por seção, sem limite de tamanho. A seção 4 do
   `tasks.md` (dezenas de linhas, cada uma longa) contém quase todas as palavras do projeto e aparece
@@ -251,7 +276,7 @@ O texto abaixo é a proposta original.
 - **Mudança proposta:** dividir seções longas por item de lista ou parágrafo (mantendo o título da
   seção), e limitar o tamanho do trecho como já é feito em C (120 linhas) e nos hunks de patch.
 
-### M-14. O `evaluate` conta como desvio o `rg` que o `ctx search` não substitui — proposta
+### M-14. O `evaluate` conta como desvio o `rg` que o `ctx search` não substitui — proposta (desenho no hub)
 
 - **Problema:** a adoção da busca (1%) conta todo `rg`/`grep`/`sed` como desvio. Na sessão do
   bring-up do R36S (boots 10 a 12), quase todos os `rg` eram de outro tipo:
@@ -269,7 +294,7 @@ O texto abaixo é a proposta original.
 
   Só a busca ampla conta como desvio. O relatório mostra as três contagens.
 
-### M-15. Custo fixo das instruções por sessão — proposta
+### M-15. Custo fixo das instruções por sessão — proposta (desenho no hub)
 
 - **Problema:** o bloco gerado no `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` custa ≈ 1.744 tokens por
   sessão, mais que todo o ganho medido por sessão (≈ 940). Boa parte repete o que o guardrail já
@@ -278,7 +303,7 @@ O texto abaixo é a proposta original.
   "o guardrail explica o resto"). O detalhe fica na skill `workspace-ctx`, carregada só quando
   usada. O `evaluate` mede o custo pelo tamanho real do bloco gerado, por harness ativo.
 
-### M-16. Upstream sem projetos declarados e downloads repetidos — proposta
+### M-16. Upstream sem projetos declarados e downloads repetidos — proposta (desenho no hub, com M-27)
 
 - **Problema:** o `ctx upstream get` nunca foi usado. Os 2 downloads manuais repetidos e a consulta
   ao ROCKNIX (patch do painel do R36S em `ROCKNIX/distribution`, ramo `next`, boot 12) passaram pela
@@ -295,7 +320,7 @@ O texto abaixo é a proposta original.
   confirmou o modo de 50 MHz do boot 12. Limite visto: com ramo como versão, o cache congela
   o conteúdo do dia do download sem avisar.
 
-### M-17. Receitas que falham sem explicação no `evaluate` — proposta
+### M-17. Receitas que falham sem explicação no `evaluate` — proposta (desenho no hub)
 
 - **Problema:** o `evaluate` mostra "1 execução, 0 ok" sem dizer por quê. A causa provável é a
   M-07 (passos da `copy-verify` fora do `commands.allow`), mas o relatório não liga as duas coisas.
@@ -303,7 +328,7 @@ O texto abaixo é a proposta original.
   saída) e mostrá-los no `evaluate`. Receita sem execução com sucesso em N sessões é sugerida
   para remoção.
 
-### M-18. Leitura liberada fora do workspace e no `~/data`, só para caminhos declarados — protótipo
+### M-18. Leitura liberada fora do workspace e no `~/data`, só para caminhos declarados — levada (0.5.0)
 
 - **Problema:** um bring-up lê o tempo todo coisas fora do workspace: os logs no cartão do
   aparelho (`/run/media/...`) e a árvore do kernel que o build gera (`~/data/r36os/src/...`).
@@ -326,7 +351,7 @@ O texto abaixo é a proposta original.
   com `readonly_commands` e a seção comentada explicando o uso; o `ctx upgrade` hoje
   sobrescreveria esta mudança local.
 
-### M-19. Bloqueios do guardrail por regra, e quais não ensinam — protótipo
+### M-19. Bloqueios do guardrail por regra, e quais não ensinam — levada (0.5.0, com id de regra)
 
 - **Problema:** o `evaluate` soma todos os bloqueios como custo (13 250 tokens estimados) e, ao mesmo
   tempo, os conta como recurso que compensa, sem dizer qual regra pesa.
@@ -345,8 +370,17 @@ O texto abaixo é a proposta original.
   dependentes em turnos seguintes, e `cd X && cmd` vira caminho absoluto ou `git -C X`. Medir na
   próxima avaliação se os 34 repetidos caem. **Para levar ao agent-harness-hub:** o texto no gerador
   do `guardrail.py`; o `ctx upgrade` hoje sobrescreveria esta mudança local.
+- **Medido de novo (2026-11-14, 31 sessões):** o encadeamento continua sendo o bloqueio mais caro,
+  com 47 bloqueios (≈ 11.750 tokens estimados), e há 60 bloqueios repetidos na mesma sessão (eram 34
+  em 15 sessões). A mensagem mais instrutiva não derrubou a repetição. Proposta: o `deny` de
+  encadeamento devolve os comandos já separados, prontos para virar chamadas paralelas (por
+  exemplo `1) git status -s  2) git log --oneline -n 5`), em vez de só explicar a regra. Se a
+  repetição não cair na próxima avaliação, avaliar trocar o `deny` por `allow` com registro de
+  auditoria para cadeias só de leitura (`git`, `rg`, `ls` ligados por `&&`).
+- **`git log` sem `-n`** (12 bloqueios) e **`tree` sem `-L`** (4) também se repetem. Mesma
+  proposta: a mensagem traz o comando corrigido.
 
-### M-20. Veredito provisório com amostra pequena — protótipo
+### M-20. Veredito provisório com amostra pequena — levada (0.5.0)
 
 - **Problema:** com 15 sessões (e um modelo com 1), "não compensa" saía com o mesmo peso de um
   veredito com amostra grande.
@@ -354,7 +388,7 @@ O texto abaixo é a proposta original.
   (padrão 30); o relatório mostra o aviso e a recomendação manda repetir a avaliação antes de desligar
   um recurso. Intervalo de confiança do saldo fica como evolução.
 
-### M-21. Registro de fatos quando algo custou caro — protótipo parcial
+### M-21. Registro de fatos quando algo custou caro — levada em parte (relatório na 0.5.0; aviso na descoberta em desenho no hub)
 
 - **Problema:** nenhum fato registrado em 15 sessões, e o `recall` depende só de transcript. O agente
   nunca chama `ctx fact add`.
@@ -372,7 +406,7 @@ O texto abaixo é a proposta original.
   aconteceu porque o `evaluate` recomendou e o usuário pediu: o agente não o fez sozinho ao
   descobrir, o que reforça a proposta acima.
 
-### M-22. Adoção por sessão, não só por chamada — protótipo
+### M-22. Adoção por sessão, não só por chamada — levada (0.5.0)
 
 - **Problema:** 1% por chamada (21 buscas contra ~2 300 desvios) não distingue "não usa" de "usa
   pouco": 8 de 15 sessões usaram `ctx search` e 13 de 15 algum comando do ctx.
@@ -389,8 +423,14 @@ O texto abaixo é a proposta original.
 - **Medir:** no próximo `evaluate`, os bloqueios da regra de ferramentas de arquivo (quantos e se
   se repetem na mesma sessão) e se a média de bloqueios por sessão volta a cair. Se o coach só
   somar bloqueios sem mudar o hábito, voltar para `off`.
+- **Primeira medição (2026-11-14, 31 sessões, janela inteira):** 10 bloqueios da regra
+  `file-tools:read`; a adoção da busca continua em 1% por chamada (51 `ctx search` contra 3.587
+  `rg`/`grep`/`sed`). O `evaluate` voltou a recomendar ligar o coach, sem notar que ele já está
+  ligado: falta ao relatório ler o `policy.toml` antes de recomendar. A janela inteira mistura
+  sessões de antes e de depois da mudança. A próxima avaliação deve usar só as sessões a partir
+  de 2026-11-13 para decidir entre manter ou voltar para `off`.
 
-### M-24. Padrões proibidos casam com argumentos, não com o comando — proposta
+### M-24. Padrões proibidos casam com argumentos, não com o comando — levada (0.5.0)
 
 - **Problema (sessão de 2026-11-13, change `usb-device-access`):** os padrões proibidos do
   guardrail são procurados como substring na linha inteira. Falsos positivos vistos:
@@ -405,8 +445,12 @@ O texto abaixo é a proposta original.
   opções: `rm` com `-r`/`-f` e alvo exatamente `/`, `/*` ou um diretório de sistema (`/etc`,
   `/usr`, `$HOME`…); `mkfs*` só como nome de programa (`argv[0]`, ou depois de `sudo`/`exec`).
   Argumentos de comandos de leitura (`rg`, `grep`, `ctx search`) nunca são comandos.
+- **Medido de novo (2026-11-14):** 11 bloqueios de `destructive:mkfs` e 6 de `destructive:rm` em 31
+  sessões. Mesmo com a mudança levada na 0.5.0, os números continuam subindo (eram 9 de `mkfs`).
+  Conferir nos `events.jsonl` se ainda são falsos positivos (`mkfs` como texto de busca ou como
+  argumento do `r36os` build) ou bloqueios de sessões antigas contadas na janela inteira.
 
-### M-25. Encadeamento dentro de texto citado para outro host ou container — proposta
+### M-25. Encadeamento dentro de texto citado para outro host ou container — levada (0.5.0, aspas simples)
 
 - **Problema:** `ssh root@10.55.0.1 "cmd1 ; cmd2"` passou (o `;` está dentro das aspas), mas
   `ssh ... "x=$(stat -c %s f) ; ..."` foi barrado pelo `$()` e um laço `while` no comando do
@@ -418,7 +462,7 @@ O texto abaixo é a proposta original.
   de encadeamento, que existe para auditar comandos **locais** um a um. Alternativa: uma receita
   `remote <host> <script>` que recebe um arquivo de script do scratchpad.
 
-### M-26. `ctx search` não achou o módulo pelo nome do arquivo — proposta
+### M-26. `ctx search` não achou o módulo pelo nome do arquivo — levada (0.5.0)
 
 - **Problema:** `ctx search "r36os push" "push build over ssh"` não trouxe `src/r36os/push.py` em
   nenhum dos 10 resultados (vieram serviços OpenRC e um hunk de patch do mesa). O módulo se
@@ -430,7 +474,7 @@ O texto abaixo é a proposta original.
 - **Também visto:** o aviso "5 arquivo(s) nos resultados mudaram desde a indexação" sem
   reindexar. A busca podia reindexar na hora só esses arquivos (são poucos e já foram lidos).
 
-### M-27. `upstream get` exige declarar o projeto antes — medida
+### M-27. `upstream get` exige declarar o projeto antes — medida (desenho no hub, com M-16)
 
 - **Medido (2026-11-13):** para ler o código do `umtprd` 1.6.8 foi preciso editar o `policy.toml`
   (`[upstream.umtprd]`) antes do primeiro `ctx upstream get`, e o arquivo com o achado
@@ -438,6 +482,47 @@ O texto abaixo é a proposta original.
   para buscar no projeto sem saber o caminho. Confirma o M-16: `github:<dono>/<repo>@<tag>/<caminho>`
   sem declaração prévia, e um `ctx upstream grep <projeto> <versão> <padrão>` (ou clone raso no
   cache, indexado) para quando o caminho não é conhecido.
+
+### M-28. Fatos nunca consultados e com fonte em caminho que se move — proposta (desenho no hub)
+
+- **Problema (2026-11-14):** o `evaluate` mostra 16 fatos registrados e **nenhuma consulta**. O
+  agente não roda `ctx fact search` antes de redescobrir algo; o `recall` (transcripts, 6 de 6 com
+  resultado) é o que de fato é usado. Além disso, 9 dos 16 fatos ficaram "stale" em um dia, sem
+  que o conteúdo tivesse mudado:
+  - 4 apontavam para o `design.md` de um change que foi arquivado (`openspec/changes/<nome>/` →
+    `openspec/changes/archive/<data>-<nome>/`);
+  - 3 apontavam para a árvore do kernel em `.cache/src/linux-6.18.62-<hash>/`, cujo hash muda a
+    cada mudança nos patches (mesmo problema do M-09);
+  - 2 tinham a linha citada deslocada por edições no mesmo arquivo.
+
+  Não existe `ctx fact update`. Para manter um fato verdadeiro, é preciso registrar de novo e
+  remover o antigo: foi o que se fez em 2026-11-14 (fatos #3 a #13 viraram #17 a #25).
+- **Mudança proposta:**
+  - O `ctx recall` também busca nos fatos e mostra os que casam primeiro, assim o fato é
+    consultado sem um comando a mais.
+  - `ctx fact stale` tenta realocar a fonte antes de declarar o fato velho: procura o trecho
+    citado no mesmo arquivo (linha deslocada), no caminho arquivado do OpenSpec e na árvore com
+    o mesmo prefixo e hash novo; com `--fix`, regrava a fonte.
+  - `ctx fact update <id> --source ...` para corrigir a fonte sem perder o id.
+
+## Avaliação de 2026-11-14
+
+`ctx evaluate` (31 sessões, sem a marca de provisório): **não compensa**. Saldo ≈ −46.486
+tokens estimados (−1.500 por sessão); ganho ≈ 34.250 (137 chamadas) contra custo ≈ 80.736
+(instruções 1.806 por sessão + bloqueios 24.750). Por recurso:
+- recall e coaching do guardrail **compensam** (6 de 6 consultas com resultado; bloqueios por
+  sessão de 3,7 para 2,8);
+- upstream (18 chamadas, 0 servidas do cache sem rede) e receitas (6 execuções, 1 ok) são
+  **marginais**;
+- busca (adoção de 1% por chamada, 21 de 31 sessões; p95 de 1.050 ms) e fatos (nunca
+  consultados) **não compensam**.
+
+Por modelo, a amostra é pequena (Opus 29 sessões, só 1 sem ctx; Sonnet 2) e não permite comparar.
+
+Feito na sequência: M-19, M-23 e M-24 medidos de novo; M-28 aberto; fatos stale registrados de
+novo com a fonte atual. Próximos passos: avaliar só a janela desde 2026-11-13 (M-23); encurtar o
+bloco de instruções (M-15), que sozinho custa mais que o ganho por sessão; decidir com o usuário se
+o Antigravity sai de `[harnesses].enabled`.
 
 ## Avaliação de 2026-11-13
 
