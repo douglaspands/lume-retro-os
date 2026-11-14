@@ -49,8 +49,10 @@ apk add --root $R --initdb --update-cache --no-progress \\
     --repositories-file $R/etc/apk/repositories -X /repo \\
     $(cat /work/packages.txt)
 
-# Modules of the cross-compiled kernel (consoles, stage 1), with modules.dep
-if [ -f /out/kernel/modules.tar ]; then tar -C $R -xf /out/kernel/modules.tar; fi
+# Mount point of the console modules image (BOOT/<console>/modules, kernel-modules-image
+# D3): the modules of the cross-compiled kernel stay out of SYSTEM, so a kernel-only change
+# does not change it. The VM gets its modules from the packaged kernel.
+mkdir -p $R/lib/modules
 
 cp -a /overlay/. $R/
 # System version (D15); the build id stays in BOOT/VERSION, so SYSTEM does not change
@@ -154,4 +156,34 @@ def make_system(target: Target, rootfs_tar: Path, dest: Path,
         raise SystemTooLargeError(
             f"SYSTEM at {size / 2**20:.1f} MiB exceeds the {limit_mib} MiB limit"
         )
+    return dest
+
+
+# The modules image of a console (kernel-modules-image D1, D2): the content of lib/modules/
+# at the root (one <release>/ folder), owned by root, with no build times, so the same
+# modules.tar always gives the same file. Same compression as SYSTEM.
+_MODULES_SCRIPT = """
+rm -rf /tmp/m
+mkdir -p /tmp/m
+tar -C /tmp/m -xf {src}
+tar -C /tmp/m/lib/modules --numeric-owner --owner=0 --group=0 --sort=name -cf /tmp/modules.tar .
+mksquashfs - /out/{dest} -tar -comp zstd -Xcompression-level 19 \\
+    -b 256K -noappend -quiet -mkfs-time 0 -all-time 0 < /tmp/modules.tar
+"""
+
+
+def make_modules_image(modules_tar: Path, dest: Path) -> Path:
+    """Build the console modules squashfs `dest` from the kernel modules.tar
+    (`lib/modules/<release>/...`), with the `lib/modules/` prefix taken off."""
+    ensure_dir(dest.parent)
+    # one volume when both are in the same folder (out/<console>/kernel/): a dict with the
+    # same path twice keeps only one of the mounts
+    volumes = {dest.parent: "/out"}
+    src = f"/out/{modules_tar.name}"
+    if modules_tar.parent.resolve() != dest.parent.resolve():
+        volumes[modules_tar.parent] = "/in"
+        src = f"/in/{modules_tar.name}"
+    # mksquashfs does not depend on the target arch: always the x86_64 builder.
+    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
+        _MODULES_SCRIPT.format(src=src, dest=dest.name))
     return dest

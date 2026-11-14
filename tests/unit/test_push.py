@@ -223,6 +223,15 @@ def test_no_room_on_boot_is_refused(build, tmp_path):
     assert not [s for s in c.log if s.startswith("send")]
 
 
+def test_boot_room_counts_the_running_modules_image():
+    # kernel-modules-image D5: the running modules image stays open by its loop, as SYSTEM
+    MiB = 1 << 20
+    sizes = {"ga36/SYSTEM": 100 * MiB, "ga36/modules": 30 * MiB, "r36s/modules": 50 * MiB}
+    push.check_room(FakeConsole(board="ga36", boot_free=230 * MiB), sizes)
+    with pytest.raises(push.PushError, match="needs 230 MiB"):
+        push.check_room(FakeConsole(board="ga36", boot_free=229 * MiB), sizes)
+
+
 def test_ssh_needs_no_key_and_leaves_known_hosts_alone():
     # root has no password on the cable (D4) and the host key is new every boot: batch
     # mode, nothing read from or written to the user's known_hosts

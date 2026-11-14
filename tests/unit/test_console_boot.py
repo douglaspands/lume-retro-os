@@ -339,10 +339,11 @@ def test_assemble_lists_conflicting_sectors():
 MiB = 2**20
 
 
-def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB):
+def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB,
+                r36s_modules=20 * MiB):
     return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
             "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
-            "ga36/zImage": 6 * MiB,
+            "ga36/zImage": 6 * MiB, "ga36/modules": 2 * MiB, "r36s/modules": r36s_modules,
             "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000}
 
 
@@ -354,6 +355,9 @@ def test_console_boot_files_layout(tmp_path):
             "dtbs/rk3326/rk3326-r36s-v5.dtb"} <= set(files)
     assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
     assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
+    # kernel-modules-image D1: each console's modules image next to its kernel
+    assert files["ga36/modules"] == tmp_path / "ga36/kernel/modules"
+    assert files["r36s/modules"] == tmp_path / "r36s/kernel/modules"
     (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
     (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
     (tmp_path / "r36s/kernel/dtbs").mkdir(parents=True)
@@ -441,6 +445,9 @@ def test_archived_boot_list_matches_the_build():
     for want in ("boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
                  f"dtbs/rk3326/{image.R36S_DTB}"):
         assert want in names, want
+    if "ga36/modules" not in names:
+        pytest.skip("latest console build is older than kernel-modules-image")
+    assert "r36s/modules" in names
 
 
 def test_console_boot_within_limits():
@@ -468,6 +475,16 @@ def test_console_boot_needs_64_mib_free():
                                              image=1110 * MiB))
 
 
+def test_console_boot_counts_the_modules_images():
+    # kernel-modules-image: the 64 MiB free account includes both modules files
+    from r36os import image
+
+    big = {"ga36_system": 440 * MiB, "r36s_system": 440 * MiB, "image": 1000 * MiB}
+    image.check_console_boot(_boot_sizes(**big, r36s_modules=20 * MiB))
+    with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
+        image.check_console_boot(_boot_sizes(**big, r36s_modules=100 * MiB))
+
+
 def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     """Every /<dir>/ the assembly script reads is a mounted volume (the first build failed:
     the boot area folder and /out were the same path, and the dict kept only one)."""
@@ -477,8 +494,9 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
     for f in ("ga36/SYSTEM", "ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
-              "ga36/kernel/android-boot-panel1.img",
-              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
+              "ga36/kernel/android-boot-panel1.img", "ga36/kernel/modules",
+              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/modules",
+              "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
     # the build checks the lume-select node of every DTB (boot-dtb-select D3)

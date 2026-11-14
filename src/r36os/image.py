@@ -149,8 +149,11 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
              "boot.ini": REPO_ROOT / "board/r36s/boot.ini",
              "ga36/SYSTEM": ga36_out / "SYSTEM",
              "ga36/zImage": ga36_out / "kernel/zImage",
+             # the kernel modules of each console, outside SYSTEM (kernel-modules-image D1)
+             "ga36/modules": ga36_out / "kernel/modules",
              "r36s/SYSTEM": r36s_out / "SYSTEM",
              "r36s/Image": r36s_out / "kernel/Image",
+             "r36s/modules": r36s_out / "kernel/modules",
              f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
         for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):

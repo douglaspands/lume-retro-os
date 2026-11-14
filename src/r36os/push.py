@@ -152,10 +152,10 @@ def check_room(console: Console, sizes: dict[str, int]) -> None:
     if console.roms_free < total + (16 << 20):
         raise PushError(f"ROMS has {console.roms_free >> 20} MiB free, the push needs "
                         f"{total >> 20} MiB (plus 16 MiB) for /storage/.lume-push")
-    # every file goes to <name>.new before the rename; the running SYSTEM keeps its old
-    # blocks until the reboot (the loop device holds it open)
-    running = f"{console.board}/SYSTEM"
-    need = max(sizes.values(), default=0) + sizes.get(running, 0)
+    # every file goes to <name>.new before the rename; the running SYSTEM and modules image
+    # keep their old blocks until the reboot (a loop device holds each one open)
+    running = (f"{console.board}/SYSTEM", f"{console.board}/modules")
+    need = max(sizes.values(), default=0) + sum(sizes.get(p, 0) for p in running)
     if console.boot_free < need:
         raise PushError(f"BOOT has {console.boot_free >> 20} MiB free, the push needs "
                         f"{need >> 20} MiB to swap the files")
