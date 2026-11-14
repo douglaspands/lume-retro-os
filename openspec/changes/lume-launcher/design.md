@@ -101,8 +101,11 @@ decisões abaixo valem sobre elas. Estado atual relevante:
 
 - O `lume-ui` usa o `sdl2` do Alpine (driver KMSDRM, GLES2: `lima` e `panfrost`) e o
   `SDL_Renderer`.
-- O laço é `SDL_WaitEvent`: sem input, a interface não redesenha. Durante uma animação o teto é
-  de 30 fps, e o Modo lite desliga as animações.
+- O laço dorme num canal (`mpsc`) alimentado pelas threads do controle, do índice e do
+  progresso: sem input, a interface não redesenha. Durante uma animação o teto é de 30 fps, e o
+  Modo lite desliga as animações. *(2026-11-14: era `SDL_WaitEvent`, mas no KMSDRM o SDL não
+  tem espera e acorda a cada 1 ms; no GA36 isso custou 42% de um núcleo parado. A fila do SDL
+  agora só é esvaziada, sem espera, uma vez por segundo parado; tarefa 8.5.)*
 - O motor desenha por um trait `Canvas`, com operações de retângulo, textura e texto. Ele não
   conhece o SDL fora da implementação desse trait.
 - **Risco medido antes de fechar** (tarefa 2.1): o EGL e o Mesa podem ser a maior parte da
@@ -113,6 +116,14 @@ decisões abaixo valem sobre elas. Estado atual relevante:
     GA36, sem mudar as telas.
 - **Texto:** o `fontdue` gera um atlas de glifos em textura, com cache. A fonte é empacotada
   (Noto Sans, OFL), com cobertura de pt, en e es.
+- **Achado no GA36 (2026-11-14, com o `r36os-shot` da D12):** sem pedido, o SDL escolhe o
+  renderer `opengl` (GL de desktop), que no `lima` só limpa a tela: o Dock saía só com a cor de
+  fundo, e o `LUME_SCREENSHOT` (software) não mostrava o problema. O `lume-ui` agora pede o
+  `opengles2` (o `SDL_RENDER_DRIVER` do ambiente ainda vence), e o self-test da VM exige o
+  mesmo renderer. Dois cuidados vieram junto: o `lume-ui` sai com erro se o SDL cair num
+  driver sem tela (`offscreen`, `dummy`), para a sessão tentar de novo, e desliga os handlers
+  de sinal do SDL, que transformavam o SIGTERM num evento ignorado (um `lume-ui` órfão ficou
+  com a tela).
 
 ### D4. Índice e miniaturas pré-processados (`lume-index`)
 
@@ -341,6 +352,28 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
     não traz nenhum.
   - Os 2 temas Material são portados de `docs/lume-launcher/prototipo/temas/`.
 - O motor (`lume-ui`) não conhece nenhum tema pelo nome, como no protótipo.
+
+### D12. Captura da tela pelo cabo (`r36os-shot`, parte remota do P-57)
+
+Incluída em 2026-11-14: as validações visuais (rótulo "Sair" da 3.6, Dock e grade da 9.x)
+precisam de imagem com o usuário longe do aparelho, e o `LUME_SCREENSHOT` do `lume-ui` só
+redesenha a própria interface.
+
+- Binário em C no pacote `r36os-input` (o pacote de utilitários do console, já nos três
+  alvos), sem `libdrm`: só as ioctls de `linux/drm*.h` e a `zlib`.
+- Como root: para cada CRTC ativo, o framebuffer do plano primário por
+  `DRM_IOCTL_MODE_GETFB2` (o handle só sai para quem tem `CAP_SYS_ADMIN`), exportado por PRIME
+  e lido por `mmap` do dma-buf, com `DMA_BUF_IOCTL_SYNC` em volta da leitura.
+- Formatos aceitos: `XRGB8888`, `ARGB8888` e `RGB565`, os de varredura dos drivers dos dois
+  consoles; outro formato sai com erro e o nome dele, sem imagem errada.
+- Saída: PNG RGB de 8 bits com a `zlib`, do tamanho do framebuffer (sem girar: a rotação do
+  painel, se houver, aparece na imagem e é dita no log).
+- Uso: `r36os-shot [arquivo.png]` (padrão `/tmp/r36os-shot.png`), por `ssh` pelo cabo. A
+  conversão de pixels e o PNG são testados no PC com `--raw` (um framebuffer em arquivo).
+- Na VM, com virgl, a imagem fica no host e o buffer do convidado pode vir vazio; o self-test
+  usaria o `screendump` do QMP, não esta ferramenta.
+- Fica para o P-57: atalho no aparelho (Fn+Select), gravação em `ROMS/screenshots/`, cópia para
+  o PC sem `ssh` e a decisão entre imagem do jogador e de debug.
 
 ## Risks / Trade-offs
 

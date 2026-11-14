@@ -50,6 +50,10 @@ reconciliação com o Lume, que é Alpine, sem EmulationStation e com o contrato
   - A interface lê um índice binário, não o XML.
 - **Ícones próprios no Dock**: tiles com a sigla do console, desenhados pelo tema. A distro não
   traz logotipo de fabricante. Um tema do usuário no cartão pode trazer os dele.
+- **Captura da tela pelo cabo (`r36os-shot`)**, incluída em 2026-11-14 para validar o launcher
+  com o usuário remoto: lê pelo DRM a imagem exibida (launcher, menu do RetroArch ou jogo) e
+  grava um PNG. Só a parte remota do P-57; o atalho no aparelho e a decisão entre imagem do
+  jogador e de debug continuam no P-57.
 
 Fora do escopo:
 - portas do PortMaster, que precisam de um ambiente glibc (P-56, registrada por este change);

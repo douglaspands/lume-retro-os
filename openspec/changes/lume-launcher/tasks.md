@@ -2,12 +2,13 @@
 
 ## 1. Verificações prévias e branch
 
-- [ ] 1.1 Kernel (D9): conferir no `.config` final de `board/ga36` e de `board/r36s` as opções
+- [x] 1.1 Kernel (D9): conferir no `.config` final de `board/ga36` e de `board/r36s` as opções
   `CGROUPS`, `CGROUP_PIDS`, `MEMCG` e a presença de `cgroup.kill` (kernel ≥ 5.14). Ligar no
   fragmento da placa o que faltar. Verificação: `rg` nos dois `.config` gerados e
   `ls /sys/fs/cgroup/` na VM com `rc_cgroup_mode="unified"`, mostrando `cgroup.kill`.
   *(2026-11-14: parte da VM feita, `cgroup.kill` e os controladores `pids` e `memory` no
-  `test-vm`; falta o `.config` dos consoles, no próximo `r36os build console`.)*
+  `test-vm`. Build console 20261114-131500: `CGROUPS`, `MEMCG` e `CGROUP_PIDS` nos dois
+  `.config`, e no GA36 (boot 45) `/sys/fs/cgroup/lume` do `game` com `cgroup.kill`.)*
 - [x] 1.2 RetroArch 1.22.2 (D7): ler na fonte quatro pontos e anotar o resultado em
   "Resultados das verificações" no `design.md`:
   - (a) se `-e/--entryslot` existe e carrega o estado;
@@ -65,13 +66,18 @@
   - atualizar `tests/unit/test_retroarch_cfg.py` e o mapa de chaves fixas.
 
   Verificação: a suíte de unidade passa.
-- [ ] 3.6 RetroArch, rótulo de "Sair" pelo frontend (D7): os patches 0001 e 0002 leem
+- [x] 3.6 RetroArch, rótulo de "Sair" pelo frontend (D7): os patches 0001 e 0002 leem
   `LUME_RETROARCH_QUIT` (definida pelo `frontends/retroarch`). Aberto pelo lume, o item mostra o
   texto do upstream e fecha sem a confirmação dupla. Como frontend de reserva, continua
   "Desligar" com confirmação. Verificação: o aport compila e o self-test da VM abre o menu nos
   dois modos. *(2026-11-14: retroarch r111 compila; `lume-retroarch-menu` confere
   `LUME_RETROARCH_QUIT=launcher` no RetroArch aberto pelo lume e `quit-label-desligar` os
-  textos do modo reserva. Falta ver o texto do item na tela, no aparelho.)*
+  textos do modo reserva. Falta ver o texto do item na tela, no aparelho.)* *(2026-11-14, GA36
+  pelo cabo, botões injetados no `/dev/input/event3` e telas lidas com o `r36os-shot`: Settings →
+  RetroArch abre o menu, o último item é "Quit" com a legenda "Close RetroArch and go back to the
+  game list", e A nele volta direto ao Settings do lume, sem confirmação. Achado: na volta,
+  Volume e Brilho mostravam "—", porque o `restore()` não relia os níveis; corrigido em
+  `app.rs` com teste em `retroarch_item_opens_the_menu_with_code_65`, `lume-launcher` r3.)*
 - [x] 3.7 `frontends/retroarch`, chaves de uma execução só (D7): aceitar as chaves do launcher,
   guardar os valores do usuário (`aspect_ratio_index`, `state_slot`) numa pendência, rodar o
   RetroArch sem `exec` e devolvê-los ao terminar, ou no início da próxima execução se ele foi
@@ -241,12 +247,49 @@
   launcher, sair por Fn+Start e conferir que a SRAM foi gravada. Anotar só "validado com ROMs de
   teste do usuário".
 
+- [x] 8.3 Captura da tela pelo cabo, `r36os-shot` (D12, parte remota do P-57): binário no
+  pacote `r36os-input`, lendo pelo DRM o framebuffer do plano primário e gravando um PNG.
+  Testes no PC com `--raw`: `XRGB8888` e `RGB565` viram o PNG esperado, e um formato
+  desconhecido é recusado com o nome dele. Verificação: no GA36, pelo cabo, uma captura do
+  Dock do lume e uma do menu do RetroArch batem com a tela, e o P-57 anota a parte feita.
+  *(2026-11-14, em andamento: `aports/r36os-input/shot.c`, `r36os-input` r1 com `zlib-dev`,
+  `tests/unit/test_r36os_shot.py` com 7 testes passando; pacote armv7 compilado e o binário,
+  copiado para `/tmp/r36os-shot` do GA36, capturou a tela real (Dock e console de texto).
+  Falta: pacotes x86_64 e aarch64, imagem, push e a captura do menu do RetroArch.)*
+  *(2026-11-14, noite: o mesmo binário capturou o Dock (`AR24`) e o menu do RetroArch (`XR24`)
+  no GA36, ambos batendo com a tela. Build console 20261114-143705 (`r36os-input` r1,
+  `lume-launcher` r3) enviado por push: no boot novo, o `/usr/bin/r36os-shot` do pacote
+  capturou o Dock, e o `lume-ui` parado usou 6 ticks em 60 s (0,1%). P-57 anotado.)*
+- [x] 8.4 Renderer do `lume-ui` no `lima` (achado da 8.3, D3): pedir `opengles2` (o `opengl`
+  padrão do SDL só limpa a tela no GA36), sair com erro num driver sem tela (`offscreen`,
+  `dummy`) e desligar os handlers de sinal do SDL (SIGTERM virava evento ignorado e um
+  `lume-ui` órfão ficou com a tela). O self-test exige `renderer opengles2`. Verificação:
+  `test-vm` verde e, no GA36, a captura do `r36os-shot` mostra o Dock com tiles e texto.
+  *(2026-11-14: código em `lume/lume-ui/src/main.rs` e `lume-launcher` r2; `cargo test`
+  passa; com `SDL_RENDER_DRIVER=opengles2` à mão o GA36 já desenhou o Dock certo.)*
+  *(2026-11-14, noite: o `lume-ui` do r2, trocado à mão no GA36, desenha o Dock com tiles e
+  texto e loga `renderer opengles2`. `test-vm` 81/81 com o r3.)*
+- [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
+  `SDL_WaitEvent`, que no KMSDRM não espera de verdade e acorda a cada 1 ms; no GA36, parado,
+  usou 42% de um núcleo (1529 ticks em 60 s) com RSS de 58 MB. As threads (controle, índice,
+  progresso) passam a acordar o laço por um canal `mpsc`, e a fila do SDL só é esvaziada, sem
+  espera, uma vez por segundo parado. Check novo no self-test, `lume-ui-idle-cpu` (até 20
+  ticks em 10 s). Verificação: `test-vm` verde e, no GA36, CPU abaixo de 1% em 60 s.
+  *(2026-11-14: `lume-launcher` r3; no GA36, com o `lume-ui` do r3 trocado à mão e parado no
+  Dock, 13 ticks em 60 s (0,22% de um núcleo), RSS de 58 MB igual ao r2; os botões e a volta do
+  RetroArch com Volume e Brilho lidos conferidos por captura. `test-vm` 81/81 com o r3, com
+  `lume-ui-idle-cpu` e `logs-cost` verdes; a falha de `logs-cost` (1,63%) do r2 veio de um
+  build aarch64 rodando ao mesmo tempo no PC.)*
+
 ## 9. Medição no aparelho (GA36 e R36S)
 
 - [ ] 9.1 GA36: RSS e CPU do `lume-ui` parado na grade (meta: CPU abaixo de 1% de um núcleo
   em 60 s) e RSS do `lume-run` e do `r36os-input` durante um jogo (meta: abaixo de 2 MB cada),
   pelas métricas do `logd`. Comparar com o menu atual do RetroArch e preencher a tabela de
   `docs/lume-launcher/orcamento-de-performance.md`.
+  *(2026-11-14, parcial, GA36 pelo `/proc`, fora de jogo: `lume-ui` r3 parado 0,22% de um
+  núcleo e RSS 58 MB; `lume-run` 752 KB e `r36os-input` 500 KB. Falta: durante um jogo, pelas
+  métricas do `logd`, e a comparação com o menu do RetroArch.)*
 - [ ] 9.2 GA36: tempo do boot até o Dock e tempo do fim do jogo até a grade (meta: até 1 s),
   medidos pelo `events.log` e pelas métricas. Anotar em `docs/BRINGUP-GA36.md`.
 - [ ] 9.3 GA36: tempo do scan inicial e do scan sem mudança numa coleção grande (ROMs de teste
