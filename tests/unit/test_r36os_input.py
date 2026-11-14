@@ -276,7 +276,9 @@ def test_volume_keys_change_the_mixer_and_are_not_forwarded(r36s):
 
 
 def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
-    d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c21800.lradc"])
+    # the LRADC of the A33 is at 0x01c22800 (the name /proc/bus/input/devices shows on the
+    # GA36); with 1c21800 the volume buttons were never grabbed (2026-11-14)
+    d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
     try:
         c = d.client()
         d.press("GA36-MB Gamepad", CODES["BTN_A"])
@@ -286,7 +288,7 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
         assert c.recv(16) == b"quit"
         d.release("GA36-MB Gamepad", CODES["BTN_START"])
         d.release("GA36-MB Gamepad", CODES["BTN_MODE"])
-        d.press("1c21800.lradc", CODES["KEY_VOLUMEUP"])
+        d.press("1c22800.lradc", CODES["KEY_VOLUMEUP"])
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
         time.sleep(0.2)
         assert d.amixer_log.read_text().strip() == "-c GA36MB -q sset DAC 3%+"
