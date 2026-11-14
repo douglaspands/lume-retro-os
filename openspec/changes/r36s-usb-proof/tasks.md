@@ -30,6 +30,10 @@ log é lido depois, com o cabo de volta. Os scripts de captura saem da `ROMS` ao
 
 - [ ] 5.1 R36S: `r36os push` de um build da `kernel-modules-image` (o primeiro manda o `r36s/SYSTEM` sem módulos), depois um build com uma mudança só no kernel do R36S (por exemplo `CONFIG_DUMMY=m` temporário no `board/r36s/kernel.config`, retirado depois). Verificação: o segundo `push` manda só `r36s/Image`, `r36s/modules` e o `VERSION`, sem nenhum `SYSTEM`; no console, `/lib/modules/$(uname -r)/modules.dep` existe, o `modprobe` de um módulo da imagem funciona (o `zram` é embutido, `CONFIG_ZRAM=y`) e o log de boot tem `lume: modules: r36s/modules (<versão>)`; tempo e volume do `push` anotados no `docs/BRINGUP-R36S.md`, como no GA36.
 
+## 6. Troca da `BOOT` sem vazamento (tarefa 6.4 da `push-boot-swap`)
+
+- [ ] 6.1 R36S, com o mesmo cartão do GA36 (`BOOT` limpa em 2026-11-14: `df` = `du`, `fsck.fat -n` sem clusters perdidos, e um `ga36/SYSTEM.old` sobrando da prova no GA36): `r36os push` de um build que troque o `r36s/SYSTEM` em uso; se o build não trocar o `SYSTEM`, usar um marcador provisório no overlay (`/usr/share/r36os/proof-push-boot-swap`), como no GA36, e tirá-lo depois. Verificação: o `push` não mostra aviso de clusters perdidos nem de `remount,ro` recusado; o `r36s/SYSTEM.old` fica na `BOOT` e o `ga36/SYSTEM.old` é apagado antes da cópia; depois do reboot, `df` = `du` da `BOOT` e `fsck.fat -n /dev/mmcblk0p1` pelo console sem clusters perdidos (binário do `dosfstools` do Alpine aarch64 no `/tmp`); anotado no `docs/BRINGUP-R36S.md`, no lugar do "pendente (tarefa 6.4)".
+
 ## Workflow follow-up
 
 - Archive desta change depois das provas; se uma falhar, a correção entra como tarefa nova aqui.

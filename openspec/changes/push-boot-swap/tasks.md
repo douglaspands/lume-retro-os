@@ -64,11 +64,12 @@
   apagado antes da cópia e sem aviso de clusters perdidos.
 - [x] 6.3 Depois: `fsck.vfat -n` da `BOOT` pelo PC sem cadeias perdidas e `df` contra `du`
   dentro de 32 MB; registrar em `docs/BRINGUP-GA36.md`.
-- [ ] 6.4 Primeiro `push` no R36S: registrar se o aviso de clusters perdidos apareceu (os
+- [x] 6.4 Movida para a change `r36s-usb-proof` (tarefa 6.1, 2026-11-14): o R36S não está em mãos, e as provas dele ficam juntas naquela change. Texto original: Primeiro `push` no R36S: registrar se o aviso de clusters perdidos apareceu (os
   pushes antigos podem ter vazado) e, se sim, limpar pelo PC e repetir o push sem aviso.
 
 ## Workflow follow-up
 
 - Commits pequenos (Conventional Commits) na `feature/push-boot-swap`, juntos perto do fim,
   com o OK do usuário.
-- Arquivar com `/opsx:archive`; o P-55 vai para "Concluídas" com a change.
+- Arquivar com `/opsx:archive`; o P-55 vai para "Concluídas" com a change; a prova do R36S
+  segue na `r36s-usb-proof` (6.1).
