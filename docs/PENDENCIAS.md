@@ -151,5 +151,5 @@ própria. Os IDs `P-01` a `P-03`, `P-05` e `P-06` não são reaproveitados.
 | `r36os flash --eject` | commit `f10d652` |
 | Escala do menu e idioma ajustáveis pelo menu do RetroArch | commit `678855d` |
 | P-21 e P-27: o mesmo cartão inicia no GA36 e no R36S V5 (tela, controle e som do R36S funcionando); sobram o P-45, P-42, P-46 e P-47 | change arquivada `openspec/changes/archive/2026-11-13-r36s-single-card/` |
-| P-48, P-38 e P-15: acesso pelo cabo USB (MTP, SSH root só pelo cabo, `r36os push`), papel host (pendrive, controles, teclado e mouse; no GA36 só com hub alimentado, P-54) e Wi-Fi/Bluetooth por dongle; provas no GA36, as do R36S na change `r36s-usb-proof` | change `openspec/changes/usb-device-access/` (arquivar) |
+| P-48, P-38 e P-15: acesso pelo cabo USB (MTP, SSH root só pelo cabo, `r36os push`), papel host (pendrive, controles, teclado e mouse; no GA36 só com hub alimentado, P-54) e Wi-Fi/Bluetooth por dongle; provas no GA36, as do R36S na change `r36s-usb-proof` | change arquivada `openspec/changes/archive/2026-11-14-usb-device-access/` |
 | P-35: sistemas Neo Geo, CPS-1, CPS-2, Sega CD e 32X, com o FB Alpha 2012 por placa (verificação no aparelho no P-39) | change arquivada `openspec/changes/archive/2026-11-11-catalog-arcade-sega/`, implementação dentro da `r36s-single-card` |
