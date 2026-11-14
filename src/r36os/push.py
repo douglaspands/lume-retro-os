@@ -3,20 +3,26 @@
 The console must be on with the cable on its OTG port. Steps, all through ssh to
 root@10.55.0.1 (root has no password on the USB cable, D4):
 
-1. read the console: VERSION, board, battery, free space on ROMS and BOOT, and the SHA256
-   of the files on BOOT; refuse below 20% battery;
+1. read the console: VERSION, board, battery, free space on ROMS and BOOT, the size of the
+   *.old/*.new left by an earlier push, BOOT used (df) against what its files take (du),
+   and the SHA256 of the files on BOOT (not *.old/*.new); refuse below 20% battery; warn
+   when df passes du by more than 32 MiB (lost clusters, push-boot-swap D3);
 2. take the BOOT files of the build out of the archived image (the list and SHA256 of
    boot-files.sha256, read back from the FAT when the image was built) and keep only the
    ones that differ from the console;
 3. send them to /storage/.lume-push/<build>/ (ROMS) and check them there with
    `sha256sum -c`: nothing on BOOT changes if one differs;
-4. on BOOT (remounted rw): each file copied to <name>.new, synced and renamed over the old
+4. on BOOT (remounted rw): the *.old/*.new of an earlier push deleted (nothing holds them
+   open after its reboot); each file copied to <name>.new, synced and renamed over the old
    one, VERSION last, so an interrupted push leaves the old VERSION and the next push sends
-   everything again; on the GA36, the boot image of panel 1 at sector 172032 when it
-   changed, read back and compared;
-5. BOOT read-only again, the staging folder removed, reboot. When the swap replaced the
-   SYSTEM the console runs on, the old one stays open by its loop device and vfat refuses
-   read-only ("Resource busy"): BOOT then stays read-write until the reboot.
+   everything again. The SYSTEM and modules image of the running console are held open by
+   their loop devices: the old one is renamed to <name>.old instead of being replaced,
+   because vfat cannot free the clusters of an open file that lost its name (they leak
+   when the console powers off, push-boot-swap D1). On the GA36, the boot image of panel
+   1 at sector 172032 when it changed, read back and compared;
+5. BOOT read-only again, the staging folder removed, reboot. If vfat still refuses
+   read-only ("Resource busy"), something holds a deleted file open: warn that this boot
+   may leave lost clusters, for the next push to check (D5).
 
 There is no rsync on the console: each file goes as `cat > file` over ssh.
 """
@@ -41,6 +47,15 @@ MIN_BATTERY = 20
 ANDROID_SECTOR = 172032          # GA36 kernel boot image (r36os.vendor.ANDROID_BOOT_SECTOR)
 PANEL1_IMAGE = "ga36-android-boot-panel1.img"
 CHUNK = 1 << 22
+LOST_LIMIT = 32 << 20            # BOOT used (df) above what its files take (du): lost clusters
+STALE_CLEANUP = (r"find /boot -type f \( -name '*.old' -o -name '*.new' \) -exec rm -f {} \; "
+                 "&& sync")
+
+
+def running_files(board: str) -> tuple[str, ...]:
+    """BOOT files the running console keeps open by a loop device until it powers off: they
+    are swapped through <name>.old and their old size stays taken until the next push."""
+    return (f"{board}/SYSTEM", f"{board}/modules")
 
 
 class PushError(RuntimeError):
@@ -79,6 +94,14 @@ class Console:
     boot_free: int
     device: str             # the card, e.g. /dev/mmcblk0
     boot_sums: dict[str, str]
+    boot_stale: int = 0     # *.old/*.new of an earlier push, deleted before the swap
+    boot_used: int = 0      # df "Used" of BOOT
+    boot_files: int = 0     # du -s of BOOT
+
+    @property
+    def boot_lost(self) -> int:
+        """BOOT clusters taken but owned by no file (0 on a clean FAT)."""
+        return max(0, self.boot_used - self.boot_files)
 
 
 _PROBE = r"""
@@ -88,23 +111,40 @@ b=""; for p in /sys/class/power_supply/*; do [ "$(cat $p/type 2>/dev/null)" = Ba
 df -Pk /storage | awk 'NR==2{print $4}'
 df -Pk /boot | awk 'NR==2{print $4}'
 awk '$2=="/boot"{print $1}' /proc/mounts | sed -E 's/p?[0-9]+$//'
-cd /boot && find . -type f ! -name '*.new' | sed 's|^\./||' | while read -r f; do sha256sum "$f"; done
+find /boot -type f \( -name '*.old' -o -name '*.new' \) -exec du -k {} \; | awk '{s+=$1} END{print s+0}'
+df -Pk /boot | awk 'NR==2{print $3}'
+du -sk /boot | awk '{print $1}'
+cd /boot && find . -type f ! -name '*.new' ! -name '*.old' | sed 's|^\./||' | while read -r f; do sha256sum "$f"; done
 """
+_PROBE_HEAD = 9             # lines before the SHA256 list
 
 
 def read_console(remote: Remote) -> Console:
     lines = remote.run(_PROBE).splitlines()
-    if len(lines) < 6:
+    if len(lines) < _PROBE_HEAD:
         raise PushError(f"unexpected answer from the console: {lines!r}")
     sums = {}
-    for line in lines[6:]:
+    for line in lines[_PROBE_HEAD:]:
         digest, _, name = line.partition("  ")
         if name:
             sums[name] = digest
     battery = None if lines[2].strip() in ("", "-") else int(lines[2])
     return Console(board=lines[1].strip(), build=lines[0].strip(), battery=battery,
                    roms_free=int(lines[3]) * 1024, boot_free=int(lines[4]) * 1024,
-                   device=lines[5].strip(), boot_sums=sums)
+                   device=lines[5].strip(), boot_sums=sums,
+                   boot_stale=int(lines[6]) * 1024, boot_used=int(lines[7]) * 1024,
+                   boot_files=int(lines[8]) * 1024)
+
+
+def lost_clusters_warning(console: Console) -> str | None:
+    """push-boot-swap D3: the warning for BOOT clusters owned by no file, or None."""
+    lost = console.boot_lost
+    if lost <= LOST_LIMIT:
+        return None
+    return (f"warning: BOOT has {lost >> 20} MiB in lost clusters (a SYSTEM replaced by an "
+            "older push, or a power cut); recover them from the PC with the card in the "
+            "reader: `sudo fsck.vfat -a <BOOT, partition 1 of the card>` and delete "
+            "BOOT/FSCK*.REC, or `r36os flash --update`")
 
 
 def _sha256(path: Path) -> str:
@@ -153,12 +193,16 @@ def check_room(console: Console, sizes: dict[str, int]) -> None:
         raise PushError(f"ROMS has {console.roms_free >> 20} MiB free, the push needs "
                         f"{total >> 20} MiB (plus 16 MiB) for /storage/.lume-push")
     # every file goes to <name>.new before the rename; the running SYSTEM and modules image
-    # keep their old blocks until the reboot (a loop device holds each one open)
-    running = (f"{console.board}/SYSTEM", f"{console.board}/modules")
-    need = max(sizes.values(), default=0) + sum(sizes.get(p, 0) for p in running)
-    if console.boot_free < need:
-        raise PushError(f"BOOT has {console.boot_free >> 20} MiB free, the push needs "
-                        f"{need >> 20} MiB to swap the files")
+    # keep their old blocks as <name>.old until the next push (a loop device holds each one
+    # open), and the *.old/*.new of the previous push are deleted before the swap
+    need = (max(sizes.values(), default=0)
+            + sum(sizes.get(p, 0) for p in running_files(console.board)))
+    free = console.boot_free + console.boot_stale
+    if free < need:
+        raise PushError(f"BOOT has {free >> 20} MiB free"
+                        + (f" (with {console.boot_stale >> 20} MiB of an earlier push)"
+                           if console.boot_stale else "")
+                        + f", the push needs {need >> 20} MiB to swap the files")
 
 
 def _q(s: str) -> str:
@@ -178,6 +222,8 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     out(f"console: {console.board}, build {console.build or '?'}, battery "
         f"{'?' if console.battery is None else f'{console.battery}%'}, card {console.device}")
     out(f"push:    build {build_dir.name}")
+    if warning := lost_clusters_warning(console):
+        out(warning)                    # only a warning: the push goes on (D3)
     if console.battery is not None and console.battery < MIN_BATTERY:
         raise PushError(f"battery at {console.battery}%: charge the console above "
                         f"{MIN_BATTERY}% first (a power cut while BOOT is swapped can leave "
@@ -230,12 +276,20 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     # 4. BOOT, file by file, VERSION last
     remote.run("mount -o remount,rw /boot")
     ro_refused = None
+    running = running_files(console.board)
     try:
+        # the *.old/*.new of an earlier push: nothing holds them open after its reboot (D2)
+        remote.run(STALE_CLEANUP)
         for p, _ in files:
             dest = f"/boot/{p}"
+            new, old = _q(dest + ".new"), _q(dest + ".old")
+            # a running file keeps its name as .old: deleting it while its loop holds it
+            # open would leak its clusters when the console powers off (D1)
+            keep_old = (f"{{ [ ! -e {_q(dest)} ] || mv {_q(dest)} {old}; }} && "
+                        if p in running else "")
             remote.run(f"mkdir -p {_q(str(Path(dest).parent))} && "
-                       f"cp {_q(f'{remote_dir}/{p}')} {_q(dest + '.new')} && sync && "
-                       f"mv {_q(dest + '.new')} {_q(dest)} && sync")
+                       f"cp {_q(f'{remote_dir}/{p}')} {new} && sync && "
+                       f"{keep_old}mv {new} {_q(dest)} && sync")
         if panel1_changed:
             size = panel1.stat().st_size
             remote.run(f"dd if={_q(f'{remote_dir}/{PANEL1_IMAGE}')} of={_q(console.device)} "
@@ -251,14 +305,14 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
         try:
             remote.run("sync; mount -o remount,ro /boot")
         except PushError as e:
-            # the SYSTEM the console runs on stays open by its loop device after the swap
-            # (deleted, not gone), and vfat refuses read-only while it is open ("Resource
-            # busy", GA36 2026-11-13): everything is written and synced, and the reboot
-            # unmounts BOOT cleanly
+            # vfat refuses read-only while a deleted file is still open ("Resource busy",
+            # GA36 2026-11-13). The running files keep their names as .old (D1), so this is
+            # no longer expected: everything is written and synced, the push goes on (D5)
             ro_refused = e
     if ro_refused is not None:
-        out("note:    BOOT stays read-write until the reboot (the replaced SYSTEM is still "
-            "open by the running system)")
+        out("warning: BOOT stays read-write until the reboot: something still holds a "
+            "deleted file on it open, so this boot may leave lost clusters (the next push "
+            "checks)")
     remote.run(f"rm -rf {_q(STAGING)}")
     out("swapped: BOOT updated, rebooting the console")
     remote.run("(sleep 1; reboot) >/dev/null 2>&1 &")
