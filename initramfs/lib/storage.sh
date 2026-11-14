@@ -188,6 +188,21 @@ modules_file() {
 	esac
 }
 
+# A file of the BOOT mounted at $1, by its path $2 relative to it (push-boot-swap D4):
+# prints $2 when it exists. Without it, a push cut between its two renames left only
+# $2.old, the previous build, intact: prints that, with an ERROR line in the log. Fails
+# when neither exists.
+boot_file() {
+	if [ -f "$1/$2" ]; then
+		echo "$2"
+	elif [ -f "$1/$2.old" ]; then
+		log "ERROR: BOOT has no $2; using $2.old from the previous build"
+		echo "$2.old"
+	else
+		return 1
+	fi
+}
+
 # The release folders at the root of a mounted modules image, on one line.
 modules_found() { echo $(ls -A "$1" 2>/dev/null); }
 
@@ -199,14 +214,15 @@ modules_match() {
 # Mount the modules image of console $1 from the BOOT at $2 on $4/lib/modules, through the
 # mount point $3, only when its release folder is the running kernel's. When it is missing,
 # does not mount or is for another kernel, the system starts without modules (the boot
-# drivers are built into the kernel) with an ERROR line in the log.
+# drivers are built into the kernel) with an ERROR line in the log. Only the .old of an
+# interrupted push (boot_file) still passes the release check.
 mount_modules() {
-	local board="$1" boot="$2" mnt="$3" root="$4" file running found
-	file=$(modules_file "$board")
-	[ -n "$file" ] || return 0
+	local board="$1" boot="$2" mnt="$3" root="$4" want file running found
+	want=$(modules_file "$board")
+	[ -n "$want" ] || return 0
 	running=$(uname -r)
-	if [ ! -f "$boot/$file" ]; then
-		log "ERROR: BOOT has no $file; starting without kernel modules"
+	if ! file=$(boot_file "$boot" "$want"); then
+		log "ERROR: BOOT has no $want; starting without kernel modules"
 		return 0
 	fi
 	mkdir -p "$mnt"

@@ -73,6 +73,7 @@ def test_logs_doc_has_the_boot_messages_of_the_modules_step():
     doc = (REPO_ROOT / "docs/LOGS.md").read_text()
     for msg in messages:
         want = (msg.replace("${found:-no kernel}", "<found>").replace("$file", "<file>")
+                .replace("$want", "<file>")
                 .replace("$running", "<release>"))
         assert f"| `{want}` |" in doc, want
 

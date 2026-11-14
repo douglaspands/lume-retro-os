@@ -120,14 +120,15 @@ select_dtb() {
 select_dtb
 
 SYSTEM=$(system_file "$BOARD")
-# Never falls back to the SYSTEM of another console (another architecture)
-[ -f "/boot/$SYSTEM" ] || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
-mount -t squashfs -o ro,loop "/boot/$SYSTEM" /lower || rescue "failed to mount $SYSTEM"
+# Never falls back to the SYSTEM of another console (another architecture); only to the
+# SYSTEM.old of this one, the previous build left by a push cut between its two renames
+ROOT_FILE=$(boot_file /boot "$SYSTEM") || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
+mount -t squashfs -o ro,loop "/boot/$ROOT_FILE" /lower || rescue "failed to mount $ROOT_FILE"
 mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
 mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
 	|| rescue "failed to mount overlay"
-log "root: $SYSTEM (read-only) + 32 MiB RAM layer"
+log "root: $ROOT_FILE (read-only) + 32 MiB RAM layer"
 
 # Kernel modules of this console (kernel-modules-image D4): BOOT/<console>/modules on
 # /lib/modules of the new root. After select_dtb: an open loop on BOOT would stop the
