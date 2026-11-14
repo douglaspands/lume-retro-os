@@ -109,6 +109,13 @@ def test_menu_buttons_not_swapped():
     assert "menu_swap_ok_cancel_buttons" not in _keys(CFG)
 
 
+def test_every_controller_drives_the_menu():
+    # usb-device-access 7.4: a USB controller is player 2 and looked dead in the menu.
+    # A user default (Settings > Input), never a fixed key.
+    assert 'all_users_control_menu = "true"' in FACTORY
+    assert "all_users_control_menu" not in _keys(CFG)
+
+
 def test_no_quit_combo_and_menu_pauses():
     assert 'input_quit_gamepad_combo = "0"' in CFG
     assert 'input_exit_emulator = "nul"' in CFG
