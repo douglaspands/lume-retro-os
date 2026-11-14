@@ -45,14 +45,17 @@ KEYS = {
     "keys-menu": ("shift_r", "s"),           # Select + X (keyboard-only shortcut)
     "keys-start-select": ("ret", "shift_r"),  # Start + Select (menu combo)
     "keys-esc": ("esc",),
+    "keys-fn-start": ("f1", "ret"),           # Fn + Start of the vm r36os-input profile
 }
+# "key-<qcode>": one key, for driving the lume-launcher (lume-launcher 8.1)
+KEY_PREFIX = "key-"
 
 
 def expected_checks() -> list[str]:
     base = [
         "roms-created", "roms-first-boot-msg", "roms-folders", "roms-owner", "boot-readonly",
         "quit-label-desligar", "root-overlay", "zram-swap", "hwsummary", "hwsummary-battery-absent", "frontend-up",
-        "frontend-not-root", "frontend-gles", "frontend-kms", "bootlog-written",
+        "frontend-not-root", "retroarch-gles", "retroarch-kms", "bootlog-written",
         "bootlog-boot-ro-again", "frontend-stop-no-poweroff", "playlists",
         "persist-sync", "state-saved", "state-synced",
         "var-tmp-gone", "persist-after-reboot", "roms-preserved", "roms-checked-at-boot",
@@ -70,6 +73,10 @@ def expected_checks() -> list[str]:
         "logs-usb",
         # Wi-Fi and Bluetooth services, RetroArch commands on 127.0.0.1 (usb-device-access 8.2, 8.3)
         "wireless-services", "netcmd-localhost",
+        # lume-launcher as the frontend (lume-launcher 1.1, 3.5, 3.6, 6.1, 8.1)
+        "lume-ui-kms-gles", "input-daemon", "cgroup-delegated", "lume-new-game-unlisted",
+        "lume-update-lists", "lume-runner-returns", "lume-quit-combo", "lume-game-events",
+        "lume-retroarch-menu", "lume-retroarch-returns",
     ]
     cores = [f"core-loaded-{c}" for c in sorted(testdata.core_tests(catalog.load()))]
     return base + cores
@@ -148,6 +155,9 @@ def test_vm(keep: bool = False) -> int:
                     elif req in KEYS:
                         time.sleep(0.5)
                         qmp.send_keys(*KEYS[req])
+                    elif req.startswith(KEY_PREFIX):
+                        time.sleep(0.5)
+                        qmp.send_keys(req[len(KEY_PREFIX):])
                     elif req == "expect-poweroff":
                         expect_poweroff = True
                 elif "SELFTEST PHASE" in line:

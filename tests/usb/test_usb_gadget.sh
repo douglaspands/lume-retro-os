@@ -164,6 +164,24 @@ sleep 1
 kill -TERM $RUN; wait $RUN
 check "run: GA36 has no role switch, the MUSB follows the ID pin by itself" '! grep -q "port role" $W/run.out && [ ! -e "$G" ]'
 
+### lume-launcher 5.5: the PC lets go of the gadget -> the game lists are scanned again
+printf '#!/bin/sh\necho "rc-service $*" >> "%s"\n' "$LOG" > "$W/bin/rc-service"
+chmod +x "$W/bin/rc-service"
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+: > "$LOG"
+RC_SERVICE="$W/bin/rc-service" $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+sleep 0.5
+check "pc: nothing restarted while no PC was ever configured" '! grep -q "^rc-service" "$LOG"'
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.4
+check "pc: nothing restarted while the PC is configured" '! grep -q "^rc-service" "$LOG"'
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.4
+check "pc: disconnect restarts lume-index once" '[ "$(grep -c "^rc-service lume-index restart$" "$LOG")" = 1 ] && grep -q "usb: PC disconnected (not attached): rescanning the game lists" $W/run.out'
+kill -TERM $RUN; wait $RUN
+rm -f "$W/udc/musb-hdrc.2.auto/state"
+
 ### USB network and root without a password (4.1, 4.2): the PC brings the NCM link up and down
 mkdir -p "$W/net/usb0"
 echo 0 > "$W/net/usb0/carrier"

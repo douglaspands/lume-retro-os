@@ -14,7 +14,7 @@ input_driver = "null"
 menu_driver = "null"
 EOF
 FAILS=0
-jq -r '.cores as $c | .systems[] | . as $s
+jq -r '.cores as $c | .systems[] | select(.core != null) | . as $s
 	| ([.core] + [.core_by_arch[]] + .alt_cores | unique[]) as $core
 	| [$s.id, $core, $c[$core].file] | @tsv' /catalog/systems.json |
 while IFS="$(printf '\t')" read -r sys core file; do

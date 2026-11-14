@@ -86,11 +86,22 @@ build do `ga36/SYSTEM`.
 
 ## 4. Controle
 
-O driver do kernel junta os botões e os dois analógicos num único "GA36-MB Gamepad", com
-autoconfiguração do RetroArch (`/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg`):
-A, B, X, Y, L1, R1, L2, R2, Start, Select, direcional, L3, R3 e os dois analógicos. **Fn**
-abre o menu; **Start + Select** também. Os botões de volume ajustam de 5 em 5% (0 a 100%).
-No menu, A confirma e B volta.
+O driver do kernel junta os botões e os dois analógicos num único "GA36-MB Gamepad". O
+daemon de entrada `r36os-input` (perfil `/usr/share/r36os/input/ga36.conf`, change
+`lume-launcher`, D8) captura esse dispositivo e os botões de volume (LRADC) com exclusividade e
+publica um controle virtual com o **mesmo nome**, então a autoconfiguração do RetroArch
+(`/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg`) não muda: A, B, X, Y, L1, R1, L2,
+R2, Start, Select, direcional, L3, R3 e os dois analógicos. A regra do udev esconde do
+RetroArch só o dispositivo do kernel (`BUS_HOST`); o virtual é `BUS_VIRTUAL`.
+
+- **Fn sozinho** abre o menu do RetroArch quando é solto; **Start + Select** também abre.
+- **Fn+Start** encerra o jogo aberto pelo launcher e volta à lista (fora de um jogo, nada
+  acontece).
+- **Volume**: os botões mudam o controle `DAC` do `GA36MB` em passos de 3%, em qualquer
+  programa.
+- No menu, A confirma e B volta.
+
+`r36os-input --list` mostra os dispositivos de entrada e o barramento de cada um.
 
 ## Pelo cabo USB
 

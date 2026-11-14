@@ -32,20 +32,25 @@ echo "::once:/usr/libexec/r36os/bootlog" >> /etc/inittab
 
 # OpenRC: boot log in /var/log/rc.log (used by the boot log).
 sed -i -e 's/^#*rc_logger=.*/rc_logger="YES"/' /etc/rc.conf
+# cgroup v2 only, mounted on /sys/fs/cgroup: the session hands /sys/fs/cgroup/lume/ to the
+# game user and the launcher puts each game in its own cgroup (lume-launcher D9)
+sed -i -e 's/^#*rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf
+grep -qx 'rc_cgroup_mode="unified"' /etc/rc.conf || echo 'rc_cgroup_mode="unified"' >> /etc/rc.conf
 
 add() { rc-update add "$1" "$2" >/dev/null; }
-for s in devfs dmesg udev udev-trigger udev-settle; do add "$s" sysinit; done
+# cgroups mounts the cgroup v2 of rc_cgroup_mode above: without it in a runlevel nothing mounts
+# /sys/fs/cgroup and the games end by process group only (seen in test-vm on 2026-11-14).
+# sysfs is listed too: its "after sysfs" only orders services of the same runlevel, and with
+# sysfs pulled in later cgroups found no /sys/fs/cgroup, did nothing and still said started.
+for s in sysfs devfs dmesg cgroups udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done
 # dbus and networkmanager: Wi-Fi by USB dongle (usb-device-access D9); the frontend does not
 # wait for them (no dependency). bluetooth only on the consoles, below (the vm kernel has no
 # Bluetooth, so bluetoothd would crash there).
 for s in seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb r36os-savesync r36os-hostshare \
-	r36os-playlists r36os-hwsummary frontend r36os-selftest dbus networkmanager; do
+	r36os-playlists lume-index r36os-input r36os-hwsummary frontend r36os-selftest dbus \
+	networkmanager; do
 	add "$s" default
-done
-# Services of the hardware layer (board/<board>/hw-packages.txt), when the board has them
-for s in r36os-padmerge; do
-	if [ -f "/etc/init.d/$s" ]; then add "$s" default; fi
 done
 # Board services that live in the common overlay
 case "$BOARD" in

@@ -38,7 +38,8 @@ echo "2026-11-09T10:00:00,1.0,menu" >> "$LOGS_RAM/metrics.pending"
 echo "2026-11-09T10:00:05,6.0,game" >> "$LOGS_RAM/metrics.pending"
 echo "frontend line 1" > "$FRONTEND_LOG"
 logs_flush
-check "evento: descarregado com data, boot, categoria e resultado" 'grep -qE "^[0-9-]{10}T[0-9:]{8} 7 test FAIL second, with spaces$" $LOGS_DIR/events.log && [ ! -e $LOGS_RAM/events.pending ]'
+check "evento: descarregado com data, boot, categoria e resultado" 'grep -qE "^[0-9-]{10}T[0-9:]{8} 7 test FAIL second, with spaces$" $LOGS_DIR/events.log && [ ! -s $LOGS_RAM/events.pending ]'
+check "event: the buffer is back, empty and writable by the launcher" '[ "$(stat -c %a $LOGS_RAM/events.pending)" = 666 ]'
 check "métricas: cabeçalho uma vez + 2 linhas" '[ "$(grep -c "" $LOGS_DIR/metrics/boot-7.csv)" = 3 ] && head -n 1 $LOGS_DIR/metrics/boot-7.csv | grep -q "^time,uptime_s"'
 echo "2026-11-09T10:00:10,11.0,menu" >> "$LOGS_RAM/metrics.pending"
 logs_flush
@@ -284,6 +285,47 @@ FE_STATE=menu FE_CORE="" FE_CONTENT="" FE_FRAMES=""; game_track 77.50; logs_flus
 check "fps: closing the game clears the nominal FPS" '[ -z "$GAME_KEY" ] && [ -z "$GAME_NOMINAL" ] && grep -q "game OK closed: core=gba content=kart" $LOGS_DIR/events.log'
 : > "$FRONTEND_LOG"
 FE_STATE=stopped
+
+### logd under the lume-launcher (lume-launcher 6.4): RetroArch absent is not a failure
+LUME_STATUS="$W/lume-status"
+# fake pidof: prints a pid, as the real one (logd keeps it and reads /proc/<pid>/comm)
+pidof() { case "$1" in lume-run) echo $$ ;; *) return 1 ;; esac; }
+echo ui > "$LUME_STATUS"
+frontend_state
+check "lume: no retroarch, interface on screen is launcher" '[ "$FE_STATE" = launcher ] && [ -n "$LUME" ]'
+echo game:love > "$LUME_STATUS"
+frontend_state
+check "lume: a native game is game, with the runner as core" '[ "$FE_STATE" = game ] && [ "$FE_CORE" = love ] && [ -z "$FE_CONTENT" ]'
+pidof() { echo $$; }
+nc() { printf '%s' "$NC_REPLY"; }
+NC_REPLY='GET_STATUS PLAYING super_nes,Secret Title (U),crc32=1a2b3c,frames=10
+'
+frontend_state
+check "lume: RetroArch game under the launcher has no content name" '[ "$FE_STATE" = game ] && [ "$FE_CORE" = super_nes ] && [ -z "$FE_CONTENT" ]'
+rm -f "$LOGS_RAM"/events.pending
+game_track 5.00
+FE_STATE=menu FE_CORE="" FE_FRAMES=""; game_track 9.00
+check "lume: logd writes no opened/closed lines (lume-run does)" '! grep -q " game " $LOGS_RAM/events.pending 2>/dev/null'
+unset -f pidof nc
+rm -f "$LUME_STATUS"; LUME=""
+frontend_state
+check "lume: without the status file it is the old logic" '[ "$FE_STATE" != launcher ]'
+### process usage columns: a busy loop stands in for lume-run
+printf '#!/bin/sh\nwhile :; do :; done\n' > "$W/lumeprobe"
+chmod +x "$W/lumeprobe"
+"$W/lumeprobe" &
+LR=$!
+sleep 0.2
+proc_usage lumeprobe 10.0; u1=$PU_OUT
+sleep 0.5
+proc_usage lumeprobe 10.5; u2=$PU_OUT
+check "usage: rss, and cpu from the second sample on" 'echo "$u1" | grep -qE "^[0-9]+,$" && echo "$u2" | grep -qE "^[0-9]+,[0-9]+\.[0-9]$"'
+proc_usage no-such-proc 1.0
+check "usage: a missing process gives empty columns" '[ "$PU_OUT" = "," ]'
+uptime_cs 116.58; a=$CS; uptime_cs 10.5; b=$CS; uptime_cs 7.08; c=$CS; uptime_cs 42; d=$CS
+check "usage: uptime in centiseconds, no octal trap" '[ "$a" = 11658 ] && [ "$b" = 1050 ] && [ "$c" = 708 ] && [ "$d" = 4200 ]' "$a $b $c $d"
+kill $LR 2>/dev/null; wait $LR 2>/dev/null
+check "usage: the metrics header has the launcher columns" 'grep -q "lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct" rootfs/overlay/usr/libexec/r36os/logd'
 
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {

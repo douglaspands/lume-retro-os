@@ -18,7 +18,7 @@ def test_every_core_has_package_in_common_list():
 def test_systems_match_design_table():
     ids = [s["id"] for s in CAT["systems"]]
     assert ids == ["nes", "snes", "mastersystem", "megadrive", "segacd", "sega32x", "gb", "gbc",
-                   "gba", "arcade", "cps1", "cps2", "neogeo", "psx"]
+                   "gba", "arcade", "cps1", "cps2", "neogeo", "psx", "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
     # Sega CD: genesis_plus_gx, picodrive on the GA36 (armv7); required BIOS by region
     assert by_id["segacd"]["extensions"] == ["cue", "chd", "iso", "m3u"]
@@ -96,6 +96,109 @@ def test_validator_refuses_arcade_core_by_arch():
     assert any(e.startswith("cps2:") and "core_by_arch" in e for e in errs)
     # a regular system keeps its per-architecture core
     assert not any(e.startswith("megadrive:") for e in errs)
+
+
+def test_schema3_launcher_fields():
+    # lume-launcher D5, D11: every system has a Dock abbreviation; love and ports have no
+    # libretro core and one native runner each
+    by_id = {s["id"]: s for s in CAT["systems"]}
+    assert by_id["snes"]["abbr"] == "SNES" and by_id["psx"]["abbr"] == "PS1"
+    assert len({s["abbr"] for s in CAT["systems"]}) == len(CAT["systems"])
+    assert by_id["love"]["extensions"] == ["love"] and by_id["love"]["core"] is None
+    assert by_id["ports"]["extensions"] == ["sh"] and by_id["ports"]["core"] is None
+    assert catalog.emulators(by_id["love"], "armv7") == [{"runner": "love"}]
+    assert catalog.emulators(by_id["ports"], "aarch64") == [{"runner": "sh"}]
+
+
+def test_emulators_derived_from_core_fields():
+    # the two forms agree: the libretro emulators are the default core of the architecture
+    # first, then the other cores of the system, and r36os-playlists keeps using `core`
+    by_id = {s["id"]: s for s in CAT["systems"]}
+    assert catalog.emulators(by_id["nes"], "x86_64") == [
+        {"runner": "retroarch", "core": "fceumm"}, {"runner": "retroarch", "core": "nestopia"}]
+    assert catalog.emulators(by_id["segacd"], "armv7") == [
+        {"runner": "retroarch", "core": "picodrive"},
+        {"runner": "retroarch", "core": "genesis_plus_gx"}]
+    assert catalog.emulators(by_id["segacd"], "aarch64") == [
+        {"runner": "retroarch", "core": "genesis_plus_gx"},
+        {"runner": "retroarch", "core": "picodrive"}]
+    for s in CAT["systems"]:
+        for arch in ("x86_64", "aarch64", "armv7"):
+            emus = catalog.emulators(s, arch)
+            assert emus, s["id"]
+            if s["core"] is not None:
+                assert emus[0] == {"runner": "retroarch", "core": catalog.default_core(s, arch)}
+                # the core of another architecture is not an alternative here
+                assert {e["core"] for e in emus if "core" in e} == {
+                    catalog.default_core(s, arch), s["core"], *s["alt_cores"]}
+
+
+def test_image_runners_are_valid():
+    runners = catalog.load_runners()
+    assert set(runners) == {"retroarch", "love", "sh"}
+    for r in runners.values():
+        assert catalog.validate_runner(r) == [], r["id"]
+    assert runners["retroarch"]["kind"] == "libretro"
+    assert runners["retroarch"]["quit"] == "retroarch-cmd"
+    assert runners["love"]["quit"] == runners["sh"]["quit"] == "sigterm"
+
+
+def test_validator_refuses_missing_runner():
+    # game-library: an emulator citing a runner that is not installed fails the build
+    bad = copy.deepcopy(CAT)
+    next(s for s in bad["systems"] if s["id"] == "love")["emulators"] = [{"runner": "nope"}]
+    errs = catalog.validate(bad)
+    assert any(e.startswith("love:") and "nope" in e for e in errs)
+    runners = catalog.load_runners()
+    del runners["retroarch"]
+    assert any("runner retroarch is missing" in e for e in catalog.validate(CAT, runners))
+
+
+def test_validator_keeps_the_two_forms_apart():
+    bad = copy.deepcopy(CAT)
+    by_id = {s["id"]: s for s in bad["systems"]}
+    by_id["snes"]["emulators"] = [{"runner": "retroarch", "core": "fceumm"}]
+    by_id["love"]["emulators"] = []
+    by_id["ports"]["emulators"] = [{"runner": "sh", "core": "fceumm"}]
+    by_id["gba"]["abbr"] = "GAMEBOY"
+    errs = catalog.validate(bad)
+    assert any(e.startswith("snes:") and "core/alt_cores" in e for e in errs)
+    assert any(e.startswith("love:") and "needs emulators" in e for e in errs)
+    assert any(e.startswith("ports:") and "takes no core" in e for e in errs)
+    assert any(e.startswith("gba:") and "abbr" in e for e in errs)
+
+
+def test_validator_refuses_bad_runner():
+    base = {"id": "x", "kind": "native", "exec": ["/bin/x", "{rom}"], "quit": "sigterm",
+            "timeout": 3}
+    assert catalog.validate_runner(base) == []
+    cases = {
+        "exec": [],
+        "kind": "wine",
+        "quit": "kill",
+        "timeout": 0,
+    }
+    for field, value in cases.items():
+        r = dict(base, **{field: value})
+        assert catalog.validate_runner(r), field
+    assert any("unknown placeholder" in e for e in
+               catalog.validate_runner(dict(base, exec=["/bin/x", "{game}"])))
+    assert any("whole argument" in e for e in
+               catalog.validate_runner(dict(base, exec=["/bin/x", "--rom={rom}"])))
+    assert any("absolute" in e for e in catalog.validate_runner(dict(base, exec=["x"])))
+
+
+def test_new_folders_created_without_deleting(tmp_path):
+    # love/ and ports/ come from the catalog ids, like every other system folder; an old
+    # card keeps its games
+    from r36os import flash
+
+    old = tmp_path / "roms/megadrive"
+    old.mkdir(parents=True)
+    (old / "game.md").write_bytes(b"x")
+    flash.populate_roms(tmp_path)
+    assert (tmp_path / "roms/love").is_dir() and (tmp_path / "roms/ports").is_dir()
+    assert (old / "game.md").read_bytes() == b"x"
 
 
 def test_validator_romset_must_be_null_or_text():

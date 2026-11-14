@@ -1,0 +1,42 @@
+# Material 3, dark (lume-launcher D11), ported from docs/lume-launcher/prototipo/temas/.
+# Material color roles: surface -> bg; surface-container(-high) -> tile_bg, icon_bg,
+# panel_bg (elevation by tone, not by shadow); primary -> accent; primary-container ->
+# icon_sel_bg; secondary-container -> sel_bg; inverse-surface -> toast_bg.
+# Shapes: extra-large (panels and icons), medium (covers), full (list items).
+# For a 3.5" screen: large labels, 2 rows of covers, 5 icons in sight on the Dock.
+# Sizes in em (1/40 of the screen width).
+[theme]
+id = "material-dark"
+
+[tokens]
+bg = "#141218"
+fg = "#E6E0E9"
+muted = "#CAC4D0"
+accent = "#D0BCFF"
+accent_fg = "#381E72"
+overlay = "#000000a8"
+radius_icon = 1.75
+radius_tile = 0.75
+radius_panel = 1.75
+radius_item = 2.0
+icon = 6.0
+dock_gap = 0.5
+mag_peak = 1.8
+mag_base = 0.72
+mag_spread = 0.97
+dock_top = 0.38
+icon_bg = "#2B2930"
+icon_fg = "#E6E0E9"
+icon_sel_bg = "#4F378B"
+icon_sel_fg = "#EADDFF"
+tile_bg = "#211F26"
+tile_bg_sel = "#2B2930"
+tile_bg_opaque = "#211F26"
+panel_bg = "#2B2930"
+panel_bg_opaque = "#2B2930"
+sel_bg = "#4A4458"
+sel_fg = "#E8DEF8"
+toast_bg = "#E6E0E9"
+toast_fg = "#322F35"
+cols = 4
+rows = 2

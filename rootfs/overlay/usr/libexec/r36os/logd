@@ -81,7 +81,8 @@ discover() {
 		for z in $ZONES; do printf ',temp_%s_c' "$(cat "$z/type" 2>/dev/null | tr -c 'a-zA-Z0-9_\n' '_')"; done
 		for p in $POLICIES; do printf ',freq_%s_mhz' "${p##*/}"; done
 		for c in $CPUS; do printf ',cpu%s_pct' "$c"; done
-		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal\n'
+		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal'
+		printf ',lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct\n'
 	} > "$LOGS_RAM/metrics.header"
 }
 
@@ -95,13 +96,51 @@ passive_trip() {  # zona
 	done
 }
 
-# Estado do frontend pelo comando de rede local (GET_STATUS)
+# State of the lume-launcher (lume-launcher D10): lume-run writes ui, game:<runner> or off
+# to its status file. Under the launcher no game name is ever logged: lume-run writes the
+# game lines of events.log itself.
+LUME_STATUS=${LUME_STATUS:-/run/user/1000/lume/status}
+LUME=""
+lume_active() { [ -f "$LUME_STATUS" ] && proc_pid lume-run; }
+
+# PID of a process by name in PID (fails when it is not running). The pid of the previous
+# sample is kept in PU_<name>_P and checked by /proc/<pid>/comm (a builtin read), so pidof,
+# which walks all of /proc, runs only when the process changed (logd budget: 1% of a core).
+proc_pid() {  # name
+	local var=$1 comm=""
+	while :; do
+		case "$var" in *-*) var="${var%%-*}_${var#*-}" ;; *) break ;; esac
+	done
+	eval "PID=\${PU_${var}_P:-}"
+	[ -n "$PID" ] && { read -r comm < "/proc/$PID/comm"; } 2>/dev/null
+	if [ -z "$PID" ] || [ "$comm" != "$1" ]; then
+		PID=$(pidof "$1" 2>/dev/null)
+		PID=${PID%% *}
+	fi
+	eval "PU_${var}_P=\$PID"
+	[ -n "$PID" ]
+}
+
+# Frontend state through the local network command (GET_STATUS)
 FE_STATE="" FE_CORE="" FE_CONTENT="" FE_FRAMES=""
 frontend_state() {
-	local r st rest
-	FE_CORE="" FE_CONTENT="" FE_FRAMES=""
+	local r st rest s
+	FE_CORE="" FE_CONTENT="" FE_FRAMES="" LUME=""
+	lume_active && LUME=1
+	# the launcher on screen (the most common state): no RetroArch to look for
+	if [ -n "$LUME" ]; then
+		{ read -r s < "$LUME_STATUS"; } 2>/dev/null
+		case "$s" in game:*) ;; *) FE_STATE=launcher; return ;; esac
+	fi
 	if ! pidof retroarch >/dev/null 2>&1; then
-		# outro frontend instalado em /usr/libexec/r36os/frontends/, ou nenhum
+		if [ -n "$LUME" ]; then
+			case "$s" in
+			game:*) FE_STATE=game FE_CORE=${s#game:} ;;
+			*) FE_STATE=launcher ;;
+			esac
+			return
+		fi
+		# another frontend installed in /usr/libexec/r36os/frontends/, or none
 		if pgrep -f /usr/libexec/r36os/frontends/ >/dev/null 2>&1; then
 			FE_STATE=other
 		else
@@ -125,6 +164,7 @@ frontend_state() {
 			FE_FRAMES=${r##*,frames=}
 			FE_FRAMES=$(printf '%s' "$FE_FRAMES" | tr -cd '0-9') ;;
 		esac
+		[ -n "$LUME" ] && FE_CONTENT=""
 		;;
 	CONTENTLESS) FE_STATE=menu ;;
 	*) FE_STATE=no_answer ;;
@@ -132,6 +172,57 @@ frontend_state() {
 }
 
 csv_field() { printf '%s' "$1" | tr ',\n' ';;'; }
+
+# Resident memory (KiB) and CPU (% of one core since the previous sample) of a process by
+# name, as "rss,cpu" in PU_OUT; "," when it is not running (lume-launcher 6.4: lume-ui,
+# lume-run, r36os-input). /proc ticks are USER_HZ (100), so ticks per second is the
+# percentage. Not called in $(...): the previous sample lives in shell variables.
+# Shell builtins only (the logd cost budget is 1% of a core): the pid is kept between
+# samples and pidof runs only when that pid no longer has the name.
+PU_OUT=""
+# uptime ("123.4" or "123.45") in centiseconds, in CS, with shell arithmetic only
+uptime_cs() {
+	local i=${1%%.*} f=""
+	case "$1" in *.*) f=${1#*.} ;; esac
+	f=${f}00
+	f=${f%"${f#??}"}
+	# "1$f - 100": a leading zero would make "08" an invalid octal number
+	CS=$(( i * 100 + 1$f - 100 ))
+}
+proc_usage() {  # name uptime
+	local name=$1 up=$2 pid old stat ticks rss="" k v x var prev_t prev_u pct=""
+	var=$name
+	while :; do
+		case "$var" in *-*) var="${var%%-*}_${var#*-}" ;; *) break ;; esac
+	done
+	eval "old=\${PU_${var}_P:-}"
+	proc_pid "$name"
+	pid=$PID
+	if [ -z "$pid" ] || ! { read -r stat < "/proc/$pid/stat"; } 2>/dev/null; then
+		eval "PU_${var}_P='' PU_${var}_T='' PU_${var}_U=''"
+		PU_OUT=","
+		return 0
+	fi
+	# a new process (lume-ui comes back after each game): no CPU until its second sample
+	[ "$pid" = "$old" ] || eval "PU_${var}_T='' PU_${var}_U=''"
+	# fields after "(comm) ": utime and stime are the 12th and 13th
+	set -- ${stat##*) }
+	ticks=$(( ${12} + ${13} ))
+	{
+		while read -r k v x; do
+			[ "$k" = VmRSS: ] && { rss=$v; break; }
+		done < "/proc/$pid/status"
+	} 2>/dev/null
+	uptime_cs "$up"
+	eval "prev_t=\${PU_${var}_T:-} prev_u=\${PU_${var}_U:-}"
+	if [ -n "$prev_t" ] && [ "$ticks" -ge "$prev_t" ] && [ "$CS" -gt "$prev_u" ]; then
+		# tenths of a percent: ticks are centiseconds of CPU
+		x=$(( (ticks - prev_t) * 1000 / (CS - prev_u) ))
+		pct="$((x / 10)).$((x % 10))"
+	fi
+	eval "PU_${var}_P=$pid PU_${var}_T=$ticks PU_${var}_U=$CS"
+	PU_OUT="$rss,$pct"
+}
 
 # Frontend trace (trace/boot-<n>.log): one line per sample with the RetroArch process
 # state, the new kernel messages and, when it stops answering, a detailed snapshot. It
@@ -576,6 +667,16 @@ sample() {
 	game_track "$up"
 	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT"),$FPS,"
 	[ -n "$GAME_KEY" ] && line="$line$GAME_NOMINAL"
+	# the lume status says what runs: no lookup for lume-run without the launcher, nor for
+	# lume-ui during a game (it exits while the game runs)
+	for p in lume-ui lume-run r36os-input; do
+		case "$p" in
+		lume-ui) [ "$FE_STATE" = launcher ] || { line="$line,,"; continue; } ;;
+		lume-run) [ -n "$LUME" ] || { line="$line,,"; continue; } ;;
+		esac
+		proc_usage "$p" "$up"
+		line="$line,$PU_OUT"
+	done
 	echo "$line" >> "$LOGS_RAM/metrics.pending"
 	trace_sample
 	usb_watch
@@ -598,12 +699,13 @@ game_track() {  # uptime
 	local up=$1 key=""
 	case "$FE_STATE" in game|paused) key="$FE_CORE|$FE_CONTENT" ;; esac
 	if [ "$key" != "$GAME_KEY" ]; then
-		if [ -n "$GAME_KEY" ]; then
+		# under the launcher, lume-run logs the start and the end (without names)
+		if [ -n "$GAME_KEY" ] && [ -z "$LUME" ]; then
 			event game OK "closed: core=$GAME_CORE content=$GAME_CONTENT duration=$(( ${up%.*} - GAME_T0 ))s"
 		fi
 		if [ -n "$key" ]; then
 			GAME_CORE=$FE_CORE GAME_CONTENT=$FE_CONTENT GAME_T0=${up%.*}
-			event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
+			[ -z "$LUME" ] && event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
 		fi
 		GAME_KEY=$key GAME_NOMINAL="" FPS_PREV_FRAMES="" SLOW_N=0 SLOW=0
 	fi
@@ -624,7 +726,7 @@ game_track() {  # uptime
 		SLOW_N=$((SLOW_N + 1))
 		if [ "$SLOW_N" -ge 2 ] && [ "$SLOW" = 0 ]; then
 			SLOW=1
-			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL) content=$GAME_CONTENT"
+			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL)${GAME_CONTENT:+ content=$GAME_CONTENT}"
 		fi
 	else
 		SLOW_N=0

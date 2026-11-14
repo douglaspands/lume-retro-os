@@ -261,6 +261,8 @@ VM: `test-vm` da mesma build, 69 de 69 checagens):
 - [docs/LOGS.md](docs/LOGS.md): logs de diagnóstico
 - [docs/CATALOG.md](docs/CATALOG.md): catálogo de sistemas e cores
 - [docs/FRONTEND.md](docs/FRONTEND.md): contrato da sessão, troca de frontend e idioma
+- [docs/LAUNCHER.md](docs/LAUNCHER.md): guia do lume-launcher (controles, Fn+Start, listas de
+  jogos e como adicionar um emulador pelo cartão)
 - [docs/referencia/](docs/referencia/): medições do GA36 no projeto anterior
 
 ## Estrutura

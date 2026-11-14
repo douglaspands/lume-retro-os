@@ -51,7 +51,7 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
 
 def test_user_tunable_defaults_are_in_the_factory_config():
     for key in ("menu_driver", "menu_pause_libretro", "video_vsync", "video_threaded",
-                "input_volume_up", "input_player1_a", "input_menu_toggle"):
+                "input_player1_b", "input_player1_a", "input_menu_toggle"):
         assert key in _keys(FACTORY), key
         assert key not in _keys(CFG), key
 
@@ -131,13 +131,15 @@ SHARE = REPO_ROOT / "rootfs/overlay/usr/share/r36os"
 FRONTEND = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/frontends/retroarch"
 
 
-def test_volume_buttons_are_bound():
-    # the volume buttons are KEY_VOLUMEUP/DOWN, "volumeup"/"volumedown" in RetroArch;
-    # upstream binds volume to the keypad +/-
-    assert 'input_volume_up = "volumeup"' in FACTORY
-    assert 'input_volume_down = "volumedown"' in FACTORY
-    # a user default (rebindable in the menu), not forced on every start
+def test_volume_buttons_belong_to_the_input_daemon():
+    # lume-launcher D8: r36os-input grabs KEY_VOLUMEUP/DOWN and changes the system mixer in
+    # any program, so RetroArch has no volume binding of the distro (fixed or factory)
+    assert "input_volume" not in _keys(FACTORY)
     assert "input_volume" not in CFG
+    # the menu still opens from Fn through the autoconfig (BTN_MODE), on both consoles
+    for pad in ("R36S Gamepad.cfg", "GA36-MB Gamepad.cfg"):
+        auto = (REPO_ROOT / "rootfs/overlay/usr/share/libretro/autoconfig/udev" / pad).read_text()
+        assert re.search(r'^input_menu_toggle_btn = "\d+"$', auto, re.M), pad
 
 
 def test_ga36_has_no_keyboard_enable_hotkey():
@@ -195,12 +197,26 @@ def test_single_card_each_console_gets_its_own_refresh_rate(tmp_path):
     assert 'video_refresh_rate = "55.687557"' in cfg and "59.021554" not in cfg
 
 
-def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: str | None = None):
+FAKE_RETROARCH = """#!/bin/sh
+echo "$@"
+echo "defaults=$LUME_RETROARCH_DEFAULTS"
+echo "quit=$LUME_RETROARCH_QUIT"
+cfg=$(echo "$@" | sed 's/.*--config \\([^ ]*\\).*/\\1/')
+grep -E '^(aspect_ratio_index|state_slot) ' "$cfg" | sed 's/^/during: /'
+# what RetroArch does with -e: the slot becomes the current one, saved with the config
+case " $* " in *" -e "*) echo 'state_slot = "3"' >> "$cfg" ;; esac
+[ -n "$FAKE_DIE" ] && kill -KILL $PPID
+exit 0
+"""
+
+
+def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: str | None = None,
+              args: tuple[str, ...] = (), env_extra: dict | None = None, check: bool = True):
     """Run the frontend script with a fake retroarch. Returns (args, user cfg, defaults cfg)."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "retroarch"
-    fake.write_text('#!/bin/sh\necho "$@"\necho "defaults=$LUME_RETROARCH_DEFAULTS"\n')
+    fake.write_text(FAKE_RETROARCH)
     fake.chmod(0o755)
     board_file = tmp_path / "board"
     if board is not None:
@@ -217,8 +233,10 @@ def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: s
         extra_file.write_text(extra)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
            "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE),
-           "R36OS_EXTRA_CFG": str(extra_file)}
-    r = subprocess.run(["sh", str(FRONTEND)], env=env, capture_output=True, text=True, check=True)
+           "R36OS_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
+           **(env_extra or {})}
+    r = subprocess.run(["sh", str(FRONTEND), *args], env=env, capture_output=True, text=True,
+                       check=check)
     defaults = run_dir / "retroarch-defaults.cfg"
     return r.stdout, cfg.read_text(), defaults.read_text() if defaults.exists() else None
 
@@ -267,8 +285,49 @@ def test_reset_defaults_are_the_factory_config_with_the_fixed_keys(tmp_path):
     args, _, defaults = _frontend(tmp_path, "ga36", 'ozone_font_scale_factor_global = "2.000000"\n')
     assert f"defaults={tmp_path}/run/retroarch-defaults.cfg" in args
     assert 'ozone_font_scale_factor_global = "1.200000"' in defaults   # factory, not the user's
-    assert 'input_volume_up = "volumeup"' in defaults
+    assert "input_volume" not in defaults
     assert 'ozone_font_scale = "1"' in defaults and 'video_refresh_rate = "55.687557"' in defaults
+
+
+RUN_ARGS = ("--lume-set", "aspect_ratio_index=1", "--lume-keep", "state_slot",
+            "-L", "/usr/lib/libretro/x_libretro.so", "-e", "3", "/storage/roms/snes/a b.sfc")
+
+
+def test_run_only_keys_go_back_when_retroarch_ends(tmp_path):
+    # lume-launcher D7: the aspect of one game and the slot of -e never become the user's
+    out, cfg, _ = _frontend(tmp_path, "ga36", 'aspect_ratio_index = "22"\nmenu_driver = "ozone"\n',
+                            args=RUN_ARGS)
+    assert 'during: aspect_ratio_index = "1"' in out
+    args = out.splitlines()[0]
+    assert "--lume-set" not in args and "--lume-keep" not in args
+    assert args.endswith("-L /usr/lib/libretro/x_libretro.so -e 3 /storage/roms/snes/a b.sfc")
+    lines = cfg.splitlines()
+    assert 'aspect_ratio_index = "22"' in lines and 'aspect_ratio_index = "1"' not in lines
+    assert not [line for line in lines if line.startswith("state_slot")]   # the user had none
+    assert 'menu_driver = "ozone"' in lines
+    assert not (tmp_path / "card/restore.cfg").exists()
+
+
+def test_run_only_keys_go_back_after_a_kill(tmp_path):
+    # Fn+Start that ends in cgroup.kill: the script dies with RetroArch; the next start
+    # (any start, with or without the launcher) puts the user's values back
+    user = 'aspect_ratio_index = "22"\nstate_slot = "1"\n'
+    _frontend(tmp_path, "ga36", user, args=RUN_ARGS, env_extra={"FAKE_DIE": "1"}, check=False)
+    restore = (tmp_path / "card/restore.cfg").read_text().splitlines()
+    assert restore == ['aspect_ratio_index = "22"', 'state_slot = "1"']
+    out, cfg, _ = _frontend(tmp_path, "ga36")
+    assert 'during: aspect_ratio_index = "22"' in out and 'during: state_slot = "1"' in out
+    assert cfg.count("aspect_ratio_index") == 1 and cfg.count("state_slot") == 1
+    assert not (tmp_path / "card/restore.cfg").exists()
+
+
+def test_without_launcher_keys_nothing_changes(tmp_path):
+    out, cfg, _ = _frontend(tmp_path, "ga36", 'aspect_ratio_index = "22"\n')
+    assert 'during: aspect_ratio_index = "22"' in out and "quit=" in out.splitlines()
+    assert not (tmp_path / "card/restore.cfg").exists()
+    # opened by the launcher: RetroArch is told that quitting goes back to it (patch 0010)
+    out, _, _ = _frontend(tmp_path, "ga36", env_extra={"LUME_LAUNCHER": "1"})
+    assert "quit=launcher" in out.splitlines()
 
 
 def test_menu_has_no_transparency():

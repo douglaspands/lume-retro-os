@@ -182,10 +182,24 @@ Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 ## 7. Controle
 
 Os botões (`gpio-keys`) e os dois analógicos (`adc-joystick`, SARADC canal 1 atrás de um
-multiplexador) são unidos pelo serviço `r36os-padmerge` num único **"R36S Gamepad"**, com
-os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
+multiplexador) são unidos pelo daemon de entrada `r36os-input` (perfil
+`/usr/share/r36os/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
+com os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
 índices (`/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg`). Os botões de volume são
-um dispositivo à parte (`volume-keys`), como no GA36.
+um dispositivo à parte (`volume-keys`), também capturado pelo daemon.
+
+O daemon captura as origens com exclusividade (`EVIOCGRAB`) e cuida de três coisas além da
+junção:
+
+- **Fn (F5, `BTN_MODE`) sozinho**: sai como apertar e soltar o Fn, quando ele é solto (o menu
+  do RetroArch abre nessa hora).
+- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/r36os/input.sock`, e nenhuma das
+  duas teclas sai; o jogo aberto pelo launcher é encerrado. Fora de um jogo, nada acontece.
+- **Volume**: os botões mudam o controle `Master` do `rk817int` em passos de 5%, em qualquer
+  programa, e não chegam aos programas.
+
+`r36os-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
+`bus=0x6`).
 
 | Tecla no DTS | Função provisória | Confirmar |
 |---|---|---|

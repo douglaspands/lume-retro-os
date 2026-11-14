@@ -61,11 +61,29 @@ logs_on_disk() { mountpoint -q "$LOGS_MOUNT" 2>/dev/null; }
 # Número deste boot (0 sem ROMS).
 boot_n() { cat "$LOGS_RAM/boot-n" 2>/dev/null || echo 0; }
 
-# Evento: event <categoria> <OK|FAIL> <detalhe...>
+# The events buffer is shared with the launcher supervisor (lume-run, user game, appends its
+# game lines, lume-launcher D10). The file is created with mode 666, and events_shared makes
+# the RAM directory sticky and writable by the game group, so lume-run can create the file
+# again when a flush has just moved it to the card (seen in test-vm on 2026-11-14: without
+# it the game lines written between a flush and the next root event were lost).
+events_file() {
+	[ -e "$LOGS_RAM/events.pending" ] && return 0
+	: > "$LOGS_RAM/events.pending"
+	chmod 666 "$LOGS_RAM/events.pending" 2>/dev/null
+	return 0
+}
+events_shared() {  # group
+	mkdir -p "$LOGS_RAM"
+	chgrp "$1" "$LOGS_RAM" && chmod 1775 "$LOGS_RAM"
+	events_file
+}
+
+# Event: event <category> <OK|FAIL> <detail...>
 # Linha: <time> <boot> <category> <OK|FAIL> <detail>
 event() {
 	local cat="$1" res="$2"; shift 2
 	mkdir -p "$LOGS_RAM"
+	events_file
 	printf '%s %s %s %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$(boot_n)" "$cat" "$res" "$*" \
 		>> "$LOGS_RAM/events.pending"
 	return 0
@@ -119,6 +137,7 @@ logs_flush() {
 	n=$(boot_n)
 	mkdir -p "$LOGS_DIR"
 	_drain "$LOGS_RAM/events.pending" "$LOGS_DIR/events.log"
+	events_file
 	_drain "$LOGS_RAM/metrics.pending" "$LOGS_DIR/metrics/boot-$n.csv" \
 		"$LOGS_RAM/metrics.header" "$METRICS_MAX_BYTES"
 	_drain "$LOGS_RAM/trace.pending" "$LOGS_DIR/trace/boot-$n.log" "" "$TRACE_MAX_BYTES"

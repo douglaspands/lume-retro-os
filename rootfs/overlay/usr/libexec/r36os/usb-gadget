@@ -29,7 +29,7 @@
 # MOUNT, UMOUNT, MOUNTPOINT, RMDIR, KMSG, READY_TRIES (tenths of a second waiting for
 # umtprd), ROLE_CLASS (default /sys/class/usb_role), EXTCON_CLASS (default
 # /sys/class/extcon), POLL (seconds between two looks at the port), USB_LIBDIR (lib.sh and
-# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR.
+# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR, RC_SERVICE.
 BOARD_FILE=${BOARD_FILE:-/etc/r36os/board}
 CONFIGFS=${CONFIGFS:-/sys/kernel/config}
 UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
@@ -53,6 +53,7 @@ NET_CLASS=${NET_CLASS:-/sys/class/net}
 IP=${IP:-ip}
 UDHCPD=${UDHCPD:-udhcpd}
 DROPBEAR=${DROPBEAR:-dropbear}
+RC_SERVICE=${RC_SERVICE:-rc-service}
 
 . "${USB_LIBDIR:-/usr/libexec/r36os}/lib.sh"
 . "${USB_LIBDIR:-/usr/libexec/r36os}/logs.sh"
@@ -367,12 +368,29 @@ role_watch() {
 	return 0
 }
 
+# The PC let go of the gadget (UDC state leaves "configured": cable out or MTP closed):
+# games copied by MTP are now on the card, so the launcher's game lists are scanned again
+# (lume-launcher D4). The first look only records the state.
+PC_LAST=""
+pc_watch() {
+	local udc st
+	udc=$(udc_name) || return 0
+	st=$(cat "$UDC_CLASS/$udc/state" 2>/dev/null) || return 0
+	if [ "$PC_LAST" = configured ] && [ "$st" != configured ]; then
+		say "PC disconnected ($st): rescanning the game lists"
+		$RC_SERVICE lume-index restart >/dev/null 2>&1 || say "lume-index not restarted"
+	fi
+	PC_LAST=$st
+	return 0
+}
+
 cmd_run() {
 	cmd_start || exit 1
 	trap 'cmd_stop; exit 0' TERM INT
 	while :; do
 		role_watch
 		net_watch
+		pc_watch
 		sleep "$POLL" &
 		wait $!
 	done

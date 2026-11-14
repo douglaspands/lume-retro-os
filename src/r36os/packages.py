@@ -96,6 +96,10 @@ def build_packages(
     With `checksum=True`, only update the APKBUILD sha512sums (abuild checksum).
     """
     aports = aports or REPO_ROOT / "aports"
+    if "lume-launcher" in names and not checksum and aports == REPO_ROOT / "aports":
+        # the Rust workspace and its vendored crates (abuild only sees aports/)
+        from r36os import lume
+        lume.stage()
     step = "abuild -F checksum" if checksum else "abuild -F -r -P /repodest"
     # abuild -r installs the dependencies; at the end it updates and signs the APKINDEX.
     script = _SETUP_KEY + "".join(

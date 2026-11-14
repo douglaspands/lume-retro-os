@@ -106,13 +106,26 @@ chown game:game "$TTY"
 chvt 1
 : > "$LOG"
 chown game:game "$LOG"
+# each game in its own cgroup, under a subtree handed to the game user (lume-launcher D9)
+CG_PROCS=$(lume_cgroup game 2>"$R36OS_RUN/cgroup.err") || {
+	CG_PROCS=""
+	kmsg "no cgroup v2 for the games ($(cat "$R36OS_RUN/cgroup.err" 2>/dev/null)): they end by process group"
+}
+rm -f "$R36OS_RUN/cgroup.err"
+# lume-run (game) appends its game lines to the events buffer (lume-launcher D10)
+events_shared game || kmsg "events buffer not shared with the game user"
 
 fail_times=""
 while :; do
 	[ -x "$EXE" ] || give_up missing
 	kmsg "frontend started: $FRONTEND"
 	event frontend OK "started: $FRONTEND"
-	XDG_RUNTIME_DIR=/run/user/1000 su -s /bin/sh -c "exec $EXE" game < "$TTY" >> "$LOG" 2>&1 &
+	# the subshell moves itself into the session leaf ("0" is the writer) before it
+	# becomes the frontend, so everything the frontend starts is inside lume/
+	(
+		[ -n "$CG_PROCS" ] && { echo 0 > "$CG_PROCS" || kmsg "frontend not moved to the games cgroup"; }
+		XDG_RUNTIME_DIR=/run/user/1000 exec su -s /bin/sh -c "exec $EXE" game
+	) < "$TTY" >> "$LOG" 2>&1 &
 	child=$!
 	wait "$child"
 	rc=$?

@@ -1,0 +1,700 @@
+/*
+ * r36os-input: the input daemon of Lume Retro OS (lume-launcher D8; it grew out of
+ * r36os-padmerge, r36s-single-card D8).
+ *
+ * One process per console, as root, before the frontend:
+ *  - reads the board profile (/usr/share/r36os/input/<board>.conf): the source devices by
+ *    name, the code map and the mixer control;
+ *  - grabs every source device (EVIOCGRAB), so programs only see the virtual one;
+ *  - publishes through uinput the virtual gamepad with the same name as before ("GA36-MB
+ *    Gamepad", "R36S Gamepad"), so the RetroArch autoconfig does not change;
+ *  - Fn chord: Fn alone gives a Fn press and release when it is let go (the RetroArch menu);
+ *    Fn+Start sends "quit" to the clients of /run/r36os/input.sock and neither key goes
+ *    out; Fn with any other key gives both keys;
+ *  - volume keys change the ALSA mixer in fixed steps and are not forwarded.
+ *
+ * usage: r36os-input --profile FILE [--socket PATH] [--timeout SECONDS]
+ *        r36os-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
+ *        r36os-input --list
+ *
+ * --test runs the same loop with files or FIFOs as sources and a file as the output, with no
+ * input device and no uinput (the host tests use it). R36OS_INPUT_AMIXER replaces amixer.
+ */
+#define _GNU_SOURCE
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <grp.h>
+#include <linux/input.h>
+#include <linux/uinput.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+#define PROG "r36os-input"
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#define MAX_SOURCES 4
+#define MAX_KEYS 64
+#define MAX_AXES 8
+#define MAX_CLIENTS 8
+#define DEFAULT_SOCKET "/run/r36os/input.sock"
+
+struct code_name {
+	const char *name;
+	unsigned short code;
+};
+
+/* the names a profile may use (numbers are accepted too: 0x13c) */
+static const struct code_name NAMES[] = {
+	{ "BTN_A", BTN_A },           { "BTN_B", BTN_B },           { "BTN_X", BTN_X },
+	{ "BTN_Y", BTN_Y },           { "BTN_SOUTH", BTN_SOUTH },   { "BTN_EAST", BTN_EAST },
+	{ "BTN_NORTH", BTN_NORTH },   { "BTN_WEST", BTN_WEST },     { "BTN_TL", BTN_TL },
+	{ "BTN_TR", BTN_TR },         { "BTN_TL2", BTN_TL2 },       { "BTN_TR2", BTN_TR2 },
+	{ "BTN_SELECT", BTN_SELECT }, { "BTN_START", BTN_START },   { "BTN_MODE", BTN_MODE },
+	{ "BTN_THUMBL", BTN_THUMBL }, { "BTN_THUMBR", BTN_THUMBR },
+	{ "BTN_DPAD_UP", BTN_DPAD_UP },       { "BTN_DPAD_DOWN", BTN_DPAD_DOWN },
+	{ "BTN_DPAD_LEFT", BTN_DPAD_LEFT },   { "BTN_DPAD_RIGHT", BTN_DPAD_RIGHT },
+	{ "BTN_TRIGGER_HAPPY1", BTN_TRIGGER_HAPPY1 }, { "BTN_TRIGGER_HAPPY2", BTN_TRIGGER_HAPPY2 },
+	{ "BTN_TRIGGER_HAPPY3", BTN_TRIGGER_HAPPY3 }, { "BTN_TRIGGER_HAPPY4", BTN_TRIGGER_HAPPY4 },
+	{ "BTN_TRIGGER_HAPPY5", BTN_TRIGGER_HAPPY5 },
+	{ "KEY_F1", KEY_F1 },         { "KEY_ENTER", KEY_ENTER },
+	{ "KEY_VOLUMEUP", KEY_VOLUMEUP }, { "KEY_VOLUMEDOWN", KEY_VOLUMEDOWN },
+	{ "ABS_X", ABS_X },           { "ABS_Y", ABS_Y },           { "ABS_RX", ABS_RX },
+	{ "ABS_RY", ABS_RY },         { "ABS_Z", ABS_Z },           { "ABS_RZ", ABS_RZ },
+};
+
+struct source {
+	char name[128];
+	int optional;
+	int fd;
+};
+
+struct keymap {
+	unsigned short from, to;
+};
+
+struct profile {
+	char name[UINPUT_MAX_NAME_SIZE];
+	unsigned short vendor, product;
+	struct source src[MAX_SOURCES];
+	int nsrc;
+	struct keymap keys[MAX_KEYS];
+	int nkeys;
+	unsigned short axes[MAX_AXES];
+	int naxes;
+	int passthrough;
+	int fn, quit;	/* output codes, -1 if none */
+	char mixer_card[64], mixer_ctl[64];
+	int mixer_step;
+};
+
+static volatile sig_atomic_t stop;
+static int clients[MAX_CLIENTS];
+static int nclients;
+
+static void on_signal(int sig)
+{
+	(void)sig;
+	stop = 1;
+}
+
+/* One line on stderr and in the kernel log (the boot log keeps it); English only. */
+static void logline(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void logline(const char *fmt, ...)
+{
+	char msg[300];
+	va_list ap;
+	int k;
+
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	fprintf(stderr, PROG ": %s\n", msg);
+	k = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
+	if (k >= 0) {
+		dprintf(k, "<5>" PROG ": %s\n", msg);
+		close(k);
+	}
+}
+
+static int parse_code(const char *s)
+{
+	char *end;
+	long v;
+
+	for (size_t i = 0; i < ARRAY_SIZE(NAMES); i++)
+		if (!strcmp(NAMES[i].name, s))
+			return NAMES[i].code;
+	v = strtol(s, &end, 0);
+	if (*s && !*end && v >= 0 && v <= KEY_MAX)
+		return (int)v;
+	return -1;
+}
+
+static char *trim(char *s)
+{
+	char *e;
+
+	while (isspace((unsigned char)*s))
+		s++;
+	e = s + strlen(s);
+	while (e > s && isspace((unsigned char)e[-1]))
+		*--e = 0;
+	return s;
+}
+
+/* Reads a profile; prints the offending line and returns -1 on error. */
+static int load_profile(const char *path, struct profile *p)
+{
+	FILE *f = fopen(path, "r");
+	char line[256];
+	int n = 0;
+
+	memset(p, 0, sizeof(*p));
+	p->fn = p->quit = -1;
+	p->vendor = 0x1209;	/* pid.codes */
+	if (!f) {
+		perror(path);
+		return -1;
+	}
+	while (fgets(line, sizeof(line), f)) {
+		char *s, *arg, *hash;
+		int a, b;
+
+		n++;
+		hash = strchr(line, '#');
+		if (hash)
+			*hash = 0;
+		s = trim(line);
+		if (!*s)
+			continue;
+		arg = s;
+		while (*arg && !isspace((unsigned char)*arg))
+			arg++;
+		if (*arg)
+			*arg++ = 0;
+		arg = trim(arg);
+		if (!strcmp(s, "name") && *arg) {
+			snprintf(p->name, sizeof(p->name), "%s", arg);
+		} else if (!strcmp(s, "id") && sscanf(arg, "%i %i", &a, &b) == 2) {
+			p->vendor = (unsigned short)a;
+			p->product = (unsigned short)b;
+		} else if ((!strcmp(s, "source") || !strcmp(s, "source-optional")) && *arg &&
+			   p->nsrc < MAX_SOURCES) {
+			snprintf(p->src[p->nsrc].name, sizeof(p->src[0].name), "%s", arg);
+			p->src[p->nsrc].optional = !strcmp(s, "source-optional");
+			p->src[p->nsrc++].fd = -1;
+		} else if (!strcmp(s, "key") && p->nkeys < MAX_KEYS) {
+			char from[64], to[64];
+
+			if (sscanf(arg, "%63s %63s", from, to) != 2 || (a = parse_code(from)) < 0 ||
+			    (b = parse_code(to)) < 0)
+				goto bad;
+			p->keys[p->nkeys].from = (unsigned short)a;
+			p->keys[p->nkeys++].to = (unsigned short)b;
+		} else if (!strcmp(s, "axis") && p->naxes < MAX_AXES && (a = parse_code(arg)) >= 0) {
+			p->axes[p->naxes++] = (unsigned short)a;
+		} else if (!strcmp(s, "passthrough") && !*arg) {
+			p->passthrough = 1;
+		} else if (!strcmp(s, "fn") && (a = parse_code(arg)) >= 0) {
+			p->fn = a;
+		} else if (!strcmp(s, "quit") && (a = parse_code(arg)) >= 0) {
+			p->quit = a;
+		} else if (!strcmp(s, "mixer") &&
+			   sscanf(arg, "%63s %63[^0-9] %d", p->mixer_card, p->mixer_ctl, &p->mixer_step) == 3) {
+			char *c = trim(p->mixer_ctl);
+
+			memmove(p->mixer_ctl, c, strlen(c) + 1);
+			if (p->mixer_step < 1 || p->mixer_step > 25)
+				goto bad;
+		} else {
+			goto bad;
+		}
+	}
+	fclose(f);
+	if (!*p->name || !p->nsrc || (!p->nkeys && !p->passthrough)) {
+		fprintf(stderr, PROG ": %s: needs name, a source and keys (or passthrough)\n", path);
+		return -1;
+	}
+	return 0;
+bad:
+	fprintf(stderr, PROG ": %s:%d: bad line\n", path, n);
+	fclose(f);
+	return -1;
+}
+
+static int map_key(const struct profile *p, unsigned short code)
+{
+	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN)
+		return code;	/* handled by the daemon, never forwarded */
+	for (int i = 0; i < p->nkeys; i++)
+		if (p->keys[i].from == code)
+			return p->keys[i].to;
+	return p->passthrough ? code : -1;
+}
+
+static int is_axis(const struct profile *p, unsigned short code)
+{
+	for (int i = 0; i < p->naxes; i++)
+		if (p->axes[i] == code)
+			return 1;
+	return 0;
+}
+
+/* Open the event device named `name`, skipping virtual ones (our own output has the same
+ * name as the GA36 source); -1 if there is none. */
+static int open_by_name(const char *name)
+{
+	DIR *dir = opendir("/dev/input");
+	struct dirent *e;
+	int found = -1;
+
+	if (!dir)
+		return -1;
+	while (found < 0 && (e = readdir(dir))) {
+		char path[300], dev_name[256] = "";
+		struct input_id id;
+		int fd;
+
+		if (strncmp(e->d_name, "event", 5))
+			continue;
+		snprintf(path, sizeof(path), "/dev/input/%s", e->d_name);
+		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, EVIOCGNAME(sizeof(dev_name) - 1), dev_name) >= 0 &&
+		    !strcmp(dev_name, name) && ioctl(fd, EVIOCGID, &id) >= 0 &&
+		    id.bustype != BUS_VIRTUAL)
+			found = fd;
+		else
+			close(fd);
+	}
+	closedir(dir);
+	return found;
+}
+
+static int wait_for(const char *name, int timeout_s)
+{
+	for (int i = 0; i <= timeout_s * 10; i++) {
+		int fd = open_by_name(name);
+
+		if (fd >= 0 || stop)
+			return fd;
+		usleep(100000);
+	}
+	return -1;
+}
+
+static void list_devices(void)
+{
+	DIR *dir = opendir("/dev/input");
+	struct dirent *e;
+
+	if (!dir)
+		return;
+	while ((e = readdir(dir))) {
+		char path[300], dev_name[256] = "";
+		struct input_id id = { 0 };
+		int fd;
+
+		if (strncmp(e->d_name, "event", 5))
+			continue;
+		snprintf(path, sizeof(path), "/dev/input/%s", e->d_name);
+		fd = open(path, O_RDONLY | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		ioctl(fd, EVIOCGNAME(sizeof(dev_name) - 1), dev_name);
+		ioctl(fd, EVIOCGID, &id);
+		printf("%s\t%s\tbus=0x%x\n", path, dev_name, id.bustype);
+		close(fd);
+	}
+	closedir(dir);
+}
+
+static int create_device(const struct profile *p)
+{
+	struct uinput_setup setup;
+	int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+
+	if (fd < 0) {
+		perror(PROG ": /dev/uinput");
+		return -1;
+	}
+	ioctl(fd, UI_SET_EVBIT, EV_SYN);
+	ioctl(fd, UI_SET_EVBIT, EV_KEY);
+	if (p->passthrough)
+		for (int c = 1; c < 256; c++)
+			if (c != KEY_VOLUMEUP && c != KEY_VOLUMEDOWN)
+				ioctl(fd, UI_SET_KEYBIT, c);
+	for (int i = 0; i < p->nkeys; i++)
+		ioctl(fd, UI_SET_KEYBIT, p->keys[i].to);
+	if (p->naxes)
+		ioctl(fd, UI_SET_EVBIT, EV_ABS);
+	for (int i = 0; i < p->naxes; i++) {
+		struct uinput_abs_setup abs = { .code = p->axes[i] };
+		int got = 0;
+
+		/* the ranges of the source (the board DTS or the kernel driver) */
+		for (int s = 0; s < p->nsrc && !got; s++)
+			got = p->src[s].fd >= 0 &&
+			      ioctl(p->src[s].fd, EVIOCGABS(p->axes[i]), &abs.absinfo) >= 0 &&
+			      abs.absinfo.maximum > abs.absinfo.minimum;
+		if (!got)
+			abs.absinfo = (struct input_absinfo){ .minimum = 0, .maximum = 1023 };
+		ioctl(fd, UI_ABS_SETUP, &abs);
+	}
+	memset(&setup, 0, sizeof(setup));
+	setup.id.bustype = BUS_VIRTUAL;
+	setup.id.vendor = p->vendor;
+	setup.id.product = p->product;
+	setup.id.version = 1;
+	snprintf(setup.name, sizeof(setup.name), "%s", p->name);
+	if (ioctl(fd, UI_DEV_SETUP, &setup) < 0 || ioctl(fd, UI_DEV_CREATE) < 0) {
+		perror(PROG ": uinput setup");
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static void emit(int out, unsigned short type, unsigned short code, int value)
+{
+	struct input_event ev = { .type = type, .code = code, .value = value };
+
+	if (write(out, &ev, sizeof(ev)) != (ssize_t)sizeof(ev))
+		return;	/* a full uinput queue drops the event, like the kernel would */
+}
+
+static void emit_key(int out, unsigned short code, int value)
+{
+	emit(out, EV_KEY, code, value);
+	emit(out, EV_SYN, SYN_REPORT, 0);
+}
+
+/* ---- the input socket (lume-run is the client) ---- */
+
+static int open_socket(const char *path)
+{
+	struct sockaddr_un addr = { .sun_family = AF_UNIX };
+	struct group *g;
+	int fd;
+
+	if (strlen(path) >= sizeof(addr.sun_path))
+		return -1;
+	strcpy(addr.sun_path, path);
+	fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return -1;
+	unlink(path);
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(fd, 4) < 0) {
+		perror(PROG ": socket");
+		close(fd);
+		return -1;
+	}
+	/* the frontend runs as game */
+	g = getgrnam("game");
+	if (g && chown(path, 0, g->gr_gid) == 0)
+		chmod(path, 0660);
+	return fd;
+}
+
+static void accept_client(int lfd)
+{
+	int c = accept4(lfd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+
+	if (c < 0)
+		return;
+	if (nclients == MAX_CLIENTS) {
+		close(c);
+		return;
+	}
+	clients[nclients++] = c;
+}
+
+static void drop_client(int i)
+{
+	close(clients[i]);
+	clients[i] = clients[--nclients];
+}
+
+/* "quit" to every client; with no client the combo does nothing (the launcher is on
+ * screen, or no frontend listens). */
+static void send_quit(void)
+{
+	for (int i = 0; i < nclients;) {
+		if (send(clients[i], "quit", 4, MSG_NOSIGNAL) != 4)
+			drop_client(i);
+		else
+			i++;
+	}
+}
+
+/* ---- volume ---- */
+
+static void volume(const struct profile *p, int up)
+{
+	const char *amixer = getenv("R36OS_INPUT_AMIXER");
+	char step[16];
+	pid_t pid;
+
+	if (!p->mixer_step)
+		return;
+	snprintf(step, sizeof(step), "%d%%%c", p->mixer_step, up ? '+' : '-');
+	pid = fork();
+	if (pid == 0) {
+		int null = open("/dev/null", O_RDWR);
+
+		if (null >= 0) {
+			dup2(null, 1);
+			dup2(null, 2);
+		}
+		execlp(amixer ? amixer : "amixer", "amixer", "-c", p->mixer_card, "-q", "sset",
+		       p->mixer_ctl, step, (char *)NULL);
+		_exit(127);
+	}
+}
+
+/* ---- the Fn chord ---- */
+
+struct chord {
+	int fn_down;		/* Fn held, not forwarded yet */
+	int fn_forwarded;	/* Fn went out (another key came with it) */
+	int fn_used;		/* something happened while Fn was held */
+	unsigned char swallow[KEY_MAX + 1];	/* releases to drop */
+};
+
+static void key_event(const struct profile *p, struct chord *c, int out, int code, int value)
+{
+	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN) {
+		if (value == 1)
+			volume(p, code == KEY_VOLUMEUP);
+		return;
+	}
+	if (p->fn >= 0 && code == p->fn) {
+		if (value == 1) {
+			c->fn_down = 1;
+			c->fn_forwarded = c->fn_used = 0;
+		} else if (value == 0) {
+			if (c->fn_forwarded)
+				emit_key(out, code, 0);
+			else if (!c->fn_used) {
+				/* Fn alone: a tap on release (the RetroArch menu) */
+				emit_key(out, code, 1);
+				emit_key(out, code, 0);
+			}
+			c->fn_down = c->fn_forwarded = c->fn_used = 0;
+		}
+		return;	/* repeats of Fn are dropped */
+	}
+	if (value == 0 && c->swallow[code]) {
+		c->swallow[code] = 0;
+		return;
+	}
+	if (c->fn_down && value == 1) {
+		c->fn_used = 1;
+		if (code == p->quit && !c->fn_forwarded) {
+			send_quit();
+			c->swallow[code] = 1;
+			return;
+		}
+		if (!c->fn_forwarded) {
+			emit_key(out, p->fn, 1);
+			c->fn_forwarded = 1;
+		}
+	}
+	if (value == 2 && c->swallow[code])
+		return;
+	emit(out, EV_KEY, code, value);
+}
+
+/* Forward the events of one source; -1 when the device is gone (or a file ended). */
+static int forward(const struct profile *p, struct chord *c, int src, int out)
+{
+	struct input_event ev[64];
+	ssize_t n = read(src, ev, sizeof(ev));
+
+	if (n < 0)
+		return errno == EAGAIN || errno == EINTR ? 0 : -1;
+	if (n == 0)
+		return -1;
+	for (size_t i = 0; i < (size_t)n / sizeof(ev[0]); i++) {
+		int code;
+
+		switch (ev[i].type) {
+		case EV_KEY:
+			code = map_key(p, ev[i].code);
+			if (code >= 0)
+				key_event(p, c, out, code, ev[i].value);
+			break;
+		case EV_ABS:
+			if (is_axis(p, ev[i].code))
+				emit(out, EV_ABS, ev[i].code, ev[i].value);
+			break;
+		case EV_SYN:
+			if (ev[i].code == SYN_REPORT)
+				emit(out, EV_SYN, SYN_REPORT, 0);
+			break;
+		}
+	}
+	return 0;
+}
+
+static void usage(void)
+{
+	fprintf(stderr,
+		"usage: " PROG " --profile FILE [--socket PATH] [--timeout SECONDS]\n"
+		"       " PROG " --profile FILE --test OUT --source NAME=PATH... [--socket PATH]\n"
+		"       " PROG " --list\n");
+}
+
+int main(int argc, char **argv)
+{
+	const char *profile_path = NULL, *sock_path = DEFAULT_SOCKET, *test_out = NULL;
+	const char *test_src[MAX_SOURCES * 2];
+	int ntest_src = 0, timeout_s = 10, out, lfd, rc = 0;
+	struct sigaction sa = { .sa_handler = on_signal };
+	struct sigaction chld = { .sa_handler = SIG_IGN, .sa_flags = SA_NOCLDWAIT };
+	struct profile p;
+	static struct chord chord;
+
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--list")) {
+			list_devices();
+			return 0;
+		} else if (i + 1 < argc && !strcmp(argv[i], "--profile")) {
+			profile_path = argv[++i];
+		} else if (i + 1 < argc && !strcmp(argv[i], "--socket")) {
+			sock_path = argv[++i];
+		} else if (i + 1 < argc && !strcmp(argv[i], "--timeout")) {
+			timeout_s = atoi(argv[++i]);
+		} else if (i + 1 < argc && !strcmp(argv[i], "--test")) {
+			test_out = argv[++i];
+		} else if (i + 1 < argc && !strcmp(argv[i], "--source") &&
+			   ntest_src < (int)ARRAY_SIZE(test_src)) {
+			test_src[ntest_src++] = argv[++i];
+		} else {
+			usage();
+			return 2;
+		}
+	}
+	if (!profile_path) {
+		usage();
+		return 2;
+	}
+	if (load_profile(profile_path, &p) < 0)
+		return 1;
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGCHLD, &chld, NULL);
+	signal(SIGPIPE, SIG_IGN);
+
+	for (int s = 0; s < p.nsrc; s++) {
+		if (test_out) {
+			/* --source NAME=PATH: a file or FIFO instead of the device NAME */
+			for (int t = 0; t < ntest_src; t++) {
+				size_t len = strlen(p.src[s].name);
+
+				if (!strncmp(test_src[t], p.src[s].name, len) && test_src[t][len] == '=')
+					p.src[s].fd = open(test_src[t] + len + 1, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+			}
+		} else {
+			p.src[s].fd = wait_for(p.src[s].name, p.src[s].optional ? 1 : timeout_s);
+		}
+		if (p.src[s].fd < 0) {
+			logline("no input device named \"%s\"%s", p.src[s].name,
+				p.src[s].optional ? " (optional)" : "");
+			if (!p.src[s].optional)
+				return 1;
+		}
+	}
+	out = test_out ? open(test_out, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644)
+		       : create_device(&p);
+	if (out < 0)
+		return 1;
+	for (int s = 0; s < p.nsrc; s++)
+		if (p.src[s].fd >= 0 && !test_out)
+			ioctl(p.src[s].fd, EVIOCGRAB, 1);
+	lfd = open_socket(sock_path);
+	if (lfd < 0)
+		logline("no socket at %s: Fn+Start does nothing", sock_path);
+	{
+		int found = 0;
+
+		for (int s = 0; s < p.nsrc; s++)
+			found += p.src[s].fd >= 0;
+		logline("\"%s\" from %d of %d source(s), socket %s, volume %s", p.name, found, p.nsrc,
+			sock_path, p.mixer_step ? p.mixer_ctl : "off");
+	}
+
+	while (!stop) {
+		struct pollfd fds[MAX_SOURCES + 1 + MAX_CLIENTS];
+		int src_idx[MAX_SOURCES], n = 0, live = 0;
+
+		for (int s = 0; s < p.nsrc; s++) {
+			if (p.src[s].fd < 0)
+				continue;
+			src_idx[n] = s;
+			fds[n++] = (struct pollfd){ .fd = p.src[s].fd, .events = POLLIN };
+			live++;
+		}
+		if (!live)
+			break;
+		fds[n++] = (struct pollfd){ .fd = lfd, .events = POLLIN };
+		for (int i = 0; i < nclients; i++)
+			fds[n++] = (struct pollfd){ .fd = clients[i], .events = POLLIN };
+		if (poll(fds, n, test_out ? 50 : -1) < 0) {
+			if (errno == EINTR)
+				continue;
+			rc = 1;
+			break;
+		}
+		for (int i = 0; i < live; i++) {
+			struct source *src = &p.src[src_idx[i]];
+
+			if ((fds[i].revents & POLLIN) && forward(&p, &chord, src->fd, out) == 0)
+				continue;
+			if (!(fds[i].revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)))
+				continue;
+			if (test_out) {
+				/* a test FIFO between two writers: wait for the next one */
+				usleep(20000);
+				continue;
+			}
+			logline("source device \"%s\" gone", src->name);
+			rc = 1;
+			stop = 1;
+		}
+		if (lfd >= 0 && (fds[live].revents & POLLIN))
+			accept_client(lfd);
+		/* a client that hung up (lume-run between two games) */
+		for (int i = nclients - 1; i >= 0; i--) {
+			int at = live + 1 + i;
+
+			if (at < n && (fds[at].revents & (POLLHUP | POLLERR | POLLIN))) {
+				char buf[16];
+
+				if (recv(clients[i], buf, sizeof(buf), MSG_DONTWAIT) <= 0)
+					drop_client(i);
+			}
+		}
+	}
+	if (!test_out)
+		ioctl(out, UI_DEV_DESTROY);
+	close(out);
+	if (lfd >= 0) {
+		close(lfd);
+		unlink(sock_path);
+	}
+	for (int s = 0; s < p.nsrc; s++)
+		if (p.src[s].fd >= 0)
+			close(p.src[s].fd);
+	return rc;
+}

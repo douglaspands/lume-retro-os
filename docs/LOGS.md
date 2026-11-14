@@ -23,7 +23,8 @@ ROMS/logs/
   hw/boot-<n>.txt         retrato do hardware de cada boot
   metrics/boot-<n>.csv    uma amostra a cada 5 s durante o uso
   trace/boot-<n>.log      rastreio do RetroArch: estado do processo, kernel e congelamentos
-  frontend/boot-<n>.log   log do RetroArch (também o log mostrado quando ele falha)
+  frontend/boot-<n>.log   log do frontend: lume-run, lume-ui e o RetroArch aberto por eles
+                          (também o log mostrado quando ele falha)
   .boot                   contador de boots (não apague só ele)
   .clean                  marcador de desligamento limpo
 ```
@@ -46,6 +47,10 @@ lado, sem um sobrescrever o outro. Para saber de qual console é cada boot:
 
 A arquitetura também diferencia: o campo `kernel` do `hw/boot-<n>.txt` traz a versão e
 a máquina (`armv7l` no GA36, `aarch64` no R36S).
+
+No `frontend/boot-<n>.log`, cada início do `lume-ui` grava o driver de vídeo e o renderer
+do SDL, por exemplo `lume-ui: video KMSDRM, renderer opengles2, 640x480`. Um renderer
+`software` indica que a GPU não foi usada.
 
 **Sem a partição de jogos** (por exemplo, quando a partição 2 não é exFAT), os logs
 ficam só na RAM, e o log de boot vai para `BOOT/logs/boot-<n>.log` (os 10 mais recentes),
@@ -104,7 +109,8 @@ Uma linha por evento:
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
 | `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
-| `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos); lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
+| `game` | com o lume-launcher (frontend padrão), gravadas pelo `lume-run`, sem nome nem caminho do jogo: início (`OK <sistema> <runner> <core> start`, ou `menu` para o menu do RetroArch sem jogo) e fim (`<sistema> <runner> <core> exit=<código ou sigN> end=<normal, quit-combo, killed ou session> secs=<duração>`; `OK` com saída 0 ou fim por Fn+Start, `FAIL` nos outros casos; `-` no lugar do core de um runner nativo). Com o RetroArch como frontend: aberto (core e conteúdo) e fechado (core, conteúdo e duração), pelo `logd`. Nos dois: lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
+| `index` | fim de um scan das listas de jogos do launcher (`lume-index`): `scan systems=<n> games=<n> added=<n> failed=<n> ms=<n>` e a contagem por sistema com jogos (`nes=40 snes=12`), nunca um nome |
 | `audio` | o dispositivo de som parou de consumir e o jogo segue sem som (`FAIL`, linha `[ALSA] Playback stalled` do RetroArch, patch 0003); o som voltou (`OK`) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
@@ -132,11 +138,17 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `bat_mv` | tensão da bateria em mV |
 | `bat_ma` | corrente da bateria em mA |
 | `bat_status` | `Charging`, `Discharging`, `Full`… |
-| `frontend` | `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
-| `core` | core do jogo em execução (vazio fora de jogo) |
-| `content` | nome do jogo em execução (vazio fora de jogo) |
+| `frontend` | `launcher` (a interface do lume-launcher na tela), `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
+| `core` | core do jogo em execução (vazio fora de jogo); num runner nativo do launcher, o nome do runner (`love`, `sh`) |
+| `content` | nome do jogo em execução (vazio fora de jogo); sempre vazio com o lume-launcher |
 | `fps` | quadros por segundo do jogo desde a amostra anterior: diferença do contador de quadros do `GET_STATUS` (patch 0004 do RetroArch) dividida pelo tempo. Vazio no menu, na pausa, na primeira amostra de um jogo e quando o contador recomeça |
 | `fps_nominal` | FPS nominal do core (linha `Geometry: ... FPS:` do log do RetroArch), para comparar com `fps`; vazio fora de jogo |
+| `lume_ui_rss_kb` | memória residente da interface do launcher (`lume-ui`) em KiB; vazio quando ela não está rodando (durante um jogo) |
+| `lume_ui_cpu_pct` | CPU do `lume-ui` em % de um núcleo desde a amostra anterior; vazio na primeira amostra |
+| `lume_run_rss_kb` | memória residente do supervisor (`lume-run`) em KiB |
+| `lume_run_cpu_pct` | CPU do `lume-run` em % de um núcleo |
+| `input_rss_kb` | memória residente do daemon de entrada (`r36os-input`) em KiB |
+| `input_cpu_pct` | CPU do `r36os-input` em % de um núcleo |
 
 Na VM não há cpufreq, zonas térmicas nem bateria, e essas colunas não aparecem.
 
@@ -229,6 +241,22 @@ Como ler: `st=S` com o mesmo `wchan` e `utime` parado entre amostras é um proce
 bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em laço, ocupado.
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
+
+## Entrada (`r36os-input`) no `boot/boot-<n>.log`
+
+O daemon de entrada grava no log do kernel (e por isso no `boot/boot-<n>.log` e nas linhas
+`k` do `trace/`) uma linha ao subir e uma por problema:
+
+```
+r36os-input: "GA36-MB Gamepad" from 2 of 2 source(s), socket /run/r36os/input.sock, volume DAC
+r36os-input: no input device named "1c21800.lradc" (optional)
+r36os-input: source device "gpio-keys" gone
+```
+
+`from 1 of 2` com uma origem `(optional)` faltando quer dizer que aquele dispositivo (os
+botões de volume, ou os analógicos do R36S) não foi achado pelo nome do perfil: o controle
+funciona sem ele. Uma origem obrigatória faltando faz o serviço tentar de novo
+(`supervise-daemon`, até 5 vezes).
 
 ## Escolha do device tree no `boot/boot-<n>.log`
 

@@ -1,0 +1,5 @@
+#!/bin/sh
+# lume-launcher frontend (lume-launcher D10): the supervisor runs the interface and the
+# games and brings the interface back after each game. Exit 0 (Shut down in the launcher)
+# powers off; any other code is a frontend failure for the session (docs/FRONTEND.md).
+exec /usr/bin/lume-run

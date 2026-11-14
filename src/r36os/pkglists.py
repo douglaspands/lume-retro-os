@@ -18,7 +18,6 @@ HARDWARE_PATTERNS = (
     "syslinux",
     "grub*",
     "raspberrypi*",
-    "r36os-padmerge",
 )
 
 

@@ -1,0 +1,10 @@
+# RetroArch with one libretro core (lume-launcher D5, D7). It goes through the retroarch
+# frontend script, which writes the fixed keys before every run and restores the keys the
+# launcher sets for one run only. Quit: the network command QUIT (saves the SRAM), then
+# cgroup.kill after the timeout.
+[runner]
+id = "retroarch"
+kind = "libretro"
+exec = ["/usr/libexec/r36os/frontends/retroarch", "-L", "{core_path}", "{rom}"]
+quit = "retroarch-cmd"
+timeout = 3

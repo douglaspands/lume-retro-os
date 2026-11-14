@@ -135,3 +135,30 @@ ui_lang() {
 	done
 	case "$v" in 7|8) echo pt ;; 3) echo es ;; *) echo en ;; esac
 }
+
+# Games cgroup of the launcher (lume-launcher D9): <root>/lume/ handed to <user>, with the
+# leaf <root>/lume/session/ where the frontend runs. lume-run then creates lume/game-<n>/
+# itself and may move its games there, because the common ancestor (lume/) is the user's.
+# Prints the cgroup.procs file of the session leaf; fails without a cgroup v2 at <root>, with
+# the reason on stderr. CGROUP_ROOT only changes for the tests.
+lume_cgroup() {  # user
+	local root="${CGROUP_ROOT:-/sys/fs/cgroup}" cg f
+	cg="$root/lume"
+	[ -f "$root/cgroup.controllers" ] || {
+		echo "no cgroup v2 at $root" >&2
+		return 1
+	}
+	mkdir -p "$cg/session" 2>/dev/null || {
+		echo "cannot create $cg/session" >&2
+		return 1
+	}
+	for f in "$cg" "$cg/cgroup.procs" "$cg/cgroup.subtree_control" "$cg/session" \
+		"$cg/session/cgroup.procs"; do
+		[ -e "$f" ] || continue
+		chown "$1:$1" "$f" 2>/dev/null || {
+			echo "cannot hand $f to $1" >&2
+			return 1
+		}
+	done
+	echo "$cg/session/cgroup.procs"
+}

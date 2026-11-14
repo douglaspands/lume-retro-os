@@ -60,7 +60,8 @@ def test_every_catalog_core_is_in_both_images():
     catalog = json.loads((REPO_ROOT / "rootfs/overlay/usr/share/r36os/systems.json").read_text())
     used = set()
     for system in catalog["systems"]:
-        used |= {system["core"], *system["core_by_arch"].values(), *system["alt_cores"]}
+        if system["core"] is not None:  # love and ports have no libretro core
+            used |= {system["core"], *system["core_by_arch"].values(), *system["alt_cores"]}
     packages = {catalog["cores"][core]["package"] for core in used}
     for target in TARGETS:
         manifest = _manifest(target)

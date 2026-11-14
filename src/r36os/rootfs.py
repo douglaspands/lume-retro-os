@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from r36os import lang, leiame, pkglists, version
+from r36os import catalog, lang, leiame, pkglists, version
 from r36os.container import ALPINE_VERSION, Container, ensure_builder
 from r36os.packages import keys_dir
 from r36os.paths import REPO_ROOT, ensure_dir, out_dir
@@ -106,6 +106,11 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
     if v is not None:
         osr.write_text(version.os_release())
     (work / "packages.txt").write_text("\n".join(pkglists.all_packages(target)) + "\n")
+    # The catalog and the launcher runners of the image are checked before any build step
+    # (game-library: an emulator citing a missing runner stops the build)
+    errs = catalog.validate(catalog.load())
+    if errs:
+        raise RuntimeError("invalid catalog: " + "; ".join(errs))
     (work / "LEIA-ME.txt").write_text(leiame.render())
     tty, baud = serial_console(target)
     script = _ROOTFS_SCRIPT.format(

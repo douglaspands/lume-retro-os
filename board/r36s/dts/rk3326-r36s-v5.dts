@@ -156,7 +156,7 @@
 		};
 	};
 
-	/* 17 buttons, active low; r36os-padmerge joins them with the sticks (D8) */
+	/* 17 buttons, active low; r36os-input joins them with the sticks (lume-launcher D8) */
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
