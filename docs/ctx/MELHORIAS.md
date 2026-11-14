@@ -390,6 +390,55 @@ O texto abaixo é a proposta original.
   se repetem na mesma sessão) e se a média de bloqueios por sessão volta a cair. Se o coach só
   somar bloqueios sem mudar o hábito, voltar para `off`.
 
+### M-24. Padrões proibidos casam com argumentos, não com o comando — proposta
+
+- **Problema (sessão de 2026-11-13, change `usb-device-access`):** os padrões proibidos do
+  guardrail são procurados como substring na linha inteira. Falsos positivos vistos:
+  - `rm -rf /storage/.lume-push` (pasta temporária no console, via `ssh`) barrado por
+    `rm -rf /`: qualquer `rm -rf` de caminho absoluto casa;
+  - `rg -n "mksquashfs|SOURCE_DATE_EPOCH" src` barrado por `mkfs`: o padrão estava no **texto
+    da busca**; os 9 bloqueios de `mkfs` do M-19 têm a mesma causa;
+  - `rm -rf /tmp/s` dentro de um `podman run ... sh -c "..."` de teste também barrado.
+
+  O agente contorna (`rm -r`, outra grafia), o que ensina a driblar a regra em vez de respeitá-la.
+- **Mudança proposta:** separar o comando em argv (`shlex`) e casar a regra com o comando e as
+  opções: `rm` com `-r`/`-f` e alvo exatamente `/`, `/*` ou um diretório de sistema (`/etc`,
+  `/usr`, `$HOME`…); `mkfs*` só como nome de programa (`argv[0]`, ou depois de `sudo`/`exec`).
+  Argumentos de comandos de leitura (`rg`, `grep`, `ctx search`) nunca são comandos.
+
+### M-25. Encadeamento dentro de texto citado para outro host ou container — proposta
+
+- **Problema:** `ssh root@10.55.0.1 "cmd1 ; cmd2"` passou (o `;` está dentro das aspas), mas
+  `ssh ... "x=$(stat -c %s f) ; ..."` foi barrado pelo `$()` e um laço `while` no comando do
+  Monitor também. O texto entre aspas é **um argumento** executado em outra máquina ou em outro
+  shell (console por `ssh`, `podman run ... sh -c`). A regra é inconsistente (`;` passa, `$()` não)
+  e força scripts temporários para coisas de uma linha.
+- **Mudança proposta:** tratar o argumento citado de `ssh <host> "..."`, `podman|docker run ... sh
+  -c "..."` e `sh -c` como um script remoto: aplicar a ele só as regras destrutivas (M-24), não a
+  de encadeamento, que existe para auditar comandos **locais** um a um. Alternativa: uma receita
+  `remote <host> <script>` que recebe um arquivo de script do scratchpad.
+
+### M-26. `ctx search` não achou o módulo pelo nome do arquivo — proposta
+
+- **Problema:** `ctx search "r36os push" "push build over ssh"` não trouxe `src/r36os/push.py` em
+  nenhum dos 10 resultados (vieram serviços OpenRC e um hunk de patch do mesa). O módulo se
+  chama `push.py`, tem `push` no título dos trechos e a docstring começa com "Update a console
+  over the USB cable: `r36os push`". O agente achou o arquivo com `rg` logo depois.
+- **Mudança proposta:** dar peso ao **nome do arquivo** (não só ao caminho inteiro) no BM25 e um
+  bônus quando um termo da consulta é o radical do nome do arquivo; conferir com esta consulta
+  como caso de teste.
+- **Também visto:** o aviso "5 arquivo(s) nos resultados mudaram desde a indexação" sem
+  reindexar. A busca podia reindexar na hora só esses arquivos (são poucos e já foram lidos).
+
+### M-27. `upstream get` exige declarar o projeto antes — medida
+
+- **Medido (2026-11-13):** para ler o código do `umtprd` 1.6.8 foi preciso editar o `policy.toml`
+  (`[upstream.umtprd]`) antes do primeiro `ctx upstream get`, e o arquivo com o achado
+  principal (`src/msgqueue.c`) só apareceu depois de um `git clone` no scratchpad, porque não dá
+  para buscar no projeto sem saber o caminho. Confirma o M-16: `github:<dono>/<repo>@<tag>/<caminho>`
+  sem declaração prévia, e um `ctx upstream grep <projeto> <versão> <padrão>` (ou clone raso no
+  cache, indexado) para quando o caminho não é conhecido.
+
 ## Avaliação de 2026-11-13
 
 `ctx evaluate` (23 sessões, veredito provisório): **não compensa**, saldo ≈ −31.612 tokens
