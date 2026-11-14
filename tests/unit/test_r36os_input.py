@@ -49,7 +49,8 @@ def _keymap(board: str) -> dict[str, str]:
 def test_aport_for_every_target_in_the_common_list_and_checksummed():
     apkbuild = (APORT / "APKBUILD").read_text()
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', apkbuild, re.M)
-    assert re.search(r'^makedepends="linux-headers"', apkbuild, re.M)
+    # zlib-dev: the PNG of r36os-shot, built by the same aport (lume-launcher D12)
+    assert re.search(r'^makedepends="linux-headers zlib-dev"', apkbuild, re.M)
     for name in ("input.c", "r36os-input.initd", "61-r36os-input.rules", "ga36.conf",
                  "r36s.conf", "vm.conf"):
         digest = hashlib.sha512((APORT / name).read_bytes()).hexdigest()
