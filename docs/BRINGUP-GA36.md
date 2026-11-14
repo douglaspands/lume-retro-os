@@ -221,7 +221,24 @@ espaço perdido (de `push` antigos ou de um corte de energia), o `push` avisa co
 no leitor: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
 `r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
 o log tem `ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build`.
-*Prova no GA36 pendente (tarefas 6.1 a 6.3 da change).*
+
+
+**Prova no GA36 (2026-11-14):**
+- **Cartão sujo:** o primeiro `push` com a change (build `20261114-030914`) avisou
+  `BOOT has 276 MiB in lost clusters` (`df` 921 672 KiB contra `du` 638 252 KiB) e seguiu.
+  Era mais um `SYSTEM` vazado por um `push` antigo. O `fsck.vfat -a` pelo PC o salvou como
+  `FSCK0000.REC` (290 222 080 bytes, começando com `hsqs`). Os arquivos da `BOOT` conferiram
+  com o build, e o `.REC` foi apagado pelo ssh, não pelo leitor `14cd:125d`. Nesse mesmo
+  `push`, a troca do `ga36/modules` em uso deixou o `modules.old`, e o `remount,ro` passou.
+- **Dois `push` que trocam o `ga36/SYSTEM`** (builds `20261114-032036` e
+  `20261114-033137`, com um marcador provisório no overlay): nos dois, sem aviso e com o
+  `remount,ro` aceito antes do reboot. Antes desta change, essa troca dava "Resource busy".
+  O `ga36/SYSTEM.old` ficou com o SHA256 do `SYSTEM` do `push` anterior, e o `.old` mais
+  velho foi apagado antes da cópia. O `r36s/SYSTEM` não virou `.old`. No boot seguinte, a
+  `BOOT` estava em `ro` e sem linhas `ERROR`.
+- **Depois:** `df` = `du` = 920 376 KiB. O `fsck.fat -n` (binário do `dosfstools` do
+  Alpine armv7 levado ao `/tmp` do console pelo ssh, só leitura) terminou com código 0:
+  `21 files, 230094/523260 clusters`, sem clusters sem dono.
 
 ### Adaptador OTG: controles, teclado e pendrive (só com hub alimentado)
 

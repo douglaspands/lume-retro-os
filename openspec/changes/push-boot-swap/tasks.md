@@ -51,12 +51,18 @@
 
 ## 6. Prova no GA36
 
-- [ ] 6.1 Antes: `fsck.vfat -n` da `BOOT` pelo PC sem cadeias perdidas (o cartão foi limpo
+- [x] 6.1 Antes: `fsck.vfat -n` da `BOOT` pelo PC sem cadeias perdidas (o cartão foi limpo
   em 2026-11-14) e build `console` com a mudança.
-- [ ] 6.2 Dois `push` seguidos que troquem o `SYSTEM` do GA36: depois de cada um, a `BOOT`
+  *Feito em 2026-11-14:* o cartão **não** estava limpo. O primeiro `push` (build
+  `20261114-030914`) avisou `BOOT has 276 MiB in lost clusters` (`df` 921 672 KiB contra
+  `du` 638 252 KiB) e seguiu. O `fsck.vfat -a` pelo PC salvou um `FSCK0000.REC` de
+  290 222 080 bytes (`hsqs`, um `ga36/SYSTEM` antigo). Os 14 arquivos da `BOOT` conferiram
+  com o build, e o `.REC` foi apagado pelo ssh (não pelo leitor `14cd:125d`). Depois disso,
+  `df` = `du` = 639 552 KiB.
+- [x] 6.2 Dois `push` seguidos que troquem o `SYSTEM` do GA36: depois de cada um, a `BOOT`
   em `ro` no `/proc/mounts` antes do reboot; no segundo, o `ga36/SYSTEM.old` do primeiro
   apagado antes da cópia e sem aviso de clusters perdidos.
-- [ ] 6.3 Depois: `fsck.vfat -n` da `BOOT` pelo PC sem cadeias perdidas e `df` contra `du`
+- [x] 6.3 Depois: `fsck.vfat -n` da `BOOT` pelo PC sem cadeias perdidas e `df` contra `du`
   dentro de 32 MB; registrar em `docs/BRINGUP-GA36.md`.
 - [ ] 6.4 Primeiro `push` no R36S: registrar se o aviso de clusters perdidos apareceu (os
   pushes antigos podem ter vazado) e, se sim, limpar pelo PC e repetir o push sem aviso.
