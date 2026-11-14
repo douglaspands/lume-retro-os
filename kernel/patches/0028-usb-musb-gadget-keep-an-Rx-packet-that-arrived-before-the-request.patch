@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Douglas Panhota <douglaspands@gmail.com>
-Date: Fri, 13 Nov 2026 23:10:00 -0300
+Date: Fri, 13 Nov 2026 23:30:00 -0300
 Subject: [PATCH] usb: musb: gadget: keep an Rx packet that arrived before the request
 
 Commit 3fc137386c46 ("usb: musb: Fix hardware lockup on first Rx endpoint
@@ -23,7 +23,13 @@ Keep the packet instead: when the FIFO already holds one, musb_ep_restart()
 schedules a work item that takes the controller lock and runs musb_g_rx()
 for every Rx endpoint with a queued request and RXPKTRDY set, the same
 path as the Rx interrupt. ->complete() still never runs inside
-usb_ep_queue(), and an empty FIFO is flushed as before.
+usb_ep_queue().
+
+Do not flush an FIFO that looked empty either: a packet landing between
+the read of RXCSR and the flush was dropped too (a first version of this
+patch kept that flush and lost 1 command in about 700 sent back to back).
+A packet that arrives after the check finds the request queued and is
+handled by the Rx interrupt, as before 3fc137386c46.
 
 diff --git a/drivers/usb/musb/musb_core.h b/drivers/usb/musb/musb_core.h
 index 91b5b6b..02872ef 100644
@@ -38,13 +44,13 @@ index 91b5b6b..02872ef 100644
 
  	u16			intrrxe;
 diff --git a/drivers/usb/musb/musb_gadget.c b/drivers/usb/musb/musb_gadget.c
-index caf4d4c..4c0b750 100644
+index caf4d4c..10a7f77 100644
 --- a/drivers/usb/musb/musb_gadget.c
 +++ b/drivers/usb/musb/musb_gadget.c
-@@ -1171,12 +1171,54 @@ void musb_ep_restart(struct musb *musb, struct musb_request *req)
+@@ -1170,11 +1170,53 @@ void musb_ep_restart(struct musb *musb, struct musb_request *req)
+ 	if (req->tx) {
  		txstate(musb, req);
  	} else {
- 		csr = musb_readw(epio, MUSB_RXCSR);
 +		/*
 +		 * A packet that arrived while the queue was empty is still in the
 +		 * FIFO and its interrupt is gone. Flushing it loses it: a function
@@ -53,17 +59,21 @@ index caf4d4c..4c0b750 100644
 +		 * host sent right after the previous answer, and the host waits
 +		 * forever. Hand it to musb_g_rx() from a work item instead, so
 +		 * ->complete() still never runs inside usb_ep_queue().
++		 *
++		 * With no packet waiting there is nothing to flush, and a flush
++		 * would drop a packet landing between the read of RXCSR and the
++		 * write: a later packet finds this request queued and is handled
++		 * by the Rx interrupt.
 +		 */
-+		if (csr & MUSB_RXCSR_RXPKTRDY) {
+ 		csr = musb_readw(epio, MUSB_RXCSR);
+-		csr |= MUSB_RXCSR_FLUSHFIFO | MUSB_RXCSR_P_WZC_BITS;
+-		musb_writew(epio, MUSB_RXCSR, csr);
+-		musb_writew(epio, MUSB_RXCSR, csr);
++		if (csr & MUSB_RXCSR_RXPKTRDY)
 +			schedule_work(&musb->rx_pending_work);
-+			return;
-+		}
- 		csr |= MUSB_RXCSR_FLUSHFIFO | MUSB_RXCSR_P_WZC_BITS;
- 		musb_writew(epio, MUSB_RXCSR, csr);
- 		musb_writew(epio, MUSB_RXCSR, csr);
- 	}
- }
-
++	}
++}
++
 +/*
 + * Deliver the packets that musb_ep_restart() found waiting in an Rx FIFO,
 + * outside usb_ep_queue(), through the same path as the Rx interrupt.
@@ -87,15 +97,13 @@ index caf4d4c..4c0b750 100644
 +		musb_ep_select(musb->mregs, epnum);
 +		if (musb_readw(hw_ep->regs, MUSB_RXCSR) & MUSB_RXCSR_RXPKTRDY)
 +			musb_g_rx(musb, epnum);
-+	}
+ 	}
 +	spin_unlock_irqrestore(&musb->lock, flags);
 +	pm_runtime_mark_last_busy(musb->controller);
 +	pm_runtime_put_autosuspend(musb->controller);
-+}
-+
+ }
+
  static int musb_ep_restart_resume_work(struct musb *musb, void *data)
- {
- 	struct musb_request *req = data;
 @@ -1789,6 +1831,7 @@ int musb_gadget_setup(struct musb *musb)
  	/* don't support otg protocols */
  	musb->g.is_otg = 0;

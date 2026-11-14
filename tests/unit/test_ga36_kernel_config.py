@@ -98,7 +98,10 @@ def test_musb_gadget_keeps_an_rx_packet_that_arrived_early():
              "0028-usb-musb-gadget-keep-an-Rx-packet-that-arrived-before-the-request.patch"
              ).read_text()
     assert "+++ b/drivers/usb/musb/musb_gadget.c" in patch
-    assert "+\t\tif (csr & MUSB_RXCSR_RXPKTRDY) {\n+\t\t\tschedule_work(&musb->rx_pending_work);" in patch
+    assert "+\t\tif (csr & MUSB_RXCSR_RXPKTRDY)\n+\t\t\tschedule_work(&musb->rx_pending_work);" in patch
+    # no flush of a FIFO that looked empty: it dropped 1 command in ~700 (first version)
+    assert "-\t\tcsr |= MUSB_RXCSR_FLUSHFIFO | MUSB_RXCSR_P_WZC_BITS;" in patch
+    assert "+\t\tcsr |= MUSB_RXCSR_FLUSHFIFO" not in patch
     assert "+\tINIT_WORK(&musb->rx_pending_work, musb_g_rx_pending_work);" in patch
     assert "+\tcancel_work_sync(&musb->rx_pending_work);" in patch
     assert "musb_gadget.c" in OWN_DRIVER_FILES

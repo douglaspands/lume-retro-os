@@ -103,10 +103,14 @@ aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funç�
   senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
   `README.md`).
 
-**Como funciona no GA36:** o VBUS da porta OTG não chega a nada que o kernel leia, e a
-entrada USB do AXP é a da porta DC (medição de 2026-11-13, change `usb-device-access`). Por
-isso o DTS não liga VBUS ao PHY, e o papel vem só do pino ID (PH8): sem adaptador, o MUSB fica
-pronto como device. Um carregador na DC não aciona nada na porta OTG.
+**Como funciona no GA36:** o papel da porta vem só do pino ID (PH8): sem adaptador, o MUSB
+fica pronto como device. Uma medição anterior de 2026-11-13 dizia que o VBUS da porta OTG não
+chegava a nada que o kernel lesse e que a entrada USB do AXP era a da porta DC. **A prova de
+2026-11-13 com o build `20261113-221126` (commit `d5ba1b9`, `x-powers,drive-vbus-en` no AXP)
+mostrou o contrário:** só com o cabo do PC na porta OTG, nada na DC, `axp20x-usb` fica
+`present=1` e `online=1`, e a bateria carrega (`status=Charging`, 152 mA com 4,25 V, quase
+cheia). O console carrega pelo cabo do PC. Ainda falta medir se o `online` cai ao tirar o cabo
+e se um carregador na DC também acende o `axp20x-usb` (as duas entradas podem ser a mesma).
 
 **Diagnóstico:**
 - a linha `usb:` do `ROMS/logs/trace/boot-<n>.log` mostra o PHY (`extcon`), o modo do MUSB e
