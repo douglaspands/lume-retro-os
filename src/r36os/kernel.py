@@ -8,6 +8,7 @@ applied in order; it is rebuilt when the list or the contents of the patches cha
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import tarfile
 import urllib.request
@@ -116,6 +117,10 @@ exit $fail
 _KERNEL_SCRIPT = """
 set -eu
 export ARCH={arch} CROSS_COMPILE="ccache {cross}"
+# the same inputs give the same image (r36os push skips it): no build date, counter, user
+# or host of this machine in the kernel; the date is the last commit of the kernel inputs
+export KBUILD_BUILD_TIMESTAMP="{stamp}" KBUILD_BUILD_VERSION=1
+export KBUILD_BUILD_USER=lume KBUILD_BUILD_HOST=lume
 B=/build
 cd /linux
 make -s O=$B {defconfig}
@@ -156,6 +161,26 @@ KERNEL_TARGETS = {
 }
 
 
+def kernel_inputs(board: str) -> list[Path]:
+    """What decides a console kernel besides the pinned source: our patches, the board
+    fragment and this module (the build script)."""
+    return [PATCHES_DIR, REPO_ROOT / "board" / board / "kernel.config", Path(__file__)]
+
+
+def build_stamp(board: str) -> str:
+    """KBUILD_BUILD_TIMESTAMP of a console kernel: the date of the last commit that touched
+    its inputs, so it only moves when they do (the kernel also turns it into the mtime of
+    the initramfs files with `date -d`, so it must be a date). Without git history, the
+    epoch."""
+    import subprocess
+
+    rel = [str(p.relative_to(REPO_ROOT)) for p in kernel_inputs(board)]
+    r = subprocess.run(["git", "-C", str(REPO_ROOT), "log", "-1", "--format=%cd",
+                        "--date=format-local:%Y-%m-%d %H:%M:%S UTC", "--", *rel],
+                       capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
+    return r.stdout.strip() or "1970-01-01 00:00:00 UTC"
+
+
 def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Path:
     """Cross-compile the console kernel (D3): image, modules.tar, config and release.
 
@@ -178,7 +203,8 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
         image=ensure_cross(),
         volumes=volumes,
     ).sh(_KERNEL_SCRIPT.format(arch=arch, cross=cross, defconfig=defconfig, image=image,
-                               own_files="|".join(OWN_DRIVER_FILES)))
+                               own_files="|".join(OWN_DRIVER_FILES),
+                               stamp=build_stamp(board)))
     return out / image
 
 

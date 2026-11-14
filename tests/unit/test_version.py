@@ -19,13 +19,25 @@ def test_build_id_is_timestamp():
     assert v.date == "2026-11-09T21:42:33"
 
 
-def test_os_release_and_boot_file_carry_build_id():
+def test_boot_file_carries_build_id_and_os_release_does_not():
+    # os-release lives in SYSTEM: with the build id in it, SYSTEM changed on every build
+    # and `r36os push` resent it (310 MB of the R36S for a GA36 kernel change)
     v = version.current(NOW)
-    osr = version.os_release(v)
-    assert "BUILD_ID=20261109-214233\n" in osr
-    assert 'PRETTY_NAME="Lume Retro OS 0.1.0 (20261109-214233)"' in osr
+    osr = version.os_release()
+    assert 'PRETTY_NAME="Lume Retro OS 0.1.0"' in osr
+    assert "BUILD_ID" not in osr and v.build_id not in osr
     boot = version.boot_version_file("console", v)
     assert "build: 20261109-214233\n" in boot and "target: console\n" in boot
+
+
+def test_rootfs_drops_what_changes_between_builds():
+    # the only files that differed between two R36S SYSTEMs with the same packages
+    # (2026-11-13): the apk log, the random machine-id and os-release (test above)
+    from r36os.rootfs import _ROOTFS_SCRIPT
+    drop = next(line for line in _ROOTFS_SCRIPT.splitlines() if line.startswith("rm -f $R/var"))
+    for f in ("$R/var/log/apk.log", "$R/etc/machine-id", "$R/var/lib/dbus/machine-id"):
+        assert f in drop.split(), f
+    assert _ROOTFS_SCRIPT.index(drop) > _ROOTFS_SCRIPT.index("configure.sh {tty}")
 
 
 def test_archive_image(tmp_path, monkeypatch):

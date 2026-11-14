@@ -130,6 +130,22 @@ def test_fragment_gives_the_overlay_upper_layer_xattrs():
     assert _options(FRAGMENT).get("CONFIG_TMPFS_XATTR") == "y"
 
 
+def test_kernel_image_does_not_carry_the_build_time_or_machine():
+    # the same inputs must give the same zImage/Image, or `r36os push` resends it every
+    # time (the R36S Image changed between two builds that only touched the GA36)
+    from r36os.kernel import _KERNEL_SCRIPT, build_stamp, kernel_inputs
+    for v in ('KBUILD_BUILD_TIMESTAMP="{stamp}"', "KBUILD_BUILD_VERSION=1",
+              "KBUILD_BUILD_USER=lume", "KBUILD_BUILD_HOST=lume"):
+        assert v in _KERNEL_SCRIPT, v
+    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC", build_stamp("ga36"))
+    assert REPO_ROOT / "board/ga36/kernel.config" in kernel_inputs("ga36")
+
+
+def test_initramfs_files_have_a_fixed_mtime():
+    from r36os.initramfs import _PACK
+    assert _PACK.index("touch -h -d @0") < _PACK.index("cpio -o")
+
+
 def test_own_drivers_are_the_patched_files():
     patches = "".join(p.read_text() for p in (REPO_ROOT / "kernel/patches").glob("*.patch"))
     for f in OWN_DRIVER_FILES:

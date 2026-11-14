@@ -53,7 +53,7 @@ apk add --root $R --initdb --update-cache --no-progress \\
 if [ -f /out/kernel/modules.tar ]; then tar -C $R -xf /out/kernel/modules.tar; fi
 
 cp -a /overlay/. $R/
-# Version of this build (D15): timestamp in BUILD_ID
+# System version (D15); the build id stays in BOOT/VERSION, so SYSTEM does not change
 if [ -f /work/os-release ]; then cp /work/os-release $R/etc/os-release; fi
 # Factory menu language, chosen at build time (r36os build --lang)
 cfg=$R/usr/share/r36os/factory/retroarch/retroarch.cfg
@@ -78,6 +78,11 @@ if [ -n "$(ls $R/boot 2>/dev/null)" ]; then
   rm -rf /out/kernel && mkdir -p /out/kernel && cp -a $R/boot/. /out/kernel/
 fi
 rm -rf $R/boot/* $R/var/cache/apk/*
+# Nothing that changes from one build to the next with the same packages, so that SYSTEM
+# comes out the same and `r36os push` skips it: the apk log (install times) and the
+# machine-id made at install (random; every card shared it). The machine-id and dbus
+# services make one at boot when it is missing.
+rm -f $R/var/log/apk.log $R/etc/machine-id $R/var/lib/dbus/machine-id
 mkdir -p $R/boot $R/storage
 
 tar -C $R --numeric-owner --sort=name -cf /out/rootfs.tar .
@@ -88,8 +93,8 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
                  language: str = lang.DEFAULT) -> Path:
     """Build the target rootfs; write rootfs.tar, manifest.txt and kernel/ to out/<target>/.
 
-    With `v`, /etc/os-release carries the id of this build. `language` is the factory menu
-    language (default English).
+    With `v`, /etc/os-release is the Lume one (the system version; the build id stays in
+    BOOT/VERSION). `language` is the factory menu language (default English).
     """
     retro_lang = lang.retro_language(language)
     out = ensure_dir(target_out(target))
@@ -97,7 +102,7 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
     osr = work / "os-release"
     osr.unlink(missing_ok=True)
     if v is not None:
-        osr.write_text(version.os_release(v))
+        osr.write_text(version.os_release())
     (work / "packages.txt").write_text("\n".join(pkglists.all_packages(target)) + "\n")
     (work / "LEIA-ME.txt").write_text(leiame.render())
     tty, baud = serial_console(target)
