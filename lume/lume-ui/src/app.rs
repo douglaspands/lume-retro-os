@@ -103,7 +103,8 @@ pub enum SetRow {
     Volume,
     Brightness,
     System,
-    Update,
+    /// the game lists' actions: Update lists (A)
+    Games,
     RetroArch,
     Power,
 }
@@ -976,7 +977,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Update, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Games, SetRow::RetroArch, SetRow::Power]);
         v
     }
 
@@ -1083,7 +1084,7 @@ impl<S: SystemAdapter> App<S> {
                 _ => {}
             },
             Action::A => match row {
-                SetRow::Update => {
+                SetRow::Games => {
                     self.updating = Some((0, 0));
                     self.start_update = true;
                 }
@@ -1917,7 +1918,7 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Volume => (self.tr("volume"), pct("volume")),
             SetRow::Brightness => (self.tr("brightness"), pct("brightness")),
             SetRow::System => (self.tr("system"), String::new()),
-            SetRow::Update => (self.tr("update_lists"), String::new()),
+            SetRow::Games => (self.tr("games_item"), String::new()),
             SetRow::RetroArch => (self.tr("retroarch"), String::new()),
             SetRow::Power => (self.tr("power_off"), String::new()),
         }
@@ -1968,12 +1969,16 @@ impl<S: SystemAdapter> App<S> {
         // the panel of the focused item
         let panel = Rect::new(e(17.76), top.round() as i32, w - e(1.0) - e(17.76), (bottom - top).round() as i32);
         c.fill(panel, th.em("radius_panel", w), th.color("panel_bg"));
-        let inner = Rect::new(panel.x + e(0.9), panel.y + e(0.6), panel.w - 2 * e(0.9), panel.h - e(0.6));
+        // from the sums in em, rounded once (not the panel's rounded edge plus a rounded pad)
+        let inner = Rect::new(e(17.76 + 0.9), (top + ef(0.6)).round() as i32, w - e(1.0 + 0.9) - e(17.76 + 0.9), panel.h - e(0.6));
         let row = rows[focus];
         let (label, _) = self.set_row_texts(row);
         c.text_bold(&label, inner.x, inner.y, ef(1.2), th.color("fg"), Align::Left, inner.w);
-        let line_h = ef(1.4875);
-        let px = ef(1.0);
+        // the panel's lines are the list's items (user's request, 2026-11-15: one text size):
+        // 1.669 em tall every 1.769 em, the text 1.05 em, 0.84 em in and 0.21 em down
+        let (line_h, pitch) = (item_h, pitch);
+        let px = item_px;
+        let (pad_x, pad_y) = (e(0.84), e(0.21));
         let mut y = panel.y as f32 + ef(2.34);
         // one line of the panel: a pill when chosen, the text, and a value or a ✓ on the right
         let line = |me: &mut Self, c: &mut dyn Canvas, y: f32, text: &str, value: Option<&str>, chosen: bool, muted_label: bool| {
@@ -1983,17 +1988,17 @@ impl<S: SystemAdapter> App<S> {
             }
             let fg = th.color(if chosen { "sel_fg" } else { "fg" });
             let label_fg = if muted_label && !chosen { th.color("muted") } else { fg };
-            let ty = r.y + e(0.12);
+            let ty = r.y + pad_y;
             let vw = value.map_or(0, |v| c.text_width(v, px));
-            c.text(text, r.x + e(0.3), ty, px, label_fg, Align::Left, r.w - e(0.6) - vw - e(0.5));
+            c.text(text, r.x + pad_x, ty, px, label_fg, Align::Left, r.w - 2 * pad_x - vw - e(0.5));
             if let Some(v) = value {
-                c.text(v, r.right() - e(0.3), ty, px, fg, Align::Right, vw + 1);
+                c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, vw + 1);
             }
             if chosen && value.is_none() {
                 // the ✓, drawn (the font has none), the text's size
                 if let Some((t, _)) = me.symbol(c, "@check") {
                     let d = (px * 0.8).round() as i32;
-                    c.draw_mask(t, Rect::new(r.right() - e(0.3) - d, r.y + (r.h - d) / 2, d, d), fg);
+                    c.draw_mask(t, Rect::new(r.right() - pad_x - d, r.y + (r.h - d) / 2, d, d), fg);
                 }
             }
         };
@@ -2007,7 +2012,7 @@ impl<S: SystemAdapter> App<S> {
                         _ => "lang_en",
                     });
                     line(self, c, y, &name, None, *l == self.settings.language, false);
-                    y += line_h;
+                    y += pitch;
                 }
                 note = Some(("hint_adjust", true));
             }
@@ -2016,57 +2021,64 @@ impl<S: SystemAdapter> App<S> {
                 for id in self.themes.list() {
                     let name = self.themes.name(&id, &self.settings.language);
                     line(self, c, y, &name, None, id == current, false);
-                    y += line_h;
+                    y += pitch;
                 }
                 note = Some(("hint_adjust", true));
             }
             SetRow::Volume | SetRow::Brightness => {
+                // the level as a line of the same size, then its bar
                 let key = if row == SetRow::Volume { "volume" } else { "brightness" };
                 let level = self.level.get(key).copied();
-                let big = level.map_or_else(|| "—".to_string(), |v| format!("{v}%"));
-                c.text_bold(&big, inner.x, y.round() as i32, ef(1.6), th.color("fg"), Align::Left, inner.w);
-                y += ef(1.76) + ef(0.175);
+                let value = level.map_or_else(|| "—".to_string(), |v| format!("{v}%"));
+                line(self, c, y, &value, None, false, false);
+                y += pitch;
                 if let Some(v) = level {
                     self.draw_level_bar(c, Rect::new(inner.x, y.round() as i32, inner.w, e(0.5625)), v as u32 * 100);
                 }
-                y += ef(0.5625);
+                y += ef(0.5625) + ef(0.35);
                 note = Some(("hint_adjust", true));
             }
             SetRow::Display => {
                 // one option for now: a line with its value, as the label/value lines
                 let value = self.tr(if self.settings.battery_percent { "on" } else { "off" });
                 line(self, c, y, &self.tr("battery_percent"), Some(&value), false, false);
-                y += line_h;
+                y += pitch;
                 note = Some(("hint_adjust", true));
             }
             SetRow::Wifi | SetRow::Bluetooth => {
                 let (_, value) = self.set_row_texts(row);
                 line(self, c, y, &self.tr("status"), Some(&value), false, true);
-                y += line_h;
+                y += pitch;
             }
             SetRow::System => {
                 let info = self.info.as_ref().map(|(_, i)| i.clone()).unwrap_or_default();
                 for (k, v) in &info {
                     let label = self.texts.get(k).to_string();
                     line(self, c, y, &label, Some(v), false, true);
-                    y += line_h;
+                    y += pitch;
                     if *k == "memory" {
                         if let Some(share) = used_share(v) {
-                            y += ef(0.175);
                             self.draw_level_bar(c, Rect::new(inner.x, y.round() as i32, inner.w, e(0.5625)), share);
                             y += ef(0.5625) + ef(0.35);
                         }
                     }
                 }
             }
-            SetRow::Update | SetRow::RetroArch | SetRow::Power => {
+            SetRow::Games => {
+                // its actions as the panel's lines; one for now, in focus (A runs it)
+                line(self, c, y, &self.tr("update_lists"), Some(""), true, false);
+                y += pitch;
+                note = Some(("note_update", false));
+            }
+            SetRow::RetroArch | SetRow::Power => {
                 note = Some(("note_open", false));
             }
         }
         if let Some((key, arrows)) = note {
-            let npx = ef(0.9);
-            let ny = (y + ef(0.4375)).round() as i32;
-            let mut nx = inner.x;
+            // the note: a line like the others (same size and inset), muted
+            let npx = px;
+            let ny = y.round() as i32 + pad_y;
+            let mut nx = inner.x + pad_x;
             if arrows {
                 // ◀ ▶ before the text (the font has no such glyphs)
                 let (tw, tht) = ((npx * 0.62).round() as i32, (npx * 0.76).round() as i32);
@@ -2082,7 +2094,8 @@ impl<S: SystemAdapter> App<S> {
         let mut hints = vec![(NAV_UD, self.tr("hint_navigate"))];
         match row {
             SetRow::Language | SetRow::Theme | SetRow::Display | SetRow::Volume | SetRow::Brightness => hints.push((NAV_LR, self.tr("hint_adjust"))),
-            SetRow::Update | SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_open"))),
+            SetRow::Games => hints.push(("A", self.tr("hint_update"))),
+            SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_open"))),
             _ => {}
         }
         hints.push(("B", self.tr("hint_back")));

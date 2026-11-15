@@ -113,7 +113,7 @@ Quando um jogo termina, por qualquer motivo, o launcher MUST reaparecer no mesmo
 - **THEN** o launcher reaparece na grade do NES com o foco nesse jogo
 
 ### Requirement: Configurações do aparelho
-O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar ou não o percentual da bateria; ligado de fábrica), Volume, Brilho, Sistema, Atualizar listas, RetroArch e Desligar, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
+O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar ou não o percentual da bateria; ligado de fábrica), Volume, Brilho, Sistema, Games (com Atualizar listas, uma ação do painel que A executa), RetroArch e Desligar, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
 
 #### Scenario: Lista que dá a volta
 - **WHEN** o foco está em Desligar, o último item, e o usuário aperta para baixo

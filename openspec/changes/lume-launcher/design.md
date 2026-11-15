@@ -387,7 +387,11 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   quatro itens, Configurações em duas colunas com o painel maior, a bateria num lugar só em
   todas as telas (o da lista de jogos: 1,75em da direita, topo do texto a 1em; o protótipo a
   movia de tela para tela), com o Wi-Fi e o Bluetooth logo à esquerda dela (o protótipo
-  punha a rede à esquerda da barra do Dock), o volume como a linha da borda direita.
+  punha a rede à esquerda da barra do Dock), o volume como a linha da borda direita, o
+  painel das Configurações com o texto num tamanho só (as linhas do painel têm a métrica dos
+  itens da lista: 1,669em a cada 1,769em, texto 1,05em; o nível de volume e brilho é uma
+  linha "60%" sobre a barra; a nota é mais uma linha, apagada; só o título do painel é
+  maior) e "Atualizar listas" dentro do item Games (uma linha do painel, A atualiza).
 
 ### D12. Captura da tela pelo cabo (`r36os-shot`, parte remota do P-57)
 

@@ -393,16 +393,19 @@ fn settings_match_the_prototype_ruler() {
     assert!(near(panel.x, 284.2) && near(panel.y, 44.1) && near(panel.w, 339.8) && near(panel.h, 391.2), "panel {panel:?}");
     let ptitle = text("Theme").into_iter().find(|r| r.x > 280).unwrap();
     assert!(near(ptitle.x, 298.6) && near(ptitle.y, 53.7) && near(ptitle.h, 19.2), "panel title {ptitle:?}");
-    // the options: Lume chosen (the default), a pill from 81.6, 23.8 tall
+    // the options are lines like the list's items (user's request: one text size): Lume
+    // chosen (the default), a pill from 81.6, 26.7 tall every 28.3, the text 16.8 px at
+    // +13.44/+3.36, as on the left
     let chosen = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
-    assert!(near(chosen.y, 81.6) && near(chosen.h, 23.8) && near(chosen.x, 298.6) && near(chosen.w, 311.0), "chosen {chosen:?}");
+    assert!(near(chosen.y, 81.6) && near(chosen.h, 26.7) && near(chosen.x, 298.6) && near(chosen.w, 311.0), "chosen {chosen:?}");
     let lume = text("Lume")[0];
-    assert!(near(lume.x, 303.4) && near(lume.y, 83.5) && near(lume.h, 16.0), "option {lume:?}");
+    assert!(near(lume.x, 298.6 + 13.44) && near(lume.y, 81.6 + 3.36) && near(lume.h, 16.8), "option {lume:?}");
+    assert_eq!(lume.h, lang.h, "the panel's text is the list's size");
     let dark = text("Dark")[0];
-    assert!(near(dark.y, 83.5 + 23.8), "second option {dark:?}");
-    // the note under the three options, 14.4 px
+    assert!(near(dark.y, 81.6 + 28.3 + 3.36), "second option {dark:?}");
+    // the note: one more line under the three options, the same size
     let note = text("to adjust").into_iter().find(|r| r.x > 280).unwrap();
-    assert!(near(note.y, 81.6 + 3.0 * 23.8 + 7.0) && near(note.h, 14.4), "note {note:?}");
+    assert!(near(note.y, 81.6 + 3.0 * 28.3 + 3.36) && near(note.h, 16.8), "note {note:?}");
     // the hints: ▲▼ Navigate, ◀▶ to adjust, B Back
     let ud = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("nav_bg") && r.y > 440 && r.w > 41).map(|(r, _)| *r).unwrap();
     assert!(near(ud.w, 42.3) && near(ud.y, 449.6), "▲▼ chip {ud:?}");
@@ -444,6 +447,46 @@ fn search_bar_on_top_keyboard_below_and_the_list_between() {
     // the list name stays whole; the filter shows on the right of the header
     assert!(canvas.has_text(&a.lib.systems[1].name) && canvas.has_text("“1”"));
     assert_eq!(a.grid.as_ref().unwrap().items.len(), n);
+}
+
+#[test]
+fn settings_panel_text_is_one_size_on_every_item() {
+    let c = card("panelsize", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 60, bri: 80, wifi: true, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    for (i, row) in a.set_rows().into_iter().enumerate() {
+        a.settings_focus = i;
+        a.handle(Ev::Tick);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        let list_h = cv.texts.iter().find(|(_, r)| r.x < 100 && r.y > 40 && r.y < 400).map(|(_, r)| r.h).unwrap();
+        // the panel's texts under its title (and above the hints): all the list's size
+        let sizes: Vec<_> = cv.texts.iter().filter(|(_, r)| r.x > 280 && r.y > 75 && r.y < 430).map(|(t, r)| (t.clone(), r.h)).collect();
+        assert!(sizes.iter().all(|(_, h)| *h == list_h), "{row:?}: {sizes:?} vs {list_h}");
+    }
+}
+
+#[test]
+fn games_item_holds_update_lists() {
+    let c = card("games-item", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    // "Update lists" is no longer an item of its own: it lives in Games
+    let rows = a.set_rows();
+    let games = rows.iter().position(|r| *r == SetRow::Games).unwrap();
+    a.settings_focus = games;
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let list_texts: Vec<_> = cv.texts.iter().filter(|(_, r)| r.x < 280).map(|(t, _)| t.clone()).collect();
+    assert!(list_texts.contains(&"Games".to_string()) && !list_texts.contains(&"Update lists".to_string()), "{list_texts:?}");
+    let in_panel = cv.texts.iter().any(|(t, r)| t == "Update lists" && r.x > 280);
+    assert!(in_panel, "Update lists is a line of the Games panel");
+    assert!(cv.has_text("A to update") && cv.has_text("Update"));
+    // A on Games starts the update
+    press(&mut a, Action::A);
+    assert!(a.start_update && a.updating.is_some());
 }
 
 #[test]

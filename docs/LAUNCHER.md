@@ -57,7 +57,7 @@ ou o que o item faz. Idioma (vale também para o RetroArch e para as mensagens d
 Tema (Lume, o padrão, e Material escuro e claro), Tela (mostrar ou não o percentual ao lado
 da bateria), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
-selecionado), **Atualizar listas**, RetroArch (o menu completo, sem jogo; ao sair, volta às
+selecionado), Games (com **Atualizar listas**: A atualiza), RetroArch (o menu completo, sem jogo; ao sair, volta às
 Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
 só com um adaptador USB conectado.
 
@@ -65,7 +65,7 @@ só com um adaptador USB conectado.
 
 Cada console tem `ROMS/roms/<id>/gamelist.xml`, no formato do EmulationStation. As listas são
 atualizadas no boot (em segundo plano: a primeira tela usa o índice anterior), quando o cabo USB
-do PC é desligado e pelo item "Atualizar listas" das Configurações.
+do PC é desligado e por "Atualizar listas", no item Games das Configurações.
 
 - Um jogo novo entra com o nome do arquivo, sem a extensão.
 - Um jogo que já está no XML nunca é reescrito: nome, capa, descrição e os campos de um scraper
