@@ -637,34 +637,71 @@ static long read_long(const char *dir, const char *name)
 	return v;
 }
 
-/* One brightness step of 5% on the first backlight (the launcher's Settings use the same
- * steps and floor: never fully dark, the screen would look off). With a ceiling in the
- * profile (backlight_max) that level is 100% and nothing goes above it (GA36: above level 8
- * the panel flickers and shows broken parts, seen 2026-11-15). Then "brightness" goes to the
- * clients, also at a limit. A sysfs write is quick: done in the main process. */
-static void brightness(const struct profile *p, int up)
+/* The folder of the first backlight in dir; 0 when found. */
+static int find_backlight(char *dir, size_t size)
 {
 	const char *root = getenv("R36OS_INPUT_BACKLIGHT");
-	char dir[400], value[24];
 	struct dirent *e;
-	long max, cur, pct, v, floor_v;
 	DIR *d;
-	int fd;
 
 	if (!root)
 		root = "/sys/class/backlight";
 	d = opendir(root);
 	if (!d)
-		return;
+		return -1;
 	dir[0] = 0;
 	while ((e = readdir(d))) {
 		if (e->d_name[0] != '.') {
-			snprintf(dir, sizeof(dir), "%s/%s", root, e->d_name);
+			snprintf(dir, size, "%s/%s", root, e->d_name);
 			break;
 		}
 	}
 	closedir(d);
-	if (!dir[0])
+	return dir[0] ? 0 : -1;
+}
+
+static void write_backlight(const char *dir, long v)
+{
+	char path[420], value[24];
+	int fd, len;
+
+	snprintf(path, sizeof(path), "%s/brightness", dir);
+	fd = open(path, O_WRONLY | O_TRUNC | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	len = snprintf(value, sizeof(value), "%ld", v);
+	if (write(fd, value, (size_t)len) != len)
+		logline("backlight not written: %s", strerror(errno));
+	close(fd);
+}
+
+/* At start: a backlight above the profile's ceiling comes down to it (the kernel starts the
+ * GA36 at level 8 from its device tree; above 7 the panel flickers). */
+static void clamp_backlight(const struct profile *p)
+{
+	char dir[400];
+	long cur;
+
+	if (p->backlight_max <= 0 || find_backlight(dir, sizeof(dir)) < 0)
+		return;
+	cur = read_long(dir, "brightness");
+	if (cur > p->backlight_max) {
+		write_backlight(dir, p->backlight_max);
+		logline("backlight %ld above the ceiling, set to %d", cur, p->backlight_max);
+	}
+}
+
+/* One brightness step of 5% on the first backlight (the launcher's Settings use the same
+ * steps and floor: never fully dark, the screen would look off). With a ceiling in the
+ * profile (backlight_max) that level is 100% and nothing goes above it (GA36: above level 7
+ * the panel flickers and shows broken parts, seen 2026-11-15). Then "brightness" goes to the
+ * clients, also at a limit. A sysfs write is quick: done in the main process. */
+static void brightness(const struct profile *p, int up)
+{
+	char dir[400];
+	long max, cur, pct, v, floor_v;
+
+	if (find_backlight(dir, sizeof(dir)) < 0)
 		return;
 	max = read_long(dir, "max_brightness");
 	cur = read_long(dir, "brightness");
@@ -688,19 +725,8 @@ static void brightness(const struct profile *p, int up)
 		floor_v = 1;
 	if (v < floor_v)
 		v = floor_v;
-	if (v != cur) {
-		char path[420];
-
-		snprintf(path, sizeof(path), "%s/brightness", dir);
-		fd = open(path, O_WRONLY | O_TRUNC | O_CLOEXEC);
-		if (fd >= 0) {
-			int len = snprintf(value, sizeof(value), "%ld", v);
-
-			if (write(fd, value, (size_t)len) != len)
-				logline("backlight not written: %s", strerror(errno));
-			close(fd);
-		}
-	}
+	if (v != cur)
+		write_backlight(dir, v);
 	ra_level(1, (v * 100 + max / 2) / max);
 	send_all("brightness", 1);
 }
@@ -875,6 +901,7 @@ int main(int argc, char **argv)
 	lfd = open_socket(sock_path);
 	if (lfd < 0)
 		logline("no socket at %s: Fn+Start does nothing", sock_path);
+	clamp_backlight(&p);
 	{
 		int found = 0;
 

@@ -339,7 +339,10 @@
   `test_ga36_backlight_ceiling_is_100_percent` e `backlight_ceiling_from_the_profile_is_100_percent`;
   `r36os-input` r8. Sem o cabo USB, só na bateria, acontece igual (usuário, 2026-11-15): não
   é o carregamento nem a fonte do PC; fica como limite do hardware deste GA36 (o circuito do
-  backlight ou o próprio painel), contornado pelo teto.
+  backlight ou o próprio painel), contornado pelo teto. No nível 8 voltou a piscar depois de
+  um tempo: o usuário fixou o teto em 70% (nível 7, `r36os-input` r9), e o daemon, ao iniciar,
+  desce para o teto um brilho acima dele (o kernel liga o GA36 no nível 8 pelo
+  `default-brightness-level` do device tree).
   **Linha também dentro do jogo** (pedido do usuário, 2026-11-15, "linha igual à do
   launcher"): patch 0011 do RetroArch (r112) com o comando de rede `LUME_LEVEL <left|right>
   <percent> <rrggbb>`, um widget gráfico que desenha a mesma linha (5 px a 640, trilho cinza

@@ -373,26 +373,29 @@ def test_levels_ask_retroarch_for_the_line_over_a_game(r36s):
 
 
 def test_ga36_backlight_ceiling_is_100_percent(daemon_exe, tmp_path):
-    # GA36: above level 8 of 10 the panel flickers (2026-11-15); the profile's backlight_max
-    # makes level 8 the 100%, and a level above it comes back down on the next step
+    # GA36: above level 7 of 10 the panel flickers (2026-11-15); the profile's backlight_max
+    # makes level 7 the 100%, a higher level comes down when the daemon starts and on the
+    # next step
     d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
     try:
+        level = lambda: int((d.backlight / "panel/brightness").read_text())
+        # the fake backlight started at 153 (of 255): brought down to the ceiling at start
+        assert level() == 7
         (d.backlight / "panel/max_brightness").write_text("10\n")
         (d.backlight / "panel/brightness").write_text("10\n")
-        level = lambda: int((d.backlight / "panel/brightness").read_text())
         fn, up, down = CODES["BTN_MODE"], CODES["KEY_VOLUMEUP"], CODES["KEY_VOLUMEDOWN"]
         d.press("GA36-MB Gamepad", fn)
         d.press("1c22800.lradc", up)
         d.release("1c22800.lradc", up)
-        assert level() == 8, "above the ceiling: back to it"
+        assert level() == 7, "above the ceiling: back to it"
         assert d.ra.recv(64) == b"LUME_LEVEL left 100 ffffff", "the ceiling is 100%"
         for _ in range(3):
             d.press("1c22800.lradc", up)
             d.release("1c22800.lradc", up)
-            assert level() == 8
+            assert level() == 7
         d.press("1c22800.lradc", down)
         d.release("1c22800.lradc", down)
-        assert level() == 7
+        assert level() == 6
         d.release("GA36-MB Gamepad", fn)
     finally:
         d.stop()
