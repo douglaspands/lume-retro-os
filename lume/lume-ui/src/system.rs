@@ -104,6 +104,29 @@ pub struct RealSystem {
     pub sys: PathBuf,
     pub proc_: PathBuf,
     pub mixer: Option<Mixer>,
+    /// the backlight's raw ceiling from the board's r36os-input profile (100% of the launcher)
+    pub backlight_max: Option<u64>,
+}
+
+/// The `backlight_max` line of an r36os-input profile (GA36: 8 of 10, the panel flickers
+/// above it).
+pub fn board_backlight_max(profile: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(profile).ok()?;
+    let line = text.lines().find(|l| l.trim_start().starts_with("backlight_max "))?;
+    line.split_whitespace().nth(1)?.parse().ok().filter(|v| *v > 0)
+}
+
+/// The level in percent of a raw backlight value, with the ceiling as 100%.
+pub fn backlight_percent(cur: u64, max: u64, ceiling: Option<u64>) -> Option<u8> {
+    let top = ceiling.map_or(max, |c| c.min(max));
+    (top > 0).then(|| ((cur.min(top) * 100 + top / 2) / top) as u8)
+}
+
+/// The raw backlight value of a percent, with the ceiling as 100% (never dark: 5% at least,
+/// and at least level 1). Truncated, so a coarse backlight (GA36) still moves on a 5% step.
+pub fn backlight_value(pct: u8, max: u64, ceiling: Option<u64>) -> u64 {
+    let top = ceiling.map_or(max, |c| c.min(max));
+    (top * pct.clamp(5, 100) as u64 / 100).max(1)
 }
 
 /// The mixer of the board: the ALSA card and control, and the raw ceiling (0 dB of a
@@ -162,7 +185,9 @@ impl Mixer {
 
 impl RealSystem {
     pub fn new() -> RealSystem {
-        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer() }
+        let board = std::fs::read_to_string("/etc/r36os/board").unwrap_or_default();
+        let profile = PathBuf::from(format!("/usr/share/r36os/input/{}.conf", board.trim()));
+        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile) }
     }
 
     fn backlight(&self) -> Option<PathBuf> {
@@ -230,16 +255,15 @@ impl SystemAdapter for RealSystem {
     fn brightness(&self) -> Option<u8> {
         let b = self.backlight()?;
         let (cur, max) = (read_num(&b.join("brightness"))?, read_num(&b.join("max_brightness"))?);
-        // rounded, as r36os-input steps it (Fn + volume keys)
-        (max > 0).then(|| ((cur * 100 + max / 2) / max).min(100) as u8)
+        // rounded, as r36os-input steps it (Fn + volume keys), the ceiling as 100%
+        backlight_percent(cur, max, self.backlight_max)
     }
 
     fn set_brightness(&mut self, pct: u8) {
         if let Some(b) = self.backlight() {
             if let Some(max) = read_num(&b.join("max_brightness")) {
-                // never fully dark: the screen would look off
-                // truncated: a coarse backlight (GA36: 0-10) still moves on a 5% step down
-                let v = (max * pct.clamp(5, 100) as u64 / 100).max(1);
+                // never fully dark, never above the board's ceiling (GA36: level 8)
+                let v = backlight_value(pct, max, self.backlight_max);
                 let _ = std::fs::write(b.join("brightness"), v.to_string());
             }
         }
@@ -368,6 +392,25 @@ impl SystemAdapter for FakeSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backlight_ceiling_from_the_profile_is_100_percent() {
+        let p = std::env::temp_dir().join(format!("lume-bl-{}.conf", std::process::id()));
+        std::fs::write(&p, "name X\nmixer C DAC 3 160\nbacklight_max 8\n").unwrap();
+        assert_eq!(board_backlight_max(&p), Some(8));
+        std::fs::write(&p, "name X\n").unwrap();
+        assert_eq!(board_backlight_max(&p), None);
+        // GA36: 0-10 with the ceiling at 8
+        assert_eq!(backlight_percent(8, 10, Some(8)), Some(100));
+        assert_eq!(backlight_percent(10, 10, Some(8)), Some(100), "above the ceiling reads 100%");
+        assert_eq!(backlight_percent(4, 10, Some(8)), Some(50));
+        assert_eq!(backlight_value(100, 10, Some(8)), 8);
+        assert_eq!(backlight_value(95, 10, Some(8)), 7);
+        assert_eq!(backlight_value(5, 10, Some(8)), 1);
+        // without a ceiling, as before
+        assert_eq!(backlight_value(100, 10, None), 10);
+        assert_eq!(backlight_percent(9, 10, None), Some(90));
+    }
 
     #[test]
     fn cpu_temperature_from_the_cpu_zone() {

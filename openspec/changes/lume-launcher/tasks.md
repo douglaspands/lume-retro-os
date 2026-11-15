@@ -329,6 +329,16 @@
   o r6 desceu de 10 a 2 e voltou a 4. Alguns apertos injetados viram volume porque o driver
   reenvia o estado real do Fn em milissegundos (limitação da injeção). Falta: o usuário
   conferir com o botão e dentro de um jogo. `r36os-input` r6, `lume-launcher` r21.
+  **Teto do brilho no GA36** (2026-11-15): acima do nível 8 de 10 o painel pisca e mostra
+  partes da imagem quebradas, com qualquer sistema (o usuário viu também no EmuELEC); não é
+  calor (42,6 °C, sem limitador térmico, CPU no máximo), nem o PWM (no nível 10 a luz é
+  contínua e pisca também), nem o `lume-ui` (0% de CPU, a captura do framebuffer sai limpa);
+  no nível 8 fica estável. Linha `backlight_max 8` no perfil do `r36os-input` do GA36: esse
+  nível é o 100% do Fn+Vol e do Brilho das Configurações (o `lume-ui` lê o mesmo perfil), e
+  um nível acima volta ao teto no próximo passo. O R36S fica sem teto até ser medido. Testes
+  `test_ga36_backlight_ceiling_is_100_percent` e `backlight_ceiling_from_the_profile_is_100_percent`;
+  `r36os-input` r8. Hipótese para conferir: queda de tensão do painel com o backlight no
+  máximo (testar sem o cabo USB, só na bateria).
   **Linha também dentro do jogo** (pedido do usuário, 2026-11-15, "linha igual à do
   launcher"): patch 0011 do RetroArch (r112) com o comando de rede `LUME_LEVEL <left|right>
   <percent> <rrggbb>`, um widget gráfico que desenha a mesma linha (5 px a 640, trilho cinza

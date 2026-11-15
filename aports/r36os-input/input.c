@@ -103,6 +103,7 @@ struct profile {
 	char mixer_card[64], mixer_ctl[64];
 	int mixer_step;
 	int mixer_max;	/* raw ceiling of the control (0: none), e.g. 0 dB of a digital DAC */
+	int backlight_max;	/* raw ceiling of the backlight (0: none): 100% of the launcher */
 };
 
 static volatile sig_atomic_t stop;
@@ -224,6 +225,9 @@ static int load_profile(const char *path, struct profile *p)
 
 			memmove(p->mixer_ctl, c, strlen(c) + 1);
 			if (p->mixer_step < 1 || p->mixer_step > 25 || p->mixer_max < 0)
+				goto bad;
+		} else if (!strcmp(s, "backlight_max") && sscanf(arg, "%d", &p->backlight_max) == 1) {
+			if (p->backlight_max < 1)
 				goto bad;
 		} else {
 			goto bad;
@@ -634,9 +638,11 @@ static long read_long(const char *dir, const char *name)
 }
 
 /* One brightness step of 5% on the first backlight (the launcher's Settings use the same
- * steps and floor: never fully dark, the screen would look off). Then "brightness" goes to
- * the clients, also at a limit. A sysfs write is quick: done in the main process. */
-static void brightness(int up)
+ * steps and floor: never fully dark, the screen would look off). With a ceiling in the
+ * profile (backlight_max) that level is 100% and nothing goes above it (GA36: above level 8
+ * the panel flickers and shows broken parts, seen 2026-11-15). Then "brightness" goes to the
+ * clients, also at a limit. A sysfs write is quick: done in the main process. */
+static void brightness(const struct profile *p, int up)
 {
 	const char *root = getenv("R36OS_INPUT_BACKLIGHT");
 	char dir[400], value[24];
@@ -664,6 +670,8 @@ static void brightness(int up)
 	cur = read_long(dir, "brightness");
 	if (max <= 0 || cur < 0)
 		return;
+	if (p->backlight_max > 0 && p->backlight_max < max)
+		max = p->backlight_max;	/* the ceiling is 100% from here on */
 	pct = (cur * 100 + max / 2) / max + (up ? 5 : -5);
 	if (pct > 100)
 		pct = 100;
@@ -714,7 +722,7 @@ static void key_event(const struct profile *p, struct chord *c, int out, int cod
 		if (c->fn_down) {
 			/* Fn+volume: the backlight; Fn was used, so no tap on its release */
 			c->fn_used = 1;
-			brightness(code == KEY_VOLUMEUP);
+			brightness(p, code == KEY_VOLUMEUP);
 		} else {
 			volume(p, code == KEY_VOLUMEUP);
 		}
