@@ -36,7 +36,8 @@
   versionado). Verificação: `cargo build` e `cargo test` passam no host. A versão mínima do
   Rust bate com o `rustc` do Alpine 3.24.
 - [x] 2.3 Criar `aports/lume-launcher`: crates vendorizadas num tarball de `distfiles` com
-  SHA512, build offline, os binários em `/usr/bin` e a fonte Noto Sans (OFL) com a licença.
+  SHA512, build offline, os binários em `/usr/bin` e a fonte com a licença (Noto Sans, OFL;
+  desde 2026-11-15 a Roboto, Apache-2.0, nos pesos 400, 500 e 700).
   Verificação: o pacote compila para x86_64, armv7 e aarch64 no pipeline do `r36os build`, e
   `tests/integration/test_local_repo.py` o lista.
 
@@ -379,13 +380,79 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 - [ ] 10.1 Inventário tela a tela (Dock, grade, menu do jogo, opções do console e do jogo,
   busca, Configurações, painel Sistema), com o usuário no aparelho: cada diferença vira um
   item deste grupo. Verificação: lista anotada aqui, com as capturas dos dois lados.
+
+  Inventário de 2026-11-14 (protótipo no Chrome com os dados de demonstração; GA36 com
+  `r36os-shot`, lume-launcher r6, idioma inglês, tema escuro, sem dongle). As capturas do
+  aparelho mostram ROMs de teste e ficam fora do repositório.
+  - Todas as telas: o protótipo usa títulos em negrito; o aparelho, peso regular (→ 10.7).
+  - Barra de estado: o protótipo mostra Wi-Fi à esquerda e bateria horizontal com o
+    percentual à direita, no Dock e nos cabeçalhos; o aparelho não mostra nada (→ 10.2).
+  - Rodapé: no protótipo, centralizado, maior, letras no círculo cheio na cor de destaque e
+    setas em chip tonal ("◀▶ Navegar" no Dock, "▲▼ Navegar" nas listas); no aparelho, à
+    direita, menor, sem as setas no Dock e "‹› Adjust" em texto nas Configurações (→ 10.3).
+    A busca e o menu do jogo herdam as dicas da grade ("X Search", "Y Options"), fora de
+    contexto; no protótipo a busca mostra "A Selecionar · B OK" (→ 10.3).
+  - Dock: o protótipo tem ícones de símbolo (estrela, engrenagem, imagem) e sigla em negrito,
+    foco bem maior e 5 ícones na tela; o aparelho mostra "FAV" e "SET" em texto, foco menor
+    e 3 ícones e meio (→ 10.8). Embaixo, o protótipo mostra o nome grande e uma linha de
+    apoio ("0 jogos", "Ajustes do aparelho"); o aparelho, só o nome menor (→ 10.5).
+  - Grade: o protótipo tem cabeçalho em negrito com o nome completo do console, contador
+    "1 / 24" e bateria; quadros em retrato (capa 3:4) que enchem a tela em 4x2; foco por
+    contorno no quadro; nome do jogo em foco centralizado sobre o rodapé. O aparelho tem a
+    sigla, contador pequeno, quadros quadrados com o nome dentro e o nome embaixo de cada
+    um, foco por sublinhado (→ 10.4, 10.5).
+  - Menu do jogo: o protótipo mostra a capa à esquerda, título em negrito e o console como
+    subtítulo, valores sem setas fora da linha em foco ("Padrão (Snes9x)") e estrela no
+    Favoritos. O aparelho não mostra a capa nem o console, põe ‹ › em todas as linhas e
+    "no save states" como valor (→ 10.9).
+  - Opções do console: o protótipo tem o quadro do console à esquerda, título com o nome
+    completo e subtítulo "Opções do console", setas só na linha em foco e "Limpar opções dos
+    jogos" apagado com o número de jogos (0). O aparelho tem "NES · Console options" numa
+    linha, setas em todas as linhas e o limpar sem contagem (→ 10.9).
+  - Busca: o protótipo ocupa a tela, com campo de texto e cursor no alto, contador de
+    resultados, teclado QWERTY com a fila de números em cima e teclas Espaço, ⌫, Limpar e OK.
+    O aparelho abre o teclado sobre a grade, em ordem alfabética, **sem campo mostrando o
+    texto digitado** e sem tecla de apagar (→ 10.10).
+  - Configurações: o protótipo tem duas colunas (lista à esquerda, painel do item à direita
+    sempre visível) e título em negrito com a bateria; o aparelho, uma lista com os valores
+    na linha. O aparelho tem a mais "Update game lists" e "RetroArch" (do escopo, ficam);
+    Wi-Fi e Bluetooth faltam só por não haver dongle (→ 10.11).
+  - Sistema: o protótipo põe rótulo e valor na mesma linha, barras de CPU e memória,
+    temperatura da CPU e o RSS em MB; o aparelho empilha rótulo sobre valor, sem barras, sem
+    temperatura, RSS em KB e a bateria como linha (→ 10.11). O modelo vem do `model` do DTB
+    e aparece "GA36-MB V1.2 (painel 1)", em português, contra a regra de idioma (fora do
+    `lume-ui`: fica para a `boot-dtb-select`).
 - [ ] 10.2 Barra de estado: bateria horizontal (nível e carregando) em todas as telas, Wi-Fi
   e Bluetooth só quando conectados, sem relógio. Verificação: captura no GA36 e o nível igual
   ao do `/sys/class/power_supply`.
+  Bateria feita em 2026-11-14 (lume-launcher r10): ícone horizontal com o nível e o
+  percentual no canto direito do Dock, do cabeçalho das listas (à direita do contador) e das
+  Configurações; preenchimento na cor de destaque carregando. Uma thread lê o sysfs a cada
+  30 s e manda `Ev::Battery` só quando muda (o launcher parado continua sem acordar). Sem
+  bateria (VM), nada aparece. Falta Wi-Fi e Bluetooth conectados (pedem nmcli e bluetoothctl:
+  ler fora da thread de desenho) e a captura no GA36.
+  Barra de volume (pedido do usuário, 2026-11-14): sem o percentual e sem painel, só a
+  trilha fina na margem direita, fora das caixas da grade e do contorno de foco.
 - [ ] 10.3 Rodapé: botões de letra (A, B, X, Y) na cor de destaque do tema e setas (◀▶ ▲▼) em
   chip tonal, como no protótipo, em todas as telas. Verificação: captura nos dois temas.
+  Centralizado em 2026-11-14 (pedido do usuário); faltam as setas em chip (a fonte não tem
+  ◀▶ ▲▼: desenhar, como o ícone de apagar).
 - [ ] 10.4 Grade: a capa sem o nome escrito dentro; o nome do jogo em foco embaixo, perto do
   rodapé; cabeçalho com o nome do console e o contador. Verificação: captura com e sem capa.
+  Feito em 2026-11-14 (lume-launcher r9): caixas em retrato que enchem a área (4x2 a
+  640x480, 3 fileiras a 720x720), só a capa inteira e centralizada, foco por contorno na cor
+  de destaque, nome do jogo em foco centralizado logo acima dos botões, contador "1 / 6" no
+  meio do cabeçalho (pedido do usuário). Em 2026-11-15, "à risca, com régua": as medidas do
+  protótipo tiradas no navegador a 640x480 (título 28 px em negrito em (28; 11,2), caixas
+  143,6 x 167 a partir de (16; 56,4) com 11,2 entre elas, foco 3% maior com contorno de 3,2
+  px a 0,8 px, nome 22,4 px na faixa 408-441,7, rodapé com círculos de 23,7 px e texto de
+  19,2 px na ordem A, X, Y, B), em tokens novos (`list_title_px`, `list_name_px`,
+  `status_px`, `hint_px`) e posições em fração de pixel; teste
+  `grid_matches_the_prototype_ruler` (1 px de tolerância). A fonte virou a Roboto do
+  protótipo, nos pesos 400, 500 e 700 (pedido do usuário); o contador fica no meio da tela
+  (escolha do usuário, por causa da bateria à direita). Sem
+  capa, a caixa gerada mantém o nome. `cargo test` (teste novo da grade com capas) e captura
+  no PC com as capas da coleção; falta o GA36 e a conferência do usuário.
 - [ ] 10.5 Nomes dos consoles: rótulo grande abaixo do ícone do Dock e no cabeçalho das
   listas, com o nome do catálogo. Verificação: captura de cada sistema com jogos.
 - [ ] 10.6 Logos dos consoles no quadrado: **decisão pendente do usuário.** A spec
@@ -393,6 +460,67 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   deixa um tema do usuário no cartão trazer imagens próprias. Opções: o `lume-ui` aceita os
   ícones de um tema no cartão (SVG fornecidos pelo usuário, a imagem sem nenhum) ou fica a
   sigla. Verificação: conforme a decisão.
+  Decidido em 2026-11-14 (usuário: "seguir o protótipo com o logo da marca"): os logos vêm
+  do cartão, nunca da imagem. `ROMS/system/lume/themes/<tema>/icons/<sistema>.png` (vale
+  para o tema e para quem herda dele, mesmo sem `theme.toml` na pasta); o `lume-ui` lê o PNG
+  como máscara e o pinta na cor do ícone (chapado, como o protótipo), em 78% x 56% do
+  quadrado; sem logo, fica a sigla. No GA36 do usuário: os SVGs brancos do protótipo
+  convertidos para PNG (fora do git). `cargo test` (logo do cartão no Dock).
+- [ ] 10.7 Tipografia: títulos e cabeçalhos em negrito (fonte com peso bold empacotada, ou
+  negrito sintético), tamanhos do rodapé e do cabeçalho como no protótipo. Verificação:
+  captura da grade e das Configurações.
+- [ ] 10.8 Dock: ícones de símbolo para Favoritos, Configurações (e Capturas, se ficar no
+  escopo), sigla em negrito nos consoles, tamanhos do foco e dos vizinhos do protótipo
+  (5 ícones na tela). Verificação: captura com o foco em cada tipo de item.
+  Feito em 2026-11-15 "com régua" (pedido do usuário), medido no protótipo a 640x480 com os
+  logos: ícones de 172,8 / 130,1 / 81,5 / 69,1 px a 8 px um do outro (`dock_gap` agora em
+  em), cada um passando a 65,1% da altura pela linha y = 201,6 (`dock_top` 0,42,
+  `dock_origin` 0,651), cantos e conteúdo crescendo com o ícone (sigla 0,28 em negrito,
+  logo 78% x 56%, estrela 0,42, engrenagem 0,2; estrela, engrenagem e o relógio de Recentes
+  desenhados por código em `glyphs.rs`, a Roboto não tem ★ nem ⚙); nome 33,6 px em y 306,3,
+  subtítulo 22,4 px em 348,2 (jogos, ou "Ajustes do aparelho"); bateria a 17,3 px da borda;
+  rodapé "◀▶ Navegar · A Selecionar" com o chip das setas (`nav_bg`/`nav_fg`). Teste
+  `dock_matches_the_prototype_ruler`. Falta o Wi-Fi na barra (10.2).
+- [ ] 10.9 Menu do jogo e opções do console: capa (ou quadro do console) à esquerda, título
+  e subtítulo, setas só na linha em foco, valor efetivo "Padrão (core)", estrela no
+  Favoritos, contagem no "Limpar opções dos jogos". Verificação: captura dos dois menus.
+- [ ] 10.10 Busca: tela própria com o campo de texto e o cursor, contador de resultados,
+  teclado QWERTY com números e tecla de apagar, rodapé da busca. Verificação: captura com
+  texto digitado e o filtro aplicado ao fechar.
+  Feito em 2026-11-14 (lume-launcher r8): tela inteira, campo com cursor e contador ao vivo,
+  teclas 1-0/QWERTY/Espaço/apagar/Limpar/OK, D-pad para nas bordas, B e OK fecham e mantêm o
+  filtro (do primeiro jogo), até 24 caracteres. A fonte não tem ⌫ nem ←: o ícone de apagar é
+  desenhado. `cargo test` (teste da busca e as 3 resoluções) e no GA36: texto, contador,
+  filtro ao fechar e B na grade limpando. Falta a conferência do usuário.
+  Refeita em 2026-11-15 como num launcher de TV (pedido do usuário): a barra de busca no
+  lugar do cabeçalho, o teclado embaixo (acima dos botões), a lista filtrada entre os dois a
+  cada letra; B fecha o teclado e a barra e mantém o filtro, mostrado à direita do cabeçalho.
+  `cargo test` (barra, teclado, lista entre eles, B).
+- [ ] 10.11 Configurações e Sistema: duas colunas com o painel do item, rótulo e valor na
+  mesma linha, barras de CPU e memória, temperatura, RSS em MB. Verificação: captura de
+  cada item com painel.
+  Feito em 2026-11-14 (pedido do usuário: "o quadro está muito à direita", "melhore a
+  usabilidade"): lista à esquerda até 43% da largura, painel do item em foco à direita
+  (~55%) sempre visível, com o valor grande, a barra de volume e brilho, o texto do que a
+  ação faz (chaves `desc_*`) e o Sistema com rótulo e valor na mesma linha, barra da memória
+  e RSS em MB. A lista dá a volta (↓ no último vai ao primeiro). "Atualizar listas de jogos"
+  virou "Atualizar listas" (não cabia na lista em espanhol). Modo lite removido de tudo
+  (configuração, `[features]` dos temas, spec), a pedido do usuário. Falta a temperatura da
+  CPU e a captura no GA36.
+- [ ] 10.13 Menu do jogo (pedido do usuário, 2026-11-14): Iniciar jogo, Save states,
+  Configurações (Emulador, Aspecto, Shader; B volta ao menu) e Favoritos; Save states com a
+  imagem do slot em foco ao lado da lista (`<estado>.png`, `savestate_thumbnail_enable`
+  ligado na configuração de fábrica do RetroArch) ou "Sem imagem"; menus dão a volta.
+  Verificação: `cargo test` (menu, submenu, imagem do slot e textura liberada ao trocar) e
+  captura no GA36 com um save state feito depois do r10 (os antigos não têm imagem). Um
+  cartão já existente precisa ligar "Save State Thumbnails" no RetroArch (a configuração de
+  fábrica só vale para cartão novo).
+- [ ] 10.12 Tema `lume` como padrão (pedido do usuário, 2026-11-14), com os tons azuis do
+  Lume TV launcher, e o padrão fora do código: `themes/base.toml` traz o `default` e o
+  valor-base de cada token, e cada `theme.toml` traz o próprio nome por idioma (`name`).
+  Um tema novo é só uma pasta. Verificação: `cargo test` (tema novo só com a pasta, nome em
+  cada idioma, base ausente sem travar) e captura do Dock, da grade, da busca e das
+  Configurações no GA36 com o `lume`.
 
 ## Workflow follow-up
 

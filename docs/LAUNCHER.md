@@ -28,18 +28,23 @@ save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abri
 ## Dock
 
 Favoritos (primeiro), os consoles que têm jogos, Recentes e Configurações (último). Um console
-sem jogos não aparece. Cada console é um tile com a sigla dele; um tema do cartão pode trazer
-ícones próprios ([formato de tema](lume-launcher/formato-de-tema.md)).
+sem jogos não aparece. Cada console é um tile com a sigla dele; logos próprios vão no cartão,
+em `ROMS/system/lume/themes/<tema>/icons/<id>.png` (a imagem não traz logo de fabricante; ver o
+[formato de tema](lume-launcher/formato-de-tema.md)).
 
 ## Menu do jogo
 
-- **Iniciar** e **Iniciar de um save state**: lista os slots do core que vai abrir o jogo. Slots
+- **Iniciar jogo**.
+- **Save states**: os slots do core que vai abrir o jogo, com a imagem do slot em foco ao lado
+  (o RetroArch grava `<estado>.png` com "Save State Thumbnails", ligado de fábrica). Slots
   feitos com outro core aparecem como "N em outro core" e não abrem (um save state só funciona
   no core que o gravou).
-- **Emulador**, **Aspecto** e **Shader**: valem só para esse jogo. "Padrão" apaga a escolha do
-  jogo, e ele volta a seguir o console. Aspecto e Shader aparecem só nos cores do RetroArch.
-  Um jogo com opção própria ganha um ponto no canto da capa.
+- **Configurações**: **Emulador**, **Aspecto** e **Shader**, só para esse jogo. "Padrão" apaga
+  a escolha do jogo, e ele volta a seguir o console. Aspecto e Shader aparecem só nos cores do
+  RetroArch. Um jogo com opção própria ganha um ponto no canto da capa. B volta ao menu do jogo.
 - **Incluir em favoritos** / **Remover dos favoritos**.
+
+As listas dos menus e das Configurações dão a volta: para baixo no último item vai ao primeiro.
 
 As **opções do console** (Y na grade) definem o padrão de todos os jogos daquele console, e
 "Limpar opções dos jogos" apaga as escolhas de cada jogo. A ordem é sempre: jogo, console,
@@ -47,18 +52,19 @@ catálogo.
 
 ## Configurações
 
-Idioma (vale também para o RetroArch e para as mensagens do sistema), Tema (Material escuro e
-claro), Modo lite (sem animação nem transparência), Volume, Brilho, Sistema (modelo, CPU,
+A lista fica à esquerda; à direita, o painel do item em foco mostra o valor, a barra do nível
+ou o que o item faz. Idioma (vale também para o RetroArch e para as mensagens do sistema),
+Tema (Lume, o padrão, e Material escuro e claro), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
-selecionado), **Atualizar listas de jogos**, RetroArch (o menu completo, sem jogo; ao sair,
-volta às Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth
-aparecem só com um adaptador USB conectado.
+selecionado), **Atualizar listas**, RetroArch (o menu completo, sem jogo; ao sair, volta às
+Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
+só com um adaptador USB conectado.
 
 ## Listas de jogos (`gamelist.xml`)
 
 Cada console tem `ROMS/roms/<id>/gamelist.xml`, no formato do EmulationStation. As listas são
 atualizadas no boot (em segundo plano: a primeira tela usa o índice anterior), quando o cabo USB
-do PC é desligado e pelo item "Atualizar listas de jogos".
+do PC é desligado e pelo item "Atualizar listas" das Configurações.
 
 - Um jogo novo entra com o nome do arquivo, sem a extensão.
 - Um jogo que já está no XML nunca é reescrito: nome, capa, descrição e os campos de um scraper
@@ -124,13 +130,13 @@ Um core do RetroArch que não está no catálogo também entra assim:
 `emulators = [{ runner = "retroarch", core = "snes9x" }]` (o arquivo
 `/usr/lib/libretro/snes9x_libretro.so` precisa existir).
 
-Depois de "Atualizar listas de jogos", o emulador aparece no menu de cada jogo do console.
+Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jogo do console.
 
 ## Arquivos do launcher no cartão
 
 | Arquivo | Conteúdo |
 |---|---|
-| `ROMS/system/lume/settings.toml` | idioma, tema, Modo lite, volume e brilho |
+| `ROMS/system/lume/settings.toml` | idioma, tema, volume e brilho |
 | `ROMS/system/lume/systems/<id>.toml` | opções do console |
 | `ROMS/system/lume/games/<id>.toml` | opções de cada jogo (só o que difere) |
 | `ROMS/system/lume/states/<id>.toml` | core que gravou cada slot de save state |

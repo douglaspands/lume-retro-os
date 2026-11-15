@@ -25,7 +25,7 @@ As versões anteriores não foram copiadas; o histórico delas está em [Protót
 1. [Visão geral](visao-geral.md): decisões tomadas e índice.
 2. [Escopo v1](escopo-v1.md): o que entra e o que fica fora da primeira versão.
 3. [Design das telas](design-das-telas.md): Dock, grade, menu do jogo.
-4. [Formato de tema](formato-de-tema.md): o tema é declarativo; 2 temas Material (escuro e claro) e modo lite.
+4. [Formato de tema](formato-de-tema.md): o tema é declarativo; o tema Lume (padrão) e 2 temas Material (escuro e claro).
 5. [Orçamento de performance](orcamento-de-performance.md): metas de memória, CPU e carregamento. São estimativas, não medidas.
 6. [Gamelist e capas](gamelist-e-capas.md): de onde vêm lista de jogos e capas (`gamelist.xml` do EmulationStation, campos `name` e `image`).
 7. [Emuladores por console e por jogo](emuladores-por-console-e-por-jogo.md): emulador, core, aspecto e shader em 3 camadas (jogo, console, padrão).
@@ -53,7 +53,7 @@ As versões anteriores não foram copiadas; o histórico delas está em [Protót
 ## Princípios a manter
 - Renderização por evento: sem laço de animação; só redesenha quando há input.
 - Só as linhas visíveis da grade existem; capas com cache LRU e miniaturas pré-escaladas.
-- Modo lite desliga animações e transparência.
+- Animação e transparência vêm do tema (o Modo lite saiu em 2026-11-14).
 - Layout em unidades relativas, independente de resolução (640x480, 854x480, 720x720).
 - Validar a assinatura da imagem na indexação (na coleção usada no protótipo, 186 capas não eram imagem; usar uma caixa gerada).
 

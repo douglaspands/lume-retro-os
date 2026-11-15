@@ -102,8 +102,8 @@ decisões abaixo valem sobre elas. Estado atual relevante:
 - O `lume-ui` usa o `sdl2` do Alpine (driver KMSDRM, GLES2: `lima` e `panfrost`) e o
   `SDL_Renderer`.
 - O laço dorme num canal (`mpsc`) alimentado pelas threads do controle, do índice e do
-  progresso: sem input, a interface não redesenha. Durante uma animação o teto é de 30 fps, e o
-  Modo lite desliga as animações. *(2026-11-14: era `SDL_WaitEvent`, mas no KMSDRM o SDL não
+  progresso: sem input, a interface não redesenha. Durante uma animação o teto é de 30 fps, e
+  um tema com `anim_ms = 0` não anima (o Modo lite saiu em 2026-11-14). *(2026-11-14: era `SDL_WaitEvent`, mas no KMSDRM o SDL não
   tem espera e acorda a cada 1 ms; no GA36 isso custou 42% de um núcleo parado. A fila do SDL
   agora só é esvaziada, sem espera, uma vez por segundo parado; tarefa 8.5.)*
 - O motor desenha por um trait `Canvas`, com operações de retângulo, textura e texto. Ele não
@@ -114,8 +114,12 @@ decisões abaixo valem sobre elas. Estado atual relevante:
     em software (640x480 RGB565, cerca de 600 KB por buffer).
   - Se o software economizar muito e mantiver o tempo de quadro, ele vira o backend padrão no
     GA36, sem mudar as telas.
-- **Texto:** o `fontdue` gera um atlas de glifos em textura, com cache. A fonte é empacotada
-  (Noto Sans, OFL), com cobertura de pt, en e es.
+- **Texto:** o `fontdue` gera um atlas de glifos em textura, com cache. A fonte é empacotada,
+  com cobertura de pt, en e es: a Roboto do protótipo (pacote `font-roboto` do Alpine,
+  Apache-2.0) nos pesos 400, 500 e 700, como no CSS do protótipo (títulos 700; contador,
+  bateria e nome em foco 500; o resto 400). *(2026-11-15: era a Noto Sans, OFL, só regular;
+  trocada a pedido do usuário para seguir o protótipo à risca. Um teste confere que a fonte
+  tem todo caractere das traduções.)*
 - **Achado no GA36 (2026-11-14, com o `r36os-shot` da D12):** sem pedido, o SDL escolhe o
   renderer `opengl` (GL de desktop), que no `lima` só limpa a tela: o Dock saía só com a cor de
   fundo, e o `LUME_SCREENSHOT` (software) não mostrava o problema. O `lume-ui` agora pede o
@@ -212,7 +216,7 @@ Tudo fica em `ROMS/system/lume/`, gravado por temporário, `fsync` e `rename`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `settings.toml` | idioma, tema, Modo lite, volume e brilho preferidos |
+| `settings.toml` | idioma, tema, volume e brilho preferidos |
 | `systems/<id>.toml` | padrão do console (emulador, aspecto, shader) |
 | `games/<id>.toml` | exceções por jogo, chaveadas pelo `<path>` do gamelist (só o que difere) |
 
@@ -350,11 +354,36 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
 - O tema padrão desenha cada item do Dock como um tile com a sigla do sistema, em `abbr` no
   catálogo esquema 3 (por exemplo "SNES", "MD", "PS1").
 - O formato do tema é o de `docs/lume-launcher/formato-de-tema.md` em TOML: tokens, `extends` e
-  `features` opcionais desligados pelo Modo lite.
+  `name` opcionais (sem `features`: o Modo lite saiu em 2026-11-14).
   - Um tema do cartão (`ROMS/system/lume/themes/<id>/`) pode trazer `icons/<id>.png`; a distro
     não traz nenhum.
   - Os 2 temas Material são portados de `docs/lume-launcher/prototipo/temas/`.
-- O motor (`lume-ui`) não conhece nenhum tema pelo nome, como no protótipo.
+  - O tema padrão é o `lume` (pedido do usuário, 2026-11-14): os tons azuis do Lume TV
+    launcher (`themes/lume/theme.css` do `douglaspands/lume-tv-launcher`, do mesmo autor;
+    só os valores das cores são copiados), sobre as formas e tamanhos do `material-dark`
+    (`extends`).
+- O motor (`lume-ui`) não conhece nenhum tema pelo nome, como no protótipo. O tema padrão e o
+  valor-base de cada token ficam em `/usr/share/lume/themes/base.toml`, e o nome de exibição
+  de cada tema no próprio `theme.toml` (`name`, por idioma): um tema novo é só uma pasta, sem
+  código nem tradução (pedido do usuário, 2026-11-14).
+
+### D13. Régua do protótipo (regra do usuário, 2026-11-15)
+
+- Toda tela do `lume-ui` é feita "com régua" a partir do protótipo aprovado
+  (`docs/lume-launcher/prototipo/`, a cópia com os logos fica fora do git): posições,
+  tamanhos, espaços, tamanho e peso das fontes e proporções dos ícones são medidos no
+  navegador a 640x480 (`getBoundingClientRect` relativo ao `#stage`) e copiados.
+- As regras de espaçamento do protótipo valem mais que as do Material Design 3 para
+  portáteis: o Material só deu as cores e as formas; as medidas são as do protótipo, para o
+  frontend ficar coeso.
+- Os números viram `em` (1/40 da largura, 16 px a 640x480) e tokens do tema; as posições são
+  calculadas em fração de pixel e arredondadas só no desenho. O y de um texto é o topo da
+  caixa da linha no navegador (Roboto, altura de linha normal).
+- Cada tela medida ganha um teste de régua com 1 px de tolerância
+  (`grid_matches_the_prototype_ruler`, `dock_matches_the_prototype_ruler`).
+- O que o usuário pediu diferente do protótipo fica como ele pediu e anotado na tarefa:
+  contador no meio do cabeçalho da lista, busca no estilo de launcher de TV, menu do jogo em
+  quatro itens, Configurações em duas colunas com o painel maior.
 
 ### D12. Captura da tela pelo cabo (`r36os-shot`, parte remota do P-57)
 

@@ -42,8 +42,8 @@ Só entram se o dArkOS já tiver o recurso (a verificar):
 ## Tema
 Item **Tema** na lista, com os 2 temas Material 3 (Escuro e Claro). ◀▶ troca na hora e a escolha fica salva. Ver [Protótipos](prototipos.md).
 
-## Modo lite
-Item **Modo lite** (Ligado/Desligado) na lista, logo depois de Tema. Desliga animações, desfoque e fundos translúcidos, para aparelhos fracos. Nos 2 temas Material, que já são opacos e sem desfoque, o efeito visível é basicamente a animação desligada. Ver [Orçamento de performance](orcamento-de-performance.md).
+## Modo lite (removido)
+O item **Modo lite** existiu no protótipo e na primeira versão do `lume-ui`. Saiu em 2026-11-14, a pedido do usuário: animação e transparência agora dependem só do tema (`anim_ms = 0` desliga a animação). Ver [Formato de tema](formato-de-tema.md).
 
 ## Idioma
 Tradução do próprio launcher, com arquivos de texto simples por idioma (por exemplo `pt-BR`, `en`), carregados na hora. Não é o idioma do sistema operacional, que continua sendo do dArkOS. Fontes precisam cobrir os caracteres dos idiomas suportados.

@@ -43,21 +43,37 @@ Na grade, L1 e R1 MUST saltar uma fração proporcional ao tamanho da lista, nun
 - **THEN** o foco avança mais de uma página de uma só vez
 
 ### Requirement: Busca por nome
-Na grade, X MUST abrir um teclado na tela. O filtro MUST ignorar maiúsculas e acentos e exigir todas as palavras digitadas. B limpa o filtro antes de sair da lista.
+Na grade, X MUST abrir a busca como num launcher de TV: a barra de busca no lugar do cabeçalho, com o texto digitado e o número de jogos, o teclado na tela embaixo, e a lista entre os dois, filtrada a cada letra. B MUST fechar o teclado e a barra e manter o filtro na lista. O filtro MUST ignorar maiúsculas e acentos e exigir todas as palavras digitadas. B na lista limpa o filtro antes de sair dela.
+
+#### Scenario: Filtrar enquanto digita
+- **WHEN** o usuário abre a busca e digita "su"
+- **THEN** a lista entre a barra e o teclado já mostra só os jogos com "su", e a barra mostra quantos são
+
+#### Scenario: B abaixa o teclado
+- **WHEN** o usuário aperta B com o teclado aberto
+- **THEN** o teclado e a barra somem, a lista continua filtrada e o filtro aparece no cabeçalho
 
 #### Scenario: Filtro por duas palavras
 - **WHEN** o usuário digita "super bros"
 - **THEN** só aparecem os jogos cujo nome contém as duas palavras, sem diferença de maiúsculas ou acentos
 
 ### Requirement: Menu do jogo
-A num jogo MUST abrir o menu do jogo com: Iniciar, Iniciar de um save state, Emulador, Aspecto, Shader e Favoritos. Aspecto e Shader MUST aparecer só quando o emulador efetivo é um core do RetroArch.
+A num jogo MUST abrir o menu do jogo com: Iniciar jogo, Save states, Configurações e Favoritos. Configurações MUST abrir Emulador, Aspecto e Shader do jogo; Aspecto e Shader MUST aparecer só quando o emulador efetivo é um core do RetroArch. B nas Configurações MUST voltar ao menu do jogo.
 
 #### Scenario: Emulador standalone
 - **WHEN** o emulador efetivo de um jogo não é um core do RetroArch
-- **THEN** o menu do jogo não mostra Aspecto nem Shader
+- **THEN** as Configurações do jogo não mostram Aspecto nem Shader
+
+#### Scenario: Core fora do menu principal
+- **WHEN** o usuário abre o menu de um jogo
+- **THEN** vê Iniciar jogo, Save states, Configurações e Favoritos, e o Emulador só aparece dentro de Configurações
 
 ### Requirement: Iniciar de um save state
-"Iniciar de um save state" MUST listar só os slots do core efetivo do jogo. Quando o jogo tem save states só de outro core, a linha MUST ficar indisponível e dizer quantos estão em outro core. Escolher um slot MUST abrir o jogo já nesse estado.
+"Save states" MUST listar só os slots do core efetivo do jogo, com a imagem do slot em foco quando o RetroArch a salvou junto do estado. Quando o jogo tem save states só de outro core, a linha MUST ficar indisponível e dizer quantos estão em outro core. Escolher um slot MUST abrir o jogo já nesse estado.
+
+#### Scenario: Imagem do save state
+- **WHEN** o usuário põe o foco num slot que tem `<estado>.png` ao lado
+- **THEN** a imagem aparece ao lado da lista; num slot sem imagem aparece "Sem imagem"
 
 #### Scenario: Saves em outro core
 - **WHEN** um jogo tem 2 save states do Snes9x e o core efetivo é o Snes9x 2010
@@ -97,7 +113,11 @@ Quando um jogo termina, por qualquer motivo, o launcher MUST reaparecer no mesmo
 - **THEN** o launcher reaparece na grade do NES com o foco nesse jogo
 
 ### Requirement: Configurações do aparelho
-O item Configurações MUST oferecer Idioma, Tema, Modo lite, Volume, Brilho, Sistema, Atualizar listas de jogos, RetroArch e Desligar. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
+O item Configurações MUST oferecer Idioma, Tema, Volume, Brilho, Sistema, Atualizar listas, RetroArch e Desligar, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
+
+#### Scenario: Lista que dá a volta
+- **WHEN** o foco está em Desligar, o último item, e o usuário aperta para baixo
+- **THEN** o foco vai para o primeiro item
 
 #### Scenario: Sem dongle
 - **WHEN** nenhum adaptador Wi-Fi está conectado
@@ -115,8 +135,8 @@ Com o launcher na tela, cada aperto dos botões de volume MUST aparecer na hora:
 - **THEN** uma barra vertical aparece na lateral direita com o novo nível e some cerca de 1,5 s depois
 
 #### Scenario: Percentual nas Configurações
-- **WHEN** o usuário aperta volume + com as Configurações abertas
-- **THEN** o percentual do item Volume muda na hora, sem a barra
+- **WHEN** o usuário aperta volume + com as Configurações abertas no item Volume
+- **THEN** o percentual do painel do Volume muda na hora, sem a barra
 
 ### Requirement: Desligar com confirmação
 O item Desligar MUST pedir confirmação, com Cancelar como opção inicial. Confirmado, o aparelho MUST gravar o pendente e desligar.
@@ -139,16 +159,12 @@ O launcher MUST ter textos em inglês, português e espanhol, com as mesmas chav
 - **WHEN** o usuário escolhe Español
 - **THEN** o launcher passa a mostrar os textos em espanhol na hora, e o próximo jogo aberto no RetroArch mostra o menu em espanhol
 
-### Requirement: Tema declarativo e modo lite
-A aparência MUST vir de um tema em arquivo de dados, sem código, com herança entre temas. A distro MUST trazer os temas Material escuro e claro. O Modo lite MUST desligar animações e transparência.
+### Requirement: Tema declarativo
+A aparência MUST vir de um tema em arquivo de dados, sem código, com herança entre temas. A distro MUST trazer o tema Lume, que é o padrão, e os temas Material escuro e claro. Animação e transparência MUST ser só tokens do tema (`anim_ms` 0 desliga a animação); não há Modo lite (removido a pedido do usuário em 2026-11-14).
 
 #### Scenario: Tema inválido
 - **WHEN** um tema do cartão tem um valor inválido
 - **THEN** o launcher registra o erro no log e usa o tema padrão
-
-#### Scenario: Modo lite
-- **WHEN** o Modo lite está ligado
-- **THEN** trocar de foco não anima e nenhum elemento é desenhado com transparência
 
 ### Requirement: Layout independente da resolução
 O layout MUST usar unidades relativas à tela e ficar legível a 640x480, 854x480 e 720x720, sem texto cortado nas Configurações em nenhum dos três idiomas.
