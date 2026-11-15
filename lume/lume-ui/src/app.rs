@@ -1169,25 +1169,25 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    /// The status bar's battery, right-aligned at `right` with the text top at `y`: the
-    /// prototype's icon (a 30x14 box: body 25x12 with a 1.6 stroke, a 2x5 terminal, the level
-    /// in a 20x7 bar), 0.95 of the text tall, 0.35 of it before the percent. The bar is in
-    /// the accent while charging. Returns the x where it starts.
-    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32) -> i32 {
-        self.draw_battery_weight(c, right, y, px, true)
+    /// The status bar's battery, in one place on every screen (user's choice, 2026-11-15:
+    /// the prototype moved it per screen): the game list's spot, ending 1.75 em from the
+    /// right edge with the text's top at 1 em, `status_px`, medium. Returns where it starts.
+    fn draw_status_battery(&self, c: &mut dyn Canvas, w: i32) -> i32 {
+        let em = w as f32 / 40.0;
+        let px = self.theme.num("status_px") as f32 * em;
+        self.draw_battery(c, w - (1.75 * em).round() as i32, em.round() as i32, px)
     }
 
-    /// `draw_battery` with the percent in the medium (500) or the regular (400) weight.
-    fn draw_battery_weight(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, medium: bool) -> i32 {
+    /// The battery right-aligned at `right` with the text top at `y`: the prototype's icon
+    /// (a 30x14 box: body 25x12 with a 1.6 stroke, a 2x5 terminal, the level in a 20x7 bar),
+    /// 0.95 of the text tall, 0.35 of it before the percent (medium weight). The bar is in
+    /// the accent while charging. Returns the x where it starts.
+    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32) -> i32 {
         let Some((level, charging)) = self.battery else { return right };
         let th = &self.theme;
         let label = format!("{level}%");
-        let tw = if medium { c.text_width_medium(&label, px) } else { c.text_width(&label, px) };
-        if medium {
-            c.text_medium(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
-        } else {
-            c.text(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
-        }
+        let tw = c.text_width_medium(&label, px);
+        c.text_medium(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
         let s = px * 0.95 / 14.0; // icon units to pixels
         let u = |v: f32| (v * s).round() as i32;
         let x = right - tw - (px * 0.35).round() as i32 - u(30.0);
@@ -1323,7 +1323,7 @@ impl<S: SystemAdapter> App<S> {
         };
         c.text(&sub, w / 2, name_y + (2.62 * em).round() as i32, sub_px, th.color("muted"), Align::Center, w - 2 * em as i32);
         // status bar: the battery at the top right (regular weight here, as the prototype)
-        self.draw_battery_weight(c, w - (1.08 * em).round() as i32, (0.51 * em).round() as i32, th.num("status_px") as f32 * em, false);
+        self.draw_status_battery(c, w);
         self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select"))]);
     }
 
@@ -1468,7 +1468,7 @@ impl<S: SystemAdapter> App<S> {
             // and, with a filter on, the filter just left of the battery
             let count = if items.is_empty() { String::new() } else { format!("{} / {}", focus + 1, items.len()) };
             let cw = c.text_width_medium(&count, status_px);
-            let batt_x = self.draw_battery(c, w - e(1.75), e(1.0), status_px);
+            let batt_x = self.draw_status_battery(c, w);
             if !filter.is_empty() {
                 let right = if batt_x < w - e(1.75) { batt_x - e(1.0) } else { w - e(1.75) };
                 c.text(&format!("“{filter}”"), right, e(1.0), status_px, th.color("accent"), Align::Right, right - w / 2 - cw / 2 - e(1.0));
@@ -1870,8 +1870,7 @@ impl<S: SystemAdapter> App<S> {
         let ef = |v: f32| v * em;
         // header
         let title_px = ef(1.4);
-        let status_px = th.num("status_px") as f32 * em;
-        let batt_x = self.draw_battery(c, w - e(1.4), e(0.669), status_px);
+        let batt_x = self.draw_status_battery(c, w);
         c.text_bold(&self.tr("settings"), e(1.4), e(0.5625), title_px, th.color("fg"), Align::Left, batt_x - e(2.4));
         // the list
         let top = ef(2.756);

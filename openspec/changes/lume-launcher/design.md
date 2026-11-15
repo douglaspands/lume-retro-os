@@ -384,7 +384,9 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   `settings_match_the_prototype_ruler`).
 - O que o usuário pediu diferente do protótipo fica como ele pediu e anotado na tarefa:
   contador no meio do cabeçalho da lista, busca no estilo de launcher de TV, menu do jogo em
-  quatro itens, Configurações em duas colunas com o painel maior.
+  quatro itens, Configurações em duas colunas com o painel maior, a bateria num lugar só em
+  todas as telas (o da lista de jogos: 1,75em da direita, topo do texto a 1em; o protótipo a
+  movia de tela para tela), o volume como a linha da borda direita.
 
 ### D12. Captura da tela pelo cabo (`r36os-shot`, parte remota do P-57)
 

@@ -213,6 +213,22 @@ fn battery_in_the_status_bar_of_every_screen() {
     let mut canvas = FakeCanvas::new(640, 480);
     a.draw(&mut canvas);
     assert!(canvas.has_text("82%"), "Dock");
+    // one spot on every screen: the Dock, a list and the Settings draw it in the same rect
+    let spot = |a: &mut App<FakeSystem>| {
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        cv.texts.iter().find(|(t, _)| t == "82%").map(|(_, r)| *r).unwrap()
+    };
+    let on_dock = spot(&mut a);
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    let on_list = spot(&mut a);
+    go_back(&mut a);
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let on_settings = spot(&mut a);
+    assert_eq!((on_dock, on_list), (on_settings, on_settings));
+    go_back(&mut a);
     go_dock(&mut a, DockItem::System(0));
     press(&mut a, Action::A);
     a.draw(&mut canvas);
@@ -305,8 +321,9 @@ fn dock_matches_the_prototype_ruler() {
     assert!(near(name.y, 306.3) && near(name.h, 33.6), "name {name:?}");
     let sub = canvas.texts.iter().find(|(s, _)| s.ends_with(" games")).unwrap().1;
     assert!(near(sub.y, 348.2) && near(sub.h, 22.4), "subtitle {sub:?}");
+    // the battery: the one spot of every screen (the list's), not the prototype's Dock spot
     let batt = canvas.texts.iter().find(|(s, _)| s == "82%").unwrap().1;
-    assert!(near(batt.right(), 622.7), "battery {batt:?}");
+    assert!(near(batt.right(), 612.0) && near(batt.y, 16.0), "battery {batt:?}");
     let nav = fills("nav_bg").into_iter().find(|r| r.y > 440).unwrap();
     assert!(near(nav.w, 39.2) && near(nav.h, 23.7) && near(nav.y, 449.6), "nav chip {nav:?}");
     assert!(canvas.has_text("Navigate") && canvas.has_text("Select"));
@@ -330,8 +347,9 @@ fn settings_match_the_prototype_ruler() {
     let text = |s: &str| canvas.texts.iter().filter(|(t, _)| t == s).map(|(_, r)| *r).collect::<Vec<_>>();
     let title = text("Settings")[0];
     assert!(near(title.x, 22.4) && near(title.y, 9.0) && near(title.h, 22.4), "title {title:?}");
+    // the battery: the one spot of every screen (the list's)
     let batt = text("82%")[0];
-    assert!(near(batt.right(), 617.6), "battery {batt:?}");
+    assert!(near(batt.right(), 612.0) && near(batt.y, 16.0), "battery {batt:?}");
     // the list: Language first, Theme second and focused
     let sel = canvas.fills.iter().filter(|(r, col)| *col == a.theme.color("sel_bg") && r.x < 100).map(|(r, _)| *r).next().unwrap();
     assert!(near(sel.x, 16.0) && near(sel.y, 44.1 + 28.3) && near(sel.w, 255.4) && near(sel.h, 26.7), "focused item {sel:?}");
