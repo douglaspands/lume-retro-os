@@ -43,10 +43,21 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "core_info_cache_enable", "midi_driver",
         # Wi-Fi and Bluetooth by USB dongle (usb-device-access D11)
         "wifi_driver", "bluetooth_driver",
+        # the launcher has its own recents (lume-launcher 15.1)
+        "history_list_enable", "content_runtime_log", "content_runtime_log_aggregate",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
     assert not _keys(CFG) & _keys(FACTORY)
+
+
+def test_only_the_installed_cores_info_files_are_read():
+    # 15.1: RetroArch reads every info file on each start; the image keeps only the ones of
+    # the installed cores and points RetroArch there
+    assert 'libretro_info_path = "/usr/share/r36os/libretro-info"' in CFG
+    configure = (REPO_ROOT / "rootfs/configure.sh").read_text()
+    assert "for so in /usr/lib/libretro/*_libretro.so; do" in configure
+    assert "cp \"$info\" /usr/share/r36os/libretro-info/" in configure
 
 
 def test_user_tunable_defaults_are_in_the_factory_config():

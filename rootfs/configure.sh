@@ -15,6 +15,11 @@ getent group seat >/dev/null && addgroup game seat
 # (dropbear -B on 10.55.0.1 only, usb-device-access D4); never on another interface.
 passwd -d root >/dev/null
 echo "$SERIAL_TTY" > /etc/securetty
+# SSH over Wi-Fi (lume-launcher D18): "console" is root (uid 0) under another name, so the
+# Wi-Fi server can take a password (the code shown on the screen) while root keeps none for
+# the cable. Locked until r36os-ssh-wifi sets the code in /etc/shadow (the RAM layer).
+echo "console:x:0:0:Lume console over Wi-Fi:/root:/bin/sh" >> /etc/passwd
+echo "console:!::0:::::" >> /etc/shadow
 
 # No getty on the virtual terminals: tty1 belongs to the frontend. Getty only on the serial.
 sed -i -e '/^tty[0-9]*::/d' -e '/^#*ttyS[0-9]*::/d' /etc/inittab
@@ -49,7 +54,7 @@ for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s
 # Bluetooth, so bluetoothd would crash there).
 for s in seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb r36os-savesync r36os-hostshare \
 	r36os-playlists lume-index r36os-input r36os-hwsummary frontend r36os-selftest dbus \
-	networkmanager; do
+	networkmanager r36os-ssh-wifi; do
 	add "$s" default
 done
 # Board services that live in the common overlay
@@ -61,3 +66,15 @@ case "$BOARD" in
 ga36|r36s) add bluetooth default ;;
 esac
 for s in killprocs mount-ro savecache; do add "$s" shutdown; done
+
+# Only the info files of the installed cores (lume-launcher 15.1): RetroArch reads every file
+# of libretro_info_path on each start (its cache cannot be written in the read-only system),
+# and libretro-core-info brings 291 of them for a dozen cores. retroarch-lume.cfg points
+# libretro_info_path here.
+mkdir -p /usr/share/r36os/libretro-info
+for so in /usr/lib/libretro/*_libretro.so; do
+	[ -e "$so" ] || continue
+	name=${so##*/}
+	info=/usr/share/libretro/info/${name%.so}.info
+	if [ -f "$info" ]; then cp "$info" /usr/share/r36os/libretro-info/; fi
+done
