@@ -12,14 +12,17 @@
  *    Fn+Start sends "quit" to the clients of /run/r36os/input.sock and neither key goes
  *    out; Fn with any other key gives both keys;
  *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
- *    goes to the clients of the socket (the launcher shows the level).
+ *    goes to the clients of the socket (the launcher shows the level);
+ *  - Fn+volume keys change the screen backlight in steps of 5% instead (never below 5%), and
+ *    "brightness" goes to the clients; Fn then gives no tap on release.
  *
  * usage: r36os-input --profile FILE [--socket PATH] [--timeout SECONDS]
  *        r36os-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
  *        r36os-input --list
  *
  * --test runs the same loop with files or FIFOs as sources and a file as the output, with no
- * input device and no uinput (the host tests use it). R36OS_INPUT_AMIXER replaces amixer.
+ * input device and no uinput (the host tests use it). R36OS_INPUT_AMIXER replaces amixer and
+ * R36OS_INPUT_BACKLIGHT replaces /sys/class/backlight.
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -552,6 +555,92 @@ static void volume(const struct profile *p, int up)
 	}
 }
 
+/* ---- brightness ---- */
+
+/* A number from a sysfs file; -1 when it cannot be read. */
+static long read_long(const char *dir, const char *name)
+{
+	char path[512], buf[32];
+	long v = -1;
+	ssize_t n;
+	int fd;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (n > 0) {
+		buf[n] = 0;
+		v = strtol(buf, NULL, 10);
+	}
+	return v;
+}
+
+/* One brightness step of 5% on the first backlight (the launcher's Settings use the same
+ * steps and floor: never fully dark, the screen would look off). Then "brightness" goes to
+ * the clients, also at a limit. A sysfs write is quick: done in the main process. */
+static void brightness(int up)
+{
+	const char *root = getenv("R36OS_INPUT_BACKLIGHT");
+	char dir[400], value[24];
+	struct dirent *e;
+	long max, cur, pct, v, floor_v;
+	DIR *d;
+	int fd;
+
+	if (!root)
+		root = "/sys/class/backlight";
+	d = opendir(root);
+	if (!d)
+		return;
+	dir[0] = 0;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] != '.') {
+			snprintf(dir, sizeof(dir), "%s/%s", root, e->d_name);
+			break;
+		}
+	}
+	closedir(d);
+	if (!dir[0])
+		return;
+	max = read_long(dir, "max_brightness");
+	cur = read_long(dir, "brightness");
+	if (max <= 0 || cur < 0)
+		return;
+	pct = (cur * 100 + max / 2) / max + (up ? 5 : -5);
+	if (pct > 100)
+		pct = 100;
+	if (pct < 5)
+		pct = 5;
+	v = (max * pct + 50) / 100;
+	/* a coarse backlight (GA36: 0-10) can round 5% back to the same level: then one level */
+	if (v == cur)
+		v = up ? cur + 1 : cur - 1;
+	if (v > max)
+		v = max;
+	floor_v = (max * 5 + 50) / 100;
+	if (floor_v < 1)
+		floor_v = 1;
+	if (v < floor_v)
+		v = floor_v;
+	if (v != cur) {
+		char path[420];
+
+		snprintf(path, sizeof(path), "%s/brightness", dir);
+		fd = open(path, O_WRONLY | O_TRUNC | O_CLOEXEC);
+		if (fd >= 0) {
+			int len = snprintf(value, sizeof(value), "%ld", v);
+
+			if (write(fd, value, (size_t)len) != len)
+				logline("backlight not written: %s", strerror(errno));
+			close(fd);
+		}
+	}
+	send_all("brightness", 1);
+}
+
 /* ---- the Fn chord ---- */
 
 struct chord {
@@ -564,8 +653,15 @@ struct chord {
 static void key_event(const struct profile *p, struct chord *c, int out, int code, int value)
 {
 	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN) {
-		if (value == 1)
+		if (value != 1)
+			return;
+		if (c->fn_down) {
+			/* Fn+volume: the backlight; Fn was used, so no tap on its release */
+			c->fn_used = 1;
+			brightness(code == KEY_VOLUMEUP);
+		} else {
 			volume(p, code == KEY_VOLUMEUP);
+		}
 		return;
 	}
 	if (p->fn >= 0 && code == p->fn) {

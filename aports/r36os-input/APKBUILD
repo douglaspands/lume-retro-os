@@ -5,7 +5,7 @@
 # Also r36os-shot (lume-launcher D12): a PNG of the screen through DRM, used over the cable.
 pkgname=r36os-input
 pkgver=1.0
-pkgrel=4
+pkgrel=6
 pkgdesc="Built-in controls of the console: one gamepad, Fn+Start and volume (Lume Retro OS)"
 url="https://example.invalid"
 arch="x86_64 armv7 aarch64"
@@ -43,7 +43,7 @@ package() {
 }
 
 sha512sums="
-0be88dc693e5f68e024671dfcf347deab9a5271c7cd5037ce428dcc02366e87b84ad50af31a10949c221128e44bebb331db3e52fd6e2665a69a191e91ccc4c13  input.c
+9f25d1ed1350e55688e44a60d4e27e989830dd42793f6a32138b85d0d4b13f8897ed29ac232b57f780867f1100b587825d1465a19a7c7cef1c8bcb10be4a6b7c  input.c
 10fc7b7280fd3ff88a5f1e1ba8ab65a1986a9002145955f2b1d4654eb4e5131c92888b7d8769d7febc360d01ef3ba099bfb349212c80a55789422e54dbb20875  shot.c
 f320f93d3e0fece5fe13d4198de09b271f941fa9c93b04ce78363b4c565822987ab9317be4602e63e477fc463399f2cdedbd7ce8ac547f44a9bb36629aa8528c  r36os-input.initd
 5b70818bc95a33fdb91085dc3e8e2f543aeaa3a510e82c6e58aff8731650b48beb333c40c897197d817faef1874e87625bc6e67695d521b52becafdf515bbdc1  61-r36os-input.rules

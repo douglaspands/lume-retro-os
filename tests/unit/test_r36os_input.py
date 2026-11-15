@@ -155,6 +155,11 @@ class Daemon:
             "esac\n")
         amixer.chmod(0o755)
         self.mixer_raw.write_text("154\n")
+        # a fake backlight (max 255 at 60%)
+        self.backlight = tmp / "backlight"
+        (self.backlight / "panel").mkdir(parents=True)
+        (self.backlight / "panel/max_brightness").write_text("255\n")
+        (self.backlight / "panel/brightness").write_text("153\n")
         self.fifos = {}
         args = [str(exe), "--profile", str(APORT / f"{board}.conf"), "--test", str(self.out),
                 "--socket", str(self.sock)]
@@ -163,7 +168,8 @@ class Daemon:
             os.mkfifo(fifo)
             self.fifos[name] = fifo
             args += ["--source", f"{name}={fifo}"]
-        self.proc = subprocess.Popen(args, env={**os.environ, "R36OS_INPUT_AMIXER": str(amixer)},
+        env = {**os.environ, "R36OS_INPUT_AMIXER": str(amixer), "R36OS_INPUT_BACKLIGHT": str(self.backlight)}
+        self.proc = subprocess.Popen(args, env=env,
                                      stderr=subprocess.PIPE, text=True)
         self.writers = {name: open(f, "wb", buffering=0) for name, f in self.fifos.items()}
         for _ in range(100):
@@ -287,6 +293,54 @@ def test_volume_keys_change_the_mixer_and_are_not_forwarded(r36s):
     assert r36s.amixer_log.read_text().splitlines() == [
         "-c rk817int -q sset Master 5%+", "-c rk817int -q sset Master 5%-"]
     assert r36s.keys() == []
+    c.close()
+
+
+def test_fn_volume_keys_change_the_backlight(r36s):
+    c = r36s.client()
+    fn, up, down = CODES["BTN_TRIGGER_HAPPY5"], CODES["KEY_VOLUMEUP"], CODES["KEY_VOLUMEDOWN"]
+    level = lambda: int((r36s.backlight / "panel/brightness").read_text())
+    r36s.press("gpio-keys", fn)
+    r36s.press("volume-keys", up)
+    r36s.send("volume-keys", (EV_KEY, up, 2), SYN)   # autorepeat: no extra step
+    r36s.release("volume-keys", up)
+    assert c.recv(16) == b"brightness"
+    assert level() == 166   # 60% + 5% of 255
+    for _ in range(14):   # down to the floor of 5%, and it stays there
+        r36s.press("volume-keys", down)
+        r36s.release("volume-keys", down)
+        assert c.recv(16) == b"brightness"
+    assert level() == 13
+    r36s.release("gpio-keys", fn)
+    # the mixer was not touched and Fn gave no tap (it was used)
+    assert not r36s.amixer_log.exists()
+    assert r36s.keys() == []
+    # without Fn, the volume again
+    r36s.press("volume-keys", up)
+    assert c.recv(16) == b"volume"
+    c.close()
+
+
+def test_fn_volume_on_a_coarse_backlight_moves_one_level(r36s):
+    # the GA36 backlight has 11 levels (0-10): 5% can round back to the same level, so the
+    # step is then one level, down to the floor (1) and up to 10
+    (r36s.backlight / "panel/max_brightness").write_text("10\n")
+    (r36s.backlight / "panel/brightness").write_text("10\n")
+    c = r36s.client()
+    fn, up, down = CODES["BTN_TRIGGER_HAPPY5"], CODES["KEY_VOLUMEUP"], CODES["KEY_VOLUMEDOWN"]
+    level = lambda: int((r36s.backlight / "panel/brightness").read_text())
+    r36s.press("gpio-keys", fn)
+    seen = []
+    for _ in range(11):
+        r36s.press("volume-keys", down)
+        r36s.release("volume-keys", down)
+        assert c.recv(16) == b"brightness"
+        seen.append(level())
+    assert seen == [9, 8, 7, 6, 5, 4, 3, 2, 1, 1, 1]
+    r36s.press("volume-keys", up)
+    r36s.release("volume-keys", up)
+    assert c.recv(16) == b"brightness" and level() == 2
+    r36s.release("gpio-keys", fn)
     c.close()
 
 
