@@ -64,12 +64,14 @@ allow = [
     "cp",
     "sync",
     "sha256sum",
+    # commits on the feature branch without a prompt (user, 2026-11-15); push still asks
+    "git add",
+    "git commit",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
 ask = [
     "git push",
-    "git commit",
     "git checkout",
     "git reset",
     "git rebase",
