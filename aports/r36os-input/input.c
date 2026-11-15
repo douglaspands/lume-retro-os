@@ -14,7 +14,9 @@
  *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
  *    goes to the clients of the socket (the launcher shows the level);
  *  - Fn+volume keys change the screen backlight in steps of 5% instead (never below 5%), and
- *    "brightness" goes to the clients; Fn then gives no tap on release.
+ *    "brightness" goes to the clients; Fn then gives no tap on release;
+ *  - after either, "LUME_LEVEL" asks RetroArch (127.0.0.1:55355, patch 0011) to draw the
+ *    launcher's level line over a running game.
  *
  * usage: r36os-input --profile FILE [--socket PATH] [--timeout SECONDS]
  *        r36os-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
@@ -32,6 +34,7 @@
 #include <grp.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
+#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -447,6 +450,52 @@ static void send_all(const char *msg, int drop)
 	}
 }
 
+/* ---- the level line over a game ---- */
+
+/* Asks RetroArch for the launcher's level line (patch 0011, "LUME_LEVEL"): the right edge
+ * for the volume, the left one for the brightness, in the colors of the launcher's theme
+ * (written by lume-ui to level-colors on the card: "volume=rrggbb" and
+ * "brightness=rrggbb"). A datagram to 127.0.0.1: with no game of RetroArch open, nobody
+ * reads it. R36OS_INPUT_RA_PORT and R36OS_INPUT_LEVEL_COLORS change for the tests. */
+static void ra_level(int left, long pct)
+{
+	const char *port = getenv("R36OS_INPUT_RA_PORT");
+	const char *colors = getenv("R36OS_INPUT_LEVEL_COLORS");
+	const char *key = left ? "brightness=" : "volume=";
+	char rgb[7], line[64], msg[64];
+	struct sockaddr_in to = { .sin_family = AF_INET };
+	FILE *f;
+	int fd;
+
+	strcpy(rgb, left ? "ffffff" : "4db3ff");
+	if (!colors)
+		colors = "/storage/system/lume/level-colors";
+	f = fopen(colors, "re");
+	if (f) {
+		while (fgets(line, sizeof(line), f)) {
+			size_t k = strlen(key);
+
+			if (!strncmp(line, key, k) && strspn(line + k, "0123456789abcdefABCDEF") >= 6) {
+				memcpy(rgb, line + k, 6);
+				rgb[6] = 0;
+			}
+		}
+		fclose(f);
+	}
+	if (pct < 0)
+		pct = 0;
+	if (pct > 100)
+		pct = 100;
+	to.sin_port = htons(port ? (unsigned short)atoi(port) : 55355);
+	to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	snprintf(msg, sizeof(msg), "LUME_LEVEL %s %ld %s", left ? "left" : "right", pct, rgb);
+	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return;
+	sendto(fd, msg, strlen(msg), MSG_DONTWAIT, (struct sockaddr *)&to, sizeof(to));
+	close(fd);
+}
+
 /* ---- volume ---- */
 
 /* "amixer sget" of the control: the raw limits and the first channel's raw value. 0 if read. */
@@ -547,8 +596,14 @@ static void volume(const struct profile *p, int up)
 			snprintf(step, sizeof(step), "%d", v);
 			if (v != cur)
 				mixer_set(amixer, p, step);
+			/* the level is a share of the ceiling, as the launcher shows it */
+			ra_level(0, top > lo ? ((long)(v - lo) * 100 + (top - lo) / 2) / (top - lo) : 0);
 		} else {
+			int lo, hi, cur;
+
 			mixer_set(amixer, p, step);
+			if (mixer_get(amixer, p, &lo, &hi, &cur) == 0)
+				ra_level(0, ((long)(cur - lo) * 100 + (hi - lo) / 2) / (hi - lo));
 		}
 		send_all("volume", 0);
 		_exit(0);
@@ -638,6 +693,7 @@ static void brightness(int up)
 			close(fd);
 		}
 	}
+	ra_level(1, (v * 100 + max / 2) / max);
 	send_all("brightness", 1);
 }
 

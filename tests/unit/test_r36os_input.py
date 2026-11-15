@@ -160,6 +160,11 @@ class Daemon:
         (self.backlight / "panel").mkdir(parents=True)
         (self.backlight / "panel/max_brightness").write_text("255\n")
         (self.backlight / "panel/brightness").write_text("153\n")
+        # RetroArch's command port (LUME_LEVEL) and the theme colors lume-ui writes
+        self.ra = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.ra.bind(("127.0.0.1", 0))
+        self.ra.settimeout(1)
+        self.colors = tmp / "level-colors"
         self.fifos = {}
         args = [str(exe), "--profile", str(APORT / f"{board}.conf"), "--test", str(self.out),
                 "--socket", str(self.sock)]
@@ -168,7 +173,8 @@ class Daemon:
             os.mkfifo(fifo)
             self.fifos[name] = fifo
             args += ["--source", f"{name}={fifo}"]
-        env = {**os.environ, "R36OS_INPUT_AMIXER": str(amixer), "R36OS_INPUT_BACKLIGHT": str(self.backlight)}
+        env = {**os.environ, "R36OS_INPUT_AMIXER": str(amixer), "R36OS_INPUT_BACKLIGHT": str(self.backlight),
+               "R36OS_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "R36OS_INPUT_LEVEL_COLORS": str(self.colors)}
         self.proc = subprocess.Popen(args, env=env,
                                      stderr=subprocess.PIPE, text=True)
         self.writers = {name: open(f, "wb", buffering=0) for name, f in self.fifos.items()}
@@ -202,6 +208,7 @@ class Daemon:
         return s
 
     def stop(self) -> str:
+        self.ra.close()
         for w in self.writers.values():
             w.close()
         self.proc.terminate()
@@ -290,8 +297,10 @@ def test_volume_keys_change_the_mixer_and_are_not_forwarded(r36s):
         # the launcher hears of each step, after the mixer changed
         assert c.recv(16) == b"volume"
     time.sleep(0.2)
+    # each step, then a read of the level for the line over a game (LUME_LEVEL)
     assert r36s.amixer_log.read_text().splitlines() == [
-        "-c rk817int -q sset Master 5%+", "-c rk817int -q sset Master 5%-"]
+        "-c rk817int -q sset Master 5%+", "-c rk817int sget Master",
+        "-c rk817int -q sset Master 5%-", "-c rk817int sget Master"]
     assert r36s.keys() == []
     c.close()
 
@@ -342,6 +351,25 @@ def test_fn_volume_on_a_coarse_backlight_moves_one_level(r36s):
     assert c.recv(16) == b"brightness" and level() == 2
     r36s.release("gpio-keys", fn)
     c.close()
+
+
+def test_levels_ask_retroarch_for_the_line_over_a_game(r36s):
+    # without a colors file: the default theme's accent (volume) and white (brightness)
+    up, fn = CODES["KEY_VOLUMEUP"], CODES["BTN_TRIGGER_HAPPY5"]
+    r36s.press("volume-keys", up)
+    r36s.release("volume-keys", up)
+    # the fake mixer reads 154 of 0-192 after the step: 80%
+    assert r36s.ra.recv(64) == b"LUME_LEVEL right 80 4db3ff"
+    r36s.press("gpio-keys", fn)
+    r36s.press("volume-keys", up)
+    r36s.release("volume-keys", up)
+    r36s.release("gpio-keys", fn)
+    assert r36s.ra.recv(64) == b"LUME_LEVEL left 65 ffffff"   # 153 of 255 + 5%
+    # the colors lume-ui wrote for the chosen theme
+    r36s.colors.write_text("volume=D0BCFF\nbrightness=eeeeee\n")
+    r36s.press("volume-keys", up)
+    r36s.release("volume-keys", up)
+    assert r36s.ra.recv(64) == b"LUME_LEVEL right 80 D0BCFF"
 
 
 def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
