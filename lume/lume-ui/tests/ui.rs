@@ -379,6 +379,85 @@ fn dock_symbols_have_one_size() {
 }
 
 #[test]
+fn ssh_over_wifi_switch_in_the_wifi_panel() {
+    let c = card("sshwifi", 3, false);
+    let mut a = app(&c, FakeSystem { wifi: true, addr: Some("192.168.1.20".into()), ..Default::default() });
+    assert!(!a.settings.ssh_wifi, "off from the factory");
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Wifi).unwrap();
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("SSH over Wi-Fi") && cv.has_text("Off") && !cv.texts.iter().any(|(t, _)| t.starts_with("ssh console@")));
+    // ▶ enters the panel on the switch; ◀▶ turns it on, saved for the root service
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert!(a.settings.ssh_wifi);
+    let saved = fs::read_to_string(c.root.join("storage/system/lume/settings.toml")).unwrap();
+    assert!(saved.lines().any(|l| l == "ssh_wifi = true"), "{saved}");
+    // the service has not made the code yet: a dash, and the panel wakes up to show it
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("On") && cv.has_text("ssh console@192.168.1.20") && cv.has_text("Code") && cv.has_text("—"));
+    assert_eq!(a.wait(), Some(Duration::from_millis(1000)));
+    // the code on the card (made by r36os-ssh-wifi): shown as it is; nothing wakes the loop now
+    let code_file = c.root.join("storage/system/ssh/wifi-code");
+    fs::create_dir_all(code_file.parent().unwrap()).unwrap();
+    fs::write(&code_file, "7K4M-9Q2X\n").unwrap();
+    assert!(a.handle(Ev::Tick));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("7K4M-9Q2X") && cv.has_text("Generate a new code"));
+    assert_eq!(a.wait(), None);
+    // the code stays the same until asked: "Generate a new code" (▼ then A)
+    press(&mut a, Action::Down);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Select"), "the action line's hint");
+    press(&mut a, Action::A);
+    let new = fs::read_to_string(&code_file).unwrap().trim().to_string();
+    assert!(lume_ui::app::is_ssh_code(&new) && new != "7K4M-9Q2X", "{new}");
+    assert_eq!(a.ssh_code().as_deref(), Some(new.as_str()));
+    // a broken file is never shown as a code
+    fs::write(&code_file, "x; rm\n").unwrap();
+    assert_eq!(a.ssh_code(), None);
+    // back on the switch: off, and the action line goes away with it
+    press(&mut a, Action::Up);
+    press(&mut a, Action::A);
+    assert!(!a.settings.ssh_wifi && a.ssh_state().is_none() && a.panel_focus == Some(0));
+}
+
+#[test]
+fn ssh_codes_use_the_alphabet() {
+    for _ in 0..50 {
+        let code = lume_ui::app::random_ssh_code().unwrap();
+        assert!(lume_ui::app::is_ssh_code(&code), "{code}");
+    }
+    assert!(!lume_ui::app::is_ssh_code("7K4M-9Q2O"), "no O");
+    assert!(!lume_ui::app::is_ssh_code("7K4M9Q2X"));
+}
+
+#[test]
+fn level_colors_follow_the_theme_for_the_line_over_a_game() {
+    // r36os-input reads them to draw the same lines over a game (RetroArch LUME_LEVEL)
+    let c = card("levelcolors", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let path = c.root.join("storage/system/lume/level-colors");
+    let hex = |col: lume_ui::canvas::Color| format!("{:02x}{:02x}{:02x}", col.r, col.g, col.b);
+    let expect = |a: &App<FakeSystem>| format!("volume={}\nbrightness=ffffff\n", hex(a.theme.color("accent")));
+    assert_eq!(fs::read_to_string(&path).unwrap(), expect(&a));
+    // another theme: the file follows
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Theme).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert_eq!(a.theme.id, "material-dark");
+    assert_eq!(fs::read_to_string(&path).unwrap(), expect(&a));
+    assert_eq!(a.theme.color("accent"), lume_ui::canvas::Color::parse("#D0BCFF").unwrap());
+}
+
+#[test]
 fn fn_volume_keys_show_a_white_line_on_the_left() {
     let c = card("brightbar", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 60, ..Default::default() });

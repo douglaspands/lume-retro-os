@@ -23,6 +23,28 @@ pub trait SystemAdapter {
     fn battery(&self) -> Option<(u8, bool)>;
     /// (Wi-Fi connected, Bluetooth connected), for the status bar
     fn network(&self) -> (bool, bool);
+    /// The IPv4 address of the Wi-Fi interface (not a Wi-Fi Direct one), for SSH over Wi-Fi
+    fn wifi_address(&self) -> Option<String>;
+}
+
+/// The Wi-Fi interface: one with `wireless/` or `phy80211`, not a Wi-Fi Direct group
+/// (`p2p-*`), the same choice as r36os-ssh-wifi.
+pub fn wifi_interface(sys: &Path) -> Option<String> {
+    let mut names: Vec<String> = std::fs::read_dir(sys.join("class/net"))
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().join("wireless").exists() || e.path().join("phy80211").exists())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.starts_with("p2p"))
+        .collect();
+    names.sort();
+    names.into_iter().next()
+}
+
+/// The address of an `ip -4 -o addr show` line ("... inet 192.168.1.20/24 ...").
+pub fn parse_inet(out: &str) -> Option<String> {
+    let rest = out.split(" inet ").nth(1)?;
+    rest.split('/').next().map(|a| a.trim().to_string()).filter(|a| !a.is_empty())
 }
 
 /// Whether a Wi-Fi interface is up and a Bluetooth link is open, from /sys only (no nmcli
@@ -237,6 +259,11 @@ impl SystemAdapter for RealSystem {
     fn network(&self) -> (bool, bool) {
         read_network(&self.sys)
     }
+
+    fn wifi_address(&self) -> Option<String> {
+        let iface = wifi_interface(&self.sys)?;
+        parse_inet(&output("ip", &["-4", "-o", "addr", "show", "dev", &iface])?)
+    }
 }
 
 /// Writes `user_language` into the user's RetroArch config, atomically, so the next game and
@@ -272,6 +299,7 @@ pub struct FakeSystem {
     pub info_reads: std::cell::Cell<u32>,
     pub batt: Option<(u8, bool)>,
     pub net: (bool, bool),
+    pub addr: Option<String>,
 }
 
 impl SystemAdapter for FakeSystem {
@@ -309,11 +337,31 @@ impl SystemAdapter for FakeSystem {
     fn network(&self) -> (bool, bool) {
         self.net
     }
+    fn wifi_address(&self) -> Option<String> {
+        self.addr.clone()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wifi_interface_and_address() {
+        let root = std::env::temp_dir().join(format!("lume-wifi-if-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (n, wireless) in [("eth0", false), ("wlan0", true), ("p2p-wlan0-0", true)] {
+            std::fs::create_dir_all(root.join("class/net").join(n)).unwrap();
+            if wireless {
+                std::fs::create_dir_all(root.join("class/net").join(n).join("wireless")).unwrap();
+            }
+        }
+        // the Wi-Fi Direct group is never the one
+        assert_eq!(wifi_interface(&root).as_deref(), Some("wlan0"));
+        let line = "3: wlan0    inet 192.168.1.20/24 brd 192.168.1.255 scope global dynamic wlan0\\       valid_lft 86000sec";
+        assert_eq!(parse_inet(line).as_deref(), Some("192.168.1.20"));
+        assert_eq!(parse_inet(""), None);
+    }
 
     #[test]
     fn network_from_sysfs() {

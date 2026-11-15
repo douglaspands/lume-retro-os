@@ -2,9 +2,11 @@
 //! runner, writes the argv for lume-run in $XDG_RUNTIME_DIR/lume/launch and exits with 64.
 //!
 //! For the RetroArch runner (kind libretro) the options of one run go first, read by the
-//! frontend script (frontends/retroarch): `--lume-set aspect_ratio_index=N`, and
-//! `--lume-keep state_slot` with `-e N` (RetroArch makes the entry slot the current one).
-//! The shader goes as `--set-shader`, which RetroArch never saves.
+//! frontend script (frontends/retroarch): `--lume-set aspect_ratio_index=N` (always),
+//! `auto_overrides_enable=false` and `auto_shaders_enable=false` (the launcher's choices
+//! win over what was saved in RetroArch), and `--lume-keep state_slot` with `-e N`
+//! (RetroArch makes the entry slot the current one). The shader goes as `--set-shader`,
+//! which RetroArch never saves, with `video_shader_enable=true`.
 
 use std::path::{Path, PathBuf};
 
@@ -92,8 +94,18 @@ pub fn game(dirs: &Dirs, catalog: &Catalog, runner: &Runner, system: &str, path:
     let mut states = String::new();
     if runner.kind == Kind::Libretro {
         let mut extra: Vec<String> = Vec::new();
-        if let Some(i) = eff.aspect.as_deref().and_then(aspect_index) {
-            extra.extend(["--lume-set".into(), format!("aspect_ratio_index={i}")]);
+        // the launcher's choices win on every run (user's request, 2026-11-15): the aspect
+        // always (the core's when none is chosen), and for this run neither RetroArch's
+        // core/game overrides (loaded after the config, they would set another aspect) nor
+        // its automatic shader presets (they would load a shader saved in RetroArch's menu)
+        let aspect = eff.aspect.as_deref().and_then(aspect_index).or_else(|| aspect_index("core")).unwrap_or(22);
+        let set = |k: &str| ["--lume-set".to_string(), k.to_string()];
+        extra.extend(set(&format!("aspect_ratio_index={aspect}")));
+        extra.extend(set("auto_overrides_enable=false"));
+        extra.extend(set("auto_shaders_enable=false"));
+        if eff.shader.as_ref().is_some_and(|s| !s.is_empty()) {
+            // --set-shader only works with shaders on
+            extra.extend(set("video_shader_enable=true"));
         }
         match &slot {
             Some(Slot::N(_)) => extra.extend(["--lume-keep".into(), "state_slot".into()]),
@@ -200,8 +212,12 @@ mod tests {
     fn default_game_is_the_plain_runner() {
         let (d, cat, ra) = setup();
         let r = game(&d, &cat, &ra, "snes", "Alpha (USA).sfc", &eff("snes9x2005_plus", None, None), None);
+        // even with nothing chosen, the run says the core's aspect and ignores what was saved
+        // in RetroArch (overrides, automatic shader presets)
         assert_eq!(r.argv, [
-            "/usr/libexec/r36os/frontends/retroarch", "-L",
+            "/usr/libexec/r36os/frontends/retroarch",
+            "--lume-set", "aspect_ratio_index=22", "--lume-set", "auto_overrides_enable=false",
+            "--lume-set", "auto_shaders_enable=false", "-L",
             "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/Alpha (USA).sfc"]);
         assert_eq!(r.states, "/storage/states/snes/Alpha (USA)");
     }
@@ -212,8 +228,9 @@ mod tests {
         let r = game(&d, &cat, &ra, "gba", "sub/G.gba", &eff("gpsp", Some("4:3"), Some("/usr/share/libretro/shaders/lume-shaders/gba/x.glslp")), Some(Slot::N(3)));
         assert_eq!(r.argv, [
             "/usr/libexec/r36os/frontends/retroarch",
-            "--lume-set", "aspect_ratio_index=0", "--lume-keep", "state_slot",
-            "--set-shader", "/usr/share/libretro/shaders/lume-shaders/gba/x.glslp", "-e", "3",
+            "--lume-set", "aspect_ratio_index=0", "--lume-set", "auto_overrides_enable=false",
+            "--lume-set", "auto_shaders_enable=false", "--lume-set", "video_shader_enable=true",
+            "--lume-keep", "state_slot", "--set-shader", "/usr/share/libretro/shaders/lume-shaders/gba/x.glslp", "-e", "3",
             "-L", "/usr/lib/libretro/gpsp_libretro.so", "/storage/roms/gba/sub/G.gba"]);
         // RetroArch keeps states per content folder: the subfolder, not the system
         assert_eq!(r.states, "/storage/states/sub/G");

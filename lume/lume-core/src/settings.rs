@@ -21,11 +21,14 @@ pub struct Settings {
     pub brightness: Option<u8>,
     /// Display: the battery's percent next to its icon in the status bar
     pub battery_percent: bool,
+    /// Wi-Fi: SSH over the Wi-Fi network, key only (lume-launcher D18); off from the factory.
+    /// The root service r36os-ssh-wifi reads it from this file.
+    pub ssh_wifi: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None, battery_percent: true }
+        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None, battery_percent: true, ssh_wifi: false }
     }
 }
 
@@ -75,6 +78,10 @@ mod tests {
         assert!(Settings::load(&p).battery_percent);
         std::fs::write(&p, "battery_percent = false\n").unwrap();
         assert!(!Settings::load(&p).battery_percent);
+        // SSH over Wi-Fi: off unless the file says otherwise; saved as the service reads it
+        assert!(!Settings::load(&p).ssh_wifi);
+        Settings { ssh_wifi: true, ..Default::default() }.save(&p).unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().lines().any(|l| l == "ssh_wifi = true"));
         std::fs::write(&p, "language = \"xx\"\nvolume = 250\nunknown = 1\n").unwrap();
         let l = Settings::load(&p);
         assert_eq!(l.language, "en");

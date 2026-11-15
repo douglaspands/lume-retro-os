@@ -232,6 +232,8 @@ pub struct App<S: SystemAdapter> {
     pub settings_focus: usize,
     /// the focused line of the Settings panel (D14); None: the focus is on the list
     pub panel_focus: Option<usize>,
+    /// the SSH code last drawn in the Wi-Fi panel (None: none yet, the panel waits for it)
+    ssh_code_drawn: Option<String>,
     info:Option<(Instant, Vec<(&'static str, String)>)>,
     level: BTreeMap<&'static str, u8>,
     /// cover texture and the part of it that is the image
@@ -304,6 +306,7 @@ impl<S: SystemAdapter> App<S> {
             grid: None,
             settings_focus: 0,
             panel_focus: None,
+            ssh_code_drawn: None,
             info: None,
             level: BTreeMap::new(),
             thumbs: Lru::new(cache),
@@ -320,6 +323,7 @@ impl<S: SystemAdapter> App<S> {
         };
         app.battery = app.sys.battery();
         app.network = app.sys.network();
+        app.write_level_colors();
         app.build_dock();
         if let Some(st) = State::load(&app.runtime) {
             app.restore(&st);
@@ -517,6 +521,9 @@ impl<S: SystemAdapter> App<S> {
                     self.info = Some((now, self.sys.info()));
                     redraw = true;
                 }
+                if self.waiting_for_ssh_code() && self.ssh_code().is_some() {
+                    redraw = true;
+                }
                 if let Some((t, _)) = self.anim {
                     if now.duration_since(t).as_millis() as f64 >= self.theme.num("anim_ms") {
                         self.anim = None;
@@ -583,6 +590,20 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The Wi-Fi panel with SSH on.
+    fn on_ssh_panel(&self) -> bool {
+        self.screen == Screen::Settings
+            && self.overlay.is_none()
+            && self.settings.ssh_wifi
+            && self.set_rows().get(self.settings_focus) == Some(&SetRow::Wifi)
+    }
+
+    /// SSH just turned on, before the service made the code: the panel wakes every second
+    /// until a code is drawn (then nothing wakes the loop).
+    fn waiting_for_ssh_code(&self) -> bool {
+        self.on_ssh_panel() && self.ssh_code_drawn.is_none()
+    }
+
     fn on_system_row(&self) -> bool {
         self.screen == Screen::Settings && self.overlay.is_none() && self.set_rows().get(self.settings_focus) == Some(&SetRow::System)
     }
@@ -604,7 +625,7 @@ impl<S: SystemAdapter> App<S> {
         if let Some((_, t)) = &self.brightness_bar {
             min(t.saturating_duration_since(now));
         }
-        if self.on_system_row() {
+        if self.on_system_row() || self.waiting_for_ssh_code() {
             min(Duration::from_millis(1000));
         }
         w
@@ -1063,8 +1084,23 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The theme's level line colors for r36os-input, which draws the same lines over a game
+    /// through RetroArch (LUME_LEVEL): `level-colors` on the card, written only when they
+    /// change.
+    fn write_level_colors(&self) {
+        let hex = |c: Color| format!("{:02x}{:02x}{:02x}", c.r, c.g, c.b);
+        let text = format!("volume={}\nbrightness={}\n", hex(self.theme.color("accent")), hex(self.theme.color("brightness_bar")));
+        let path = self.card.join("level-colors");
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+            if let Err(e) = lume_core::atomic::write(&path, text.as_bytes()) {
+                lume_core::log::line("lume-ui", &format!("level colors not saved: {e}"));
+            }
+        }
+    }
+
     fn apply_theme(&mut self) {
         self.theme = self.themes.load_or_default(&self.settings.theme);
+        self.write_level_colors();
         for (_, icon) in std::mem::take(&mut self.icons) {
             if let Some((t, _)) = icon {
                 self.free_list.push(t);
@@ -1102,6 +1138,10 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Theme => (0..self.themes.list().len()).map(PanelRow::Choice).collect(),
             SetRow::Volume | SetRow::Brightness => vec![PanelRow::Level],
             SetRow::Display => vec![PanelRow::Toggle],
+            // SSH over Wi-Fi (D18): the switch, then "Generate a new code" while it is on; the
+            // rest of the Wi-Fi panel comes with group 12
+            SetRow::Wifi if self.settings.ssh_wifi => vec![PanelRow::Toggle, PanelRow::Action],
+            SetRow::Wifi => vec![PanelRow::Toggle],
             SetRow::Games => vec![PanelRow::Action],
             _ => Vec::new(),
         }
@@ -1154,6 +1194,15 @@ impl<S: SystemAdapter> App<S> {
                 self.settings.battery_percent = !self.settings.battery_percent;
                 self.save_settings();
             }
+            SetRow::Wifi => {
+                // r36os-ssh-wifi (root) sees the file change within a few seconds
+                self.settings.ssh_wifi = !self.settings.ssh_wifi;
+                self.save_settings();
+                // turned off: the focus goes back to the switch (the action line goes away)
+                if !self.settings.ssh_wifi && self.panel_focus.is_some() {
+                    self.panel_focus = Some(0);
+                }
+            }
             SetRow::Volume | SetRow::Brightness => {
                 let key = if row == SetRow::Volume { "volume" } else { "brightness" };
                 let cur = self.level.get(key).copied().unwrap_or(50) as i32;
@@ -1169,6 +1218,40 @@ impl<S: SystemAdapter> App<S> {
                 self.save_settings();
             }
             _ => {}
+        }
+    }
+
+    /// SSH over Wi-Fi as the panel shows it (D18): None when off; else the command to type
+    /// on the PC (or "Disconnected" without Wi-Fi).
+    pub fn ssh_state(&self) -> Option<String> {
+        if !self.settings.ssh_wifi {
+            return None;
+        }
+        Some(match self.sys.wifi_address() {
+            Some(a) => format!("ssh console@{a}"),
+            None => self.tr("disconnected"),
+        })
+    }
+
+    /// The SSH code (the password of "console") on the card; r36os-ssh-wifi makes one when the
+    /// option is turned on, and it stays until the user asks for a new one.
+    pub fn ssh_code(&self) -> Option<String> {
+        let text = std::fs::read_to_string(self.ssh_code_path()).ok()?;
+        let code = text.lines().next()?.trim().to_string();
+        is_ssh_code(&code).then_some(code)
+    }
+
+    fn ssh_code_path(&self) -> PathBuf {
+        self.dirs.storage.join("system/ssh/wifi-code")
+    }
+
+    /// "Generate a new code": a fresh code on the card; the root service applies it as the
+    /// password within a few seconds, and the old one stops working.
+    fn new_ssh_code(&mut self) {
+        let Some(code) = random_ssh_code() else { return };
+        let path = self.ssh_code_path();
+        if let Err(e) = lume_core::atomic::write(&path, format!("{code}\n").as_bytes()) {
+            lume_core::log::line("lume-ui", &format!("ssh code not saved: {e}"));
         }
     }
 
@@ -1206,6 +1289,7 @@ impl<S: SystemAdapter> App<S> {
                 Action::A => match lines[pf] {
                     PanelRow::Choice(i) => self.choose(row, i),
                     PanelRow::Toggle => self.adjust(row, 1),
+                    PanelRow::Action if row == SetRow::Wifi => self.new_ssh_code(),
                     PanelRow::Action => {
                         // Games: the one action is Update lists
                         self.updating = Some((0, 0));
@@ -2322,7 +2406,28 @@ impl<S: SystemAdapter> App<S> {
                 y += pitch;
                 note = Some(("hint_adjust", true));
             }
-            SetRow::Wifi | SetRow::Bluetooth => {
+            SetRow::Wifi => {
+                let (_, value) = self.set_row_texts(row);
+                line(self, c, y, &self.tr("status"), Some(&value), false, false, true);
+                y += pitch;
+                // SSH over Wi-Fi: on/off; on, the command and the code (the password), then
+                // the line that makes a new code
+                let on = self.tr(if self.settings.ssh_wifi { "on" } else { "off" });
+                line(self, c, y, &self.tr("ssh_wifi"), Some(&on), pill(0, false), false, false);
+                y += pitch;
+                if let Some(state) = self.ssh_state() {
+                    line(self, c, y, &state, None, false, false, true);
+                    y += pitch;
+                    self.ssh_code_drawn = self.ssh_code();
+                    let code = self.ssh_code_drawn.clone().unwrap_or_else(|| "—".into());
+                    line(self, c, y, &self.tr("ssh_code"), Some(&code), false, false, true);
+                    y += pitch;
+                    line(self, c, y, &self.tr("ssh_new_code"), Some(""), pill(1, false), false, false);
+                    y += pitch;
+                }
+                note = Some(("hint_adjust", true));
+            }
+            SetRow::Bluetooth => {
                 let (_, value) = self.set_row_texts(row);
                 line(self, c, y, &self.tr("status"), Some(&value), false, false, true);
                 y += pitch;
@@ -2386,6 +2491,7 @@ impl<S: SystemAdapter> App<S> {
                 match l {
                     PanelRow::Choice(_) => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Level | PanelRow::Toggle => hints.push((NAV_LR, self.tr("hint_adjust"))),
+                    PanelRow::Action if row == SetRow::Wifi => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Action => hints.push(("A", self.tr("hint_update"))),
                 }
             }
@@ -2406,6 +2512,36 @@ impl<S: SystemAdapter> App<S> {
             c.fill(Rect::new(r.x, r.y, fw.max(r.h), r.h), r.h / 2, th.color("accent"));
         }
     }
+}
+
+/// The SSH code's alphabet: no 0/O, 1/I/L (the same as r36os-ssh-wifi).
+pub const SSH_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+/// A code as "XXXX-XXXX" from the alphabet.
+pub fn is_ssh_code(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 9 && b[4] == b'-' && b.iter().enumerate().all(|(i, c)| i == 4 || SSH_CODE_ALPHABET.contains(c))
+}
+
+/// A new SSH code from /dev/urandom (rejection sampling, so every character is as likely).
+pub fn random_ssh_code() -> Option<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open("/dev/urandom").ok()?;
+    let n = SSH_CODE_ALPHABET.len() as u8;
+    let limit = 256 - 256 % n as u16;
+    let mut out = String::new();
+    let mut byte = [0u8; 1];
+    while out.len() < 9 {
+        if out.len() == 4 {
+            out.push('-');
+            continue;
+        }
+        f.read_exact(&mut byte).ok()?;
+        if (byte[0] as u16) < limit {
+            out.push(SSH_CODE_ALPHABET[(byte[0] % n) as usize] as char);
+        }
+    }
+    Some(out)
 }
 
 /// The used share (1/10000) of a "used / total ..." text of the System panel.
