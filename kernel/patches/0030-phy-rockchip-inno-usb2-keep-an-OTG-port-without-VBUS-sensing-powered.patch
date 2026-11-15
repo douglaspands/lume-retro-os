@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Sun, 15 Nov 2026 16:00:00 -0300
+Subject: [PATCH] phy: rockchip: inno-usb2: keep an OTG port without VBUS sensing powered
+
+On the R36S V5 (RK3326) the PHY never sees VBUS of the OTG connector:
+utmi_bvalid stays low with a PC on the cable. The OTG state machine
+powers the port off on its first run (OTG_STATE_UNDEFINED without VBUS)
+and only powers it on again for a host (ID low) or a detected VBUS. The
+dwc2 controller, put in peripheral mode by its USB role switch, then has
+no PHY clock: binding a gadget logs
+
+  dwc2 ff300000.usb: dwc2_core_reset: HANG! Soft Reset timeout GRSTCTL_CSFTRST
+  dwc2 ff300000.usb: dwc2_wait_for_mode: Couldn't set device mode
+
+and the PC never sees the device.
+
+With "rockchip,vbus-always-on" on the otg-port node, the state machine
+does not power the port off for lack of VBUS, neither on its first run
+nor when a host cable is removed. The ID pin handling (extcon USB-HOST)
+is unchanged, so the role can still follow the ID pin.
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
+index 8f4c08e..414327a 100644
+--- a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
++++ b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
+@@ -209,6 +209,7 @@ struct rockchip_usb2phy_port {
+ 	unsigned int	port_id;
+ 	bool		suspended;
+ 	bool		vbus_attached;
++	bool		vbus_always_on;
+ 	bool            host_disconnect;
+ 	int		bvalid_irq;
+ 	int		id_irq;
+@@ -678,7 +679,7 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
+ 	switch (rport->state) {
+ 	case OTG_STATE_UNDEFINED:
+ 		rport->state = OTG_STATE_B_IDLE;
+-		if (!vbus_attach)
++		if (!vbus_attach && !rport->vbus_always_on)
+ 			rockchip_usb2phy_power_off(rport->phy);
+ 		fallthrough;
+ 	case OTG_STATE_B_IDLE:
+@@ -759,7 +760,8 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
+ 		if (extcon_get_state(rphy->edev, EXTCON_USB_HOST) == 0) {
+ 			dev_dbg(&rport->phy->dev, "usb otg host disconnect\n");
+ 			rport->state = OTG_STATE_B_IDLE;
+-			rockchip_usb2phy_power_off(rport->phy);
++			if (!rport->vbus_always_on)
++				rockchip_usb2phy_power_off(rport->phy);
+ 		}
+ 		break;
+ 	default:
+@@ -1298,6 +1300,10 @@ static int rockchip_usb2phy_otg_port_init(struct rockchip_usb2phy *rphy,
+ 	 */
+ 	rport->suspended = true;
+ 	rport->vbus_attached = false;
++	rport->vbus_always_on = of_property_read_bool(child_np,
++						      "rockchip,vbus-always-on");
++	if (rport->vbus_always_on)
++		dev_info(rphy->dev, "otg port: no VBUS sensing, kept powered\n");
+
+ 	mutex_init(&rport->mutex);
+

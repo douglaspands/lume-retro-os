@@ -263,6 +263,15 @@ def test_otg_port_is_device_by_default_with_a_role_switch():
     assert "dr_mode" not in otg              # "otg" from px30.dtsi: host stays possible
 
 
+def test_otg_phy_port_stays_powered_without_vbus_sensing():
+    # kernel patch 0030: without the property the PHY driver powers the port off for lack of
+    # VBUS and the dwc2 hangs in its core reset in device mode (R36S boot 59, 2026-11-15)
+    assert "rockchip,vbus-always-on;" in _node("u2phy_otg: otg-port")
+    patches = sorted(p.name for p in (REPO_ROOT / "kernel/patches").glob("*inno-usb2*"))
+    assert any("vbus-always-on" in p for p in patches)
+    assert any("keep-an-OTG-port-without-VBUS-sensing-powered" in p for p in patches)
+
+
 def test_otg_host_role_powers_the_port():
     # usb-device-access D7: 5 V from the RK817 OTG_SWITCH in the host role
     assert "vbus-supply = <&otg_switch>;" in _node("&usb20_otg")

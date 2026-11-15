@@ -798,7 +798,13 @@
 &u2phy {
 	status = "okay";
 
+	/*
+	 * No VBUS sensing on this port (see &usb20_otg): without vbus-always-on the PHY driver
+	 * powers the port off at its first state-machine run, and the dwc2 in device mode
+	 * hangs in its core reset with no PHY clock (kernel patch 0030, measured 2026-11-15)
+	 */
 	u2phy_otg: otg-port {
+		rockchip,vbus-always-on;
 		status = "okay";
 	};
 };
