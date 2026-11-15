@@ -136,8 +136,14 @@ impl Themes {
         }
     }
 
+    /// A folder whose name starts with "_" is not a theme: the card's model of the original
+    /// theme (`_lume-original`) lives there for the user to copy.
+    fn ignored(id: &str) -> bool {
+        id.starts_with('_')
+    }
+
     fn file(&self, id: &str) -> Option<PathBuf> {
-        if id.is_empty() || id.contains(['/', '.']) {
+        if id.is_empty() || id.contains(['/', '.']) || Themes::ignored(id) {
             return None;
         }
         self.dirs.iter().map(|d| d.join(id).join("theme.toml")).find(|p| p.exists())
@@ -153,6 +159,7 @@ impl Themes {
             .flatten()
             .filter(|e| e.path().join("theme.toml").exists())
             .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|id| !Themes::ignored(id))
             .collect();
         ids.sort();
         ids.dedup();
@@ -324,6 +331,33 @@ mod tests {
             [card.join("lume/icons"), image.join("lume/icons"), card.join("material-dark/icons"), image.join("material-dark/icons")]
         );
         assert!(t.icon_dirs("../x").is_empty());
+    }
+
+    #[test]
+    fn the_cards_model_is_ignored_and_is_the_original_theme() {
+        let template = share().join("theme-template/_lume-original/theme.toml");
+        let text = std::fs::read_to_string(&template).unwrap();
+        let card = std::env::temp_dir().join(format!("lume-template-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&card);
+        // as lume-index copies it: the folder starting with "_" is not a theme
+        std::fs::create_dir_all(card.join("_lume-original")).unwrap();
+        std::fs::write(card.join("_lume-original/theme.toml"), &text).unwrap();
+        // and as the user copies it: another folder, the id changed
+        std::fs::create_dir_all(card.join("meu-tema")).unwrap();
+        std::fs::write(card.join("meu-tema/theme.toml"), text.replace("id = \"_lume-original\"", "id = \"meu-tema\"")).unwrap();
+        let mut t = image_themes();
+        t.dirs.insert(0, card);
+        assert!(!t.list().iter().any(|id| id.starts_with('_')), "{:?}", t.list());
+        assert!(t.load("_lume-original").is_err());
+        // the copy is exactly the image's lume theme, in every token
+        let copy = t.load("meu-tema").unwrap();
+        let lume = t.load("lume").unwrap();
+        assert_eq!(copy.colors, lume.colors);
+        assert_eq!(copy.nums, lume.nums);
+        // and it sets every token, so it shows the whole list
+        let set: toml::Table = toml::from_str::<toml::Table>(&text).unwrap()["tokens"].as_table().unwrap().clone();
+        let missing: Vec<_> = t.base.keys().filter(|k| !set.contains_key(*k)).collect();
+        assert!(missing.is_empty(), "the model lacks {missing:?}");
     }
 
     #[test]

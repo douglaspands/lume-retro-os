@@ -33,5 +33,12 @@ start() {
 		mkdir -p "$themes"
 		cp /usr/share/lume/LEIA-ME-temas.txt "$themes/LEIA-ME.txt"
 	fi
+	# the model of the original theme, for the user to copy: a "_" folder, which the
+	# launcher ignores; the system's, so it follows the image (written only when it differs)
+	model=/usr/share/lume/theme-template/_lume-original/theme.toml
+	if ! cmp -s "$model" "$themes/_lume-original/theme.toml"; then
+		mkdir -p "$themes/_lume-original"
+		cp "$model" "$themes/_lume-original/theme.toml"
+	fi
 	default_start
 }

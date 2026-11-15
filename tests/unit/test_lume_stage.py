@@ -29,8 +29,12 @@ def test_card_has_a_folder_for_the_users_themes():
     assert 'if [ ! -d "$themes" ]' in init
     assert "cp /usr/share/lume/LEIA-ME-temas.txt" in init
     guide = (REPO_ROOT / "rootfs/overlay/usr/share/lume/LEIA-ME-temas.txt").read_text()
-    for needed in ("theme.toml", "icons/", "extends", 'id = "meu-tema"'):
+    for needed in ("theme.toml", "icons/", "extends", 'id = "meu-tema"', "_lume-original"):
         assert needed in guide, needed
+    # the model of the original theme goes next to it, refreshed only when it differs
+    assert "model=/usr/share/lume/theme-template/_lume-original/theme.toml" in init
+    assert 'if ! cmp -s "$model"' in init
+    assert (REPO_ROOT / "rootfs/overlay/usr/share/lume/theme-template/_lume-original/theme.toml").is_file()
 
 
 def test_tarball_is_named_by_the_lock():

@@ -11,6 +11,12 @@ scripts. Implementado em `lume/lume-ui/src/theme.rs` (change `lume-launcher`, D1
 | `/usr/share/lume/themes/<id>/theme.toml` | a imagem: `lume` (o padrão), `material-dark` e `material-light` |
 | `ROMS/system/lume/themes/<id>/theme.toml` | o usuário, no cartão (vence o da imagem com o mesmo `id`). A pasta `themes/` é criada no boot (serviço `lume-index`) com um `LEIA-ME.txt` que explica o formato, em cartão novo ou antigo, e nunca mais é tocada |
 
+Uma pasta cujo nome começa com `_` não é tema: o launcher não a lista nem a carrega. É lá que
+fica o modelo `ROMS/system/lume/themes/_lume-original/theme.toml`, o tema original (Lume) com
+todos os tokens e os valores dele, comentados, para o usuário copiar com outro nome. O
+`lume-index` o mantém igual ao da imagem (grava só quando difere); um teste garante que uma
+cópia dele dá exatamente o tema `lume`.
+
 O `lume-ui` não conhece nenhum tema nem valor de token: tudo vem desses arquivos. Criar um
 tema é criar uma pasta com um `theme.toml`; ele aparece em Configurações → Tema sem mudar
 código nem tradução. Trocar o tema padrão da imagem é mudar o `default` do `base.toml`.

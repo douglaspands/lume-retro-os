@@ -6,8 +6,16 @@ Cada pasta aqui dentro e um tema, com o mesmo nome do "id" dele:
   themes/<id>/theme.toml           o tema: cores, formas e tamanhos
   themes/<id>/icons/<sistema>.png  logos dos consoles no Dock (opcional)
 
-O tema aparece em Configuracoes > Tema. Exemplo de theme.toml que muda so
-as cores do tema padrao (lume):
+O tema aparece em Configuracoes > Tema.
+
+Modelo: a pasta _lume-original tem o tema original (Lume) com TODOS os
+tokens e os valores dele, comentados. O launcher ignora toda pasta cujo nome
+comeca com "_". Para comecar o seu: copie _lume-original para outro nome
+(por exemplo meu-tema), troque o id para o nome da pasta e mude o que
+quiser. O sistema mantem _lume-original igual ao tema da imagem: nao edite
+ali, edite a sua copia.
+
+Exemplo menor, que muda so as cores do tema padrao (lume):
 
   [theme]
   id = "meu-tema"

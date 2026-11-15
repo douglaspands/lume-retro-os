@@ -1,0 +1,71 @@
+# Modelo: o tema original do launcher (Lume), com TODOS os tokens e os valores que ele usa.
+# O launcher ignora esta pasta (o nome comeca com "_"). Para fazer o seu tema:
+#   1. copie a pasta _lume-original para, por exemplo, meu-tema
+#   2. troque o id abaixo para "meu-tema" (igual ao nome da pasta) e o name
+#   3. mude o que quiser e escolha o tema em Configuracoes > Tema
+# Voce pode apagar as linhas que nao mudar: o que faltar vem do padrao do sistema.
+# Cores: "#rrggbb" ou "#rrggbbaa". Tamanhos em em: 1/40 da largura da tela (16 px a 640x480).
+[theme]
+id = "_lume-original"
+name = { en = "Lume (template)", pt = "Lume (modelo)", es = "Lume (modelo)" }
+
+[tokens]
+# cores gerais: fundo, texto, texto apagado, destaque e o texto sobre o destaque
+bg = "#0F171E"
+fg = "#F2F5F7"
+muted = "#AEB9C2"
+accent = "#4DB3FF"
+accent_fg = "#0F171E"
+# o que escurece a tela atras dos menus
+overlay = "#000000a8"
+# Dock: icone normal e o icone em foco
+icon_bg = "#1A252F"
+icon_fg = "#F2F5F7"
+icon_sel_bg = "#4DB3FF"
+icon_sel_fg = "#0F171E"
+# lista de jogos: quadros, o quadro em foco, e a variante opaca (teclas da busca, barras)
+tile_bg = "#17222C"
+tile_bg_sel = "#1F3040"
+tile_bg_opaque = "#17222C"
+# paineis (menu do jogo, Configuracoes) e a variante opaca (campo da busca)
+panel_bg = "#1A252F"
+panel_bg_opaque = "#1A252F"
+# linha em foco das listas
+sel_bg = "#4DB3FF"
+sel_fg = "#0F171E"
+# chip das setas no rodape
+nav_bg = "#2A3A48"
+nav_fg = "#F2F5F7"
+# avisos curtos
+toast_bg = "#1F3040"
+toast_fg = "#F2F5F7"
+# cantos arredondados (em)
+radius_icon = 1.75
+radius_tile = 0.75
+radius_panel = 1.75
+radius_item = 2.0
+# Dock: tamanho do icone, espaco entre icones (em), ampliacao (foco, distantes, largura da
+# curva), a linha por onde passam os icones (fracao da altura da tela) e o ponto do icone
+# que fica nela, e os textos embaixo (em)
+icon = 6.0
+dock_gap = 0.5
+mag_peak = 1.8
+mag_base = 0.72
+mag_spread = 0.97
+dock_top = 0.42
+dock_origin = 0.651
+dock_name_px = 2.1
+dock_sub_px = 1.4
+# lista de jogos: colunas e linhas minimas
+cols = 4
+rows = 2
+# tamanhos de texto (em): geral, titulos, e os da lista de jogos e do rodape
+label_px = 1.25
+title_px = 1.6
+list_title_px = 1.75
+list_name_px = 1.4
+status_px = 1.2
+hint_px = 1.2
+# duracao das animacoes (ms; 0 desliga) e o teto do cache de capas na memoria (bytes)
+anim_ms = 200
+cache_bytes = 4194304
