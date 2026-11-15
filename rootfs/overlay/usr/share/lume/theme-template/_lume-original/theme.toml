@@ -16,6 +16,8 @@ fg = "#F2F5F7"
 muted = "#AEB9C2"
 accent = "#4DB3FF"
 accent_fg = "#0F171E"
+# a linha do brilho na borda esquerda (Fn + volume); a do volume usa o accent
+brightness_bar = "#ffffff"
 # o que escurece a tela atras dos menus
 overlay = "#000000a8"
 # Dock: icone normal e o icone em foco

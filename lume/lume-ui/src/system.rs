@@ -188,13 +188,15 @@ impl SystemAdapter for RealSystem {
     fn brightness(&self) -> Option<u8> {
         let b = self.backlight()?;
         let (cur, max) = (read_num(&b.join("brightness"))?, read_num(&b.join("max_brightness"))?);
-        (max > 0).then(|| (cur * 100 / max) as u8)
+        // rounded, as r36os-input steps it (Fn + volume keys)
+        (max > 0).then(|| ((cur * 100 + max / 2) / max).min(100) as u8)
     }
 
     fn set_brightness(&mut self, pct: u8) {
         if let Some(b) = self.backlight() {
             if let Some(max) = read_num(&b.join("max_brightness")) {
                 // never fully dark: the screen would look off
+                // truncated: a coarse backlight (GA36: 0-10) still moves on a 5% step down
                 let v = (max * pct.clamp(5, 100) as u64 / 100).max(1);
                 let _ = std::fs::write(b.join("brightness"), v.to_string());
             }

@@ -12,7 +12,7 @@ use lume_core::options::{Field, Layer, Options};
 use lume_core::runner::{Kind, Runner};
 use lume_core::settings::Settings;
 
-use crate::canvas::{Align, Canvas, Rect, TextureId};
+use crate::canvas::{Align, Canvas, Color, Rect, TextureId};
 use crate::i18n::{Texts, LANGUAGES};
 use crate::input::Action;
 use crate::launch::{self, Dirs, Slot, ASPECTS};
@@ -42,6 +42,8 @@ pub enum Ev {
     UpdateDone(bool),
     /// a volume key changed the level (percent), told by the input daemon
     Volume(u8),
+    /// Fn + a volume key changed the screen brightness (percent), told by the input daemon
+    Brightness(u8),
     /// the battery level (percent) or charging state changed
     Battery(u8, bool),
     /// Wi-Fi or Bluetooth connected or not any more (Wi-Fi, Bluetooth)
@@ -109,6 +111,48 @@ pub enum SetRow {
     Power,
 }
 
+/// What a menu sheet shows on its left (10.9).
+#[derive(Debug, Clone, Copy)]
+enum Cover {
+    /// the game's cover
+    Game(GameRef),
+    /// the console's logo (or its abbreviation)
+    Console(usize),
+    /// no column: the power off question
+    None,
+}
+
+/// The value on the right of a sheet row.
+enum SheetValue {
+    None,
+    Text(String),
+    /// the sheet's own value (not inherited): the accent, bold
+    Own(String),
+    /// the favorite star, filled when on
+    Star(bool),
+}
+
+struct SheetRow {
+    label: String,
+    value: SheetValue,
+    enabled: bool,
+    /// ◀▶ cycle it: ‹ › around the value when focused
+    cycle: bool,
+}
+
+/// A line of a Settings panel that takes the focus (D14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelRow {
+    /// one of a list of choices (language, theme): A or ◀▶ pick it
+    Choice(usize),
+    /// a level (volume, brightness): ◀▶ adjust it
+    Level,
+    /// an on/off value (battery percent): ◀▶ or A switch it
+    Toggle,
+    /// an action (update the lists): A runs it
+    Action,
+}
+
 enum Overlay {
     /// game menu (Some(game)) or console options (None) of a system; `sub`: the game's
     /// Settings submenu (emulator, aspect, shader)
@@ -151,6 +195,8 @@ const RECENT_MAX: usize = 50;
 pub const NAV_LR: &str = "◀▶";
 /// The same for up/down (▲▼).
 pub const NAV_UD: &str = "▲▼";
+/// The share of a Dock icon its symbol takes (star, gear, clock), the same for all.
+pub const DOCK_SYMBOL: f32 = 0.42;
 
 pub struct App<S: SystemAdapter> {
     pub texts: Texts,
@@ -174,6 +220,8 @@ pub struct App<S: SystemAdapter> {
     toast: Option<(String, Instant)>,
     /// the volume bar outside the Settings: level and when it goes away
     pub volume_bar: Option<(u8, Instant)>,
+    /// the brightness line on the left edge outside the Settings: level and when it goes away
+    pub brightness_bar: Option<(u8, Instant)>,
     /// the status bar's battery: level and charging (None: no battery, nothing drawn)
     pub battery: Option<(u8, bool)>,
     /// the status bar's network: (Wi-Fi connected, Bluetooth connected)
@@ -182,7 +230,9 @@ pub struct App<S: SystemAdapter> {
     pub dock_focus: usize,
     pub grid: Option<Grid>,
     pub settings_focus: usize,
-    info: Option<(Instant, Vec<(&'static str, String)>)>,
+    /// the focused line of the Settings panel (D14); None: the focus is on the list
+    pub panel_focus: Option<usize>,
+    info:Option<(Instant, Vec<(&'static str, String)>)>,
     level: BTreeMap<&'static str, u8>,
     /// cover texture and the part of it that is the image
     thumbs: Lru<GameRef, (TextureId, Rect)>,
@@ -246,12 +296,14 @@ impl<S: SystemAdapter> App<S> {
             overlay: None,
             toast: None,
             volume_bar: None,
+            brightness_bar: None,
             battery: None,
             network: (false, false),
             dock: Vec::new(),
             dock_focus: 0,
             grid: None,
             settings_focus: 0,
+            panel_focus: None,
             info: None,
             level: BTreeMap::new(),
             thumbs: Lru::new(cache),
@@ -457,6 +509,10 @@ impl<S: SystemAdapter> App<S> {
                     self.volume_bar = None;
                     redraw = true;
                 }
+                if self.brightness_bar.is_some_and(|(_, t)| now >= t) {
+                    self.brightness_bar = None;
+                    redraw = true;
+                }
                 if self.on_system_row() && self.info.as_ref().is_none_or(|(t, _)| now.duration_since(*t) >= Duration::from_millis(950)) {
                     self.info = Some((now, self.sys.info()));
                     redraw = true;
@@ -492,6 +548,12 @@ impl<S: SystemAdapter> App<S> {
                 // the Settings show it in the Volume row; elsewhere, the bar
                 self.level.insert("volume", v);
                 self.volume_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
+                true
+            }
+            Ev::Brightness(v) => {
+                // the same: the Brightness row in the Settings, the left line elsewhere
+                self.level.insert("brightness", v);
+                self.brightness_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
                 true
             }
             Ev::Battery(level, charging) => {
@@ -539,6 +601,9 @@ impl<S: SystemAdapter> App<S> {
         if let Some((_, t)) = &self.volume_bar {
             min(t.saturating_duration_since(now));
         }
+        if let Some((_, t)) = &self.brightness_bar {
+            min(t.saturating_duration_since(now));
+        }
         if self.on_system_row() {
             min(Duration::from_millis(1000));
         }
@@ -582,6 +647,7 @@ impl<S: SystemAdapter> App<S> {
                 DockItem::Settings => {
                     self.screen = Screen::Settings;
                     self.settings_focus = 0;
+                    self.panel_focus = None;
                     self.read_levels();
                 }
                 DockItem::Favorites => self.enter(ListKind::Favorites),
@@ -1028,66 +1094,136 @@ impl<S: SystemAdapter> App<S> {
         made
     }
 
+    /// The lines of an item's panel that take the focus (D14). Empty: the item is only read
+    /// (Wi-Fi and Bluetooth for now, System) or is an action of its own (RetroArch, Power off).
+    pub fn panel_rows(&self, row: SetRow) -> Vec<PanelRow> {
+        match row {
+            SetRow::Language => (0..LANGUAGES.len()).map(PanelRow::Choice).collect(),
+            SetRow::Theme => (0..self.themes.list().len()).map(PanelRow::Choice).collect(),
+            SetRow::Volume | SetRow::Brightness => vec![PanelRow::Level],
+            SetRow::Display => vec![PanelRow::Toggle],
+            SetRow::Games => vec![PanelRow::Action],
+            _ => Vec::new(),
+        }
+    }
+
+    /// The line the focus lands on when the panel is entered: the chosen option of a list.
+    fn panel_start(&self, row: SetRow) -> usize {
+        match row {
+            SetRow::Language => LANGUAGES.iter().position(|l| *l == self.settings.language).unwrap_or(0),
+            SetRow::Theme => {
+                let current = self.themes.chosen(&self.settings.theme).to_string();
+                self.themes.list().iter().position(|t| *t == current).unwrap_or(0)
+            }
+            _ => 0,
+        }
+    }
+
+    /// Picks option `i` of a choice list (language, theme).
+    fn choose(&mut self, row: SetRow, i: usize) {
+        match row {
+            SetRow::Language => {
+                let Some(next) = LANGUAGES.get(i) else { return };
+                if self.settings.language == *next {
+                    return;
+                }
+                self.settings.language = (*next).into();
+                self.texts = Texts::load(&self.share.join("i18n"), next);
+                self.save_settings();
+                if let Err(e) = crate::system::set_retroarch_language(&self.ra_cfg, lume_core::settings::retroarch_language(next)) {
+                    lume_core::log::line("lume-ui", &format!("RetroArch language not saved: {e}"));
+                }
+            }
+            SetRow::Theme => {
+                let list = self.themes.list();
+                let Some(id) = list.get(i) else { return };
+                if *id != self.themes.chosen(&self.settings.theme) {
+                    self.settings.theme = id.clone();
+                    self.apply_theme();
+                    self.save_settings();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// ◀▶ on a level or on/off line: the level in steps of 5, or the value switched.
+    fn adjust(&mut self, row: SetRow, dir: i32) {
+        match row {
+            SetRow::Display => {
+                self.settings.battery_percent = !self.settings.battery_percent;
+                self.save_settings();
+            }
+            SetRow::Volume | SetRow::Brightness => {
+                let key = if row == SetRow::Volume { "volume" } else { "brightness" };
+                let cur = self.level.get(key).copied().unwrap_or(50) as i32;
+                let v = (cur + dir * 5).clamp(if row == SetRow::Brightness { 5 } else { 0 }, 100) as u8;
+                self.level.insert(key, v);
+                if row == SetRow::Volume {
+                    self.sys.set_volume(v);
+                    self.settings.volume = Some(v);
+                } else {
+                    self.sys.set_brightness(v);
+                    self.settings.brightness = Some(v);
+                }
+                self.save_settings();
+            }
+            _ => {}
+        }
+    }
+
+    /// Two focus levels (D14). On the list: ▲▼ change the item (wrapping), A or ▶ enter its
+    /// panel (A runs RetroArch and Power off, which have none), ◀▶ change nothing, B goes back
+    /// to the Dock. In the panel: ▲▼ change the line (wrapping), ◀▶ change the value, A runs
+    /// the line, B goes back to the same item of the list.
     fn settings_input(&mut self, a: Action, _repeat: bool) {
         let rows = self.set_rows();
         self.settings_focus = self.settings_focus.min(rows.len() - 1);
         let row = rows[self.settings_focus];
-        let dir = match a {
-            Action::Left => -1,
-            Action::Right => 1,
-            _ => 0,
-        };
+        let lines = self.panel_rows(row);
+        let dir = if a == Action::Left { -1 } else { 1 };
+        if let Some(pf) = self.panel_focus {
+            if lines.is_empty() {
+                self.panel_focus = None;
+                return;
+            }
+            let n = lines.len();
+            let pf = pf.min(n - 1);
+            match a {
+                Action::B => self.panel_focus = None,
+                Action::Up => self.panel_focus = Some((pf + n - 1) % n),
+                Action::Down => self.panel_focus = Some((pf + 1) % n),
+                Action::Left | Action::Right => match lines[pf] {
+                    // the neighbor option is picked and the focus goes with it
+                    PanelRow::Choice(_) => {
+                        let i = (pf as i32 + dir).rem_euclid(n as i32) as usize;
+                        self.choose(row, i);
+                        self.panel_focus = Some(i);
+                    }
+                    PanelRow::Level | PanelRow::Toggle => self.adjust(row, dir),
+                    PanelRow::Action => {}
+                },
+                Action::A => match lines[pf] {
+                    PanelRow::Choice(i) => self.choose(row, i),
+                    PanelRow::Toggle => self.adjust(row, 1),
+                    PanelRow::Action => {
+                        // Games: the one action is Update lists
+                        self.updating = Some((0, 0));
+                        self.start_update = true;
+                    }
+                    PanelRow::Level => {}
+                },
+                _ => {}
+            }
+            return;
+        }
         match a {
             Action::B => self.screen = Screen::Dock,
             // the list wraps: down on the last item goes to the first, up on the first to the last
             Action::Up => self.settings_focus = (self.settings_focus + rows.len() - 1) % rows.len(),
             Action::Down => self.settings_focus = (self.settings_focus + 1) % rows.len(),
-            Action::Left | Action::Right => match row {
-                SetRow::Language => {
-                    let i = LANGUAGES.iter().position(|l| *l == self.settings.language).unwrap_or(0) as i32;
-                    let next = LANGUAGES[(i + dir).rem_euclid(LANGUAGES.len() as i32) as usize];
-                    self.settings.language = next.into();
-                    self.texts = Texts::load(&self.share.join("i18n"), next);
-                    self.save_settings();
-                    if let Err(e) = crate::system::set_retroarch_language(&self.ra_cfg, lume_core::settings::retroarch_language(next)) {
-                        lume_core::log::line("lume-ui", &format!("RetroArch language not saved: {e}"));
-                    }
-                }
-                SetRow::Theme => {
-                    let list = self.themes.list();
-                    if !list.is_empty() {
-                        let current = self.themes.chosen(&self.settings.theme).to_string();
-                        let i = list.iter().position(|t| *t == current).unwrap_or(0) as i32;
-                        self.settings.theme = list[(i + dir).rem_euclid(list.len() as i32) as usize].clone();
-                        self.apply_theme();
-                        self.save_settings();
-                    }
-                }
-                SetRow::Display => {
-                    self.settings.battery_percent = !self.settings.battery_percent;
-                    self.save_settings();
-                }
-                SetRow::Volume | SetRow::Brightness => {
-                    let key = if row == SetRow::Volume { "volume" } else { "brightness" };
-                    let cur = self.level.get(key).copied().unwrap_or(50) as i32;
-                    let v = (cur + dir * 5).clamp(if row == SetRow::Brightness { 5 } else { 0 }, 100) as u8;
-                    self.level.insert(key, v);
-                    if row == SetRow::Volume {
-                        self.sys.set_volume(v);
-                        self.settings.volume = Some(v);
-                    } else {
-                        self.sys.set_brightness(v);
-                        self.settings.brightness = Some(v);
-                    }
-                    self.save_settings();
-                }
-                _ => {}
-            },
+            Action::A | Action::Right if !lines.is_empty() => self.panel_focus = Some(self.panel_start(row)),
             Action::A => match row {
-                SetRow::Games => {
-                    self.updating = Some((0, 0));
-                    self.start_update = true;
-                }
                 SetRow::RetroArch => {
                     if let Some(r) = self.runners.get(lume_core::catalog::LIBRETRO_RUNNER) {
                         if launch::retroarch_menu(r).write(&self.runtime, true).is_ok() {
@@ -1160,6 +1296,9 @@ impl<S: SystemAdapter> App<S> {
         if let Some((v, _)) = self.volume_bar.filter(|_| self.screen != Screen::Settings) {
             self.draw_volume_bar(c, w, h, v);
         }
+        if let Some((v, _)) = self.brightness_bar.filter(|_| self.screen != Screen::Settings) {
+            self.draw_edge_level(c, w, h, v, Edge::Left);
+        }
         c.present();
     }
 
@@ -1176,20 +1315,21 @@ impl<S: SystemAdapter> App<S> {
     }
 
     /// A level as a line along one edge of the screen: a faint track (the muted color at
-    /// 30%) the full height, filled from the bottom with the accent.
+    /// 30%) the full height, filled from the bottom: the volume on the right in the accent,
+    /// the brightness on the left in `brightness_bar` (white, user's choice, 2026-11-15).
     fn draw_edge_level(&self, c: &mut dyn Canvas, w: i32, h: i32, v: u8, edge: Edge) {
         let th = &self.theme;
         let lw = Self::edge_w(w);
-        let x = match edge {
-            Edge::Right => w - lw,
-            Edge::Left => 0,
+        let (x, fill) = match edge {
+            Edge::Right => (w - lw, th.color("accent")),
+            Edge::Left => (0, th.color("brightness_bar")),
         };
         let mut track = th.color("muted");
         track.a = 77;
         c.fill(Rect::new(x, 0, lw, h), 0, track);
         let filled = h * v.min(100) as i32 / 100;
         if filled > 0 {
-            c.fill(Rect::new(x, h - filled, lw, filled), 0, th.color("accent"));
+            c.fill(Rect::new(x, h - filled, lw, filled), 0, fill);
         }
     }
 
@@ -1281,7 +1421,7 @@ impl<S: SystemAdapter> App<S> {
     /// 4.32 em further), `dock_gap` em apart; each icon passes at `dock_origin` of its height
     /// through the line at `dock_top` of the screen (201.6 px), so a larger icon rises; the
     /// corner radius and the content grow with the icon (the abbreviation 0.28 of it, bold;
-    /// a logo 78% x 56%; the star 0.42; the gear 0.2). The name (`dock_name_px`) 6.54 em under
+    /// a logo 78% x 56%; the star, gear and clock 0.42 each). The name (`dock_name_px`) 6.54 em under
     /// that line, its subtitle (`dock_sub_px`, muted) 2.62 em lower; the battery 1.08 em from
     /// the right edge at 0.51 em; the hints ◀▶ Navigate, A Select.
     fn draw_dock(&mut self, c: &mut dyn Canvas, w: i32, h: i32) {
@@ -1328,9 +1468,12 @@ impl<S: SystemAdapter> App<S> {
         placed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         // while the volume line shows on the right edge, the icons stop `dock_gap` before it
         // (user's request: the console on the right never touches the line)
-        let volume_on = self.volume_bar.is_some();
+        // (and the brightness line on the left the same way)
+        let room = Self::edge_w(w) + gap.round() as i32;
+        let (left_cut, right_cut) = (if self.brightness_bar.is_some() { room } else { 0 }, if self.volume_bar.is_some() { room } else { 0 });
+        let volume_on = left_cut + right_cut > 0;
         if volume_on {
-            c.set_clip(Some(Rect::new(0, 0, w - Self::edge_w(w) - gap.round() as i32, h)));
+            c.set_clip(Some(Rect::new(left_cut, 0, w - left_cut - right_cut, h)));
         }
         for (x, size, idx) in placed {
             let left = w as f32 / 2.0 + x - size / 2.0;
@@ -1343,11 +1486,13 @@ impl<S: SystemAdapter> App<S> {
             let (bg, fg) = if focused { (th.color("icon_sel_bg"), th.color("icon_sel_fg")) } else { (th.color("icon_bg"), th.color("icon_fg")) };
             c.fill(r, (th.num("radius_icon") as f32 * em * size / base).round() as i32, bg);
             // the content of the icon: a card logo, a symbol of the launcher, or the abbreviation
+            // the launcher's own symbols all the same size, the star's (user's request,
+            // 2026-11-15: the prototype had the gear at 0.2 and the clock at 0.3)
             let (key, share, lift) = match self.dock[idx] {
                 DockItem::System(s) => (self.lib.systems[s].id.clone(), 0.0, 0.0),
-                DockItem::Favorites => ("@star".to_string(), 0.42, 0.01),
-                DockItem::Settings => ("@gear".to_string(), 0.2, 0.0),
-                DockItem::Recent => ("@clock".to_string(), 0.3, 0.0),
+                DockItem::Favorites => ("@star".to_string(), DOCK_SYMBOL, 0.01),
+                DockItem::Settings => ("@gear".to_string(), DOCK_SYMBOL, 0.0),
+                DockItem::Recent => ("@clock".to_string(), DOCK_SYMBOL, 0.0),
             };
             let icon = if share > 0.0 { self.symbol(c, &key) } else { self.icon(c, &key) };
             match icon {
@@ -1399,6 +1544,7 @@ impl<S: SystemAdapter> App<S> {
         const N: u32 = 128;
         let (w, h, alpha) = match key {
             "@star" => (N, N, crate::glyphs::star(N)),
+            "@star_o" => (N, N, crate::glyphs::star_outline(N)),
             "@gear" => (N, N, crate::glyphs::gear(N)),
             "@check" => (N, N, crate::glyphs::check(N)),
             // the status bar's icons, drawn about 17 px tall: made at 3x, scaled down
@@ -1719,65 +1865,161 @@ impl<S: SystemAdapter> App<S> {
         self.thumbs.used()
     }
 
-    fn draw_panel(&self, c: &mut dyn Canvas, w: i32, h: i32, rows: &[(String, String, bool)], focus: usize, title: &str) -> Rect {
-        let th = &self.theme;
-        let px = th.em("label_px", w) as f32;
-        let row_h = (px * 1.9) as i32;
-        let pw = (w * 7 / 8).min(w - 32);
-        let ph = (row_h * rows.len() as i32 + (px * 2.6) as i32).min(h - 32);
-        let r = Rect::new((w - pw) / 2, (h - ph) / 2, pw, ph);
+    /// A menu sheet as the prototype at 640x480 (1 em = 16 px): centered, 94% of the width
+    /// up to 36 em, `panel_bg`, `radius_panel`, padding and gap 0.9 em; the cover (or the
+    /// console's mark) in a 10 em column on the left (`tile_bg_opaque`, `radius_tile`, 0.4 em
+    /// inside, the picture at most 16 em tall), as tall as the sheet; on the right, vertically
+    /// centered, the title (1.75 em bold, line 1.15), the subtitle 2.1875 em lower (1.2 em,
+    /// muted), and from 4.4075 em the rows, 2.45 em each: a pill when focused, the label
+    /// 1.25 em at (1 em, 0.475 em), the value 1.0625 em ending 1 em from the right at 0.6 em
+    /// (the sheet's own value in the accent, bold; the others at 85%); a disabled row at 40%.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_sheet(&mut self, c: &mut dyn Canvas, w: i32, h: i32, cover: Cover, title: &str, sub: &str, rows: &[SheetRow], focus: usize) {
+        let th = self.theme.clone();
+        let em = w as f32 / 40.0;
+        let ef = |v: f32| v * em;
+        let r_ = |x: f32, y: f32, rw: f32, rh: f32| Rect::new(x.round() as i32, y.round() as i32, (x + rw).round() as i32 - x.round() as i32, (y + rh).round() as i32 - y.round() as i32);
         c.fill(Rect::new(0, 0, w, h), 0, th.color("overlay"));
-        c.fill(r, th.em("radius_panel", w), th.color("panel_bg"));
-        c.text(title, r.x + 24, r.y + (px * 0.6) as i32, px, th.color("muted"), Align::Left, r.w - 48);
-        let first = (focus as i32 - ((ph - (px * 2.6) as i32) / row_h - 1)).max(0) as usize;
-        for (i, (label, value, enabled)) in rows.iter().enumerate().skip(first) {
-            let y = r.y + (px * 2.2) as i32 + (i - first) as i32 * row_h;
-            if y + row_h > r.bottom() {
-                break;
+        let sw = (w as f32 * 0.94).min(ef(36.0));
+        let sx = (w as f32 - sw) / 2.0;
+        let (pad, row_h, head) = (ef(0.9), ef(2.45), ef(4.4075));
+        let body_h = head + rows.len() as f32 * row_h;
+        let cover_w = ef(10.0);
+        let cpad = ef(0.4);
+        // the cover's picture: a game's cover, or a console's logo of the card theme
+        let pic = match cover {
+            Cover::Game(g) => self.texture(c, g),
+            Cover::Console(s) => {
+                let id = self.lib.systems[s].id.clone();
+                self.icon(c, &id)
             }
-            let row = Rect::new(r.x + 12, y, r.w - 24, row_h - 4);
-            let fg = if i == focus {
-                c.fill(row, th.em("radius_item", w).min(row.h / 2), th.color("sel_bg"));
-                th.color("sel_fg")
-            } else if *enabled {
-                th.color("fg")
-            } else {
-                th.color("muted")
-            };
-            let ty = row.y + (row.h - px as i32) / 2;
-            let vw = if value.is_empty() { 0 } else { c.text_width(value, px * 0.9).min(row.w / 2) };
-            c.text(label, row.x + 16, ty, px, fg, Align::Left, row.w - 40 - vw);
-            if !value.is_empty() {
-                c.text(value, row.right() - 16, ty, px * 0.9, if i == focus { fg } else { th.color("muted") }, Align::Right, row.w / 2);
+            Cover::None => None,
+        };
+        // a game's cover sets its own height: fit to the column's width, at most 16 em
+        let pic_h = match (cover, pic) {
+            (Cover::Game(_), Some((_, src))) => ((cover_w - 2.0 * cpad) * src.h as f32 / src.w.max(1) as f32).min(ef(16.0)),
+            _ => 0.0,
+        };
+        // the sheet keeps clear of the status bar and of the hints
+        let inner_h = body_h.max(pic_h + 2.0 * cpad).min(h as f32 - ef(6.0) - 2.0 * pad);
+        let sh = inner_h + 2.0 * pad;
+        let sy = (h as f32 - sh) / 2.0;
+        let panel_bg = th.color("panel_bg");
+        c.fill(r_(sx, sy, sw, sh), th.em("radius_panel", w), panel_bg);
+        // what a faded text shows over the sheet (no alpha on text in every backend)
+        let base = th.color("bg").under(th.color("overlay")).under(panel_bg);
+        let fade = |col: Color, k: f32| base.under(Color { a: (k * 255.0).round() as u8, ..col });
+        let mut bx = sx + pad;
+        if !matches!(cover, Cover::None) {
+            let cr = r_(sx + pad, sy + pad, cover_w, inner_h);
+            c.fill(cr, th.em("radius_tile", w), th.color("tile_bg_opaque"));
+            let (aw, ah) = (cover_w - 2.0 * cpad, inner_h - 2.0 * cpad);
+            let (cx, cy) = (sx + pad + cover_w / 2.0, sy + pad + inner_h / 2.0);
+            match (cover, pic) {
+                (Cover::Game(_), Some((t, src))) => {
+                    let k = f32::min(aw / src.w as f32, pic_h.min(ah) / src.h as f32);
+                    let (dw, dh) = (src.w as f32 * k, src.h as f32 * k);
+                    c.draw_texture(t, src, r_(cx - dw / 2.0, cy - dh / 2.0, dw, dh));
+                }
+                (Cover::Console(_), Some((t, isz))) => {
+                    // the logo 90% of the column, at most 4 em tall, flat in the text color
+                    let k = f32::min(aw * 0.9 / isz.w as f32, ef(4.0) / isz.h as f32);
+                    let (dw, dh) = (isz.w as f32 * k, isz.h as f32 * k);
+                    c.draw_mask(t, r_(cx - dw / 2.0, cy - dh / 2.0, dw, dh), th.color("fg"));
+                }
+                (Cover::Game(_) | Cover::Console(_), None) => {
+                    // no picture: the system's abbreviation, 2 em bold
+                    let s = match cover {
+                        Cover::Game(r) => r.sys,
+                        Cover::Console(s) => s,
+                        Cover::None => unreachable!(),
+                    };
+                    let abbr = self.lib.systems[s].abbr.clone();
+                    c.text_bold(&abbr, cx.round() as i32, (cy - ef(1.0) * 1.172).round() as i32, ef(2.0), th.color("fg"), Align::Center, aw as i32);
+                }
+                _ => {}
             }
+            bx += cover_w + pad;
         }
-        r
+        let bw = sx + sw - pad - bx;
+        let by = sy + pad + (inner_h - body_h).max(0.0) / 2.0;
+        c.text_bold(title, bx.round() as i32, by.round() as i32, ef(1.75), th.color("fg"), Align::Left, bw as i32);
+        c.text(sub, bx.round() as i32, (by + ef(2.1875)).round() as i32, ef(1.2), th.color("muted"), Align::Left, bw as i32);
+        // more rows than room: the list scrolls to keep the focus in sight
+        let visible = (((inner_h - head) / row_h) as usize).max(1);
+        let first = focus.saturating_sub(visible - 1);
+        let (lpx, vpx) = (ef(1.25), ef(1.0625));
+        for (i, row) in rows.iter().enumerate().skip(first).take(visible) {
+            let rr = r_(bx, by + head + (i - first) as f32 * row_h, bw, row_h);
+            let sel = i == focus;
+            if sel {
+                c.fill(rr, rr.h / 2, th.color("sel_bg"));
+            }
+            let fg = if sel { th.color("sel_fg") } else { th.color("fg") };
+            let fg = if row.enabled { fg } else { fade(fg, 0.4) };
+            let vx = rr.right() - ef(1.0).round() as i32;
+            let vy = rr.y + ef(0.6).round() as i32;
+            // the value: its text (with ‹ › only on the focused row of a cycling one) or a star
+            let vw = match &row.value {
+                SheetValue::None => 0,
+                SheetValue::Text(v) | SheetValue::Own(v) => {
+                    let own = matches!(row.value, SheetValue::Own(_)) && !sel;
+                    let shown = if row.cycle && sel { format!("‹ {v} ›") } else { v.clone() };
+                    let col = if own { th.color("accent") } else if sel { fg } else { fade(fg, 0.85) };
+                    let col = if row.enabled { col } else { fade(th.color("fg"), 0.4) };
+                    if own {
+                        let tw = c.text_width_bold(&shown, vpx);
+                        c.text_bold(&shown, vx, vy, vpx, col, Align::Right, tw + 1)
+                    } else {
+                        let tw = c.text_width(&shown, vpx);
+                        c.text(&shown, vx, vy, vpx, col, Align::Right, tw + 1)
+                    }
+                }
+                SheetValue::Star(on) => {
+                    let key = if *on { "@star" } else { "@star_o" };
+                    let d = (vpx * 0.95).round() as i32;
+                    if let Some((t, _)) = self.symbol(c, key) {
+                        let col = if sel { fg } else if *on { th.color("accent") } else { fade(fg, 0.85) };
+                        c.draw_mask(t, Rect::new(vx - d, vy + ((vpx * 1.172 - d as f32) / 2.0).round() as i32, d, d), col);
+                    }
+                    d
+                }
+            };
+            let gap = if vw > 0 { ef(0.8).round() as i32 } else { 0 };
+            c.text(&row.label, rr.x + ef(1.0).round() as i32, rr.y + ef(0.475).round() as i32, lpx, fg, Align::Left, rr.w - 2 * ef(1.0).round() as i32 - vw - gap);
+        }
     }
 
-    fn row_value(&self, sys: usize, game: Option<GameRef>, row: Row) -> String {
-        let layer = self.layer(sys, game);
-        let eff = self.effective(sys, game);
-        let own = self.row_current(&layer, row).is_some();
-        let v = match row {
+    /// The label of an effective option value (what the game runs with).
+    fn option_label(&self, eff: &lume_core::options::Effective, row: Row) -> String {
+        match row {
             Row::Emulator => launch::emulator_label(&eff.emulator),
             Row::Aspect => match eff.aspect.as_deref() {
-                None => self.tr("default"),
-                Some("core") => self.tr("aspect_core"),
+                None | Some("core") => self.tr("aspect_core"),
                 Some("square") => self.tr("aspect_square"),
                 Some("full") => self.tr("aspect_full"),
                 Some(a) => a.to_string(),
             },
             Row::Shader => match eff.shader.as_deref() {
-                None => self.tr("default"),
-                Some("") => self.tr("shader_none"),
+                None | Some("") => self.tr("shader_none"),
                 Some(s) => std::path::Path::new(s).file_stem().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default(),
             },
             _ => String::new(),
-        };
-        if own || row != Row::Emulator {
-            format!("‹{v} ›")
+        }
+    }
+
+    /// The value of an option row: the sheet's own value (the game's, or the console's in the
+    /// console options) highlighted; a game without one shows "Default (effective value)";
+    /// the console options show the catalog's value plainly.
+    fn row_value(&self, sys: usize, game: Option<GameRef>, row: Row) -> SheetValue {
+        let layer = self.layer(sys, game);
+        let v = self.option_label(&self.effective(sys, game), row);
+        if self.row_current(&layer, row).is_some() {
+            SheetValue::Own(v)
+        } else if game.is_some() {
+            SheetValue::Text(format!("{} ({v})", self.tr("default")))
         } else {
-            format!("‹{v} · {} ›", self.tr("default"))
+            SheetValue::Text(v)
         }
     }
 
@@ -1787,40 +2029,56 @@ impl<S: SystemAdapter> App<S> {
                 let rows = self.menu_rows(*sys, *game, *sub);
                 let mut out = Vec::new();
                 for row in &rows {
+                    let plain = |label: String| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false };
                     out.push(match row {
-                        Row::Start => (self.tr("start"), String::new(), true),
-                        Row::Settings => (self.tr("settings"), String::new(), true),
+                        Row::Start => plain(self.tr("start")),
+                        Row::Settings => plain(self.tr("settings")),
                         Row::StartState => {
+                            // states belong to a core: say so when they are in another one
                             let s = self.slots(game.unwrap());
                             let v = if !s.usable.is_empty() {
-                                s.usable.len().to_string()
+                                SheetValue::None
                             } else if s.other_core > 0 {
-                                self.texts.n("other_core", s.other_core)
+                                SheetValue::Text(self.texts.n("other_core", s.other_core))
                             } else {
-                                self.tr("no_states")
+                                SheetValue::Text(self.tr("no_states"))
                             };
-                            (self.tr("start_state"), v, !s.usable.is_empty())
+                            SheetRow { label: self.tr("start_state"), value: v, enabled: !s.usable.is_empty(), cycle: false }
                         }
-                        Row::Emulator => (self.tr("emulator"), self.row_value(*sys, *game, *row), true),
-                        Row::Aspect => (self.tr("aspect"), self.row_value(*sys, *game, *row), true),
-                        Row::Shader => (self.tr("shader"), self.row_value(*sys, *game, *row), true),
-                        Row::Favorite => (self.tr(if self.lib.is_favorite(game.unwrap()) { "fav_del" } else { "fav_add" }), String::new(), true),
-                        Row::ClearGames => (self.tr("clear_games"), String::new(), true),
+                        Row::Emulator | Row::Aspect | Row::Shader => {
+                            let key = match row {
+                                Row::Emulator => "emulator",
+                                Row::Aspect => "aspect",
+                                _ => "shader",
+                            };
+                            SheetRow { label: self.tr(key), value: self.row_value(*sys, *game, *row), enabled: true, cycle: true }
+                        }
+                        Row::Favorite => {
+                            let on = self.lib.is_favorite(game.unwrap());
+                            SheetRow { label: self.tr(if on { "fav_del" } else { "fav_add" }), value: SheetValue::Star(on), enabled: true, cycle: false }
+                        }
+                        Row::ClearGames => {
+                            // how many games of the console have options of their own
+                            let n = self.options.games(&self.lib.systems[*sys].id).len();
+                            SheetRow { label: self.tr("clear_games"), value: SheetValue::Text(n.to_string()), enabled: n > 0, cycle: false }
+                        }
                     });
                 }
-                let title = match game {
-                    Some(g) if *sub => format!("{} · {}", self.lib.name(*g), self.tr("settings")),
-                    Some(g) => self.lib.name(*g).to_string(),
-                    None => format!("{} · {}", self.lib.systems[*sys].name, self.tr("console_options")),
+                let abbr = self.lib.systems[*sys].abbr.clone();
+                let (cover, title, subtitle) = match game {
+                    Some(g) if *sub => (Cover::Game(*g), self.lib.name(*g).to_string(), format!("{abbr} · {}", self.tr("settings"))),
+                    Some(g) => (Cover::Game(*g), self.lib.name(*g).to_string(), abbr),
+                    None => (Cover::Console(*sys), self.lib.systems[*sys].name.clone(), self.tr("console_options")),
                 };
-                self.draw_panel(c, w, h, &out, *focus, &title);
+                self.draw_sheet(c, w, h, cover, &title, &subtitle, &out, *focus);
             }
             Overlay::Slots { game, slots, focus } => self.draw_slots(c, *game, slots, *focus, w, h),
             Overlay::Keyboard { .. } => {}
             Overlay::Confirm { focus } => {
-                let rows = vec![(self.tr("cancel"), String::new(), true), (self.tr("power_off"), String::new(), true)];
-                let title = self.tr("power_ask");
-                self.draw_panel(c, w, h, &rows, *focus, &title);
+                // the safe choice (Cancel) first and focused, as the prototype
+                let rows = [self.tr("cancel"), self.tr("power_off")].map(|label| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false });
+                let (title, sub) = (self.tr("power_off"), self.tr("power_ask"));
+                self.draw_sheet(c, w, h, Cover::None, &title, &sub, &rows, *focus);
             }
         }
     }
@@ -1961,12 +2219,18 @@ impl<S: SystemAdapter> App<S> {
         let visible = (((bottom - top) + (pitch - item_h)) / pitch).max(1.0) as usize;
         let first = focus.saturating_sub(visible - 1);
         let item_px = ef(1.05);
+        // the focus in the panel (D14): the item that owns it keeps a tonal pill (the themes'
+        // `nav_bg` is their `sel_bg`, so the tone is `sel_bg` at 35% over the background)
+        let pf = self.panel_focus.filter(|_| !self.panel_rows(rows[focus]).is_empty());
+        let tonal = th.color("bg").under(Color { a: 89, ..th.color("sel_bg") });
         for (i, row) in rows.iter().enumerate().skip(first).take(visible) {
             let y0 = top + (i - first) as f32 * pitch;
             let r = Rect::new(list.x, y0.round() as i32, list.w, (y0 + item_h).round() as i32 - y0.round() as i32);
-            let sel = i == focus;
+            let sel = i == focus && pf.is_none();
             if sel {
                 c.fill(r, r.h / 2, th.color("sel_bg"));
+            } else if i == focus {
+                c.fill(r, r.h / 2, tonal);
             }
             let (label, _) = self.set_row_texts(*row);
             c.text(&label, r.x + e(0.84), r.y + e(0.21), item_px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Left, r.w - e(1.68));
@@ -1985,21 +2249,22 @@ impl<S: SystemAdapter> App<S> {
         let px = item_px;
         let (pad_x, pad_y) = (e(0.84), e(0.21));
         let mut y = top + ef(2.34);
-        // one line of the panel: a pill when chosen, the text, and a value or a ✓ on the right
-        let line = |me: &mut Self, c: &mut dyn Canvas, y: f32, text: &str, value: Option<&str>, chosen: bool, muted_label: bool| {
+        // one line of the panel: a pill (the focused line, or the chosen option while the
+        // focus is on the list), the text, and a value or a ✓ (`check`) on the right
+        let line = |me: &mut Self, c: &mut dyn Canvas, y: f32, text: &str, value: Option<&str>, pill: bool, check: bool, muted_label: bool| {
             let r = Rect::new(inner.x, y.round() as i32, inner.w, (y + line_h).round() as i32 - y.round() as i32);
-            if chosen {
+            if pill {
                 c.fill(r, r.h / 2, th.color("sel_bg"));
             }
-            let fg = th.color(if chosen { "sel_fg" } else { "fg" });
-            let label_fg = if muted_label && !chosen { th.color("muted") } else { fg };
+            let fg = th.color(if pill { "sel_fg" } else { "fg" });
+            let label_fg = if muted_label && !pill { th.color("muted") } else { fg };
             let ty = r.y + pad_y;
             let vw = value.map_or(0, |v| c.text_width(v, px));
             c.text(text, r.x + pad_x, ty, px, label_fg, Align::Left, r.w - 2 * pad_x - vw - e(0.5));
             if let Some(v) = value {
                 c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, vw + 1);
             }
-            if chosen && value.is_none() {
+            if check && value.is_none() {
                 // the ✓, drawn (the font has none), the text's size
                 if let Some((t, _)) = me.symbol(c, "@check") {
                     let d = (px * 0.8).round() as i32;
@@ -2007,25 +2272,32 @@ impl<S: SystemAdapter> App<S> {
                 }
             }
         };
+        // the pill of line `i`: the focused one in the panel, else (on the list) `fallback`
+        let pill = |i: usize, fallback: bool| pf.map_or(fallback, |f| f == i);
+        // a choice list taller than the panel scrolls to keep the focus (or the chosen one)
+        // in sight, with room left for the note
+        let fit = (((inner.bottom() as f32 - y) / pitch) as usize).saturating_sub(1).max(1);
         let mut note: Option<(&'static str, bool)> = None; // (text key, with the ◀▶ arrows)
         match row {
-            SetRow::Language => {
-                for l in LANGUAGES {
-                    let name = self.tr(match *l {
-                        "pt" => "lang_pt",
-                        "es" => "lang_es",
-                        _ => "lang_en",
-                    });
-                    line(self, c, y, &name, None, *l == self.settings.language, false);
-                    y += pitch;
-                }
-                note = Some(("hint_adjust", true));
-            }
-            SetRow::Theme => {
-                let current = self.themes.chosen(&self.settings.theme).to_string();
-                for id in self.themes.list() {
-                    let name = self.themes.name(&id, &self.settings.language);
-                    line(self, c, y, &name, None, id == current, false);
+            SetRow::Language | SetRow::Theme => {
+                let (names, chosen): (Vec<String>, usize) = if row == SetRow::Language {
+                    let names = LANGUAGES
+                        .iter()
+                        .map(|l| {
+                            self.tr(match *l {
+                                "pt" => "lang_pt",
+                                "es" => "lang_es",
+                                _ => "lang_en",
+                            })
+                        })
+                        .collect();
+                    (names, self.panel_start(row))
+                } else {
+                    (self.themes.list().iter().map(|id| self.themes.name(id, &self.settings.language)).collect(), self.panel_start(row))
+                };
+                let first = pf.unwrap_or(chosen).saturating_sub(fit - 1);
+                for (i, name) in names.iter().enumerate().skip(first).take(fit) {
+                    line(self, c, y, name, None, pill(i, i == chosen), i == chosen, false);
                     y += pitch;
                 }
                 note = Some(("hint_adjust", true));
@@ -2035,7 +2307,7 @@ impl<S: SystemAdapter> App<S> {
                 let key = if row == SetRow::Volume { "volume" } else { "brightness" };
                 let level = self.level.get(key).copied();
                 let value = level.map_or_else(|| "—".to_string(), |v| format!("{v}%"));
-                line(self, c, y, &value, None, false, false);
+                line(self, c, y, &value, None, pill(0, false), false, false);
                 y += pitch;
                 if let Some(v) = level {
                     self.draw_level_bar(c, Rect::new(inner.x, y.round() as i32, inner.w, e(0.5625)), v as u32 * 100);
@@ -2046,20 +2318,20 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Display => {
                 // one option for now: a line with its value, as the label/value lines
                 let value = self.tr(if self.settings.battery_percent { "on" } else { "off" });
-                line(self, c, y, &self.tr("battery_percent"), Some(&value), false, false);
+                line(self, c, y, &self.tr("battery_percent"), Some(&value), pill(0, false), false, false);
                 y += pitch;
                 note = Some(("hint_adjust", true));
             }
             SetRow::Wifi | SetRow::Bluetooth => {
                 let (_, value) = self.set_row_texts(row);
-                line(self, c, y, &self.tr("status"), Some(&value), false, true);
+                line(self, c, y, &self.tr("status"), Some(&value), false, false, true);
                 y += pitch;
             }
             SetRow::System => {
                 let info = self.info.as_ref().map(|(_, i)| i.clone()).unwrap_or_default();
                 for (k, v) in &info {
                     let label = self.texts.get(k).to_string();
-                    line(self, c, y, &label, Some(v), false, true);
+                    line(self, c, y, &label, Some(v), false, false, true);
                     y += pitch;
                     if *k == "memory" {
                         if let Some(share) = used_share(v) {
@@ -2070,8 +2342,8 @@ impl<S: SystemAdapter> App<S> {
                 }
             }
             SetRow::Games => {
-                // its actions as the panel's lines; one for now, in focus (A runs it)
-                line(self, c, y, &self.tr("update_lists"), Some(""), true, false);
+                // its actions as the panel's lines; one for now (A runs it)
+                line(self, c, y, &self.tr("update_lists"), Some(""), true, false, false);
                 y += pitch;
                 note = Some(("note_update", false));
             }
@@ -2096,12 +2368,27 @@ impl<S: SystemAdapter> App<S> {
             }
             c.text(&self.tr(key), nx, ny, npx, th.color("muted"), Align::Left, inner.right() - nx);
         }
-        let mut hints = vec![(NAV_UD, self.tr("hint_navigate"))];
-        match row {
-            SetRow::Language | SetRow::Theme | SetRow::Display | SetRow::Volume | SetRow::Brightness => hints.push((NAV_LR, self.tr("hint_adjust"))),
-            SetRow::Games => hints.push(("A", self.tr("hint_update"))),
-            SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_open"))),
-            _ => {}
+        // the hints follow the focus: on the list ▲▼ Navigate, A Open (items with a panel to
+        // enter, or an action), B Back; in the panel, those of the focused line
+        let mut hints = Vec::new();
+        let lines = self.panel_rows(row);
+        match pf.and_then(|f| lines.get(f).copied()) {
+            None => {
+                hints.push((NAV_UD, self.tr("hint_navigate")));
+                if !lines.is_empty() || matches!(row, SetRow::RetroArch | SetRow::Power) {
+                    hints.push(("A", self.tr("hint_open")));
+                }
+            }
+            Some(l) => {
+                if lines.len() > 1 {
+                    hints.push((NAV_UD, self.tr("hint_navigate")));
+                }
+                match l {
+                    PanelRow::Choice(_) => hints.push(("A", self.tr("hint_select"))),
+                    PanelRow::Level | PanelRow::Toggle => hints.push((NAV_LR, self.tr("hint_adjust"))),
+                    PanelRow::Action => hints.push(("A", self.tr("hint_update"))),
+                }
+            }
         }
         hints.push(("B", self.tr("hint_back")));
         self.draw_hints(c, w, h, &hints);
@@ -2180,9 +2467,8 @@ pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
     bez(y1, y2, s)
 }
 
-/// A side of the screen for a level line (volume right; brightness left, P-62).
+/// A side of the screen for a level line (volume right; brightness left).
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
 enum Edge {
     Left,
     Right,

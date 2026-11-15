@@ -362,6 +362,55 @@ fn dock_matches_the_prototype_ruler() {
     assert!(canvas.has_text("Navigate") && canvas.has_text("Select"));
 }
 
+#[test]
+fn dock_symbols_have_one_size() {
+    // the star, the gear and the clock: 0.42 of the focused icon each (user's request,
+    // 2026-11-15: the gear and the clock were smaller)
+    let c = card("docksym", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    for item in [DockItem::Favorites, DockItem::Settings, DockItem::Recent] {
+        go_dock(&mut a, item);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        let sel = cv.fills.iter().find(|(r, col)| *col == a.theme.color("icon_sel_bg") && r.w > 100).map(|(r, _)| *r).unwrap();
+        let sym = cv.fills.iter().find(|(r, col)| *col == a.theme.color("icon_sel_fg") && sel.contains(r) && r.w > 40).map(|(r, _)| *r).unwrap();
+        assert!((sym.w as f32 - 172.8 * 0.42).abs() <= 1.0, "{item:?}: {sym:?}");
+    }
+}
+
+#[test]
+fn fn_volume_keys_show_a_white_line_on_the_left() {
+    let c = card("brightbar", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 60, ..Default::default() });
+    // on the Dock: the left edge, white, filled from the bottom; no number
+    assert!(a.handle(Ev::Brightness(65)));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let white = lume_ui::canvas::Color::rgb(255, 255, 255);
+    assert_eq!(a.theme.color("brightness_bar"), white);
+    let level = cv.fills.iter().find(|(r, col)| r.x == 0 && r.w == 5 && *col == white).map(|(r, _)| *r).expect("left line");
+    assert_eq!((level.h, level.bottom()), (480 * 65 / 100, 480));
+    assert!(cv.fills.iter().any(|(r, _)| r.x == 0 && r.w == 5 && r.h == 480), "the track");
+    assert!(!cv.has_text("65%"));
+    // the Dock's icons keep clear of it (5 px line and the 8 px gap)
+    let icons: Vec<_> = cv.fills.iter().filter(|(r, col)| (*col == a.theme.color("icon_bg") || *col == a.theme.color("icon_sel_bg")) && r.w > 40 && r.y < 400).map(|(r, _)| *r).collect();
+    assert!(!icons.is_empty() && icons.iter().all(|r| r.x >= 13), "{icons:?}");
+    // it goes away after its time, like the volume's
+    let wait = a.wait().unwrap();
+    assert!(wait <= lume_ui::app::VOLUME_BAR && wait > Duration::from_millis(1000));
+    a.brightness_bar = a.brightness_bar.map(|(v, _)| (v, Instant::now()));
+    assert!(a.handle(Ev::Tick));
+    assert_eq!((a.brightness_bar, a.wait()), (None, None));
+    // in the Settings: the Brightness panel shows it, no line
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.handle(Ev::Brightness(70));
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Brightness).unwrap();
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("70%") && !cv.fills.iter().any(|(r, col)| r.x == 0 && *col == white));
+}
+
 /// The Settings against the prototype measured in the browser at 640x480 (2026-11-15), Theme
 /// focused: title 22.4 px bold at (22.4, 9), battery ending at 617.6; the list from (16, 44.1),
 /// 255.4 wide, items 26.7 tall every 28.3, text 16.8 px at +13.44/+3.36; the panel
@@ -477,6 +526,169 @@ fn settings_panel_text_is_one_size_on_every_item() {
 }
 
 #[test]
+fn settings_panel_takes_the_focus() {
+    let c = card("panelfocus", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let vol = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
+    a.settings_focus = vol;
+    // ◀▶ on the list change nothing
+    press(&mut a, Action::Left);
+    press(&mut a, Action::Right);
+    assert_eq!((a.sys.vol, a.panel_focus), (50, Some(0)), "▶ entered the panel, nothing changed");
+    // in the panel: ◀▶ adjust, ▲▼ stay on the one line, the hints are the line's
+    press(&mut a, Action::Right);
+    assert_eq!(a.sys.vol, 55);
+    press(&mut a, Action::Down);
+    assert_eq!(a.panel_focus, Some(0));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("to adjust") && !cv.has_text("Navigate") && !cv.has_text("Open"));
+    // the owner item: a tonal pill, not the focus pill; the panel's line has the focus
+    let sel = a.theme.color("sel_bg");
+    assert!(!cv.fills.iter().any(|(r, col)| *col == sel && r.x < 100), "no focus pill on the list");
+    let line = cv.fills.iter().find(|(r, col)| *col == sel && r.x > 280).map(|(r, _)| *r).expect("focused line");
+    let tonal = cv.fills.iter().find(|(r, col)| r.x == 16 && r.w > 250 && r.h < 30 && *col != sel).map(|(r, _)| *r).expect("owner mark");
+    assert!(tonal.y > 49 && line.y > tonal.y - 300);
+    // B goes back to the same item of the list
+    press(&mut a, Action::B);
+    assert_eq!((a.screen, a.settings_focus, a.panel_focus), (Screen::Settings, vol, None));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Navigate") && cv.has_text("Open"));
+    // a choice list: entering lands on the chosen one; ▲▼ wrap; A picks
+    a.settings_focus = 0; // Language
+    press(&mut a, Action::A);
+    assert_eq!(a.panel_focus, Some(0));
+    press(&mut a, Action::Up);
+    assert_eq!(a.panel_focus, Some(2), "wraps to the last");
+    assert_eq!(a.settings.language, "en", "moving does not pick");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Navigate") && cv.has_text("Select"));
+    press(&mut a, Action::A);
+    assert_eq!(a.settings.language, "es");
+    // items without lines: System is only read, Power off is its own action
+    press(&mut a, Action::B);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::System).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::A);
+    assert_eq!(a.panel_focus, None);
+    // B on the list leaves the Settings
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Dock);
+}
+
+#[test]
+fn settings_panel_focus_matches_the_ruler() {
+    let c = card("panelruler", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let theme = a.set_rows().iter().position(|r| *r == SetRow::Theme).unwrap();
+    a.settings_focus = theme;
+    press(&mut a, Action::A);
+    press(&mut a, Action::Down); // the focus on the second theme, Lume still chosen
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let top = 49.6;
+    // the owner item where the focus pill was (16, top + 28.3, 255.4 x 26.7), tonal
+    let owner = cv.fills.iter().find(|(r, _)| near(r.x, 16.0) && near(r.y, top + 28.3) && near(r.w, 255.4)).map(|(r, col)| (*r, *col)).expect("owner");
+    assert!(near(owner.0.h, 26.7) && owner.1 != a.theme.color("sel_bg"), "{owner:?}");
+    // the focused line: the second option's pill (one pitch under the first)
+    let opt = top + 37.5;
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.y, opt + 28.3) && near(pill.h, 26.7) && near(pill.x, 298.6) && near(pill.w, 311.0), "{pill:?}");
+    // the chosen one keeps its ✓ but no pill; the hints are the line's
+    assert!(cv.has_text("Select") && cv.has_text("Navigate") && cv.has_text("Back"));
+}
+
+#[test]
+fn game_menu_sheet_matches_the_prototype_ruler() {
+    let c = card("sheet", 3, true);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1)); // snes, with covers
+    press(&mut a, Action::A);
+    press(&mut a, Action::A);
+    let name = a.focused_name().unwrap();
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let text = |cv: &FakeCanvas, s: &str| cv.texts.iter().find(|(t, _)| t == s).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+    // the sheet: 576 wide from 32, centered; the cover column 160 wide from 46.4
+    let sheet = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
+    assert!(near(sheet.x, 32.0) && near(sheet.w, 576.0) && (sheet.y + sheet.bottom() - 480).abs() <= 1, "{sheet:?}");
+    let cover = cv.fills.iter().find(|(r, col)| *col == a.theme.color("tile_bg_opaque") && near(r.x, 46.4)).map(|(r, _)| *r).expect("cover column");
+    assert!(near(cover.w, 160.0) && near(cover.y, sheet.y as f32 + 14.4) && near(cover.bottom(), sheet.bottom() as f32 - 14.4), "{cover:?}");
+    // the title 28 px bold, the subtitle (the system) 19.2 px 35 lower
+    // (the grid under the sheet shows the same name above its hints)
+    let title = cv.texts.iter().find(|(t, r)| *t == name && r.x > 200 && r.y < 300).map(|(_, r)| *r).unwrap();
+    assert!(near(title.x, 220.8) && near(title.h, 28.0), "{title:?}");
+    let sub = text(&cv, &a.lib.systems[1].abbr);
+    assert!(near(sub.y, title.y as f32 + 35.0) && near(sub.h, 19.2), "{sub:?}");
+    // the rows 39.2 tall from 70.5 under the title, the label 20 px at (16, 7.6)
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 200 && r.w > 300).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 220.8) && near(pill.w, 372.8) && near(pill.h, 39.2) && near(pill.y, title.y as f32 + 70.5), "{pill:?}");
+    let start = text(&cv, "Start game");
+    assert!(near(start.x, 236.8) && near(start.y, pill.y as f32 + 7.6) && near(start.h, 20.0), "{start:?}");
+    let fav = text(&cv, "Add to favorites");
+    assert!(near(fav.y, pill.y as f32 + 3.0 * 39.2 + 7.6), "{fav:?}");
+    // no states: the row says so, faded
+    assert!(cv.has_text("no save states"));
+    // the Settings submenu: "Default (value)", ‹ › only on the focused row
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text(&format!("{} · Settings", a.lib.systems[1].abbr)));
+    let focused = cv.texts.iter().filter(|(t, _)| t.starts_with("‹ Default (") && t.ends_with(") ›")).count();
+    let others = cv.texts.iter().filter(|(t, _)| t.starts_with("Default (") && !t.contains('‹')).count();
+    assert_eq!((focused, others), (1, 2), "{:?}", cv.texts);
+    assert!(cv.has_text("Default (Core)") && cv.has_text("Default (None)"));
+    // (three rows: the sheet is shorter and centered again)
+    let title = cv.texts.iter().find(|(t, r)| *t == name && r.x > 200 && r.y < 300).map(|(_, r)| *r).unwrap();
+    let value = cv.texts.iter().find(|(t, _)| t.starts_with("‹ Default")).map(|(_, r)| *r).unwrap();
+    assert!(near(value.right(), 593.6 - 16.0) && near(value.h, 17.0) && near(value.y, title.y as f32 + 70.5 + 9.6), "{value:?} {title:?}");
+    // a value of the game's own: plain (no "Default"), and the console options count it
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Right); // Aspect: Default -> the first one
+    press(&mut a, Action::Up); // the focus off it: no arrows
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Default (Core)") && cv.texts.iter().filter(|(t, _)| t.starts_with("Default (")).count() == 1, "{:?}", cv.texts);
+    press(&mut a, Action::B); // the game menu
+    press(&mut a, Action::B); // the grid
+    assert!(!a.overlay_open());
+    press(&mut a, Action::Y);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text(&a.lib.systems[1].name) && cv.has_text("Console options"));
+    assert!(cv.has_text("1") && cv.has_text("Clear game options"));
+    // the console column shows its abbreviation when the theme has no logo
+    assert!(cv.texts.iter().any(|(t, r)| *t == a.lib.systems[1].abbr && r.x < 220));
+}
+
+#[test]
+fn power_off_is_a_sheet_with_cancel_first() {
+    let c = card("powersheet", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Power).unwrap();
+    press(&mut a, Action::A);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("The device will be turned off.") && cv.has_text("Cancel"));
+    // no cover column: the body starts 14.4 inside the sheet
+    let sheet = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
+    let cancel = cv.texts.iter().find(|(t, _)| t == "Cancel").unwrap().1;
+    assert!((cancel.x - (sheet.x + 14 + 16)).abs() <= 1, "{cancel:?}");
+}
+
+#[test]
 fn games_item_holds_update_lists() {
     let c = card("games-item", 3, false);
     let mut a = app(&c, FakeSystem::default());
@@ -492,8 +704,13 @@ fn games_item_holds_update_lists() {
     assert!(list_texts.contains(&"Games".to_string()) && !list_texts.contains(&"Update lists".to_string()), "{list_texts:?}");
     let in_panel = cv.texts.iter().any(|(t, r)| t == "Update lists" && r.x > 280);
     assert!(in_panel, "Update lists is a line of the Games panel");
-    assert!(cv.has_text("A to update") && cv.has_text("Update"));
-    // A on Games starts the update
+    assert!(cv.has_text("A to update") && cv.has_text("Open"));
+    // A on Games enters its panel; A there starts the update
+    press(&mut a, Action::A);
+    assert!(!a.start_update && a.panel_focus == Some(0));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Update") && !cv.has_text("Navigate"), "one line: no ▲▼ hint");
     press(&mut a, Action::A);
     assert!(a.start_update && a.updating.is_some());
 }
@@ -515,6 +732,7 @@ fn display_option_hides_the_battery_percent() {
     assert!(cv.has_text("Display") && cv.has_text("Battery percentage") && cv.has_text("On"));
     // ◀▶ turns it off: no percent, the icon alone ends where the percent ended
     let pct = cv.texts.iter().find(|(t, _)| t == "82%").map(|(_, r)| *r).unwrap();
+    press(&mut a, Action::A); // into the panel
     press(&mut a, Action::Right);
     assert!(!a.settings.battery_percent);
     let mut cv = FakeCanvas::new(640, 480);
@@ -603,6 +821,8 @@ fn default_theme_comes_from_the_image_and_cycles() {
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
     a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Theme).unwrap();
+    press(&mut a, Action::Right); // into the panel, on the chosen theme
+    assert_eq!(a.settings.theme, "", "entering changes nothing");
     press(&mut a, Action::Right);
     assert_eq!(a.settings.theme, "material-dark");
     assert_eq!(a.theme.id, "material-dark");
@@ -784,12 +1004,14 @@ fn settings_adapters_language_and_power() {
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
     assert_eq!(a.screen, Screen::Settings);
-    // Language: en -> pt -> es; RetroArch gets user_language 3 (Spanish)
+    // Language: ▶ enters the panel, then en -> pt -> es; RetroArch gets user_language 3
+    press(&mut a, Action::Right);
     press(&mut a, Action::Right);
     press(&mut a, Action::Right);
     assert_eq!(a.settings.language, "es");
     let ra = fs::read_to_string(c.root.join("home/.config/retroarch/retroarch.cfg")).unwrap();
     assert_eq!(ra, "user_language = \"3\"\n");
+    press(&mut a, Action::B);
     // no text of the Settings is cut at 640x480 in Spanish (every row, System panel too)
     let mut canvas = FakeCanvas::new(640, 480);
     for _ in 0..a.set_rows().len() {
@@ -809,8 +1031,10 @@ fn settings_adapters_language_and_power() {
     assert_eq!(a.sys.info_reads.get(), reads);
     // Volume in steps of 5
     a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
+    press(&mut a, Action::Right);
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 45);
+    press(&mut a, Action::B);
     // Power off: Cancel first
     a.settings_focus = a.set_rows().len() - 1;
     press(&mut a, Action::A);
@@ -1000,6 +1224,7 @@ fn volume_keys_show_a_bar_or_the_settings_percent() {
     assert!(canvas.has_text("100%"), "the Volume panel shows it");
     assert!(!canvas.fills.iter().any(|(r, col)| r.x > 620 && r.h >= 100 && *col == a.theme.color("accent")), "no volume bar in the Settings");
     // and the next step of the row starts from there
+    press(&mut a, Action::A);
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 95);
 }

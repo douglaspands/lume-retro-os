@@ -12,6 +12,8 @@ fg = "#f0f0f0"
 muted = "#9aa0aa"
 accent = "#4cc2ff"
 accent_fg = "#001018"
+# the brightness line on the left edge (Fn + volume keys); the volume one is the accent
+brightness_bar = "#ffffff"
 overlay = "#000000aa"
 radius_icon = 1.4
 radius_tile = 0.5

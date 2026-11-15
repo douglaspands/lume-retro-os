@@ -51,6 +51,22 @@ pub fn star(n: u32) -> Vec<u8> {
     mask(n, |x, y| in_polygon(x, y, &pts))
 }
 
+/// The same star as an outline (☆, the game menu's "not a favorite"): the star minus a
+/// smaller one around the same center.
+pub fn star_outline(n: u32) -> Vec<u8> {
+    let pts = |k: f32| -> Vec<(f32, f32)> {
+        (0..10)
+            .map(|i| {
+                let r = k * if i % 2 == 0 { 1.0 } else { 0.382 };
+                let a = -PI / 2.0 + i as f32 * PI / 5.0;
+                (r * a.cos(), 0.1 + r * a.sin())
+            })
+            .collect()
+    };
+    let (outer, inner) = (pts(1.0), pts(0.62));
+    mask(n, |x, y| in_polygon(x, y, &outer) && !in_polygon(x, y, &inner))
+}
+
 /// A gear: eight teeth around a ring, with a hole in the middle.
 pub fn gear(n: u32) -> Vec<u8> {
     mask(n, |x, y| {

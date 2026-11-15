@@ -351,10 +351,11 @@ phase_lume() {
 	EOF
 	sync -f "$PORTS"
 
-	# Settings -> Update game lists (two rows above Shut down, the last one)
+	# Settings -> Games (two rows above Shut down, the last one): A enters its panel, A again
+	# runs Update lists (lume-launcher D14)
 	check lume-new-game-unlisted '! grep -q "$quick" "$PORTS/gamelist.xml" 2>/dev/null'
 	lume_open screen=settings settings=99
-	keys up up x
+	keys up up x x
 	check lume-update-lists 'wait_for 60 "grep -q \"$quick\" \"$PORTS/gamelist.xml\" && grep -q \"$stubborn\" \"$PORTS/gamelist.xml\""' "$(grep -c "<game>" "$PORTS/gamelist.xml" 2>/dev/null) games in ports"
 	sleep 2  # lume-index bumps GEN last
 

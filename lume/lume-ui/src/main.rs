@@ -99,14 +99,30 @@ fn main() -> ExitCode {
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
         let _ = t.send(Ev::Input(a, rep));
     }));
-    // volume keys: r36os-input applies them and tells its socket clients; the level is read
-    // here with the same mixer as the Settings
-    if let Some(mixer) = lume_ui::system::this_board_mixer() {
+    // volume keys (and Fn + volume keys, the brightness): r36os-input applies them and tells
+    // its socket clients; the level is read here as the Settings read it
+    {
+        use lume_ui::input::Level;
+        use lume_ui::system::SystemAdapter;
+        let mixer = lume_ui::system::this_board_mixer();
+        let backlight = RealSystem::new();
         let t = tx.clone();
         let sock = std::env::var_os("LUME_INPUT_SOCK").map(std::path::PathBuf::from).unwrap_or_else(|| lume_ui::input::INPUT_SOCK.into());
-        std::thread::spawn(move || lume_ui::input::watch_volume(&sock, || mixer.level(), move |v| {
-            let _ = t.send(Ev::Volume(v));
-        }));
+        std::thread::spawn(move || {
+            lume_ui::input::watch_levels(
+                &sock,
+                |k| match k {
+                    Level::Volume => mixer.as_ref().and_then(|m| m.level()),
+                    Level::Brightness => backlight.brightness(),
+                },
+                move |k, v| {
+                    let _ = t.send(match k {
+                        Level::Volume => Ev::Volume(v),
+                        Level::Brightness => Ev::Brightness(v),
+                    });
+                },
+            )
+        });
     }
     // the status bar: Wi-Fi and Bluetooth every 5 s (a connection shows soon), the battery
     // every 30 s; a few sysfs reads, no process, an event only when something changes (the

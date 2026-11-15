@@ -313,9 +313,17 @@ fn connect_seqpacket(path: &std::path::Path) -> Option<OwnedFd> {
     (unsafe { libc::connect(fd.as_raw_fd(), (&addr as *const libc::sockaddr_un).cast(), len) } == 0).then_some(fd)
 }
 
-/// Reads the messages of one connection until the daemon closes it: on each "volume",
-/// `level` reads the mixer and `send` gets the result.
-pub fn serve_volume(fd: &OwnedFd, level: &mut impl FnMut() -> Option<u8>, send: &mut impl FnMut(u8)) {
+/// A level the input daemon changed: the volume (volume keys) or the screen brightness
+/// (Fn + volume keys).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    Volume,
+    Brightness,
+}
+
+/// Reads the messages of one connection until the daemon closes it: on each "volume" or
+/// "brightness", `level` reads that level and `send` gets the result.
+pub fn serve_levels(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, send: &mut impl FnMut(Level, u8)) {
     let mut buf = [0u8; 64];
     loop {
         let n = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
@@ -325,21 +333,24 @@ pub fn serve_volume(fd: &OwnedFd, level: &mut impl FnMut() -> Option<u8>, send: 
         if n <= 0 {
             return;
         }
-        if &buf[..n as usize] == b"volume" {
-            if let Some(v) = level() {
-                send(v);
-            }
+        let kind = match &buf[..n as usize] {
+            b"volume" => Level::Volume,
+            b"brightness" => Level::Brightness,
+            _ => continue,
+        };
+        if let Some(v) = level(kind) {
+            send(kind, v);
         }
     }
 }
 
 /// Runs forever on its own thread: stays connected to the input daemon and reports the
-/// volume level after each volume key. The daemon restarts under its service (and is
-/// missing in a test without it): connect again every 2 s.
-pub fn watch_volume(sock: &std::path::Path, mut level: impl FnMut() -> Option<u8>, mut send: impl FnMut(u8)) {
+/// level after each volume key (or Fn + volume key). The daemon restarts under its service
+/// (and is missing in a test without it): connect again every 2 s.
+pub fn watch_levels(sock: &std::path::Path, mut level: impl FnMut(Level) -> Option<u8>, mut send: impl FnMut(Level, u8)) {
     loop {
         if let Some(fd) = connect_seqpacket(sock) {
-            serve_volume(&fd, &mut level, &mut send);
+            serve_levels(&fd, &mut level, &mut send);
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -354,17 +365,17 @@ mod tests {
         let mut fds = [0; 2];
         assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) }, 0);
         let (ours, daemon) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
-        for m in [&b"quit"[..], b"volume", b"other", b"volume"] {
+        for m in [&b"quit"[..], b"volume", b"other", b"brightness", b"volume"] {
             assert_eq!(unsafe { libc::send(daemon.as_raw_fd(), m.as_ptr().cast(), m.len(), 0) }, m.len() as isize);
         }
         drop(daemon); // the daemon went away: serve returns
         let mut reads = 0;
         let mut got = Vec::new();
-        serve_volume(&ours, &mut || {
+        serve_levels(&ours, &mut |_| {
             reads += 1;
             Some(40 + reads * 5)
-        }, &mut |v| got.push(v));
-        assert_eq!(got, [45, 50]);
+        }, &mut |k, v| got.push((k, v)));
+        assert_eq!(got, [(Level::Volume, 45), (Level::Brightness, 50), (Level::Volume, 55)]);
     }
 
     #[test]
