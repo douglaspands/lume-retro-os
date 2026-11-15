@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=111
+pkgrel=112
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -24,6 +24,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0007-config-autosave.patch
 	0009-network-commands-on-localhost.patch
 	0010-quit-label-follows-the-frontend.patch
+	0011-lume-level-line.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -109,4 +110,5 @@ b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2
 898468d28e727b30b3f41824a04304b425c46a9c8447e6eb4eb3f9c36959489ab11ca52507c82e7b8831a0ec55b41af732fc54dd68d42cf730e1282be45c8e6e  0007-config-autosave.patch
 97f113ef47b44011260a094a56dc2d82042441294bae32aa4caa6a603d16ffe3470c8b26f24126fd3d1612d4126b1c6bdc7886253cdd486e8bd649f51f879551  0009-network-commands-on-localhost.patch
 46fc6f310072556940c3fefb43923d350904d76a90253538c1f5eecad2ec5cb0b453e98a45a5ef8c33ed889ab1bd04326d042520220a1d5e23e548d5e8f3dc3c  0010-quit-label-follows-the-frontend.patch
+a8af2aa6cb5b03e4ce2b79a7c79a163dfde2435b314b474e8f4bdca26f3011a206090c88d00865b10de2f2fcebac005b94c3361d16cc04d50f896dabe3596dfd  0011-lume-level-line.patch
 "

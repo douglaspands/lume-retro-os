@@ -18,11 +18,12 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
-           "0010-quit-label-follows-the-frontend.patch"]
+           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
-           "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c"]
+           "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c",
+           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -124,6 +125,12 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert 'getenv("LUME_RETROARCH_QUIT")' in msg
     assert msg.index("lume_quit_returns_to_launcher())") < msg.index("#ifdef HAVE_LANGEXTRA\n   switch")
     assert "settings->bools.quit_press_twice && !lume_quit_returns_to_launcher()" in quit_fn
+    # 0011: LUME_LEVEL draws the launcher's level line, a registered graphics widget
+    assert '{ "LUME_LEVEL",       command_lume_level,' in (tmp_path / "command.h").read_text()
+    assert "gfx_widget_lume_level_show(string_is_equal(side, \"left\"), percent, rgb);" in command
+    assert "&gfx_widget_lume_level," in (tmp_path / "gfx/gfx_widgets.c").read_text()
+    assert "extern const gfx_widget_t gfx_widget_lume_level;" in (tmp_path / "gfx/gfx_widgets.h").read_text()
+    assert "#define LUME_LEVEL_DURATION 1500" in widget
 
 
 def test_quit_label_patch_keeps_the_three_languages():

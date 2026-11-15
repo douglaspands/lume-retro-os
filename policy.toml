@@ -357,6 +357,11 @@ base_url = "https://raw.githubusercontent.com/ROCKNIX/distribution/{version}/{pa
 [upstream.umtprd]
 base_url = "https://raw.githubusercontent.com/viveris/uMTP-Responder/{version}/{path}"
 
+# RetroArch, the version of aports/retroarch (version = tag, e.g. v1.22.2): network
+# commands, config overrides and shader preset order (lume-launcher D7, D17).
+[upstream.retroarch]
+base_url = "https://raw.githubusercontent.com/libretro/RetroArch/{version}/{path}"
+
 # ctx:section recall
 # Memória local entre sessões (`ctx recall`, `ctx fact`). Nada sai da máquina; `paths.deny` é respeitado.
 # [recall]

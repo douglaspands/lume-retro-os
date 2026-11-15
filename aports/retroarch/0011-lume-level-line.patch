@@ -1,0 +1,200 @@
+From: Lume Retro OS
+Subject: [PATCH] gfx_widgets: LUME_LEVEL draws the launcher's level line
+
+r36os-input changes the system mixer (volume keys) and the backlight
+(Fn + volume keys) without RetroArch knowing, so a game showed nothing. The
+new network command "LUME_LEVEL <left|right> <percent> <rrggbb>" draws the
+lume launcher's level line over the game: a thin line along the left
+(brightness) or right (volume) edge, a faint track the full height filled
+from the bottom in the given color, gone 1.5 s after the last command. It is
+a graphics widget (gfx_widget_lume_level, kept in gfx_widget_volume.c so the
+build files do not change). The command channel listens on 127.0.0.1 only
+(patch 0009).
+
+--- a/command.c
++++ b/command.c
+@@ -737,6 +737,22 @@
+     return true;
+ }
+ 
++/* Lume: "LUME_LEVEL <left|right> <percent> <rrggbb>", sent by r36os-input
++ * after a volume (right) or brightness (left) key: the launcher's level line
++ * over the game. Without graphics widgets it does nothing. */
++bool command_lume_level(command_t *cmd, const char* arg)
++{
++#if defined(HAVE_GFX_WIDGETS)
++   char side[8];
++   unsigned percent = 0, rgb = 0;
++   if (sscanf(arg, "%7s %u %x", side, &percent, &rgb) != 3)
++      return false;
++   if (gfx_widgets_ready())
++      gfx_widget_lume_level_show(string_is_equal(side, "left"), percent, rgb);
++#endif
++   return true;
++}
++
+ 
+ bool command_load_state_slot(command_t *cmd, const char *arg)
+ {
+--- a/command.h
++++ b/command.h
+@@ -426,6 +426,7 @@
+ bool command_get_status(command_t *cmd, const char* arg);
+ bool command_get_config_param(command_t *cmd, const char* arg);
+ bool command_show_osd_msg(command_t *cmd, const char* arg);
++bool command_lume_level(command_t *cmd, const char* arg);
+ bool command_load_state_slot(command_t *cmd, const char* arg);
+ bool command_play_replay_slot(command_t *cmd, const char* arg);
+ bool command_seek_replay(command_t *cmd, const char *arg);
+@@ -447,6 +448,7 @@
+    { "GET_STATUS",       command_get_status,       "No argument" },
+    { "GET_CONFIG_PARAM", command_get_config_param, "<param name>" },
+    { "SHOW_MSG",         command_show_osd_msg,     "No argument" },
++   { "LUME_LEVEL",       command_lume_level,       "<left|right> <percent> <rrggbb>" },
+ #if defined(HAVE_CHEEVOS)
+    /* These functions use achievement addresses and only work if a game with achievements is
+     * loaded. READ_CORE_MEMORY and WRITE_CORE_MEMORY are preferred and use system addresses. */
+--- a/gfx/gfx_widgets.c
++++ b/gfx/gfx_widgets.c
+@@ -57,6 +57,7 @@
+    &gfx_widget_screenshot,
+ #endif
+    &gfx_widget_volume,
++   &gfx_widget_lume_level,
+ #ifdef HAVE_CHEEVOS
+    &gfx_widget_achievement_popup,
+    &gfx_widget_leaderboard_display,
+--- a/gfx/gfx_widgets.h
++++ b/gfx/gfx_widgets.h
+@@ -369,6 +369,9 @@
+ void gfx_widget_volume_update_and_show(float new_volume,
+       bool mute);
+ 
++/* Lume: a level line on the left or right edge (percent 0-100, rgb 0xrrggbb) */
++void gfx_widget_lume_level_show(bool left, unsigned percent, unsigned rgb);
++
+ void gfx_widgets_iterate(
+       void *data_disp,
+       void *settings_data,
+@@ -424,6 +427,7 @@
+ 
+ extern const gfx_widget_t gfx_widget_screenshot;
+ extern const gfx_widget_t gfx_widget_volume;
++extern const gfx_widget_t gfx_widget_lume_level;
+ extern const gfx_widget_t gfx_widget_generic_message;
+ extern const gfx_widget_t gfx_widget_libretro_message;
+ extern const gfx_widget_t gfx_widget_progress_message;
+--- a/gfx/widgets/gfx_widget_volume.c
++++ b/gfx/widgets/gfx_widget_volume.c
+@@ -385,3 +385,111 @@
+    NULL, /* iterate */
+    gfx_widget_volume_frame
+ };
++
++/* Lume: a level as a thin line along one edge of the screen, the
++ * launcher's volume and brightness lines (lume-launcher 8.9). The system
++ * mixer and the backlight are changed by r36os-input, which asks for the
++ * line with the LUME_LEVEL network command. A faint track the full height,
++ * filled from the bottom; gone 1.5 s after the last request. */
++#define LUME_LEVEL_DURATION 1500
++
++struct gfx_widget_lume_level_state
++{
++   float track[16];
++   float fill[16];
++   float percent;
++   float timer;
++   bool left;
++   bool visible;
++};
++
++static struct gfx_widget_lume_level_state p_w_lume_level_st;
++
++static void gfx_widget_lume_level_color(float *c, unsigned rgb, float a)
++{
++   int i;
++   for (i = 0; i < 4; i++)
++   {
++      c[i * 4 + 0] = ((rgb >> 16) & 0xff) / 255.0f;
++      c[i * 4 + 1] = ((rgb >> 8) & 0xff) / 255.0f;
++      c[i * 4 + 2] = (rgb & 0xff) / 255.0f;
++      c[i * 4 + 3] = a;
++   }
++}
++
++static void gfx_widget_lume_level_frame(void* data, void *user_data)
++{
++   struct gfx_widget_lume_level_state *state = &p_w_lume_level_st;
++   video_frame_info_t *video_info;
++   gfx_display_t *p_disp;
++   unsigned video_width, video_height, line_w, filled, x;
++
++   if (!state->visible)
++      return;
++   video_info   = (video_frame_info_t*)data;
++   p_disp       = (gfx_display_t*)video_info->disp_userdata;
++   video_width  = video_info->width;
++   video_height = video_info->height;
++   /* 5 px at 640 wide, never thinner than 3 */
++   line_w       = video_width / 128;
++   if (line_w < 3)
++      line_w = 3;
++   x            = state->left ? 0 : video_width - line_w;
++   filled       = (unsigned)(video_height * state->percent + 0.5f);
++   if (filled > video_height)
++      filled = video_height;
++
++   gfx_display_draw_quad(p_disp, video_info->userdata,
++         video_width, video_height,
++         x, 0, line_w, video_height,
++         video_width, video_height,
++         state->track, NULL);
++   if (filled)
++      gfx_display_draw_quad(p_disp, video_info->userdata,
++            video_width, video_height,
++            x, video_height - filled, line_w, filled,
++            video_width, video_height,
++            state->fill, NULL);
++}
++
++static void gfx_widget_lume_level_timer_end(void *userdata)
++{
++   p_w_lume_level_st.visible = false;
++}
++
++void gfx_widget_lume_level_show(bool left, unsigned percent, unsigned rgb)
++{
++   gfx_timer_ctx_entry_t entry;
++   struct gfx_widget_lume_level_state *state = &p_w_lume_level_st;
++
++   if (percent > 100)
++      percent = 100;
++   /* the track: the launcher's muted gray at 30% */
++   gfx_widget_lume_level_color(state->track, 0x9aa0aa, 0.3f);
++   gfx_widget_lume_level_color(state->fill, rgb, 1.0f);
++   state->percent = percent / 100.0f;
++   state->left    = left;
++   state->visible = true;
++
++   entry.cb       = gfx_widget_lume_level_timer_end;
++   entry.duration = LUME_LEVEL_DURATION;
++   entry.userdata = NULL;
++   gfx_animation_timer_start(&state->timer, &entry);
++}
++
++static void gfx_widget_lume_level_free(void)
++{
++   uintptr_t tag = (uintptr_t)&p_w_lume_level_st.timer;
++   gfx_animation_kill_by_tag(&tag);
++   p_w_lume_level_st.visible = false;
++}
++
++const gfx_widget_t gfx_widget_lume_level = {
++   NULL, /* init */
++   gfx_widget_lume_level_free,
++   NULL, /* context_reset */
++   NULL, /* context_destroy */
++   NULL, /* layout */
++   NULL, /* iterate */
++   gfx_widget_lume_level_frame
++};
