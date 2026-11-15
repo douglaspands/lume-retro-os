@@ -71,12 +71,14 @@ def tools(tmp_path_factory):
 
 # --- fake root ----------------------------------------------------------------------------
 
-def _cand(ident, compat=GA36_COMPAT, priority=0, default=False, rules=None):
+def _cand(ident, compat=GA36_COMPAT, priority=0, default=False, rules=None, panel_id=None):
     node = {"lume,id": fdt.s(ident), "lume,priority": fdt.u32(priority)}
     if default:
         node["lume,default"] = b""
     for name, rows in (rules or {}).items():
         node[name] = fdt.u32(*[v for row in rows for v in row])
+    if panel_id is not None:
+        node["lume,panel-id"] = bytes.fromhex(panel_id)
     return fdt.build(fdt.Node(
         props={"compatible": fdt.s(*compat), "model": fdt.s(ident)},
         children={"lume-select": fdt.Node(props=node),
@@ -111,10 +113,11 @@ class Root:
     def dtb(self, name, data, soc=None):
         (self.path / f"boot/dtbs/{soc or self.soc}/{name}").write_bytes(data)
 
-    def ga36_panels(self, panel2_rules=None, panel2_priority=0):
+    def ga36_panels(self, panel2_rules=None, panel2_priority=0, panel2_id=None):
         self.dtb("sun8i-a33-ga36-mb-v1.2-panel1.dtb", _cand("ga36-panel1", default=True))
         self.dtb("sun8i-a33-ga36-mb-v1.2-panel2.dtb",
-                 _cand("ga36-panel2", priority=panel2_priority, rules=panel2_rules))
+                 _cand("ga36-panel2", priority=panel2_priority, rules=panel2_rules,
+                       panel_id=panel2_id))
 
     def iio(self, addr, name, channels):
         dev = self.path / f"sys/devices/platform/soc/{addr:x}.{name}/iio:device0"
@@ -152,6 +155,23 @@ class Root:
 
     def force(self, text):
         (self.path / "boot/dtbs/force").write_text(text)
+
+    def panel(self, panel_id, dev="1c40000.dsi.0"):
+        """The panel_id a panel driver shows (D15); "" for a panel that did not answer."""
+        d = self.path / f"sys/bus/mipi-dsi/devices/{dev}"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "panel_id").write_text(panel_id + "\n")
+
+    def learned(self, **values):
+        """The learned file of the SoC: write {signature: id}, or read it back."""
+        f = self.path / f"roms/system/etc/dtb-{self.soc}-learned.conf"
+        if values:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("".join(f"panel:{k}={v}\n" for k, v in values.items()))
+            return None
+        if not f.exists():
+            return {}
+        return dict(re.findall(r"^panel:(\w+)=(.*)$", f.read_text(), re.M))
 
     def serial(self, value):
         f = self.path / "sys/devices/soc0/serial_number"
@@ -842,6 +862,129 @@ def test_the_package_builds_with_the_question():
     source = SOURCE.read_text()
     assert re.search(r"#ifndef LUME_CONFIRM\n#define LUME_CONFIRM 1\n#endif", source)
     assert "LUME_CONFIRM" not in APKBUILD
+
+
+# --- 8: signature by the panel ID and learning (D15) ------------------------------------------
+
+def test_panel_id_rule_picks_its_device_tree(tools, root):
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("aabbcc")
+    rc, out, err = run(tools, root)
+    assert "signature: panel id aabbcc (1c40000.dsi.0)" in err
+    assert "probe panel id aabbcc: aabbcc match" in err
+    assert decision(out) == {"selected": "ga36-panel2", "reason": "rule", "kexec": "yes",
+                             "dtb": str(root.path / "tmp/lume-bootsel.dtb")}
+
+
+def test_answering_panel_keeps_and_learns_the_running_tree(tools, root):
+    # another panel answers: the rule of panel 2 does not match, the running tree serves
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("112233")
+    rc, out, err = run(tools, root)
+    assert "probe panel id aabbcc: 112233 no match" in err
+    assert decision(out)["reason"] == "auto" and decision(out)["kexec"] == "no"
+    assert "learned: ga36-panel1 for panel:112233" in err
+    assert root.learned() == {"112233": "ga36-panel1"}
+    # the next boot uses what was learned
+    rc, out, err = run(tools, root)
+    assert decision(out) == {"selected": "ga36-panel1", "reason": "learned", "kexec": "no"}
+
+
+def test_learned_device_tree_is_chosen_for_the_same_signature_only(tools, root):
+    root.ga36_panels()
+    root.learned(aabbcc="ga36-panel2")
+    root.panel("aabbcc")
+    out = run(tools, root)[1]
+    assert decision(out)["selected"] == "ga36-panel2" and decision(out)["reason"] == "learned"
+    root.state(manual="", good="", pending="", bad="")   # the dry run left panel 2 pending
+    root.panel("112233")
+    out = run(tools, root)[1]
+    assert decision(out)["reason"] == "auto"
+
+
+def test_silent_panel_starts_the_search(tools, root, tmp_path):
+    root.ga36_panels()
+    root.panel("")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert "no signature: the panel did not answer its driver" in err
+    assert "selected ga36-panel2 (reason: search)" in err
+    # the running tree did not make the panel answer: it does not serve this device
+    assert root.state()["pending"] == "ga36-panel2" and root.state()["bad"] == "ga36-panel1"
+    assert root.prepared().path("/chosen").strings("lume,dtb-selected") == ["ga36-panel2",
+                                                                           "search"]
+
+
+def test_no_panel_driver_means_no_search(tools, root):
+    # no panel_id anywhere (a kernel without the read, the VM): nothing is tried blind
+    root.ga36_panels()
+    rc, out, err = run(tools, root)
+    assert "no signature: no panel driver shows panel_id" in err
+    assert decision(out)["reason"] == "default"
+
+
+def test_search_learns_the_device_tree_whose_panel_answers(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2")
+    root.after_kexec("ga36-panel2", "search")
+    root.panel("aabbcc")
+    rc, out, err = run(tools, root)
+    assert rc == 0
+    assert "search: ga36-panel2 works, the panel answered" in err
+    assert root.state() == {"manual": "", "good": "ga36-panel2", "pending": "", "bad": ""}
+    assert root.learned() == {"aabbcc": "ga36-panel2"}
+
+
+def test_search_goes_on_when_the_panel_stays_silent(tools, root, tmp_path):
+    root.ga36_panels()
+    root.dtb("sun8i-a33-ga36-mb-v1.2-panel3.dtb", _cand("ga36-panel3"))
+    root.state(pending="ga36-panel2", bad="ga36-panel1")      # as the first start left it
+    root.after_kexec("ga36-panel2", "search")
+    root.panel("")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert "search: ga36-panel2 does not work (the panel did not answer)" in err
+    assert "selected ga36-panel3 (reason: search)" in err
+    assert root.state()["bad"] == "ga36-panel1,ga36-panel2"
+    assert root.state()["pending"] == "ga36-panel3"
+    assert root.learned() == {}
+
+
+def test_search_without_more_device_trees_goes_back(tools, root, tmp_path):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", bad="ga36-panel1")      # as the first start left it
+    root.after_kexec("ga36-panel2", "search")
+    root.panel("")
+    rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
+    assert rc == 10
+    assert "search: no device tree left; selected ga36-panel1 (reason: reverted)" in err
+    assert root.prepared().path("/lume-select").string("lume,id") == "ga36-panel1"
+    # and the search does not start again on the next boots: everything else is bad
+    root.after_kexec("ga36-panel1", "reverted")
+    assert "no switch" in run(tools, root)[2]
+
+
+def test_discarded_device_tree_is_forgotten(tools, root):
+    # learned, then not confirmed in the previous boot: it leaves the learned file
+    root.ga36_panels()
+    root.learned(aabbcc="ga36-panel2")
+    root.state(pending="ga36-panel2")
+    root.panel("aabbcc")
+    rc, out, err = run(tools, root)
+    assert "forgotten: nothing learned for panel:aabbcc any more" in err
+    assert root.learned() == {}
+    assert decision(out)["reason"] == "fallback"
+
+
+def test_choice_confirmed_on_the_screen_is_learned(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", manual="ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    root.after_kexec("ga36-panel2", "manual")
+    root.panel("aabbcc")
+    rc, out, err = run(tools, root)
+    assert "confirmed on screen: ga36-panel2 kept" in err
+    assert root.learned() == {"aabbcc": "ga36-panel2"}
 
 
 def test_confirmed_or_default_trees_never_ask(tools, root):

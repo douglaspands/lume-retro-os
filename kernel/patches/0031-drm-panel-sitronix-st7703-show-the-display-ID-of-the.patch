@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Sun, 15 Nov 2026 20:00:00 -0300
+Subject: [PATCH] drm/panel: sitronix-st7703: show the display ID of the R36S
+ V5 panel in sysfs
+
+The Lume initramfs picks the device tree of the board it runs on
+(boot-dtb-select) and needs something the hardware confirms, not a label.
+The display ID the panel answers (DCS 04h) is such a thing: it differs
+between the panels the R36S clones ship with.
+
+With read_id in the panel description, read the ID once before the init
+sequence, log it ("panel id: fe5202") and show it in the panel_id
+attribute of the DSI device (lowercase hex, empty when the panel did not
+answer). Not every DSI host takes the maximum return packet size, so the
+read is tried either way. Only the R36S V5 panel sets read_id.
+
+diff --git a/drivers/gpu/drm/panel/panel-sitronix-st7703.c b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+index 6456948..34e84c5 100644
+--- a/drivers/gpu/drm/panel/panel-sitronix-st7703.c
++++ b/drivers/gpu/drm/panel/panel-sitronix-st7703.c
+@@ -62,6 +62,10 @@ struct st7703 {
+ 	struct dentry *debugfs;
+ 	const struct st7703_panel_desc *desc;
+ 	enum drm_panel_orientation orientation;
++
++	/* the answer to MIPI_DCS_GET_DISPLAY_ID, shown in sysfs as panel_id */
++	u8 id[3];
++	int id_len;
+ };
+ 
+ struct st7703_panel_desc {
+@@ -81,6 +85,8 @@ struct st7703_panel_desc {
+ 	bool log_state;
+ 	/* wait after exit sleep before display on, in ms (0: the default 120) */
+ 	unsigned int sleep_out_delay_ms;
++	/* read the display ID before the init sequence and show it in sysfs */
++	bool read_id;
+ };
+ 
+ static inline struct st7703 *panel_to_st7703(struct drm_panel *panel)
+@@ -788,6 +794,7 @@ static const struct st7703_panel_desc r36s_v5_desc = {
+ 	.log_state = true,
+ 	/* the factory sequence waits 250 ms after exit sleep (05 fa 01 11) */
+ 	.sleep_out_delay_ms = 250,
++	.read_id = true,
+ };
+ 
+ /*
+@@ -859,11 +866,51 @@ static void st7703_log_state(struct st7703 *ctx, const char *when)
+ 	}
+ }
+ 
++/*
++ * The display ID (DCS 04h) identifies the panel without a guess: the initramfs reads it
++ * from sysfs (panel_id) to pick the device tree of the board it runs on. Read once, before
++ * the init sequence, with the panel awake from the reset.
++ */
++static void st7703_read_id(struct st7703 *ctx)
++{
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int ret;
++
++	if (ctx->id_len)
++		return;
++	/* not every host takes the maximum return size: read anyway */
++	mipi_dsi_set_maximum_return_packet_size(dsi, sizeof(ctx->id));
++	ret = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_DISPLAY_ID, ctx->id, sizeof(ctx->id));
++	if (ret <= 0) {
++		dev_info(ctx->dev, "panel id: no answer (%d)\n", ret);
++		return;
++	}
++	ctx->id_len = ret;
++	dev_info(ctx->dev, "panel id: %*phN\n", ctx->id_len, ctx->id);
++}
++
++static ssize_t panel_id_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct st7703 *ctx = mipi_dsi_get_drvdata(to_mipi_dsi_device(dev));
++
++	return sysfs_emit(buf, "%*phN\n", ctx->id_len, ctx->id);
++}
++static DEVICE_ATTR_RO(panel_id);
++
++static struct attribute *st7703_attrs[] = {
++	&dev_attr_panel_id.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(st7703);
++
+ static int st7703_init_panel(struct st7703 *ctx)
+ {
+ 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
+ 	struct mipi_dsi_multi_context dsi_ctx = {.dsi = dsi};
+ 
++	if (ctx->desc->read_id)
++		st7703_read_id(ctx);
++
+ 	if (ctx->desc->log_state)
+ 		st7703_log_state(ctx, "before-init");
+ 
+@@ -1193,6 +1240,7 @@ static struct mipi_dsi_driver st7703_driver = {
+ 	.driver = {
+ 		.name = DRV_NAME,
+ 		.of_match_table = st7703_of_match,
++		.dev_groups = st7703_groups,
+ 	},
+ };
+ module_mipi_dsi_driver(st7703_driver);

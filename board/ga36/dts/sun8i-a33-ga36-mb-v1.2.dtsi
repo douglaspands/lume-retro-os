@@ -51,6 +51,26 @@
 		reg = <0x40000000 0x20000000>;
 	};
 
+	/*
+	 * Log of the previous start kept in RAM (pstore/ramoops), to see where a kexec dies
+	 * (boot-dtb-select 1.5). 1 MiB at 0x5e000000: far from the kernel at the start of the
+	 * RAM and below the top, where the vendor U-Boot relocates itself; inside the 512 MiB
+	 * of every report of this board. Not a factory value: if the log does not survive a
+	 * warm reset there, the region moves.
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramoops@5e000000 {
+			compatible = "ramoops";
+			reg = <0x5e000000 0x100000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+		};
+	};
+
 	backlight: backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 0 50000 0>;	/* PWM0 em PH0, 20 kHz, não invertido */

@@ -426,6 +426,48 @@ regras (D3, D4). A tabela começa com o R36S V5 (medido) e cresce com medições
 placas; sem assinatura, o DTB só entra pela lista ou pelo `force`. A lista rola e aceita as
 coleções inteiras (dArkOSRE e arkos4clone) mais os DTBs de fábrica e os nativos.
 
+### D15. Assinatura do hardware pelo ID do painel e aprendizado na confirmação
+
+Decisão do usuário (2026-11-15): um cartão para os dois consoles, reconhecendo qualquer
+variante; mais DTBs podem ser acrescentados, e uma variação nova tem de ser reconhecida
+quando o DTB dela é adicionado.
+
+- **Assinatura:** o que o kernel padrão de cada SoC lê sem risco. Começa pelo **ID do
+  painel** (DCS 04h), que cada driver de painel nosso lê uma vez e mostra em
+  `/sys/bus/mipi-dsi/devices/*/panel_id` (hex minúsculo; patches 0031 e 0032). Pode crescer
+  com as sondas do D4 (ADC, GPIO, I2C).
+- **Regra nova `lume,panel-id`** (bytes) no nó `lume-select`: bate quando algum
+  `panel_id` do sysfs é igual. Os DTBs do projeto a declaram com o valor medido.
+- **Aprende sozinho** (usuário, 2026-11-15: "ele precisa aprender sozinho, caso não dê
+  certo, ter a possibilidade de entrar em um menu e escolher o DTB"). O critério automático
+  de que um DTB serve é **o painel responder** ao kernel que subiu com ele (o driver leu o
+  ID: `panel_id` não vazio); com o DTB errado o painel não responde e a tela fica preta.
+  - Assinatura sem regra nem aprendizado que bata: se o painel respondeu com o DTB em uso,
+    ele é aceito e aprendido (motivo `auto`, sem kexec).
+  - Painel sem resposta com o DTB em uso: **busca** pelos candidatos ainda não descartados
+    naquele aparelho, por prioridade; cada um sobe por kexec como `pending` (watchdog do D11)
+    e o segundo início confere sozinho: painel respondeu → `good` e aprendido (motivo
+    `search`); não respondeu → `bad` e kexec para o próximo; sem mais candidatos → volta ao
+    padrão (`reverted`).
+  - O aprendido fica em `ROMS/system/etc/dtb-<soc>-learned.conf` (`assinatura=lume,id`, no
+    cartão, junto do estado do D6) e vale para qualquer aparelho com a mesma assinatura,
+    com o motivo `learned`, abaixo do `force` e da lista e acima das regras. Um DTB que vai
+    para `bad` sai do aprendizado.
+- **Menu como saída:** a lista (tecla segurada ao ligar, D7) continua valendo sempre, para
+  quando a escolha automática não servir (o painel respondeu, mas a imagem está errada, ou
+  dois painéis com o mesmo ID). Uma escolha da lista confirmada na tela (A, D10) também é
+  aprendida para aquela assinatura.
+- **Limite:** o critério só existe para painéis cujo driver lê o ID (os nossos, patches 0031
+  e 0032; o `panel-generic-dsi` do D13 tem de ler também). Sem `panel_id` no kernel do
+  candidato, a busca não pode julgá-lo e ele não é testado sozinho; fica para a lista.
+- **Dedução** (depois): um DTB de outro sistema cujo nó de painel usa um `compatible` que um
+  driver nosso conhece ganha a assinatura desse painel sem precisar da primeira escolha.
+
+**Alternativas descartadas:** só aprender na confirmação manual (exigiria o usuário em toda
+variante nova) e regras só escritas à mão (uma variante nova exigiria mexer no projeto). O
+custo da busca (um kexec por candidato errado, alguns segundos cada) só aparece no primeiro
+boot de uma variante desconhecida.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos

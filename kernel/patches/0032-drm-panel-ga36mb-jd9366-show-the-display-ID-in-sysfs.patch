@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Sun, 15 Nov 2026 20:00:00 -0300
+Subject: [PATCH] drm/panel: ga36mb-jd9366: show the display ID in sysfs
+
+The Lume initramfs picks the device tree of the board it runs on
+(boot-dtb-select): on the GA36-MB the two JD9366 panel variants need
+different device trees, and the display ID the panel answers (DCS 04h) is
+the reading the hardware confirms.
+
+Read the ID once, right after the panel answered the bus check of the
+probe, log it ("panel id: ...") and show it in the panel_id attribute of
+the DSI device (lowercase hex, empty when the panel did not answer). Not
+every DSI host takes the maximum return packet size, so the read is tried
+either way.
+
+diff --git a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+index 65a25aa..4121244 100644
+--- a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
++++ b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+@@ -60,6 +60,9 @@ struct jd9366 {
+ 	bool supply_on;
+ 	bool prepared;
+ 	bool enabled;
++	/* the answer to MIPI_DCS_GET_DISPLAY_ID, shown in sysfs as panel_id */
++	u8 id[3];
++	int id_len;
+ };
+ 
+ /* Panel 1: vendor lcd.ko table (design, appendix C) */
+@@ -342,6 +345,26 @@ static const struct drm_panel_funcs jd9366_funcs = {
+ 	.get_modes = jd9366_get_modes,
+ };
+ 
++/*
++ * The display ID (DCS 04h) identifies the panel without a guess: the initramfs reads it
++ * from sysfs (panel_id) to pick the device tree of the board it runs on. Read once, right
++ * after the panel answered the bus check.
++ */
++static void jd9366_read_id(struct jd9366 *ctx, struct mipi_dsi_device *dsi)
++{
++	int ret;
++
++	/* not every host takes the maximum return size: read anyway */
++	mipi_dsi_set_maximum_return_packet_size(dsi, sizeof(ctx->id));
++	ret = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_DISPLAY_ID, ctx->id, sizeof(ctx->id));
++	if (ret <= 0) {
++		dev_info(ctx->dev, "panel id: no answer (%d)\n", ret);
++		return;
++	}
++	ctx->id_len = ret;
++	dev_info(ctx->dev, "panel id: %*phN\n", ctx->id_len, ctx->id);
++}
++
+ /*
+  * Ask the panel for its power mode before registering it. A panel that never answers
+  * would otherwise be registered and every DCS write would time out, delaying the boot
+@@ -357,14 +380,30 @@ static int jd9366_check_bus(struct jd9366 *ctx, struct mipi_dsi_device *dsi)
+ 		if (ret < 0)
+ 			return ret;
+ 		ret = mipi_dsi_dcs_read(dsi, MIPI_DCS_GET_POWER_MODE, &mode, 1);
+-		if (ret >= 0)
++		if (ret >= 0) {
++			jd9366_read_id(ctx, dsi);
+ 			return 0;
++		}
+ 		jd9366_power_off(ctx);
+ 		msleep(20);
+ 	}
+ 	return ret;
+ }
+ 
++static ssize_t panel_id_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct jd9366 *ctx = mipi_dsi_get_drvdata(to_mipi_dsi_device(dev));
++
++	return sysfs_emit(buf, "%*phN\n", ctx->id_len, ctx->id);
++}
++static DEVICE_ATTR_RO(panel_id);
++
++static struct attribute *jd9366_attrs[] = {
++	&dev_attr_panel_id.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(jd9366);
++
+ static int jd9366_probe(struct mipi_dsi_device *dsi)
+ {
+ 	struct device *dev = &dsi->dev;
+@@ -438,6 +477,7 @@ static struct mipi_dsi_driver jd9366_driver = {
+ 	.driver = {
+ 		.name = "panel-ga36mb-jd9366",
+ 		.of_match_table = jd9366_of_match,
++		.dev_groups = jd9366_groups,
+ 	},
+ };
+ module_mipi_dsi_driver(jd9366_driver);

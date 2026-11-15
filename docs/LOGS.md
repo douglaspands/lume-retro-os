@@ -270,6 +270,11 @@ com o prefixo `lume-bootsel:`:
 | `candidate <id> (<arquivo>) priority <p>, <n> rule(s)\|no rules[, default]` | DTB da pasta aceito como candidato |
 | `ignored <arquivo>: <motivo>` | DTB recusado: inválido, de outro SoC, sem o nó `lume-select` ou com `lume,id` repetido |
 | `probe adc\|gpio\|i2c <endereço> ...: <leitura> (rule ...) match\|no match` | leitura feita por uma regra |
+| `signature: panel id <hex> (<dispositivo DSI>)` | assinatura do aparelho: o ID que o painel respondeu ao driver (D15) |
+| `no signature: the panel did not answer its driver` / `no signature: no panel driver shows panel_id` | painel mudo com o DTB em uso (dispara a busca) / kernel sem a leitura do ID (nada é testado sozinho) |
+| `probe panel id <regra>: <lido> match\|no match` | regra `lume,panel-id` |
+| `learned before: <id> for panel:<hex>` / `learned: <id> for panel:<hex>` / `forgotten: ...` | o que já foi aprendido para essa assinatura / aprendizado novo / um DTB descartado sai do aprendido |
+| `search: <id> does not work (...); discarded on this device` / `search: <id> works, the panel answered` / `search: no device tree left; ...` | busca sozinha (D15): DTB descartado, achado, ou candidatos esgotados |
 | `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
 | `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
 | `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC |
@@ -278,7 +283,7 @@ com o prefixo `lume-bootsel:`:
 | `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
 | `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
 | `list shown ...`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção |
-| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted)` | **o DTB escolhido e o motivo** |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
 | `keeping the running device tree, no kexec` | boot segue sem troca |
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
 | `kexec: <linha>` | o que o `kexec -l` imprimiu (antes só ia para a tela) |
@@ -304,6 +309,10 @@ a confirmação na tela `boot OK device tree confirmed on screen: …`, a do fro
 `boot OK device tree <id> confirmed: the frontend started (no question on the screen)`, e o
 fallback, a falta de resposta e os erros do `lume-bootsel` viram `boot FAIL device tree …`.
 O `hw/boot-<n>.txt` traz o DTB em uso e o arquivo de estado no campo `dt in use`.
+
+O aprendido (D15) fica em `ROMS/system/etc/dtb-<soc>-learned.conf`, uma linha
+`panel:<hex>=<id>` por assinatura, comum a todos os aparelhos do SoC que usam o cartão: vale
+para qualquer aparelho cujo painel responda o mesmo ID.
 
 ## Módulos do kernel no `boot/boot-<n>.log`
 

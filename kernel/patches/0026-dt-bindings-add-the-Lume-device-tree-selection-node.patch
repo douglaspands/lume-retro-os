@@ -14,7 +14,7 @@ new file mode 100644
 index 0000000..708e727
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/misc/lume-select.yaml
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,103 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -94,6 +94,14 @@ index 0000000..708e727
 +        - description: 7-bit device address
 +          maximum: 0x7f
 +
++  lume,panel-id:
++    $ref: /schemas/types.yaml#/definitions/uint8-array
++    minItems: 1
++    maxItems: 16
++    description:
++      Display ID the panel answers (DCS 04h), as its driver reads it and shows it in the
++      panel_id attribute of the DSI device. Matches when a panel answered with these bytes.
++
 +required:
 +  - lume,id
 +  - lume,priority
@@ -108,6 +116,7 @@ index 0000000..708e727
 +        lume,adc = <0x01c22800 0 16 19>;
 +        lume,gpio = <0x01c20800 37 1>;
 +        lume,i2c-present = <0x01c2ac00 0x34>;
++        lume,panel-id = [fe 52 02];
 +    };
 diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
 index a9cf85f..78ae2ad 100644

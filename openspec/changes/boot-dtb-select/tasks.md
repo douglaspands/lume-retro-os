@@ -69,6 +69,14 @@
 - [ ] 7.11 No R36S: o DTB de fábrica dele, convertido, escolhido na lista, sobe com tela, luz de fundo, botões, analógicos, som, bateria e LEDs, e passa pela confirmação na tela. Verificação: log `converted` e `manual`, e anotação no `docs/BRINGUP-R36S.md`.
 - [ ] 7.12 Documentação: README (como usar os DTBs do (d)ArkOS, do arkos4clone e o de fábrica; o que é "compatível por conversão, sem garantia"; a lista de aparelhos fora do alcance e o motivo, conforme o spec `vendor-dtb-compat`; crédito ao ROCKNIX), `docs/BRINGUP-R36S.md` e `docs/LOGS.md` (linhas da conversão); P-43 (eMMC) e P-16 (placas A33/A23) atualizados em `docs/PENDENCIAS.md`.
 
+## 8. Assinatura pelo ID do painel e aprendizado (D15)
+
+- [ ] 8.1 Patches 0031 (`st7703`, R36S V5) e 0032 (`jd9366`, GA36): o ID do painel (DCS 04h) lido uma vez, no log (`panel id: …`) e em `/sys/bus/mipi-dsi/devices/*/panel_id`. Verificação: o kernel compila sem warning nos dois drivers; nos dois aparelhos o arquivo tem o ID e o log mostra a mesma leitura.
+- [ ] 8.2 `lume-bootsel`: regra `lume,panel-id` (bytes) comparada com os `panel_id` do sysfs; binding do nó `lume-select` (patch 0026) com a propriedade. Verificação: pytest com ID que bate, que não bate, sem painel e com dois DSI; `dt-validate` aceita a propriedade.
+- [ ] 8.3 Aprendizado sozinho (D15): assinatura sem regra nem aprendizado → painel respondeu com o DTB em uso: aceito e aprendido (`auto`); sem resposta: busca pelos candidatos por kexec, o segundo início confere o painel (`search` → `good` e aprendido, ou `bad` e o próximo, ou `reverted` ao padrão); a escolha da lista confirmada com A também é aprendida; arquivo `ROMS/system/etc/dtb-<soc>-learned.conf`; motivo `learned` abaixo de `force` e lista e acima das regras; `bad` tira do aprendizado; log e `docs/LOGS.md`. Verificação: pytest (auto, busca que acha no segundo candidato, busca que esgota, aprendido usado no boot seguinte, outro ID não usa, `bad` remove, lista confirmada aprende).
+- [ ] 8.4 DTBs do projeto com `lume,panel-id` medido (R36S V5; painel 1 do GA36, e o painel 2 quando houver um aparelho com ele). Verificação: teste dos DTS confere a regra; no aparelho o motivo é `rule`.
+- [ ] 8.5 No aparelho: R36S escolhe sozinho pelo ID (motivo `rule`) com um DTB de teste de prioridade maior; um DTB novo sem regra escolhido na lista e confirmado com A passa a ser escolhido sozinho no boot seguinte (motivo `learned`). Verificação: logs de boot anotados no `docs/BRINGUP-R36S.md`.
+
 ## Workflow follow-up
 
 - Ao arquivar, mover o P-33 (parte da escolha do DTB) e anotar o P-43 em `docs/PENDENCIAS.md` com o resultado desta change.

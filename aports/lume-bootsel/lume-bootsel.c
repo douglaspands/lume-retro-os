@@ -57,6 +57,7 @@
 #define MAX_CAND 32
 #define MAX_ROWS 8
 #define ID_LEN 64
+#define PANEL_ID_MAX 16 /* bytes of a display ID (D15) */
 #define LIST_LEN 512
 #define MENU_IDLE_MS 60000
 #define KEY_WAIT_MS 1000
@@ -253,6 +254,8 @@ struct cand {
 	size_t size;
 	uint32_t *adc, *gpio, *i2c; /* rows of 4, 3 and 2 cells, host order */
 	int nadc, ngpio, ni2c;
+	char panel_id[2 * PANEL_ID_MAX + 1]; /* lume,panel-id in lowercase hex, D15 */
+	int npanel;
 	int has_rules, matched;
 };
 
@@ -274,6 +277,20 @@ static uint32_t *cells(const void *fdt, int node, const char *name, int width, i
 		out[i] = fdt32_to_cpu(p[i]);
 	*rows = len / (4 * width);
 	return out;
+}
+
+/* a byte property in lowercase hex (lume,panel-id); 1 when present and of a valid size */
+static int hex_prop(const void *fdt, int node, const char *name, char *out, size_t size)
+{
+	int len, i;
+	const uint8_t *p = fdt_getprop(fdt, node, name, &len);
+
+	*out = 0;
+	if (!p || len <= 0 || len > PANEL_ID_MAX || (size_t)(2 * len + 1) > size)
+		return 0;
+	for (i = 0; i < len; i++)
+		snprintf(out + 2 * i, 3, "%02x", p[i]);
+	return 1;
 }
 
 static struct cand *find_cand(const char *name)
@@ -351,13 +368,15 @@ static void load_candidates(void)
 			c->adc = cells(blob, node, "lume,adc", 4, &c->nadc);
 			c->gpio = cells(blob, node, "lume,gpio", 3, &c->ngpio);
 			c->i2c = cells(blob, node, "lume,i2c-present", 2, &c->ni2c);
-			c->has_rules = c->nadc + c->ngpio + c->ni2c > 0;
+			c->npanel = hex_prop(blob, node, "lume,panel-id", c->panel_id,
+					     sizeof(c->panel_id));
+			c->has_rules = c->nadc + c->ngpio + c->ni2c + c->npanel > 0;
 			c->blob = blob;
 			c->size = size;
 			ncand++;
 			if (c->has_rules)
 				lg("candidate %s (%s) priority %u, %d rule(s)%s", c->id, name,
-				   c->priority, c->nadc + c->ngpio + c->ni2c,
+				   c->priority, c->nadc + c->ngpio + c->ni2c + c->npanel,
 				   c->is_default ? ", default" : "");
 			else
 				lg("candidate %s (%s) priority %u, no rules%s", c->id, name,
@@ -578,6 +597,93 @@ static int probe_i2c(const uint32_t *r)
 	return v;
 }
 
+static int list_has(const char *list, const char *id);
+
+/*
+ * The next device tree the search tries (D15): no rule of its own (a tree whose rules do not
+ * match is for other hardware), not discarded on this device and not the running one;
+ * highest priority first, then the order of the folder.
+ */
+static struct cand *next_search(const char *bad)
+{
+	struct cand *best = NULL;
+	int i;
+
+	for (i = 0; i < ncand; i++) {
+		struct cand *c = &cands[i];
+
+		if (c->has_rules || list_has(bad, c->id) || !strcmp(c->id, running_id))
+			continue;
+		if (!best || c->priority > best->priority)
+			best = c;
+	}
+	return best;
+}
+
+/* --- signature of the hardware (D15) ------------------------------------------------- */
+
+/*
+ * What the running kernel read from the hardware without a guess: for now the display ID
+ * of the panel, which the panel drivers show in /sys/bus/mipi-dsi/devices/<dev>/panel_id.
+ * "panel:<hex>", or empty when no panel answered.
+ */
+static char signature[2 * PANEL_ID_MAX + 8];
+/* a panel driver that reads the ID is bound, but the panel did not answer it */
+static int panel_silent;
+
+static int is_hex(const char *s)
+{
+	for (; *s; s++)
+		if (!isxdigit((unsigned char)*s) || isupper((unsigned char)*s))
+			return 0;
+	return 1;
+}
+
+static void load_signature(void)
+{
+	DIR *d = opendir(rp("/sys/bus/mipi-dsi/devices"));
+	struct dirent *e;
+
+	signature[0] = 0;
+	panel_silent = 0;
+	while (d && (e = readdir(d))) {
+		char *text;
+
+		if (e->d_name[0] == '.')
+			continue;
+		text = read_file(rp("/sys/bus/mipi-dsi/devices/%s/panel_id", e->d_name), NULL);
+		if (text) {
+			trim(text);
+			if (*text && strlen(text) <= 2 * PANEL_ID_MAX && is_hex(text)) {
+				snprintf(signature, sizeof(signature), "panel:%s", text);
+				lg("signature: panel id %s (%s)", text, e->d_name);
+			} else {
+				panel_silent = 1;
+			}
+			free(text);
+		}
+		if (*signature)
+			break;
+	}
+	if (d)
+		closedir(d);
+	if (*signature)
+		panel_silent = 0;
+	else if (panel_silent)
+		lg("no signature: the panel did not answer its driver");
+	else
+		lg("no signature: no panel driver shows panel_id");
+}
+
+static int probe_panel(const struct cand *c)
+{
+	int v = *signature && !strcmp(signature + strlen("panel:"), c->panel_id);
+
+	lg("probe panel id %s: %s %s", c->panel_id,
+	   *signature ? signature + strlen("panel:") : "unknown", v ? "match" : "no match");
+	return v;
+}
+
 static int rules_match(struct cand *c)
 {
 	int i, ok = 1;
@@ -588,6 +694,8 @@ static int rules_match(struct cand *c)
 		ok &= probe_gpio(c->gpio + 3 * i);
 	for (i = 0; i < c->ni2c; i++)
 		ok &= probe_i2c(c->i2c + 2 * i);
+	if (c->npanel)
+		ok &= probe_panel(c);
 	return ok;
 }
 
@@ -696,6 +804,88 @@ static void save_state(void)
 		fsync(fd);
 		close(fd);
 	}
+}
+
+/*
+ * What was learned (D15): "<signature>=<lume,id>" lines in dtb-<soc>-learned.conf, shared
+ * by every device of the SoC on this card. learned holds the id for this signature.
+ */
+static char learned[ID_LEN];
+
+static const char *learned_path(void)
+{
+	return rp("%s/system/etc/dtb-%s-learned.conf", opt_roms, soc);
+}
+
+static void load_learned(void)
+{
+	char *text, *l, *save;
+
+	learned[0] = 0;
+	if (!st.persist || !*signature)
+		return;
+	text = read_file(learned_path(), NULL);
+	for (l = text ? strtok_r(text, "\n", &save) : NULL; l; l = strtok_r(NULL, "\n", &save)) {
+		char *eq = strchr(l, '=');
+
+		if (*l == '#' || !eq)
+			continue;
+		*eq++ = 0;
+		trim(l);
+		trim(eq);
+		if (!strcmp(l, signature))
+			copy_str(learned, sizeof(learned), eq);
+	}
+	free(text);
+	if (*learned)
+		lg("learned before: %s for %s", learned, signature);
+}
+
+/* write id for this signature, or remove it when id is empty */
+static void save_learned(const char *id)
+{
+	char tmp[PATH_MAX], path[PATH_MAX], *text, *l, *save;
+	FILE *f;
+
+	if (!st.persist || !*signature)
+		return;
+	snprintf(path, sizeof(path), "%s", learned_path());
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	mkdir(rp("%s/system", opt_roms), 0755);
+	mkdir(rp("%s/system/etc", opt_roms), 0755);
+	text = read_file(path, NULL);
+	f = fopen(tmp, "w");
+	if (!f) {
+		lg("ERROR: cannot write %s: %s", tmp, strerror(errno));
+		free(text);
+		return;
+	}
+	fprintf(f, "# Lume Retro OS: device trees learned for the %s devices: signature=id "
+		   "(lume-bootsel)\n", soc);
+	for (l = text ? strtok_r(text, "\n", &save) : NULL; l; l = strtok_r(NULL, "\n", &save)) {
+		char *eq = strchr(l, '=');
+
+		if (*l == '#' || !eq)
+			continue;
+		if ((size_t)(eq - l) == strlen(signature) && !strncmp(l, signature, eq - l))
+			continue;
+		fprintf(f, "%s\n", l);
+	}
+	if (*id)
+		fprintf(f, "%s=%s\n", signature, id);
+	fflush(f);
+	fsync(fileno(f));
+	fclose(f);
+	free(text);
+	if (rename(tmp, path) < 0) {
+		lg("ERROR: cannot write %s: %s", path, strerror(errno));
+		return;
+	}
+	copy_str(learned, sizeof(learned), id);
+	if (*id)
+		lg("learned: %s for %s", id, signature);
+	else
+		lg("forgotten: nothing learned for %s any more", signature);
 }
 
 /* --- keys and menu (D7) ---------------------------------------------------------------- */
@@ -1440,9 +1630,59 @@ static int second_start(const char *id, const char *reason)
 		wd_open(); /* fed during the question */
 	load_candidates();
 	def = default_cand();
+	load_signature();
+	load_learned();
 	prev = find_cand(st.good);
 	if (!prev || !strcmp(prev->id, id) || list_has(st.bad, prev->id))
 		prev = def;
+
+	/*
+	 * D15, the search checks itself: the panel answered this kernel, so the device tree
+	 * serves this device and is learned; otherwise it is discarded and the next one tried.
+	 */
+	if (!strcmp(reason, "search")) {
+		struct cand *next;
+
+		if (*signature) {
+			lg("search: %s works, the panel answered", id);
+			copy_str(st.good, sizeof(st.good), id);
+			st.pending[0] = 0;
+			save_state();
+			save_learned(id);
+			if (wd)
+				wd_stop();
+			return 0;
+		}
+		lg("search: %s does not work (%s); discarded on this device", id,
+		   panel_silent ? "the panel did not answer" : "no panel driver shows panel_id");
+		list_add(st.bad, sizeof(st.bad), id);
+		st.pending[0] = 0;
+		next = next_search(st.bad);
+		if (next) {
+			copy_str(st.pending, sizeof(st.pending), next->id);
+			save_state();
+			if (wd)
+				wd_stop();
+			lg("selected %s (reason: search)", next->id);
+			r = switch_to(next, "search", 1);
+			if (r < 0) {
+				st.pending[0] = 0;
+				save_state();
+			}
+			return r < 0 ? 0 : r;
+		}
+		save_state();
+		if (wd)
+			wd_stop();
+		if (!prev || !strcmp(prev->id, id)) {
+			lg("search: no device tree left; staying on %s", id);
+			return 0;
+		}
+		lg("search: no device tree left; selected %s (reason: reverted)", prev->id);
+		r = switch_to(prev, "reverted", 1);
+		return r < 0 ? 0 : r;
+	}
+
 	load_keys();
 	answer = prev && strcmp(prev->id, id) ? ask_confirm(id, prev->id) : -1;
 	if (answer < 0) {
@@ -1457,6 +1697,8 @@ static int second_start(const char *id, const char *reason)
 		copy_str(st.good, sizeof(st.good), id);
 		st.pending[0] = 0;
 		save_state();
+		/* D15: a choice confirmed by hand is learned for this signature too */
+		save_learned(id);
 		if (wd)
 			wd_stop();
 		return 0;
@@ -1464,6 +1706,8 @@ static int second_start(const char *id, const char *reason)
 	lg("not confirmed within %d s: %s discarded on this device, going back to %s",
 	   CONFIRM_S, id, prev->id);
 	list_add(st.bad, sizeof(st.bad), id);
+	if (!strcmp(learned, id))
+		save_learned("");
 	if (!strcmp(st.manual, id))
 		st.manual[0] = 0;
 	st.pending[0] = 0;
@@ -1512,7 +1756,7 @@ int main(int argc, char **argv)
 	struct cand *forced = NULL, *autoc = NULL, *chosen = NULL, *def, *fallback = NULL;
 	const char *reason, *target;
 	char *text, kid[ID_LEN], kreason[32];
-	int i, has_fallback = 0, choice = -1, is_new, r;
+	int i, has_fallback = 0, choice = -1, is_new, r, learn_running = 0;
 
 	for (i = 1; i < argc; i++) {
 		const char *a = argv[i];
@@ -1562,12 +1806,16 @@ int main(int argc, char **argv)
 	   *running_id ? running_id : "without lume-select node");
 	load_serial();
 	load_state();
+	load_signature();
+	load_learned();
 
 	/* a device tree that was not confirmed in the previous boot */
 	if (*st.pending) {
 		lg("fallback: %s was not confirmed in the previous boot; discarded",
 		   st.pending);
 		list_add(st.bad, sizeof(st.bad), st.pending);
+		if (!strcmp(learned, st.pending))
+			save_learned("");
 		if (!strcmp(st.manual, st.pending))
 			st.manual[0] = 0;
 		st.pending[0] = 0;
@@ -1647,15 +1895,35 @@ int main(int argc, char **argv)
 	} else if (*st.manual && find_cand(st.manual) && !list_has(st.bad, st.manual)) {
 		chosen = find_cand(st.manual);
 		reason = "manual";
+	} else if (*learned && find_cand(learned) && !list_has(st.bad, learned)) {
+		chosen = find_cand(learned);
+		reason = "learned";
 	} else if (autoc && autoc != def) {
 		chosen = autoc;
 		reason = "rule";
+	} else if (*signature) {
+		/* D15: the panel answered with the running tree, so it serves this device */
+		chosen = find_cand(running_id) ? find_cand(running_id) : def;
+		reason = "auto";
+		learn_running = chosen != NULL;
+	} else if (panel_silent && (chosen = next_search(st.bad))) {
+		/*
+		 * D15: the panel did not answer the running tree, so it does not serve this device;
+		 * try the next device tree, checked after the kexec
+		 */
+		lg("search: %s does not work (the panel did not answer); discarded on this device",
+		   *running_id ? running_id : "the running device tree");
+		if (*running_id)
+			list_add(st.bad, sizeof(st.bad), running_id);
+		reason = "search";
 	} else {
 		chosen = def;
 		reason = "default";
 	}
 	if (*st.manual && !find_cand(st.manual))
 		lg("saved choice %s is not in dtbs/%s; ignored", st.manual, soc);
+	if (*learned && !find_cand(learned))
+		lg("learned %s is not in dtbs/%s; ignored", learned, soc);
 
 	target = chosen ? chosen->id : running_id;
 	lg("selected %s (reason: %s)", *target ? target : "running device tree", reason);
@@ -1663,6 +1931,8 @@ int main(int argc, char **argv)
 	if (!chosen || !strcmp(chosen->id, running_id)) {
 		lg("keeping the running device tree, no kexec");
 		save_state();
+		if (learn_running)
+			save_learned(chosen->id);
 		if (opt_dry_run)
 			printf("selected=%s reason=%s kexec=no\n", target, reason);
 		return 0;
@@ -1673,6 +1943,8 @@ int main(int argc, char **argv)
 	 * pending, the watchdog is armed and the second start asks on the screen.
 	 */
 	is_new = (!def || strcmp(chosen->id, def->id)) && strcmp(chosen->id, st.good);
+	/* the search always checks its candidate after the kexec, the default too */
+	is_new |= !strcmp(reason, "search");
 	if (is_new)
 		copy_str(st.pending, sizeof(st.pending), chosen->id);
 	r = switch_to(chosen, reason, is_new);
