@@ -391,7 +391,10 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   painel das Configurações com o texto num tamanho só (as linhas do painel têm a métrica dos
   itens da lista: 1,669em a cada 1,769em, texto 1,05em; o nível de volume e brilho é uma
   linha "60%" sobre a barra; a nota é mais uma linha, apagada; só o título do painel é
-  maior) e "Atualizar listas" dentro do item Games (uma linha do painel, A atualiza).
+  maior), "Atualizar listas" dentro do item Games (uma linha do painel, A atualiza) e, nas
+  Configurações, a mesma margem em cima e embaixo: a lista e o painel começam 0,894em abaixo
+  da linha do cabeçalho (fim da caixa do título, 35,25 px, onde termina a bateria), o mesmo
+  espaço entre o fim do painel e os botões do rodapé (o protótipo tinha 0,553em em cima).
 
 ### D12. Captura da tela pelo cabo (`r36os-shot`, parte remota do P-57)
 

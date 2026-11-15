@@ -384,31 +384,40 @@ fn settings_match_the_prototype_ruler() {
     let batt = text("82%")[0];
     assert!(near(batt.right(), 612.0) && near(batt.y, 16.0), "battery {batt:?}");
     // the list: Language first, Theme second and focused
+    // the list and the panel from 49.6 (user's request, 2026-11-15: the same 14.3 px under
+    // the header line, 35.25, as between the panel and the hints' chips; the prototype: 44.1)
+    let top = 49.6;
     let sel = canvas.fills.iter().filter(|(r, col)| *col == a.theme.color("sel_bg") && r.x < 100).map(|(r, _)| *r).next().unwrap();
-    assert!(near(sel.x, 16.0) && near(sel.y, 44.1 + 28.3) && near(sel.w, 255.4) && near(sel.h, 26.7), "focused item {sel:?}");
+    assert!(near(sel.x, 16.0) && near(sel.y, top + 28.3) && near(sel.w, 255.4) && near(sel.h, 26.7), "focused item {sel:?}");
     let lang = text("Language")[0];
-    assert!(near(lang.x, 16.0 + 13.44) && near(lang.y, 44.1 + 3.36) && near(lang.h, 16.8), "item text {lang:?}");
+    assert!(near(lang.x, 16.0 + 13.44) && near(lang.y, top + 3.36) && near(lang.h, 16.8), "item text {lang:?}");
     // the panel
     let panel = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 300).map(|(r, _)| *r).unwrap();
-    assert!(near(panel.x, 284.2) && near(panel.y, 44.1) && near(panel.w, 339.8) && near(panel.h, 391.2), "panel {panel:?}");
+    assert!(near(panel.x, 284.2) && near(panel.y, top) && near(panel.w, 339.8) && near(panel.bottom(), 435.3), "panel {panel:?}");
     let ptitle = text("Theme").into_iter().find(|r| r.x > 280).unwrap();
-    assert!(near(ptitle.x, 298.6) && near(ptitle.y, 53.7) && near(ptitle.h, 19.2), "panel title {ptitle:?}");
+    assert!(near(ptitle.x, 298.6) && near(ptitle.y, top + 9.6) && near(ptitle.h, 19.2), "panel title {ptitle:?}");
     // the options are lines like the list's items (user's request: one text size): Lume
-    // chosen (the default), a pill from 81.6, 26.7 tall every 28.3, the text 16.8 px at
-    // +13.44/+3.36, as on the left
+    // chosen (the default), a pill 37.5 under the panel's top, 26.7 tall every 28.3, the
+    // text 16.8 px at +13.44/+3.36, as on the left
+    let opt = top + 37.5;
     let chosen = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
-    assert!(near(chosen.y, 81.6) && near(chosen.h, 26.7) && near(chosen.x, 298.6) && near(chosen.w, 311.0), "chosen {chosen:?}");
+    assert!(near(chosen.y, opt) && near(chosen.h, 26.7) && near(chosen.x, 298.6) && near(chosen.w, 311.0), "chosen {chosen:?}");
     let lume = text("Lume")[0];
-    assert!(near(lume.x, 298.6 + 13.44) && near(lume.y, 81.6 + 3.36) && near(lume.h, 16.8), "option {lume:?}");
+    assert!(near(lume.x, 298.6 + 13.44) && near(lume.y, opt + 3.36) && near(lume.h, 16.8), "option {lume:?}");
     assert_eq!(lume.h, lang.h, "the panel's text is the list's size");
     let dark = text("Dark")[0];
-    assert!(near(dark.y, 81.6 + 28.3 + 3.36), "second option {dark:?}");
+    assert!(near(dark.y, opt + 28.3 + 3.36), "second option {dark:?}");
     // the note: one more line under the three options, the same size
     let note = text("to adjust").into_iter().find(|r| r.x > 280).unwrap();
-    assert!(near(note.y, 81.6 + 3.0 * 28.3 + 3.36) && near(note.h, 16.8), "note {note:?}");
+    assert!(near(note.y, opt + 3.0 * 28.3 + 3.36) && near(note.h, 16.8), "note {note:?}");
     // the hints: ▲▼ Navigate, ◀▶ to adjust, B Back
     let ud = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("nav_bg") && r.y > 440 && r.w > 41).map(|(r, _)| *r).unwrap();
     assert!(near(ud.w, 42.3) && near(ud.y, 449.6), "▲▼ chip {ud:?}");
+    // equal margins: header line (title box) to the panel, the panel to the chips
+    // (the fake canvas gives the text's size as its height; the line is 1.172 of it)
+    let above = panel.y - (title.y as f32 + title.h as f32 * 1.172).round() as i32;
+    let below = ud.y - panel.bottom();
+    assert!((above - below).abs() <= 1, "margins {above} above, {below} below");
     assert!(canvas.has_text("Navigate") && canvas.has_text("Back"));
 }
 

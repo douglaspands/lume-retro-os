@@ -1927,7 +1927,8 @@ impl<S: SystemAdapter> App<S> {
     /// The Settings, measured on the prototype at 640x480 (1 em = 16 px):
     /// - header band 2.656 em: "Settings" 1.4 em bold at (1.4 em, 0.5625 em); the battery
     ///   ending 1.4 em from the right at 0.669 em;
-    /// - the list from (1 em, 2.756 em), 15.96 em wide: items 1.669 em tall every 1.769 em,
+    /// - the list from (1 em, 3.1 em: as far under the header line as the panel ends above
+    ///   the hints, 0.894 em), 15.96 em wide: items 1.669 em tall every 1.769 em,
     ///   the text 1.05 em, 0.84 em in and 0.21 em down; the focused one a `sel_bg` pill;
     /// - the panel from 17.76 em to 1 em from the right edge, down to 0.4 em above the hints,
     ///   `radius_panel`, `panel_bg`, padding 0.6 em on top and 0.9 em on the sides: its title
@@ -1948,9 +1949,13 @@ impl<S: SystemAdapter> App<S> {
         let title_px = ef(1.4);
         let batt_x = self.draw_status_battery(c, w);
         c.text_bold(&self.tr("settings"), e(1.4), e(0.5625), title_px, th.color("fg"), Align::Left, batt_x - e(2.4));
-        // the list
-        let top = ef(2.756);
+        // the list and the panel: as far under the header line (the title's 1.4 em at 0.5625 em,
+        // Roboto's line 1.172 of the size: the battery ends there too) as they end above the
+        // hints' chips (1.9 em from the bottom): 0.894 em both (user's request, 2026-11-15;
+        // the prototype had 0.553 em on top)
         let bottom = (h - e(2.394) - e(0.4)) as f32;
+        let gap = (h - e(1.9)) as f32 - bottom;
+        let top = ef(0.5625 + 1.4 * 1.172) + gap;
         let (item_h, pitch) = (ef(1.669), ef(1.769));
         let list = Rect::new(e(1.0), top.round() as i32, e(15.96), (bottom - top).round() as i32);
         let visible = (((bottom - top) + (pitch - item_h)) / pitch).max(1.0) as usize;
@@ -1979,7 +1984,7 @@ impl<S: SystemAdapter> App<S> {
         let (line_h, pitch) = (item_h, pitch);
         let px = item_px;
         let (pad_x, pad_y) = (e(0.84), e(0.21));
-        let mut y = panel.y as f32 + ef(2.34);
+        let mut y = top + ef(2.34);
         // one line of the panel: a pill when chosen, the text, and a value or a ✓ on the right
         let line = |me: &mut Self, c: &mut dyn Canvas, y: f32, text: &str, value: Option<&str>, chosen: bool, muted_label: bool| {
             let r = Rect::new(inner.x, y.round() as i32, inner.w, (y + line_h).round() as i32 - y.round() as i32);

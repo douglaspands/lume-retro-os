@@ -533,7 +533,10 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   num tamanho só (pedido do usuário, 2026-11-15): as linhas usam a métrica dos itens da
   lista (1,669em a cada 1,769em, texto 1,05em), o nível vira a linha "60%" sobre a barra e
   a nota é mais uma linha apagada; só o título é maior (teste
-  `settings_panel_text_is_one_size_on_every_item`). Modo lite removido de tudo
+  `settings_panel_text_is_one_size_on_every_item`). Margens iguais (pedido do usuário,
+  2026-11-15): a lista e o painel descem de 44,1 para 49,6 px, 14,3 px abaixo da linha do
+  cabeçalho, o mesmo espaço entre o painel e os botões do rodapé (conferido na
+  `settings_match_the_prototype_ruler`). Modo lite removido de tudo
   (configuração, `[features]` dos temas, spec), a pedido do usuário. Falta a temperatura da
   CPU e a captura no GA36.
 - [ ] 10.13 Menu do jogo (pedido do usuário, 2026-11-14): Iniciar jogo, Save states,
