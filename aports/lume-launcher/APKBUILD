@@ -4,7 +4,7 @@
 # build is offline: cargo --offline --frozen.
 pkgname=lume-launcher
 pkgver=0.1.0
-pkgrel=21
+pkgrel=26
 pkgdesc="Game launcher of Lume Retro OS: interface, game lists and supervisor"
 url="https://example.invalid"
 arch="x86_64 armv7 aarch64"
