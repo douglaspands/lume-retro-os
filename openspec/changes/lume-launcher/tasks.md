@@ -583,8 +583,11 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   2026-11-15): a lista e o painel descem de 44,1 para 49,6 px, 14,3 px abaixo da linha do
   cabeçalho, o mesmo espaço entre o painel e os botões do rodapé (conferido na
   `settings_match_the_prototype_ruler`). Modo lite removido de tudo
-  (configuração, `[features]` dos temas, spec), a pedido do usuário. Falta a temperatura da
-  CPU e a captura no GA36.
+  (configuração, `[features]` dos temas, spec), a pedido do usuário. Temperatura (pedido do
+  usuário, 2026-11-15): o launcher não lia nenhum sensor; agora a linha "Temperatura" vem
+  logo depois da CPU, da zona térmica da CPU ou do SoC (`cpu-thermal` no GA36, 42,6 °C
+  medidos; `soc-thermal` no R36S, a conferir), senão da primeira, lida só com o item Sistema
+  na tela (teste `cpu_temperature_from_the_cpu_zone`). Falta a captura no GA36.
 - [ ] 10.13 Menu do jogo (pedido do usuário, 2026-11-14): Iniciar jogo, Save states,
   Configurações (Emulador, Aspecto, Shader; B volta ao menu) e Favoritos; Save states com a
   imagem do slot em foco ao lado da lista (`<estado>.png`, `savestate_thumbnail_enable`

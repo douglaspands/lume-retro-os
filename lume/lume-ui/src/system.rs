@@ -67,6 +67,26 @@ pub fn read_network(sys: &Path) -> (bool, bool) {
     (wifi, bt)
 }
 
+/// The CPU temperature in millidegrees: the thermal zone whose type names the CPU or the SoC
+/// (GA36 `cpu-thermal`, R36S `soc-thermal`), else the first zone. One sysfs read while the
+/// System item is shown.
+pub fn read_cpu_temp(sys: &Path) -> Option<i64> {
+    let mut zones: Vec<PathBuf> = std::fs::read_dir(sys.join("class/thermal"))
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("thermal_zone")))
+        .collect();
+    zones.sort();
+    let kind = |p: &PathBuf| std::fs::read_to_string(p.join("type")).unwrap_or_default();
+    let zone = zones.iter().find(|p| {
+        let k = kind(p);
+        k.contains("cpu") || k.contains("soc")
+    });
+    let zone = zone.or(zones.first())?;
+    std::fs::read_to_string(zone.join("temp")).ok()?.trim().parse().ok()
+}
+
 /// The battery of /sys/class/power_supply (the first supply of type Battery): level and
 /// charging. Two small sysfs reads; the status bar asks every 30 s from its own thread.
 pub fn read_battery(sys: &Path) -> Option<(u8, bool)> {
@@ -234,6 +254,9 @@ impl SystemAdapter for RealSystem {
         let cores = std::fs::read_to_string(self.proc_.join("cpuinfo")).map(|t| t.matches("processor").count()).unwrap_or(0);
         let mhz = read_num(&self.sys.join("devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")).map(|k| format!(" · {} MHz", k / 1000)).unwrap_or_default();
         out.push(("cpu", format!("{cores} × {}{mhz}", std::env::consts::ARCH)));
+        if let Some(t) = read_cpu_temp(&self.sys) {
+            out.push(("temperature", format!("{:.1} °C", t as f64 / 1000.0)));
+        }
         let mem = std::fs::read_to_string(self.proc_.join("meminfo")).unwrap_or_default();
         let kb = |k: &str| mem.lines().find(|l| l.starts_with(k)).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
         out.push(("memory", format!("{} / {} MB", (kb("MemTotal:") - kb("MemAvailable:")) / 1024, kb("MemTotal:") / 1024)));
@@ -345,6 +368,22 @@ impl SystemAdapter for FakeSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cpu_temperature_from_the_cpu_zone() {
+        let sys = std::env::temp_dir().join(format!("lume-thermal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&sys);
+        assert_eq!(read_cpu_temp(&sys), None, "no thermal class");
+        for (z, kind, temp) in [("thermal_zone0", "gpu-thermal", "51000"), ("thermal_zone1", "cpu-thermal", "42606")] {
+            let d = sys.join("class/thermal").join(z);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("type"), format!("{kind}\n")).unwrap();
+            std::fs::write(d.join("temp"), format!("{temp}\n")).unwrap();
+        }
+        // a cooling device is not a zone; the CPU's zone wins over the first one
+        std::fs::create_dir_all(sys.join("class/thermal/cooling_device0")).unwrap();
+        assert_eq!(read_cpu_temp(&sys), Some(42606));
+    }
 
     #[test]
     fn wifi_interface_and_address() {

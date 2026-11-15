@@ -2658,4 +2658,4 @@ fn back_icon(c: &mut dyn Canvas, cx: i32, cy: i32, size: i32, color: crate::canv
 
 /// Text keys built at run time: the System panel (the i18n test reads them). Theme names
 /// come from each theme file.
-pub const TEXT_KEYS: &[&str] = &["model", "cpu", "memory", "launcher_rss", "storage", "battery"];
+pub const TEXT_KEYS: &[&str] = &["model", "cpu", "temperature", "memory", "launcher_rss", "storage", "battery"];
