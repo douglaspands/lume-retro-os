@@ -19,7 +19,9 @@
  * answer in 15 s it is "bad" and the kernel goes back to the last confirmed one.
  *
  * Exit status: 0 keep booting with the running device tree; 10 a kernel is loaded, the
- * init must run kexec -e; 2 bad usage. With --kexec-failed (kexec -e returned) it only
+ * init must run kexec -e; 11 the boot image was rewritten with the chosen device tree, the
+ * init must reboot (D16, the GA36: /etc/bootsel-switch says "android-boot <sector>" and
+ * --disk names the card); 2 bad usage. With --kexec-failed (kexec -e returned) it only
  * clears the pending device tree and stops the watchdog.
  *
  * --root DIR prefixes every path (/proc/device-tree, /sys, /dev, /etc, BOOT and ROMS), so
@@ -54,6 +56,7 @@
 #include <libfdt.h>
 
 #define EXIT_KEXEC 10
+#define EXIT_REBOOT 11
 #define MAX_CAND 32
 #define MAX_ROWS 8
 #define ID_LEN 64
@@ -80,8 +83,11 @@ static const char *opt_roms;
 static const char *opt_kernel;
 static const char *opt_kexec = "/bin/kexec";
 static const char *opt_out;
+static const char *opt_disk;
 static int opt_dry_run;
 static int opt_kexec_failed;
+/* D16: the switch rewrites the Android boot image at this sector of --disk (0: kexec) */
+static unsigned long android_sector;
 
 /* path under --root; returns a static buffer from a small ring */
 static const char *rp(const char *fmt, ...)
@@ -657,8 +663,11 @@ static void load_signature(void)
 			if (*text && strlen(text) <= 2 * PANEL_ID_MAX && is_hex(text)) {
 				snprintf(signature, sizeof(signature), "panel:%s", text);
 				lg("signature: panel id %s (%s)", text, e->d_name);
-			} else {
+			} else if (!*text) {
 				panel_silent = 1;
+			} else {
+				/* "unsupported": the DSI host cannot read it, nothing about the panel */
+				lg("panel id of %s: %s", e->d_name, text);
 			}
 			free(text);
 		}
@@ -704,6 +713,8 @@ static int rules_match(struct cand *c)
 static struct {
 	int persist;
 	char manual[ID_LEN], good[ID_LEN], pending[ID_LEN], bad[LIST_LEN];
+	/* D16: why the pending tree was chosen; the start after a reboot has no /chosen */
+	char pending_reason[32];
 } st;
 
 static char serial[64];
@@ -716,9 +727,14 @@ static char state_file[NAME_MAX + 1];
  */
 static void load_serial(void)
 {
-	char *text = read_file(rp("/sys/devices/soc0/serial_number"), NULL), *p;
+	static int done;
+	char *text, *p;
 	size_t n = 0;
 	int nonzero = 0;
+
+	if (done++)
+		return;
+	text = read_file(rp("/sys/devices/soc0/serial_number"), NULL);
 
 	for (p = text; p && *p && n + 1 < sizeof(serial); p++)
 		if (isalnum((unsigned char)*p)) {
@@ -768,6 +784,8 @@ static void load_state(void)
 			copy_str(st.pending, sizeof(st.pending), eq);
 		else if (!strcmp(l, "bad"))
 			copy_str(st.bad, sizeof(st.bad), eq);
+		else if (!strcmp(l, "pending_reason"))
+			copy_str(st.pending_reason, sizeof(st.pending_reason), eq);
 	}
 	free(text);
 }
@@ -794,6 +812,9 @@ static void save_state(void)
 		   "manual=%s\ngood=%s\npending=%s\nbad=%s\n",
 		soc, *serial ? serial : "(every device: no SoC serial number)", st.manual, st.good,
 		st.pending, st.bad);
+	/* only while something is pending, so the file stays as before on the kexec consoles */
+	if (*st.pending && *st.pending_reason)
+		fprintf(f, "pending_reason=%s\n", st.pending_reason);
 	fflush(f);
 	fsync(fileno(f));
 	fclose(f);
@@ -1512,6 +1533,208 @@ static int kexec_load(const char *kernel)
 	return r;
 }
 
+/* --- the GA36 boot image (D16) -------------------------------------------------------- */
+
+/* SHA-1 for the id field of the Android boot image header (as mkbootimg) */
+struct sha1 {
+	uint32_t h[5];
+	uint64_t len;
+	uint8_t buf[64];
+	size_t n;
+};
+
+static uint32_t rol(uint32_t v, int s)
+{
+	return v << s | v >> (32 - s);
+}
+
+static void sha1_block(struct sha1 *s, const uint8_t *p)
+{
+	uint32_t w[80], a, b, c, d, e, t;
+	int i;
+
+	for (i = 0; i < 16; i++)
+		w[i] = (uint32_t)p[4 * i] << 24 | p[4 * i + 1] << 16 | p[4 * i + 2] << 8 | p[4 * i + 3];
+	for (; i < 80; i++)
+		w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+	a = s->h[0], b = s->h[1], c = s->h[2], d = s->h[3], e = s->h[4];
+	for (i = 0; i < 80; i++) {
+		uint32_t f, k;
+
+		if (i < 20)
+			f = (b & c) | (~b & d), k = 0x5a827999;
+		else if (i < 40)
+			f = b ^ c ^ d, k = 0x6ed9eba1;
+		else if (i < 60)
+			f = (b & c) | (b & d) | (c & d), k = 0x8f1bbcdc;
+		else
+			f = b ^ c ^ d, k = 0xca62c1d6;
+		t = rol(a, 5) + f + e + k + w[i];
+		e = d, d = c, c = rol(b, 30), b = a, a = t;
+	}
+	s->h[0] += a, s->h[1] += b, s->h[2] += c, s->h[3] += d, s->h[4] += e;
+}
+
+static void sha1_init(struct sha1 *s)
+{
+	static const uint32_t h0[5] = { 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476,
+					0xc3d2e1f0 };
+
+	memcpy(s->h, h0, sizeof(h0));
+	s->len = 0;
+	s->n = 0;
+}
+
+static void sha1_update(struct sha1 *s, const void *data, size_t len)
+{
+	const uint8_t *p = data;
+
+	s->len += len;
+	while (len) {
+		size_t k = 64 - s->n < len ? 64 - s->n : len;
+
+		memcpy(s->buf + s->n, p, k);
+		s->n += k, p += k, len -= k;
+		if (s->n == 64) {
+			sha1_block(s, s->buf);
+			s->n = 0;
+		}
+	}
+}
+
+static void sha1_final(struct sha1 *s, uint8_t out[20])
+{
+	uint64_t bits = s->len * 8;
+	uint8_t pad = 0x80, zero = 0, lenb[8];
+	int i;
+
+	sha1_update(s, &pad, 1);
+	while (s->n != 56)
+		sha1_update(s, &zero, 1);
+	for (i = 0; i < 8; i++)
+		lenb[i] = bits >> (56 - 8 * i);
+	sha1_update(s, lenb, 8);
+	for (i = 0; i < 20; i++)
+		out[i] = s->h[i / 4] >> (24 - 8 * (i % 4));
+}
+
+#define BOOTIMG_PAGE 2048
+#define BOOTIMG_MAX (32u << 20)	/* the "boot" partition of the vendor table */
+
+static void put32(uint8_t *p, uint32_t v)
+{
+	p[0] = v, p[1] = v >> 8, p[2] = v >> 16, p[3] = v >> 24;
+}
+
+/*
+ * The Android boot image v0 the vendor U-Boot of the GA36 loads, built the same way as
+ * src/r36os/bootimg.py (mkbootimg --base 0x40000000 --board sun8i --pagesize 2048): the
+ * kernel is the zImage with the device tree appended, the ramdisk is empty.
+ */
+static uint8_t *make_bootimg(const char *zimage, size_t zsize, const void *dtb, size_t dsize,
+			     size_t *out_size)
+{
+	size_t ksize = zsize + dsize, total = BOOTIMG_PAGE + (ksize + BOOTIMG_PAGE - 1) /
+		       BOOTIMG_PAGE * BOOTIMG_PAGE;
+	uint8_t *img = calloc(1, total), lenb[4], id[20];
+	struct sha1 s;
+
+	if (!img)
+		return NULL;
+	memcpy(img, "ANDROID!", 8);
+	put32(img + 8, ksize);
+	put32(img + 12, 0x40008000);	/* kernel address */
+	put32(img + 16, 0);		/* ramdisk size */
+	put32(img + 20, 0x41000000);	/* ramdisk address */
+	put32(img + 24, 0);		/* second size */
+	put32(img + 28, 0x40f00000);	/* second address */
+	put32(img + 32, 0x40000100);	/* tags address */
+	put32(img + 36, BOOTIMG_PAGE);
+	memcpy(img + 48, "sun8i", 5);	/* board name */
+	sha1_init(&s);
+	put32(lenb, ksize);
+	memcpy(img + BOOTIMG_PAGE, zimage, zsize);
+	memcpy(img + BOOTIMG_PAGE + zsize, dtb, dsize);
+	sha1_update(&s, img + BOOTIMG_PAGE, ksize);
+	sha1_update(&s, lenb, 4);
+	put32(lenb, 0);
+	sha1_update(&s, lenb, 4);	/* the ramdisk: empty */
+	sha1_update(&s, lenb, 4);	/* the second stage: empty */
+	sha1_final(&s, id);
+	memcpy(img + 576, id, 20);	/* id: after the board name (16) and cmdline (512) */
+	*out_size = total;
+	return img;
+}
+
+/*
+ * Write the boot image of c to the boot sector of --disk and read it back. 0 when the card
+ * holds it; the U-Boot loads it at the next power on or reboot.
+ */
+static int write_bootimg(struct cand *c)
+{
+	size_t zsize, size, done;
+	char *zimage = read_file(rp("%s/%s", opt_boot, opt_kernel), &zsize), *back;
+	uint8_t *img;
+	off_t off = (off_t)android_sector * 512;
+	int fd, ok;
+
+	if (!zimage) {
+		lg("ERROR: cannot read %s/%s", opt_boot, opt_kernel);
+		return -1;
+	}
+	img = make_bootimg(zimage, zsize, c->blob, fdt_totalsize(c->blob), &size);
+	free(zimage);
+	if (!img || size > BOOTIMG_MAX) {
+		lg("ERROR: boot image of %s too large or no memory", c->id);
+		free(img);
+		return -1;
+	}
+	fd = open(rp("%s", opt_disk), O_RDWR | O_SYNC);
+	if (fd < 0) {
+		lg("ERROR: cannot open %s: %s", opt_disk, strerror(errno));
+		free(img);
+		return -1;
+	}
+	for (done = 0; done < size;) {
+		ssize_t n = pwrite(fd, img + done, size - done, off + done);
+
+		if (n <= 0)
+			break;
+		done += n;
+	}
+	fsync(fd);
+	back = malloc(size);
+	ok = done == size && back && pread(fd, back, size, off) == (ssize_t)size &&
+	     !memcmp(back, img, size);
+	close(fd);
+	free(back);
+	free(img);
+	if (!ok) {
+		lg("ERROR: the boot image of %s at sector %lu of %s did not read back the same",
+		   c->id, android_sector, opt_disk);
+		return -1;
+	}
+	lg("boot image with %s written at sector %lu of %s (%zu bytes, read back)", c->id,
+	   android_sector, opt_disk, size);
+	return 0;
+}
+
+/* /etc/bootsel-switch: "android-boot <sector>" (D16); without it the switch is kexec */
+static void load_switch(void)
+{
+	char *text = read_file(rp("/etc/bootsel-switch"), NULL);
+	unsigned long sector;
+
+	android_sector = 0;
+	if (text && sscanf(text, "android-boot %lu", &sector) == 1 && sector) {
+		if (opt_disk)
+			android_sector = sector;
+		else
+			lg("ERROR: switch by the boot image needs --disk; falling back to kexec");
+	}
+	free(text);
+}
+
 /*
  * Prepares c and loads the same kernel with it. EXIT_KEXEC when loaded, 0 after a dry run,
  * -1 on failure (the boot goes on with the running device tree). With arm, the watchdog
@@ -1525,6 +1748,18 @@ static int switch_to(struct cand *c, const char *reason, int arm)
 		lg("ERROR: kernel %s not found on BOOT; keeping the running device tree",
 		   opt_kernel ? opt_kernel : "(none given)");
 		return -1;
+	}
+	if (android_sector) {
+		/* D16: no kexec on the GA36; the boot image carries the tree, then a reboot */
+		lg("switching to %s by the boot image (%s/%s + %s, sector %lu) and a reboot", c->id,
+		   opt_boot, opt_kernel, c->file, android_sector);
+		if (opt_dry_run) {
+			printf("selected=%s reason=%s reboot=yes\n", c->id, reason);
+			return 0;
+		}
+		if (write_bootimg(c))
+			return -1;
+		return EXIT_REBOOT;
 	}
 	if (arm && !wd_exists())
 		lg("no /dev/watchdog: a hang with %s needs a power cycle to go back", c->id);
@@ -1660,6 +1895,8 @@ static int second_start(const char *id, const char *reason)
 		next = next_search(st.bad);
 		if (next) {
 			copy_str(st.pending, sizeof(st.pending), next->id);
+			if (android_sector)
+				copy_str(st.pending_reason, sizeof(st.pending_reason), "search");
 			save_state();
 			if (wd)
 				wd_stop();
@@ -1742,8 +1979,10 @@ static void usage(void)
 {
 	fprintf(stderr,
 		"usage: lume-bootsel [--root DIR] [--boot DIR] [--roms DIR] [--kernel PATH]\n"
-		"                    [--kexec PATH] [--out-dtb PATH] [--dry-run] [--kexec-failed]\n"
+		"                    [--kexec PATH] [--out-dtb PATH] [--disk DEV] [--dry-run]\n"
+		"                    [--kexec-failed]\n"
 		"  --boot    BOOT mount point (default /boot)\n"
+		"  --disk    the card, for a switch by the boot image (/etc/bootsel-switch)\n"
 		"  --roms    ROMS mount point; without it the choice is not saved\n"
 		"  --kernel  kernel to reload, relative to BOOT (ga36/zImage, r36s/Image)\n"
 		"  --dry-run decide, write the state and prepare the tree, but do not run kexec\n"
@@ -1777,6 +2016,8 @@ int main(int argc, char **argv)
 			opt_kexec = argv[++i];
 		else if (i + 1 < argc && !strcmp(a, "--out-dtb"))
 			opt_out = argv[++i];
+		else if (i + 1 < argc && !strcmp(a, "--disk"))
+			opt_disk = argv[++i];
 		else {
 			usage();
 			return 2;
@@ -1791,12 +2032,28 @@ int main(int argc, char **argv)
 		lg("no device tree");
 		return 0;
 	}
+	load_switch();
 	if (opt_kexec_failed)
 		return kexec_failed();
 	if (came_from_kexec(kid, sizeof(kid), kreason, sizeof(kreason)))
 		return second_start(kid, kreason);
 	if (load_soc())
 		return 0;
+
+	/*
+	 * D16: after a reboot into a rewritten boot image there is no /chosen from the first
+	 * start; the running tree being the pending one says this is the second start
+	 */
+	if (android_sector && *running_id) {
+		load_serial();
+		load_state();
+		if (*st.pending && !strcmp(st.pending, running_id)) {
+			copy_str(kreason, sizeof(kreason),
+				 *st.pending_reason ? st.pending_reason : "manual");
+			lg("device tree from the boot image: %s (reason: %s)", running_id, kreason);
+			return second_start(running_id, kreason);
+		}
+	}
 
 	load_candidates();
 	def = default_cand();
@@ -1945,8 +2202,11 @@ int main(int argc, char **argv)
 	is_new = (!def || strcmp(chosen->id, def->id)) && strcmp(chosen->id, st.good);
 	/* the search always checks its candidate after the kexec, the default too */
 	is_new |= !strcmp(reason, "search");
-	if (is_new)
+	if (is_new) {
 		copy_str(st.pending, sizeof(st.pending), chosen->id);
+		if (android_sector)
+			copy_str(st.pending_reason, sizeof(st.pending_reason), reason);
+	}
 	r = switch_to(chosen, reason, is_new);
 	if (r < 0)
 		st.pending[0] = 0;

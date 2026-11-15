@@ -70,6 +70,19 @@ def test_keys_of_the_list_are_known_to_lume_bootsel():
             assert f'"{name}", {name}' in source, (board, name)
 
 
+def test_ga36_switches_by_its_boot_image_and_the_r36s_by_kexec(staged):
+    # D16: the GA36 rewrites the boot image the vendor U-Boot loads (the sector the build and
+    # push write) and reboots; the R36S keeps kexec (no bootsel-switch)
+    from r36os import vendor
+    stage, _ = staged("ga36")
+    assert (stage / "etc/bootsel-switch").read_text() == \
+        f"android-boot {vendor.ANDROID_BOOT_SECTOR}\n"
+    stage, _ = staged("r36s")
+    assert not (stage / "etc/bootsel-switch").exists()
+    init = (REPO_ROOT / "initramfs/init").read_text()
+    assert '--disk "$DISK"' in init and "[ $rc = 11 ]" in init and "reboot -f" in init
+
+
 def test_soc_folders_match_the_image():
     from r36os.image import SOC_DIR
     assert SOC_DIR == {"ga36": "a33", "r36s": "rk3326"}

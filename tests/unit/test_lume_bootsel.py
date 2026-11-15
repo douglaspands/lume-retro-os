@@ -915,6 +915,17 @@ def test_silent_panel_starts_the_search(tools, root, tmp_path):
                                                                            "search"]
 
 
+def test_unsupported_panel_id_read_means_no_search(tools, root):
+    # the DSI host cannot read the ID (GA36, a 3-byte read, 2026-11-15): that says nothing
+    # about the panel, so nothing is discarded or tried
+    root.ga36_panels()
+    root.panel("unsupported")
+    rc, out, err = run(tools, root)
+    assert "panel id of 1c40000.dsi.0: unsupported" in err
+    assert "no signature: no panel driver shows panel_id" in err
+    assert decision(out)["reason"] == "default" and root.state()["bad"] == ""
+
+
 def test_no_panel_driver_means_no_search(tools, root):
     # no panel_id anywhere (a kernel without the read, the VM): nothing is tried blind
     root.ga36_panels()
@@ -984,6 +995,114 @@ def test_choice_confirmed_on_the_screen_is_learned(tools, root):
     root.panel("aabbcc")
     rc, out, err = run(tools, root)
     assert "confirmed on screen: ga36-panel2 kept" in err
+    assert root.learned() == {"aabbcc": "ga36-panel2"}
+
+
+# --- 9: GA36, switch by rewriting the boot image and rebooting (D16) -------------------------
+
+SECTOR = 8  # 172032 on the GA36; small here so the fake card stays small
+
+
+def _android(root):
+    """The GA36 switch: /etc/bootsel-switch and a fake card (sparse file)."""
+    (root.path / "etc/bootsel-switch").write_text(f"android-boot {SECTOR}\n")
+    disk = root.path / "disk.img"
+    with open(disk, "wb") as f:
+        f.truncate(16 << 20)
+    return disk
+
+
+def _image_on(disk, size):
+    with open(disk, "rb") as f:
+        f.seek(SECTOR * 512)
+        return f.read(size)
+
+
+def _expected_image(root, dtb_name):
+    from r36os import bootimg
+    zimage = (root.path / "boot/ga36/zImage").read_bytes()
+    dtb = (root.path / f"boot/dtbs/a33/{dtb_name}").read_bytes()
+    return bootimg.make(zimage + dtb)
+
+
+def _running(root, ident):
+    """The kernel runs with the tree of the boot image: no /chosen from a first start."""
+    (root.path / "proc/device-tree/lume-select/lume,id").write_bytes(fdt.s(ident))
+
+
+def test_switch_by_boot_image_writes_it_and_asks_for_a_reboot(tools, root):
+    disk = _android(root)
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 11
+    want = _expected_image(root, "sun8i-a33-ga36-mb-v1.2-panel2.dtb")
+    assert _image_on(disk, len(want)) == want            # byte for byte what bootimg.py makes
+    assert "boot image with ga36-panel2 written at sector 8 of /disk.img" in err
+    assert root.state()["pending"] == "ga36-panel2"
+    assert root.state()["pending_reason"] == "forced"
+    assert "kexec" not in err.replace("--kexec", "")
+
+
+def test_switch_by_boot_image_dry_run(tools, root):
+    _android(root)
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    rc, out, err = run(tools, root, "--disk", "/disk.img")
+    assert rc == 0
+    assert decision(out) == {"selected": "ga36-panel2", "reason": "forced", "reboot": "yes"}
+
+
+def test_boot_image_needs_the_disk(tools, root):
+    (root.path / "etc/bootsel-switch").write_text(f"android-boot {SECTOR}\n")
+    root.ga36_panels()
+    rc, out, err = run(tools, root)
+    assert "switch by the boot image needs --disk" in err
+
+
+def test_second_start_after_the_reboot_confirms_on_the_screen(tools, root):
+    _android(root)
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", pending_reason="forced")
+    _running(root, "ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 0
+    assert "device tree from the boot image: ga36-panel2 (reason: forced)" in err
+    assert "confirmed on screen: ga36-panel2 kept" in err
+    assert root.state() == {"manual": "", "good": "ga36-panel2", "pending": "", "bad": ""}
+
+
+def test_second_start_after_the_reboot_goes_back_by_the_boot_image(tools, root):
+    disk = _android(root)
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", pending_reason="manual")
+    _running(root, "ga36-panel2")
+    root.keys(events=[KEY_VOLUMEUP])                            # not the confirm key
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 11
+    assert "selected ga36-panel1 (reason: reverted)" in err
+    want = _expected_image(root, "sun8i-a33-ga36-mb-v1.2-panel1.dtb")
+    assert _image_on(disk, len(want)) == want
+    assert root.state()["bad"] == "ga36-panel2" and root.state()["pending"] == ""
+
+
+def test_search_by_boot_image(tools, root):
+    disk = _android(root)
+    root.ga36_panels()
+    root.panel("")
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 11
+    assert root.state()["pending"] == "ga36-panel2"
+    assert root.state()["pending_reason"] == "search"
+    want = _expected_image(root, "sun8i-a33-ga36-mb-v1.2-panel2.dtb")
+    assert _image_on(disk, len(want)) == want
+    # after the reboot the panel answers: found and learned, no more switch
+    _running(root, "ga36-panel2")
+    root.panel("aabbcc")
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 0
+    assert "search: ga36-panel2 works, the panel answered" in err
     assert root.learned() == {"aabbcc": "ga36-panel2"}
 
 

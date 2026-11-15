@@ -92,7 +92,9 @@ fi
 # Device tree selection (boot-dtb-select): lume-bootsel picks the DTB of BOOT/dtbs/<soc>/
 # and, when it is not the running one, loads this same kernel with it (status 10). Then
 # everything is unmounted and kexec -e restarts the kernel; the second start sees the
-# choice in /chosen and goes on. Without a device tree (the vm) it only logs that.
+# choice in /chosen and goes on. On the GA36 (D16) it rewrites the boot image instead
+# (status 11), and the console reboots into it. Without a device tree (the vm) it only
+# logs that.
 select_dtb() {
 	local rc=0 kernel=""
 	[ -x /bin/lume-bootsel ] || return 0
@@ -100,7 +102,23 @@ select_dtb() {
 	ga36) kernel=ga36/zImage ;;
 	r36s) kernel=r36s/Image ;;
 	esac
-	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} ${kernel:+--kernel $kernel} || rc=$?
+	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} ${kernel:+--kernel $kernel} \
+		--disk "$DISK" || rc=$?
+	if [ $rc = 11 ]; then
+		log "rebooting into the boot image with the chosen device tree"
+		sync
+		[ -n "$ROMS_MOUNTED" ] && umount /roms
+		umount /boot
+		reboot -f
+		# reboot -f does not return; if it does, go on with the running device tree
+		log "ERROR: reboot failed; booting with the running device tree"
+		mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
+		if [ -n "$ROMS_MOUNTED" ] && ! mount_roms; then
+			ROMS_MOUNTED=""
+			log "ERROR: failed to mount ROMS; continuing without games partition"
+		fi
+		return 0
+	fi
 	[ $rc = 10 ] || return 0
 	log "restarting the kernel with the chosen device tree"
 	sync

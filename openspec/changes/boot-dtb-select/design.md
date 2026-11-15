@@ -468,6 +468,29 @@ variante nova) e regras só escritas à mão (uma variante nova exigiria mexer n
 custo da busca (um kexec por candidato errado, alguns segundos cada) só aparece no primeiro
 boot de uma variante desconhecida.
 
+### D16. No GA36 a troca grava a imagem de boot e reinicia (sem kexec)
+
+Decisão do usuário (2026-11-15), depois das provas da tarefa 1.5 no GA36: com o DTB passado
+à parte, o segundo kernel morre nos primeiros ~30 ms; imitando o U-Boot (`zImage` com o DTB
+anexado e ATAGs) ele sobe, mas não retoma a tela e o cartão e trava. O R36S segue com kexec.
+
+- O U-Boot de fábrica do GA36 carrega do setor 172032 uma imagem Android v0 com o `zImage`
+  e o DTB anexado. Para trocar de DTB, o `lume-bootsel` monta essa imagem com
+  `BOOT/ga36/zImage` e o DTB escolhido (do jeito do `src/r36os/bootimg.py`: cabeçalho de uma
+  página com o `id` em SHA-1), grava no setor, lê de volta para conferir e sai com o código
+  11; o `init` desmonta tudo e reinicia (`reboot -f`). Qualquer DTB copiado para
+  `BOOT/dtbs/a33/` serve, sem o PC.
+- O método vem de `/etc/bootsel-switch` do initramfs (`android-boot <setor>`, de
+  `board/ga36/bootsel-switch`), e o disco, do `--disk` que o `init` passa; sem o arquivo, a
+  troca é por kexec.
+- O "segundo início" é reconhecido pelo estado, não pelo `/chosen`: o DTB em execução é o
+  `pending`. O motivo da troca vai junto (`pending_reason=` no arquivo do D6), e a pergunta na
+  tela, a conferência da busca, o aprendizado e a volta (`reverted`, que grava a imagem do
+  anterior e reinicia) são os mesmos do kexec.
+- Sem watchdog na troca (o reinício passa pelo U-Boot). Um DTB que travar o kernel exige
+  desligar e ligar; no boot seguinte o `pending` não confirmado volta ao anterior. Os DTBs
+  do GA36 diferem no painel, então o kernel sempre sobe e a USB continua disponível.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos

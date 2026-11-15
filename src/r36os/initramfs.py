@@ -130,6 +130,11 @@ def build_initramfs(target: Target) -> Path:
     keys = REPO_ROOT / "board" / target.name / "bootsel-keys"
     if keys.exists():
         shutil.copy(keys, stage / "etc/bootsel-keys")
+    # how the device tree is switched (boot-dtb-select D16): the GA36 rewrites its boot
+    # image and reboots; without the file, kexec
+    switch = REPO_ROOT / "board" / target.name / "bootsel-switch"
+    if switch.exists():
+        shutil.copy(switch, stage / "etc/bootsel-switch")
     mods = REPO_ROOT / f"initramfs/modules-{target.name}.txt"
     if mods.exists():
         stage_modules(out / "rootfs.tar", _read_list(mods), stage)
