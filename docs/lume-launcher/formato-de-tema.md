@@ -40,9 +40,13 @@ Um tema do cartão pode trazer `icons/<sistema>.png` para o Dock. A distro não 
 ícone nem logotipo de fabricante: sem ícone, cada console é um tile com a sigla (`abbr` do
 catálogo).
 
-- A pasta `ROMS/system/lume/themes/<id>/icons/` vale para o tema `<id>` e para os temas que
-  herdam dele, mesmo sem `theme.toml` ao lado. Exemplo: logos em
+- Os logos fazem parte do tema (escolha do usuário, 2026-11-15): a pasta
+  `ROMS/system/lume/themes/<id>/icons/` vale para o tema `<id>` e para os temas que herdam
+  dele, mesmo sem `theme.toml` ao lado. Exemplo: logos em
   `ROMS/system/lume/themes/lume/icons/snes.png` aparecem com o tema padrão.
+- Ordem de busca: o tema, cada tema de quem ele herda (`extends`) e, por último, o tema padrão
+  (`default` do `base.toml`). Um tema feito a partir do `_lume-original`, que não herda de
+  ninguém, continua com os logos do tema padrão até ter `icons/` própria.
 - O PNG é lido como máscara: vale a transparência (ou o brilho, num PNG sem transparência,
   como um logo branco sobre preto). O logo é pintado numa cor só, a do texto do ícone
   (`icon_fg`, ou `icon_sel_fg` no foco), e cabe em 78% x 56% do tile. Um logo branco ou preto

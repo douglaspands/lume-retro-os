@@ -33,10 +33,17 @@ Exemplo menor, que muda so as cores do tema padrao (lume):
 - Um tema com erro (token desconhecido, cor invalida) e recusado: o launcher
   usa o tema padrao e anota o motivo no log.
 
-Logos: uma pasta so com icons/ (sem theme.toml) da logos ao tema de mesmo
-nome. Exemplo: themes/lume/icons/snes.png para o tema padrao. O nome do
-arquivo e o id do sistema (a pasta dele em roms/). O PNG e lido pela
-transparencia e pintado na cor do icone: um logo branco ou preto com fundo
-transparente fica bom em qualquer tema.
+Logos: fazem parte do tema, na pasta icons/ dele, ao lado do theme.toml:
+
+  themes/meu-tema/theme.toml
+  themes/meu-tema/icons/snes.png
+
+O nome do arquivo e o id do sistema (a pasta dele em roms/). O PNG e lido
+pela transparencia e pintado na cor do icone: um logo branco ou preto com
+fundo transparente fica bom em qualquer tema. Um tema sem icons/ usa os
+logos do tema de quem ele herda ("extends") e, por ultimo, os do tema padrao
+(lume): copiar _lume-original mantem os logos ate o seu tema trazer os
+proprios. Para o tema padrao, que vem na imagem, os logos ficam numa pasta
+so com icons/ (sem theme.toml): themes/lume/icons/snes.png.
 
 Esta pasta e o cartao sao seus: o sistema nunca apaga nada daqui.

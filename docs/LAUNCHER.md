@@ -32,9 +32,11 @@ save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abri
 ## Dock
 
 Favoritos (primeiro), os consoles que têm jogos, Recentes e Configurações (último). Um console
-sem jogos não aparece. Cada console é um tile com a sigla dele; logos próprios vão no cartão,
-em `ROMS/system/lume/themes/<tema>/icons/<id>.png` (a imagem não traz logo de fabricante; ver o
-[formato de tema](lume-launcher/formato-de-tema.md)).
+sem jogos não aparece. Cada console é um tile com a sigla dele; os logos fazem parte do tema,
+na pasta `icons/` dele no cartão (`ROMS/system/lume/themes/<tema>/icons/<id>.png`). Um tema sem
+`icons/` usa os do tema de quem herda e, por último, os do tema padrão, então um tema copiado
+do modelo continua com os logos até trazer os próprios (a imagem não traz logo de fabricante;
+ver o [formato de tema](lume-launcher/formato-de-tema.md)).
 
 ## Menu do jogo
 

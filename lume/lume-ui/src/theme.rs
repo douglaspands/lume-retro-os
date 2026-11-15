@@ -176,11 +176,15 @@ impl Themes {
     }
 
     /// Where the Dock icons of a theme are looked up, in order: `<dir>/<id>/icons` of the
-    /// theme and then of each parent (`extends`), the card before the image. A card folder
+    /// theme and then of each parent (`extends`), the card before the image, and last the
+    /// default theme's own (the logos are part of each theme, user's choice 2026-11-15: a
+    /// theme made from the `_lume-original` model, which extends nothing, still shows the
+    /// default theme's logos until it brings its own `icons/`). A card folder
     /// themes/<id>/icons/ gives icons to that theme even without a theme.toml there (the
     /// image's own themes bring none: no manufacturer logo in the distro).
     pub fn icon_dirs(&self, id: &str) -> Vec<PathBuf> {
         let mut out = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
         let mut cur = Some(self.chosen(id).to_string());
         let mut depth = 0;
         while let Some(id) = cur.take() {
@@ -188,12 +192,16 @@ impl Themes {
                 break;
             }
             depth += 1;
+            seen.push(id.clone());
             out.extend(self.dirs.iter().map(|d| d.join(&id).join("icons")));
             cur = self
                 .file(&id)
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .and_then(|t| toml::from_str::<ThemeFile>(&t).ok())
                 .and_then(|f| f.theme.extends);
+        }
+        if !out.is_empty() && !self.default.is_empty() && !seen.contains(&self.default) {
+            out.extend(self.dirs.iter().map(|d| d.join(&self.default).join("icons")));
         }
         out
     }
@@ -331,6 +339,14 @@ mod tests {
             [card.join("lume/icons"), image.join("lume/icons"), card.join("material-dark/icons"), image.join("material-dark/icons")]
         );
         assert!(t.icon_dirs("../x").is_empty());
+        // a theme made from the model (extends nothing): its own icons first, then the
+        // default theme's, so copying the model keeps the logos until it brings its own
+        std::fs::create_dir_all(card.join("meu-tema")).unwrap();
+        std::fs::write(card.join("meu-tema/theme.toml"), "[theme]\nid = \"meu-tema\"\n").unwrap();
+        assert_eq!(t.icon_dirs("meu-tema"), [card.join("meu-tema/icons"), image.join("meu-tema/icons"), card.join("lume/icons"), image.join("lume/icons")]);
+        // a theme that already goes through the default one does not repeat it
+        let dark = t.icon_dirs("material-dark");
+        assert_eq!(dark.iter().filter(|p| p.ends_with("lume/icons")).count(), 2, "{dark:?}");
     }
 
     #[test]
