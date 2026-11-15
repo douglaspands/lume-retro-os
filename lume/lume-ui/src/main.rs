@@ -192,6 +192,13 @@ fn screenshot(app: &mut lume_ui::app::App<lume_ui::system::RealSystem>, font: lu
     let canvas = surface.into_canvas().expect("software canvas");
     let creator = canvas.texture_creator();
     let mut c = lume_ui::sdl::SdlCanvas::new(canvas, creator, font).with_faces(lume_ui::font::Font::bundled_medium(), lume_ui::font::Font::bundled_bold());
+    // LUME_BATTERY=82 (or 82+ for charging): a battery for screenshots on a PC without one
+    if let Ok(b) = std::env::var("LUME_BATTERY") {
+        let charging = b.ends_with('+');
+        if let Ok(level) = b.trim_end_matches('+').parse::<u8>() {
+            app.battery = Some((level.min(100), charging));
+        }
+    }
     for k in std::env::var("LUME_KEYS").unwrap_or_default().split(',').filter(|k| !k.is_empty()) {
         let a = match k {
             "Up" => Action::Up,

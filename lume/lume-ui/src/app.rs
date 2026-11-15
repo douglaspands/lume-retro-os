@@ -1178,29 +1178,37 @@ impl<S: SystemAdapter> App<S> {
         self.draw_battery(c, w - (1.75 * em).round() as i32, em.round() as i32, px)
     }
 
-    /// The battery right-aligned at `right` with the text top at `y`: the prototype's icon
-    /// (a 30x14 box: body 25x12 with a 1.6 stroke, a 2x5 terminal, the level in a 20x7 bar),
-    /// 0.95 of the text tall, 0.35 of it before the percent (medium weight). The bar is in
-    /// the accent while charging. Returns the x where it starts.
+    /// The battery right-aligned at `right` with the text top at `y`, as the prototype: its
+    /// SVG icon (a 30x14 box: body 25x12 at (1, 1) with a 1.6 stroke and 2.5 corners, a 2x5
+    /// terminal at (27, 4.5), the level in a 20x7 bar at (3.5, 3.5)), all in the text color,
+    /// 0.95 of the text tall and centered on its line, 0.35 of the text before the percent
+    /// (medium). One color, no charging mark: the prototype has none. Edges are rounded,
+    /// not sizes, so the stroke stays even. Returns the x where it starts.
     fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32) -> i32 {
-        let Some((level, charging)) = self.battery else { return right };
+        let Some((level, _charging)) = self.battery else { return right };
         let th = &self.theme;
+        let fg = th.color("fg");
         let label = format!("{level}%");
         let tw = c.text_width_medium(&label, px);
-        c.text_medium(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
+        c.text_medium(&label, right - tw, y, px, fg, Align::Left, tw + 1);
         let s = px * 0.95 / 14.0; // icon units to pixels
-        let u = |v: f32| (v * s).round() as i32;
-        let x = right - tw - (px * 0.35).round() as i32 - u(30.0);
-        let iy = y + ((px * 1.1 - 14.0 * s) / 2.0).round() as i32;
-        let body = Rect::new(x + u(0.2), iy + u(0.2), u(26.6), u(13.6));
-        c.fill(body, u(3.3), th.color("fg"));
-        c.fill(Rect::new(x + u(1.8), iy + u(1.8), u(23.4), u(10.4)), u(1.7), th.color("bg"));
-        c.fill(Rect::new(x + u(27.0), iy + u(4.5), u(2.0).max(1), u(5.0)), u(1.0), th.color("fg"));
-        let fw = u(20.0 * level.min(100) as f32 / 100.0);
-        if fw > 0 {
-            c.fill(Rect::new(x + u(3.5), iy + u(3.5), fw, u(7.0)), u(1.0), th.color(if charging { "accent" } else { "fg" }));
+        let x0 = (right - tw) as f32 - px * 0.35 - 30.0 * s;
+        let y0 = y as f32 + (px * 1.1 - 14.0 * s) / 2.0;
+        // a rect from icon units (left, top, right, bottom), its edges rounded
+        let rect = |l: f32, t: f32, r: f32, b: f32| {
+            let (l, t, r, b) = ((x0 + l * s).round() as i32, (y0 + t * s).round() as i32, (x0 + r * s).round() as i32, (y0 + b * s).round() as i32);
+            Rect::new(l, t, (r - l).max(1), (b - t).max(1))
+        };
+        let rad = |v: f32| (v * s).round() as i32;
+        // the stroke: the outer edge, then the inside cut back to the background
+        c.fill(rect(0.2, 0.2, 26.8, 13.8), rad(3.3), fg);
+        c.fill(rect(1.8, 1.8, 25.2, 12.2), rad(1.7), th.color("bg"));
+        c.fill(rect(27.0, 4.5, 29.0, 9.5), rad(1.0), fg);
+        let fill = 20.0 * level.min(100) as f32 / 100.0;
+        if fill > 0.0 {
+            c.fill(rect(3.5, 3.5, 3.5 + fill, 10.5), rad(1.0), fg);
         }
-        x
+        x0.round() as i32
     }
 
     fn label(&self, item: DockItem) -> (String, String) {

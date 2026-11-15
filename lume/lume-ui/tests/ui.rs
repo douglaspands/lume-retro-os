@@ -229,6 +229,18 @@ fn battery_in_the_status_bar_of_every_screen() {
     let on_settings = spot(&mut a);
     assert_eq!((on_dock, on_list), (on_settings, on_settings));
     go_back(&mut a);
+    // the prototype's icon at 19.2 px (1 icon unit = 19.2 * 0.95 / 14 px): the outer body
+    // 26.6 x 13.6 units, the level 20 units at 100%, all in the text color, also charging
+    a.battery = Some((82, true));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let u = 19.2 * 0.95 / 14.0;
+    let fg = a.theme.color("fg");
+    let body = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > 500).map(|(r, _)| *r).max_by_key(|r| r.w * r.h).unwrap();
+    assert!((body.w as f32 - 26.6 * u).abs() <= 1.0 && (body.h as f32 - 13.6 * u).abs() <= 1.0, "body {body:?}");
+    let level = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > body.x && r.right() < body.right() && r.h > 5 && r.w > 5).map(|(r, _)| *r).next().unwrap();
+    assert!((level.w as f32 - 20.0 * 0.82 * u).abs() <= 1.0 && (level.h as f32 - 7.0 * u).abs() <= 1.0, "level {level:?}");
+    assert!(!cv.fills.iter().any(|(r, col)| *col == a.theme.color("accent") && r.y < 40 && r.x > 500), "one color, no charging mark");
     go_dock(&mut a, DockItem::System(0));
     press(&mut a, Action::A);
     a.draw(&mut canvas);

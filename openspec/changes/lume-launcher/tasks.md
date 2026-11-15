@@ -427,7 +427,9 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   ao do `/sys/class/power_supply`.
   Bateria feita em 2026-11-14 (lume-launcher r10): ícone horizontal com o nível e o
   percentual no canto direito do Dock, do cabeçalho das listas (à direita do contador) e das
-  Configurações; preenchimento na cor de destaque carregando. Uma thread lê o sysfs a cada
+  Configurações. Em 2026-11-15, o estilo do protótipo (pedido do usuário): o ícone do SVG
+  dele, todo na cor do texto, sem marca de carga (o azul carregando saiu), e um lugar só
+  em todas as telas. Uma thread lê o sysfs a cada
   30 s e manda `Ev::Battery` só quando muda (o launcher parado continua sem acordar). Sem
   bateria (VM), nada aparece. Falta Wi-Fi e Bluetooth conectados (pedem nmcli e bluetoothctl:
   ler fora da thread de desenho) e a captura no GA36.
