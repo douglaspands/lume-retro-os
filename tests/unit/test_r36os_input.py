@@ -379,7 +379,13 @@ def test_ga36_backlight_ceiling_is_100_percent(daemon_exe, tmp_path):
     d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
     try:
         level = lambda: int((d.backlight / "panel/brightness").read_text())
-        # the fake backlight started at 153 (of 255): brought down to the ceiling at start
+        # the fake backlight started at 153 (of 255): brought down to the ceiling at start; the
+        # daemon may apply it just after its socket appears (failed once with a build loading
+        # the CPU, 2026-11-15), so wait for it
+        for _ in range(100):
+            if level() == 7:
+                break
+            time.sleep(0.02)
         assert level() == 7
         (d.backlight / "panel/max_brightness").write_text("10\n")
         (d.backlight / "panel/brightness").write_text("10\n")
