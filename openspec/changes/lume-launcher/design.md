@@ -422,9 +422,9 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   3. **Wi-Fi Direct**: `iw list` com `P2P-client`/`P2P-GO` no dongle (RTL8821CU, `rtw88`) e
      P2P no `wpa_supplicant` do Alpine; ligar o console a um celular Android e, com os dois
      aparelhos, console a console.
-- **Ligação entre consoles**: P2P pelo NetworkManager (`wifi-p2p`), nome do console = hostname
-  (editável nas Configurações), aceite com confirmação na tela. Sem nenhum serviço aberto
-  nela neste change; o netplay (P-63) abrirá só a porta do jogo e só nessa interface.
+- **Ligação entre consoles**: saiu desta change (2026-11-15) para o P-65, junto com o cabo
+  USB-C a USB-C e o netplay (antigo P-63). Fica aqui só a prova de P2P (item 3 acima), que o
+  Miracast usa.
 - **Miracast**: o console como fonte WFD (RTSP + RTP/MPEG-TS, H.264 + áudio LPCM ou AAC),
   capturando o quadro exibido pelo DRM (como o `r36os-shot`). Componentes escolhidos depois
   da prova (GStreamer enxuto, ou um transmissor próprio pequeno). Se a prova reprovar, o
@@ -448,20 +448,36 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
 
 ### D18. SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15)
 
-- **Escolhas do usuário**: só chave e uma chave "SSH pela rede" no painel do Wi-Fi, desligada
-  de fábrica. É a única exceção ao "nada exposto na rede sem fio" (spec `wireless`).
-- **Por que só chave**: o SSH do cabo é root sem senha, aceitável num cabo ponto a ponto; no
-  Wi-Fi qualquer aparelho da rede alcança a porta. Sem senha não há o que adivinhar.
-- **Chave**: `ROMS/system/ssh/authorized_keys` no cartão (o usuário põe pelo PC, como os temas);
-  o serviço a copia para um lugar só do root com modo `0600` antes de subir, porque o FAT do
-  cartão não guarda dono nem modo e o dropbear recusa um arquivo aberto a todos.
-- **Serviço**: `r36os-ssh-wifi`, root, o mesmo `dropbear` do cabo com `-s` (sem senha) e `-g`
-  (sem senha do root), com `-p <ip da wlan0>:22`: nunca escuta em `0.0.0.0` nem na interface
-  P2P do Wi-Fi Direct. Acompanha o NetworkManager (dispatcher `up`/`down` da `wlan0`) e o
-  `settings.toml` (`ssh_wifi`): sobe, reinicia na troca de endereço e para quando o Wi-Fi cai ou
-  a opção é desligada. O `lume-ui` só grava a opção e lê o estado; não roda nada como root.
-- **Painel**: a linha mostra Ligado/Desligado com ◀▶; ligado, o endereço (`root@192.168.x.y`)
-  ou "Falta a chave no cartão".
+- **Escolhas do usuário**: primeiro "só chave"; no mesmo dia o usuário pediu algo que qualquer
+  pessoa use sem criar chave ("as pessoas não vão saber criar um certificado") e escolheu o
+  **código na tela**, com o SSH ligado antes nas Configurações (chave "SSH pela rede" no painel
+  do Wi-Fi, desligada de fábrica). É a única exceção ao "nada exposto na rede sem fio" (spec
+  `wireless`).
+- **Código na tela**: ligado e com o Wi-Fi conectado, o painel mostra `ssh console@<ip>` e um
+  código de 8 caracteres de um alfabeto de 31 sem ambíguos (`23456789ABCDEFGHJKMNPQRSTUVWXYZ`,
+  sem 0/O e 1/I/L,
+  mostrado e digitado como `7K4M-9Q2X`), que é a senha. Só quem vê a tela do console (ou tem o
+  cartão na mão) sabe o código. **Fixo até o usuário pedir outro** (pedido do usuário,
+  2026-11-15): a linha "Gerar novo código" do painel troca o código; ele fica no cartão
+  (`ROMS/system/ssh/wifi-code`, legível porque o painel o mostra) e vale depois do boot. Sem
+  troca automática, a proteção contra adivinhar é o tamanho: 31^8 ≈ 8,5 × 10^11 combinações, a
+  poucas tentativas por segundo do dropbear, é inviável pela rede.
+- **Usuário `console`**: uid 0, casa `/root`, criado no build com a senha travada; o serviço
+  grava a senha (o código) com `chpasswd` no `/etc/shadow`, que está na camada de RAM, nunca no
+  cartão. O root continua sem senha, só para o cabo USB (`dropbear -B` em `10.55.0.1`).
+- **Servidor**: o mesmo `dropbear`, outra instância, com `-j -k -r <chave de host> -p <ip>:22`
+  e sem `-B`: aceita a senha do `console` e recusa a senha vazia do root. As chaves de
+  `ROMS/system/ssh/authorized_keys`, se houver, também entram (opção avançada, copiadas para
+  `/root/.ssh` com `0600`, porque o FAT não guarda modo). O `-g` não serve: ele recusa senha de
+  todo uid 0, inclusive o `console`.
+- **Serviço**: `r36os-ssh-wifi`, root, confere a cada 4 s a opção (`ssh_wifi` do
+  `settings.toml`) e o endereço da primeira interface sem fio que não é `p2p-*`: sobe, move na
+  troca de endereço e para quando o Wi-Fi cai ou a opção é desligada; nunca escuta em `0.0.0.0`
+  nem numa ligação Wi-Fi Direct. Cria o código quando falta e, quando o arquivo muda (o
+  `lume-ui` grava um novo no "Gerar novo código"), aplica a senha com `chpasswd`. O
+  `lume-ui` não roda nada como root.
+- **Chave de host** no cartão (`system/ssh/dropbear_ed25519_host_key`), criada uma vez: o PC
+  vê a mesma chave depois de cada boot.
 
 ### D13. Régua do protótipo (regra do usuário, 2026-11-15)
 

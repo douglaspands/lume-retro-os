@@ -328,7 +328,18 @@
   levou o backlight de 8 a 9 e a 10 com a linha branca cheia na borda esquerda (captura); com
   o r6 desceu de 10 a 2 e voltou a 4. Alguns apertos injetados viram volume porque o driver
   reenvia o estado real do Fn em milissegundos (limitação da injeção). Falta: o usuário
-  conferir com o botão e dentro de um jogo. `r36os-input` r6, `lume-launcher` r21. Fora daqui:
+  conferir com o botão e dentro de um jogo. `r36os-input` r6, `lume-launcher` r21.
+  **Linha também dentro do jogo** (pedido do usuário, 2026-11-15, "linha igual à do
+  launcher"): patch 0011 do RetroArch (r112) com o comando de rede `LUME_LEVEL <left|right>
+  <percent> <rrggbb>`, um widget gráfico que desenha a mesma linha (5 px a 640, trilho cinza
+  30%, preenchida de baixo, some 1,5 s depois); o `r36os-input` (r7) manda o comando a
+  `127.0.0.1:55355` depois de cada passo de volume (o nível lido do mixer como o launcher
+  mostra) e de brilho; as cores vêm do tema escolhido, que o `lume-ui` (r22) grava em
+  `ROMS/system/lume/level-colors` (`volume=`, `brightness=`), com o azul do tema padrão e o
+  branco quando falta. Testes: patch aplicado na ordem com o widget registrado,
+  `test_levels_ask_retroarch_for_the_line_over_a_game` (porta UDP falsa, cores padrão e do
+  arquivo) e `level_colors_follow_the_theme_for_the_line_over_a_game`. Falta: conferir no
+  GA36 dentro de um jogo. Fora daqui:
   o brilho escolhido ainda não volta depois do reboot (o `settings.brightness` não é aplicado
   no boot).
 - [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
@@ -636,6 +647,30 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   pedir senha, `nc` na porta 22 com a opção desligada não conecta; o SSH do cabo continua.
   Documentar em `docs/LAUNCHER.md` (como pôr a chave no cartão) e em `docs/LOGS.md` se o
   serviço registrar algo.
+  Feito em 2026-11-15 (antes do resto do grupo 12, pedido do usuário): `ssh_wifi` no
+  `settings.toml` (desligado de fábrica); no painel do Wi-Fi a linha "SSH pela rede" (◀▶ ou A)
+  e, ligada, "ssh root@<ip>" ou "Falta a chave no cartão"/"Desconectado"; o serviço
+  `r36os-ssh-wifi` (OpenRC, `supervise-daemon`, script `/usr/libexec/r36os/ssh-wifi`) confere a
+  cada 4 s a opção, a chave e o endereço da primeira interface sem fio que não é `p2p-*`, e
+  sobe, move ou para o dropbear (`-s -g -j -k`, `-p <ip>:22`); as chaves vão para
+  `/root/.ssh` (700/600) só enquanto ele roda; a chave de host fica no cartão
+  (`system/ssh/dropbear_ed25519_host_key`, feita uma vez), então não muda a cada boot; eventos
+  no syslog (`r36os-ssh-wifi`). Testes: `tests/net/test_ssh_wifi.sh` (18 checagens no busybox)
+  e `ssh_over_wifi_switch_in_the_wifi_panel`; `test-vm` 82/82 (build 20261115-123051).
+  **Refeito no mesmo dia com o código na tela** (pedido do usuário: "as pessoas não vão saber
+  criar um certificado"; o código fixo até o usuário pedir outro; D18): usuário `console` (uid
+  0, criado travado no `configure.sh`), senha = o código de `ROMS/system/ssh/wifi-code` (8
+  caracteres de 31, `XXXX-XXXX`), que o serviço cria quando falta e aplica com `chpasswd` no
+  `/etc/shadow` da camada de RAM sempre que muda, e trava de volta ao parar; dropbear sem `-s`,
+  `-g` e `-B` (aceita a senha do `console`, recusa a vazia do root); a chave do cartão virou
+  opção avançada. No painel: "ssh console@<ip>", "Código" e "Gerar novo código" (A, o
+  `lume-ui` grava um código novo no cartão); o painel acorda a cada segundo só até o código
+  aparecer. Testes: `tests/net/test_ssh_wifi.sh` (25 checagens: código criado e aplicado uma
+  vez, fixo entre aplicações e depois de parar, código novo aplicado sem reiniciar, arquivo
+  estragado trocado e nunca usado como senha, `console` travado ao parar, sem `-B`),
+  `ssh_over_wifi_switch_in_the_wifi_panel` e `ssh_codes_use_the_alphabet`; guia em
+  `docs/LAUNCHER.md`. Falta: a prova no GA36 com o dongle (`ssh console@<ip>` com o código,
+  `ssh root@<ip>` com senha vazia recusado, código novo derruba o antigo).
 
 ## 13. Bluetooth com foco em fone (D15, pedido do usuário, 2026-11-15)
 
@@ -658,9 +693,10 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   - P2P no dongle (`iw list`) e no `wpa_supplicant` do Alpine; ligação com um celular
     Android.
   Decisão registrada: Miracast fica ou volta ao P-52; Wi-Fi Direct fica se o P2P funcionar.
-- [ ] 14.2 Ligação entre consoles: "Conectar a outro console" (ficar visível, procurar,
-  convidar, aceitar ou recusar, Desconectar), nome do console editável. Teste com o GA36 e o
-  R36S juntos; nenhuma porta aberta na ligação (teste da spec `wireless`).
+- ~~14.2 Ligação entre consoles~~: saiu desta change (pedido do usuário, 2026-11-15) para o
+  P-65 em `docs/PENDENCIAS.md`, uma change própria com todas as formas de ligar dois consoles
+  (Wi-Fi Direct, cabo USB-C a USB-C e o netplay por cima). A prova de P2P da 14.1 continua
+  aqui, porque o Miracast também precisa dela.
 - [ ] 14.3 Miracast (se a 14.1 aprovar): "Transmitir para TV", procurar, escolher, Parar;
   tela e som; jogo continua a 60 fps no console. Prova com uma TV ou adaptador de verdade.
 
@@ -668,6 +704,26 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
 - [ ] 15.1 `retroarch-lume.cfg` mínimo (D17) e teste das chaves; na VM, o `retroarch.cfg`
   igual antes e depois de um jogo e nenhuma playlist ou histórico gravado.
+  Feito em 2026-11-15 (o usuário decidiu manter o menu ozone; a troca de menu fica para o
+  futuro): `history_list_enable`, `content_runtime_log` e `content_runtime_log_aggregate`
+  desligados como chaves fixas (o lume tem os próprios recentes; gravavam no cartão a cada
+  jogo), e o RetroArch lê só os `.info` dos cores instalados: o `configure.sh` copia para
+  `/usr/share/r36os/libretro-info` os do `/usr/lib/libretro`, e o `libretro_info_path` aponta
+  para lá (eram 291 arquivos lidos a cada início para 12 cores; o cache não pode ser gravado na
+  pasta somente leitura). O `config_save_on_exit` continua ligado: desligar quebraria o que o
+  usuário salva no menu do RetroArch. Testes `test_fixed_config_holds_only_what_keeps_the_system_working`
+  e `test_only_the_installed_cores_info_files_are_read`; `test-vm` 82/82 com o r112. Falta:
+  medir no GA36 o tempo até o primeiro quadro, antes e depois.
+- [x] 15.4 As escolhas do launcher valem sempre (pedido do usuário, 2026-11-15): todo jogo
+  libretro aberto pelo lume passa, só naquela execução (devolvido no fim pelo
+  `frontends/retroarch`), `aspect_ratio_index` sempre (o do core quando nada foi escolhido),
+  `auto_overrides_enable=false` (os overrides de core e de jogo do RetroArch carregam depois da
+  configuração e trocariam o aspecto), `auto_shaders_enable=false` (os presets automáticos
+  carregariam um shader salvo no menu do RetroArch) e, com shader escolhido,
+  `video_shader_enable=true` (o `--set-shader` só vale com shaders ligados). Conferido no
+  fonte do 1.22.2 (`runloop.c` `config_load_override` depois da configuração;
+  `video_shader_parse.c`: o `--set-shader` vence o preset automático). Testes
+  `default_game_is_the_plain_runner` e `game_options_and_slot`; `test-vm` 82/82.
 - [ ] 15.2 Aport do RetroArch sem Wi-Fi e Bluetooth e sem o que nenhum caminho usa; serviço
   de playlists fora do boot com o frontend lume. RSS e tempo até o primeiro quadro no GA36,
   antes e depois, anotados aqui.
@@ -680,4 +736,5 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 - Commits pequenos (Conventional Commits) na `feature/lume-launcher`, juntos perto do fim do
   bloco de trabalho, com o OK do usuário.
 - Arquivar com `/opsx:archive`. O P-44 vai para "Concluídas" com o change (e o P-52, se o
-  Miracast ficar); o P-56 (PortMaster) e o P-63 (netplay) continuam abertos.
+  Miracast ficar); o P-56 (PortMaster), o P-64 (saúde do cartão) e o P-65 (ligação entre
+  consoles, com o netplay do antigo P-63) continuam abertos.

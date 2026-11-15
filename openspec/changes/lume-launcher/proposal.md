@@ -37,8 +37,7 @@ reconciliação com o Lume, que é Alpine, sem EmulationStation e com o contrato
     esquecer uma rede salva e conectar sozinho a uma rede conhecida;
   - Bluetooth com foco em fone: ligar e desligar, procurar aparelhos só quando pedido, parear,
     conectar, esquecer; o som do launcher e dos jogos vai para o fone conectado;
-  - Wi-Fi Direct entre dois consoles, base para um jogo em 2 jogadores no futuro (o netplay
-    fica no P-63);
+  - SSH pela rede Wi-Fi, só com chave e desligado de fábrica (D18);
   - Miracast (o console como fonte, a tela e o som numa TV), começando por uma prova de
     viabilidade: sem codificador H.264 por hardware no kernel dos dois consoles, o custo na CPU
     decide; se reprovar, volta ao P-52 com as medidas.
@@ -77,7 +76,8 @@ Fora do escopo:
 - scraping de capas;
 - navegador de Arquivos e tela de Capturas do protótipo;
 - estatísticas de tempo de jogo;
-- o jogo em 2 jogadores pela ligação Wi-Fi Direct (netplay, P-63);
+- a ligação entre dois consoles, por Wi-Fi Direct ou cabo USB-C a USB-C, e o jogo a dois por
+  cima dela (P-65, que juntou o P-63; saiu deste change em 2026-11-15);
 - temas além dos 2 Material.
 
 ## Capabilities
@@ -102,8 +102,8 @@ Fora do escopo:
   pode pedir o scan.
 - `wireless`: o frontend que configura o Wi-Fi e o Bluetooth passa a ser o launcher (não o menu
   do RetroArch); o Wi-Fi ganha ligar/desligar e esquecer rede; o Bluetooth ganha o som no fone;
-  entram o Wi-Fi Direct entre consoles e o Miracast; a regra de nada exposto vale também na
-  ligação Wi-Fi Direct.
+  entram o Miracast e o SSH pela rede (só chave, a única exceção à regra de nada exposto); a
+  regra de nada exposto vale também numa ligação Wi-Fi Direct.
 
 ## Impact
 
@@ -134,7 +134,7 @@ Fora do escopo:
 - **Documentação**:
   - `docs/FRONTEND.md`, `docs/CATALOG.md`, `docs/lume-launcher/` e os guias de bring-up;
   - `docs/PENDENCIAS.md`: o P-44 vira este change e o P-56 entra como nova pendência
-    (PortMaster); o P-52 (Miracast) entra neste change e o P-63 (netplay entre dois consoles)
-    entra como nova pendência.
+    (PortMaster); o P-52 (Miracast) entra neste change; a ligação entre consoles e o netplay
+    ficam no P-65 (que juntou o P-63); a saúde do cartão vira o P-64 (change `card-health`).
 - **Branch**: `feature/lume-launcher`; a base (`main` ou `feature/boot-dtb-select`) será
   confirmada com o usuário.

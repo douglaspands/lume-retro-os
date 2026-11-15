@@ -65,6 +65,31 @@ selecionado), Games (com **Atualizar listas**: A atualiza), RetroArch (o menu co
 Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
 só com um adaptador USB conectado.
 
+Na lista, ▲▼ escolhem o item e A ou ▶ entram no painel dele; no painel, ▲▼ trocam a linha, ◀▶
+mudam o valor, A executa e B volta à lista. Sistema só mostra valores; RetroArch e Desligar
+executam direto com A.
+
+### SSH pela rede Wi-Fi
+
+No painel do Wi-Fi, **SSH pela rede** (desligado de fábrica) deixa entrar no console como root
+pela rede Wi-Fi, sem preparar nada no PC:
+
+1. Ligue **SSH pela rede** no painel do Wi-Fi (◀▶ ou A).
+2. O painel mostra o comando e o **código**, por exemplo `ssh console@192.168.1.20` e
+   `7K4M-9Q2X`.
+3. No PC (o `ssh` já vem no Windows, no macOS e no Linux), digite o comando e, quando pedir a
+   senha, o código.
+
+O código fica o mesmo, também depois de reiniciar, até você escolher **Gerar novo código** no
+painel; aí o antigo deixa de valer. Ele fica no cartão (`ROMS/system/ssh/wifi-code`), então
+quem tem o cartão na mão também pode lê-lo. O console só escuta no endereço da rede Wi-Fi
+(nunca numa ligação Wi-Fi Direct) e para quando o Wi-Fi cai ou a opção é desligada; o root sem
+senha continua valendo só pelo cabo USB. A chave do console
+(`ROMS/system/ssh/dropbear_ed25519_host_key`) é criada na primeira vez e não muda a cada boot.
+
+Avançado: quem tem uma chave SSH pode pô-la em `ROMS/system/ssh/authorized_keys` (uma por
+linha) e entrar como `root` sem o código.
+
 ## Listas de jogos (`gamelist.xml`)
 
 Cada console tem `ROMS/roms/<id>/gamelist.xml`, no formato do EmulationStation. As listas são
