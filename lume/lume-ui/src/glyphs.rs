@@ -90,6 +90,58 @@ pub fn check(n: u32) -> Vec<u8> {
     mask(n, |x, y| to_segment(x, y, a, b).min(to_segment(x, y, b, c)) <= 0.14)
 }
 
+/// Rasterizes `inside(x, y)`, in view units (`vw` x `vh`, y down), into a `w` x `h` alpha
+/// mask, 4x4 supersampled: the icons drawn from an SVG's own coordinates.
+fn mask_view(w: u32, h: u32, vw: f32, vh: f32, inside: impl Fn(f32, f32) -> bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity((w * h) as usize);
+    for py in 0..h {
+        for px in 0..w {
+            let mut hits = 0u32;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let x = (px as f32 + (sx as f32 + 0.5) / 4.0) / w as f32 * vw;
+                    let y = (py as f32 + (sy as f32 + 0.5) / 4.0) / h as f32 * vh;
+                    hits += inside(x, y) as u32;
+                }
+            }
+            out.push((hits * 255 / 16) as u8);
+        }
+    }
+    out
+}
+
+/// The prototype's Wi-Fi icon (its SVG, viewBox 20 x 14): three arcs through (1.5, 5)-(18.5, 5),
+/// (4.5, 8)-(15.5, 8) and (7.5, 11)-(12.5, 11) of radius 12, 8 and 4, a 1.8 stroke with
+/// round ends, and a dot of radius 1.2 at (10, 12.6). Returns (w, h, mask) for `h` px tall.
+pub fn wifi(h: u32) -> (u32, u32, Vec<u8>) {
+    let w = (h as f32 * 20.0 / 14.0).round() as u32;
+    let half = 0.9;
+    // each arc: its circle (center below the chord), its radius and the chord's y
+    let arcs = [(1.5f32, 5.0f32, 12.0f32), (4.5, 8.0, 8.0), (7.5, 11.0, 4.0)];
+    let m = mask_view(w, h, 20.0, 14.0, |x, y| {
+        let on_arc = arcs.iter().any(|&(x0, y0, r)| {
+            let dx = 10.0 - x0;
+            let cy = y0 + (r * r - dx * dx).sqrt();
+            let d = ((x - 10.0).powi(2) + (y - cy).powi(2)).sqrt();
+            let body = (d - r).abs() <= half && y <= y0;
+            let caps = ((x - x0).powi(2) + (y - y0).powi(2)).sqrt() <= half || ((x - (20.0 - x0)).powi(2) + (y - y0).powi(2)).sqrt() <= half;
+            body || caps
+        });
+        on_arc || ((x - 10.0).powi(2) + (y - 12.6).powi(2)).sqrt() <= 1.2
+    });
+    (w, h, m)
+}
+
+/// The Bluetooth rune in the Wi-Fi icon's style (same 14-unit height, a 1.8 stroke with
+/// round ends and joins), viewBox 10 x 14: the stem from (5, 1) to (5, 13) and the two
+/// arrows to (8, 4) and (8, 10), crossing back to (2, 4) and (2, 10).
+pub fn bluetooth(h: u32) -> (u32, u32, Vec<u8>) {
+    let w = (h as f32 * 10.0 / 14.0).round() as u32;
+    let pts = [(2.0f32, 4.0f32), (8.0, 10.0), (5.0, 13.0), (5.0, 1.0), (8.0, 4.0), (2.0, 10.0)];
+    let m = mask_view(w, h, 10.0, 14.0, |x, y| pts.windows(2).any(|s| to_segment(x, y, s[0], s[1]) <= 0.9));
+    (w, h, m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +156,21 @@ mod tests {
         // the gear has a hole: its center is empty; the star's center is full
         assert_eq!(gear(64)[32 * 64 + 32], 0);
         assert_eq!(star(64)[34 * 64 + 32], 255);
+    }
+
+    #[test]
+    fn network_icons_share_the_status_style() {
+        // the Wi-Fi icon keeps the prototype's 20:14 box; the rune is as tall, 10:14
+        let (w, h, m) = wifi(56);
+        assert_eq!((w, h, m.len()), (80, 56, 80 * 56));
+        let at = |m: &[u8], w: u32, x: f32, y: f32| m[((y / 14.0 * 56.0) as u32 * w + (x / 20.0 * w as f32) as u32) as usize];
+        assert_eq!(at(&m, w, 10.0, 12.6), 255, "the dot");
+        // the middle arc's top is at 5.81, the small one's at 10.12 (each ±0.9 of stroke)
+        assert_eq!(at(&m, w, 10.0, 8.0), 0, "between the arcs");
+        assert_eq!(at(&m, w, 10.0, 13.47 - 12.0), 255, "the top of the outer arc");
+        let (bw, bh, b) = bluetooth(56);
+        assert_eq!((bw, bh), (40, 56));
+        assert_eq!(b[(28 * bw + 20) as usize], 255, "the stem");
+        assert_eq!(b[(28 * bw + 2) as usize], 0, "left of the stem, mid height");
     }
 }

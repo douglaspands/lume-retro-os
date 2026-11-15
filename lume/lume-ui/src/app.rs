@@ -44,6 +44,8 @@ pub enum Ev {
     Volume(u8),
     /// the battery level (percent) or charging state changed
     Battery(u8, bool),
+    /// Wi-Fi or Bluetooth connected or not any more (Wi-Fi, Bluetooth)
+    Network(bool, bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,6 +173,8 @@ pub struct App<S: SystemAdapter> {
     pub volume_bar: Option<(u8, Instant)>,
     /// the status bar's battery: level and charging (None: no battery, nothing drawn)
     pub battery: Option<(u8, bool)>,
+    /// the status bar's network: (Wi-Fi connected, Bluetooth connected)
+    pub network: (bool, bool),
     pub dock: Vec<DockItem>,
     pub dock_focus: usize,
     pub grid: Option<Grid>,
@@ -240,6 +244,7 @@ impl<S: SystemAdapter> App<S> {
             toast: None,
             volume_bar: None,
             battery: None,
+            network: (false, false),
             dock: Vec::new(),
             dock_focus: 0,
             grid: None,
@@ -259,6 +264,7 @@ impl<S: SystemAdapter> App<S> {
             rows: 2,
         };
         app.battery = app.sys.battery();
+        app.network = app.sys.network();
         app.build_dock();
         if let Some(st) = State::load(&app.runtime) {
             app.restore(&st);
@@ -489,6 +495,11 @@ impl<S: SystemAdapter> App<S> {
                 let new = Some((level.min(100), charging));
                 let changed = self.battery != new;
                 self.battery = new;
+                changed
+            }
+            Ev::Network(wifi, bt) => {
+                let changed = self.network != (wifi, bt);
+                self.network = (wifi, bt);
                 changed
             }
             Ev::Input(a, repeat) => {
@@ -1113,6 +1124,12 @@ impl<S: SystemAdapter> App<S> {
                 Overlay::Confirm { focus } => Overlay::Confirm { focus: *focus },
             };
             self.draw_overlay(c, &ov, w, h);
+            // the battery stays in its spot and undimmed over the menus (the search draws it
+            // itself, next to its bar); inside its stroke, the dimmed background
+            if !matches!(ov, Overlay::Keyboard { .. }) {
+                let dimmed = th.color("bg").under(th.color("overlay"));
+                self.draw_status_battery_on(c, w, dimmed);
+            }
         }
         if let Some((text, _)) = &self.toast {
             let px = (th.em("label_px", w) as f32) * 0.9;
@@ -1172,10 +1189,37 @@ impl<S: SystemAdapter> App<S> {
     /// The status bar's battery, in one place on every screen (user's choice, 2026-11-15:
     /// the prototype moved it per screen): the game list's spot, ending 1.75 em from the
     /// right edge with the text's top at 1 em, `status_px`, medium. Returns where it starts.
-    fn draw_status_battery(&self, c: &mut dyn Canvas, w: i32) -> i32 {
+    fn draw_status_battery(&mut self, c: &mut dyn Canvas, w: i32) -> i32 {
+        self.draw_status_battery_on(c, w, self.theme.color("bg"))
+    }
+
+    /// The same battery over a background other than `bg` (the dimmed screen under a menu):
+    /// `under` is the color inside the icon's stroke.
+    fn draw_status_battery_on(&mut self, c: &mut dyn Canvas, w: i32, under: crate::canvas::Color) -> i32 {
         let em = w as f32 / 40.0;
         let px = self.theme.num("status_px") as f32 * em;
-        self.draw_battery(c, w - (1.75 * em).round() as i32, em.round() as i32, px)
+        let (right, y) = (w - (1.75 * em).round() as i32, em.round() as i32);
+        let mut left = self.draw_battery(c, right, y, px, under);
+        // Wi-Fi and Bluetooth, when connected, just left of the battery, in the text color:
+        // the prototype's icons 0.9 of the text tall and centered on its line, 0.5 of the text
+        // between them and 0.8 before the battery (its gaps in .net and the header)
+        let (wifi, bt) = self.network;
+        let ih = (px * 0.9).round() as i32;
+        let iy = y + ((px * 1.1 - ih as f32) / 2.0).round() as i32;
+        let fg = self.theme.color("fg");
+        let mut gap = if self.battery.is_some() { (px * 0.8).round() as i32 } else { 0 };
+        for (on, key) in [(bt, "@bt"), (wifi, "@wifi")] {
+            if !on {
+                continue;
+            }
+            if let Some((t, size)) = self.symbol(c, key) {
+                let iw = (ih as f32 * size.w as f32 / size.h as f32).round() as i32;
+                left -= gap + iw;
+                c.draw_mask(t, Rect::new(left, iy, iw, ih), fg);
+                gap = (px * 0.5).round() as i32;
+            }
+        }
+        left
     }
 
     /// The battery right-aligned at `right` with the text top at `y`, as the prototype: its
@@ -1184,7 +1228,7 @@ impl<S: SystemAdapter> App<S> {
     /// 0.95 of the text tall and centered on its line, 0.35 of the text before the percent
     /// (medium). One color, no charging mark: the prototype has none. Edges are rounded,
     /// not sizes, so the stroke stays even. Returns the x where it starts.
-    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32) -> i32 {
+    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, under: crate::canvas::Color) -> i32 {
         let Some((level, _charging)) = self.battery else { return right };
         let th = &self.theme;
         let fg = th.color("fg");
@@ -1202,7 +1246,7 @@ impl<S: SystemAdapter> App<S> {
         let rad = |v: f32| (v * s).round() as i32;
         // the stroke: the outer edge, then the inside cut back to the background
         c.fill(rect(0.2, 0.2, 26.8, 13.8), rad(3.3), fg);
-        c.fill(rect(1.8, 1.8, 25.2, 12.2), rad(1.7), th.color("bg"));
+        c.fill(rect(1.8, 1.8, 25.2, 12.2), rad(1.7), under);
         c.fill(rect(27.0, 4.5, 29.0, 9.5), rad(1.0), fg);
         let fill = 20.0 * level.min(100) as f32 / 100.0;
         if fill > 0.0 {
@@ -1341,13 +1385,16 @@ impl<S: SystemAdapter> App<S> {
             return *i;
         }
         const N: u32 = 128;
-        let alpha = match key {
-            "@star" => crate::glyphs::star(N),
-            "@gear" => crate::glyphs::gear(N),
-            "@check" => crate::glyphs::check(N),
-            _ => crate::glyphs::clock(N),
+        let (w, h, alpha) = match key {
+            "@star" => (N, N, crate::glyphs::star(N)),
+            "@gear" => (N, N, crate::glyphs::gear(N)),
+            "@check" => (N, N, crate::glyphs::check(N)),
+            // the status bar's icons, drawn about 17 px tall: made at 3x, scaled down
+            "@wifi" => crate::glyphs::wifi(56),
+            "@bt" => crate::glyphs::bluetooth(56),
+            _ => (N, N, crate::glyphs::clock(N)),
         };
-        let made = c.texture_mask(N, N, &alpha).map(|t| (t, Rect::new(0, 0, N as i32, N as i32)));
+        let made = c.texture_mask(w, h, &alpha).map(|t| (t, Rect::new(0, 0, w as i32, h as i32)));
         self.icons.insert(key.to_string(), made);
         made
     }
@@ -1576,7 +1623,10 @@ impl<S: SystemAdapter> App<S> {
         let e = |v: f32| (v * em).round() as i32;
         let field_px = th.num("list_name_px") as f32 * em;
         let status_px = th.num("status_px") as f32 * em;
-        let field = Rect::new(e(1.0), e(0.5), w - 2 * e(1.0), e(2.4));
+        // the battery keeps its spot; the bar ends 1 em before it (the whole width without one)
+        let batt_x = self.draw_status_battery(c, w);
+        let right = if batt_x < w - e(1.75) { batt_x - e(1.0) } else { w - e(1.0) };
+        let field = Rect::new(e(1.0), e(0.5), right - e(1.0), e(2.4));
         c.fill(field, th.em("radius_item", w).min(field.h / 2), th.color("panel_bg_opaque"));
         let count_txt = format!("{count} {}", self.tr("games"));
         let cw = c.text_width(&count_txt, status_px);
@@ -1770,7 +1820,12 @@ impl<S: SystemAdapter> App<S> {
         let px = th.em("label_px", w) as f32;
         let margin = w / 40;
         let row_h = (px * 1.9) as i32;
-        let panel = Rect::new(margin, margin * 2, w - 2 * margin, h - margin * 2 - (px * 2.4) as i32);
+        // below the header band (3.325 em, the list's: the battery stays in sight) and 0.4 em
+        // above the hints band, as the Settings panel
+        let em = w as f32 / 40.0;
+        let top = (3.325 * em).round() as i32;
+        let bottom = h - (2.394 * em).round() as i32 - (0.4 * em).round() as i32;
+        let panel = Rect::new(margin, top, w - 2 * margin, bottom - top);
         c.fill(Rect::new(0, 0, w, h), 0, th.color("overlay"));
         c.fill(panel, th.em("radius_panel", w), th.color("panel_bg"));
         let title = format!("{} · {}", self.lib.name(game), self.tr("start_state"));

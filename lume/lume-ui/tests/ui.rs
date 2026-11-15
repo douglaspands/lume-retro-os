@@ -223,6 +223,27 @@ fn battery_in_the_status_bar_of_every_screen() {
     go_dock(&mut a, DockItem::System(0));
     press(&mut a, Action::A);
     let on_list = spot(&mut a);
+    // the search keeps it in its spot (the bar ends before it)
+    press(&mut a, Action::X);
+    assert_eq!(spot(&mut a), on_list, "search");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let bar = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg_opaque") && r.y < 20 && r.w > 300).map(|(r, _)| *r).unwrap();
+    assert!(bar.right() < on_list.x - 30, "the bar {bar:?} ends before the battery {on_list:?}");
+    press(&mut a, Action::B);
+    // over a menu it stays, undimmed: drawn after the dimming layer, the inside of its
+    // stroke in the dimmed background
+    press(&mut a, Action::A);
+    assert!(a.overlay_open());
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let dim = cv.fills.iter().position(|(r, col)| r.w == 640 && r.h == 480 && *col == a.theme.color("overlay")).expect("the dimming layer");
+    let pct = cv.texts.iter().find(|(t, _)| t == "82%").map(|(_, r)| *r).unwrap();
+    assert_eq!(pct, on_list, "menu");
+    let dimmed = a.theme.color("bg").under(a.theme.color("overlay"));
+    let hole = cv.fills.iter().rposition(|(r, col)| *col == dimmed && r.y < 40 && r.x > 500).expect("battery drawn over the dimming");
+    assert!(hole > dim);
+    press(&mut a, Action::B);
     go_back(&mut a);
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
@@ -423,6 +444,47 @@ fn search_bar_on_top_keyboard_below_and_the_list_between() {
     // the list name stays whole; the filter shows on the right of the header
     assert!(canvas.has_text(&a.lib.systems[1].name) && canvas.has_text("“1”"));
     assert_eq!(a.grid.as_ref().unwrap().items.len(), n);
+}
+
+#[test]
+fn network_icons_next_to_the_battery_on_every_screen() {
+    let c = card("netbar", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), net: (true, true), ..Default::default() });
+    // the icons of the status bar: the text-colored marks right of the middle, in its band
+    let marks = |a: &mut App<FakeSystem>| {
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        let fg = a.theme.color("fg");
+        let pct = cv.texts.iter().find(|(t, _)| t == "82%").map(|(_, r)| *r).unwrap();
+        let mut icons: Vec<_> = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 45 && r.x > 400 && r.right() < pct.x - 40 && r.h > 10).map(|(r, _)| *r).collect();
+        icons.sort_by_key(|r| r.x);
+        icons.dedup();
+        icons
+    };
+    let on_dock = marks(&mut a);
+    // Wi-Fi then Bluetooth, 0.9 of the 19.2 px text tall, 20:14 and 10:14
+    assert_eq!(on_dock.len(), 2, "{on_dock:?}");
+    let (wifi, bt) = (on_dock[0], on_dock[1]);
+    assert!((wifi.h - 17).abs() <= 1 && (wifi.w - 25).abs() <= 1, "wifi {wifi:?}");
+    assert!((bt.h - 17).abs() <= 1 && (bt.w - 12).abs() <= 1, "bt {bt:?}");
+    assert!((bt.x - wifi.right() - 10).abs() <= 1, "0.5 of the text between them");
+    // the same rects on a list, over a menu, and in the Settings
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    assert_eq!(marks(&mut a), on_dock, "list");
+    press(&mut a, Action::A);
+    assert_eq!(marks(&mut a), on_dock, "menu");
+    press(&mut a, Action::B);
+    go_back(&mut a);
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    assert_eq!(marks(&mut a), on_dock, "Settings");
+    // a connection that drops takes its icon away (an event only when it changes)
+    assert!(a.handle(Ev::Network(true, false)));
+    assert!(!a.handle(Ev::Network(true, false)));
+    assert_eq!(marks(&mut a).len(), 1);
+    assert!(a.handle(Ev::Network(false, false)));
+    assert!(marks(&mut a).is_empty());
 }
 
 #[test]
@@ -750,6 +812,9 @@ fn save_states_show_their_picture() {
     let mut canvas = FakeCanvas::new(640, 480);
     a.draw(&mut canvas);
     assert!(canvas.has_text("Slot 1") && canvas.has_text("Slot 2"));
+    // the panel starts under the header band (53.2), clear of the battery
+    let panel = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
+    assert!((panel.y - 53).abs() <= 1, "{panel:?}");
     let live = canvas.live_textures;
     assert!(live >= 1, "the picture of slot 1 is a texture");
     assert!(!canvas.has_text("No picture"));

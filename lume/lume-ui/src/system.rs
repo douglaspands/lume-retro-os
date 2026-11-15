@@ -21,6 +21,28 @@ pub trait SystemAdapter {
     fn info(&self) -> Vec<(&'static str, String)>;
     /// battery level in percent and whether it is charging; None without a battery
     fn battery(&self) -> Option<(u8, bool)>;
+    /// (Wi-Fi connected, Bluetooth connected), for the status bar
+    fn network(&self) -> (bool, bool);
+}
+
+/// Whether a Wi-Fi interface is up and a Bluetooth link is open, from /sys only (no nmcli
+/// or bluetoothctl: a process costs 7 to 41 ms on the A33). Wi-Fi: an interface with
+/// `wireless/` whose operstate is "up". Bluetooth: each open link is a `hci<N>:<handle>`
+/// entry in class/bluetooth.
+pub fn read_network(sys: &Path) -> (bool, bool) {
+    let wifi = std::fs::read_dir(sys.join("class/net"))
+        .map(|d| {
+            d.flatten().any(|e| {
+                let p = e.path();
+                (p.join("wireless").exists() || p.join("phy80211").exists())
+                    && std::fs::read_to_string(p.join("operstate")).map(|s| s.trim() == "up").unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    let bt = std::fs::read_dir(sys.join("class/bluetooth"))
+        .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().contains(':')))
+        .unwrap_or(false);
+    (wifi, bt)
 }
 
 /// The battery of /sys/class/power_supply (the first supply of type Battery): level and
@@ -209,6 +231,10 @@ impl SystemAdapter for RealSystem {
     fn battery(&self) -> Option<(u8, bool)> {
         read_battery(&self.sys)
     }
+
+    fn network(&self) -> (bool, bool) {
+        read_network(&self.sys)
+    }
 }
 
 /// Writes `user_language` into the user's RetroArch config, atomically, so the next game and
@@ -243,6 +269,7 @@ pub struct FakeSystem {
     pub bri: u8,
     pub info_reads: std::cell::Cell<u32>,
     pub batt: Option<(u8, bool)>,
+    pub net: (bool, bool),
 }
 
 impl SystemAdapter for FakeSystem {
@@ -277,11 +304,31 @@ impl SystemAdapter for FakeSystem {
     fn battery(&self) -> Option<(u8, bool)> {
         self.batt
     }
+    fn network(&self) -> (bool, bool) {
+        self.net
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_from_sysfs() {
+        let sys = std::env::temp_dir().join(format!("lume-net-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&sys);
+        std::fs::create_dir_all(sys.join("class/net/eth0")).unwrap();
+        std::fs::write(sys.join("class/net/eth0/operstate"), "up\n").unwrap();
+        std::fs::create_dir_all(sys.join("class/net/wlan0/wireless")).unwrap();
+        std::fs::write(sys.join("class/net/wlan0/operstate"), "down\n").unwrap();
+        std::fs::create_dir_all(sys.join("class/bluetooth/hci0")).unwrap();
+        // a wired link up and an idle adapter: nothing to show
+        assert_eq!(read_network(&sys), (false, false));
+        std::fs::write(sys.join("class/net/wlan0/operstate"), "up\n").unwrap();
+        std::fs::create_dir_all(sys.join("class/bluetooth/hci0:12")).unwrap();
+        assert_eq!(read_network(&sys), (true, true));
+        assert_eq!(read_network(Path::new("/nonexistent")), (false, false));
+    }
 
     #[test]
     fn battery_from_sysfs() {

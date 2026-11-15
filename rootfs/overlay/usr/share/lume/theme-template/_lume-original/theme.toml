@@ -34,8 +34,8 @@ panel_bg_opaque = "#1A252F"
 sel_bg = "#4DB3FF"
 sel_fg = "#0F171E"
 # chip das setas no rodape
-nav_bg = "#2A3A48"
-nav_fg = "#F2F5F7"
+nav_bg = "#4DB3FF"
+nav_fg = "#0F171E"
 # avisos curtos
 toast_bg = "#1F3040"
 toast_fg = "#F2F5F7"

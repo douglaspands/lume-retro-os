@@ -431,8 +431,14 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   dele, todo na cor do texto, sem marca de carga (o azul carregando saiu), e um lugar só
   em todas as telas. Uma thread lê o sysfs a cada
   30 s e manda `Ev::Battery` só quando muda (o launcher parado continua sem acordar). Sem
-  bateria (VM), nada aparece. Falta Wi-Fi e Bluetooth conectados (pedem nmcli e bluetoothctl:
-  ler fora da thread de desenho) e a captura no GA36.
+  bateria (VM), nada aparece. Wi-Fi e Bluetooth feitos em 2026-11-15 (pedido do usuário:
+  coesos com o tema e num lugar só): logo à esquerda da bateria, em todas as telas e por
+  cima dos menus, na cor do texto, 0,9 do texto de altura e centrados na linha dele; o
+  Wi-Fi é o SVG do protótipo (três arcos de traço 1,8 e um ponto), o Bluetooth o símbolo
+  no mesmo traço (o protótipo escrevia "BT"); 0,5 do texto entre eles e 0,8 até a bateria.
+  Aparecem só conectados, lidos do `/sys` sem processo (interface sem fio com operstate
+  "up"; uma entrada `hci<N>:<handle>` por ligação Bluetooth), a cada 5 s, com evento só
+  quando mudam. Falta a captura no GA36 com um dongle.
   Barra de volume (pedido do usuário, 2026-11-14): sem o percentual e sem painel, só a
   trilha fina na margem direita, fora das caixas da grade e do contorno de foco. Em
   2026-11-15 virou a borda direita inteira: linha de 5 px na altura da tela, cheia de baixo

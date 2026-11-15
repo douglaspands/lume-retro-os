@@ -108,19 +108,29 @@ fn main() -> ExitCode {
             let _ = t.send(Ev::Volume(v));
         }));
     }
-    // battery of the status bar: two sysfs reads every 30 s, an event only when it changes
-    // (the loop stays asleep otherwise)
+    // the status bar: Wi-Fi and Bluetooth every 5 s (a connection shows soon), the battery
+    // every 30 s; a few sysfs reads, no process, an event only when something changes (the
+    // loop stays asleep otherwise)
     let t = tx.clone();
     std::thread::spawn(move || {
-        let mut last = lume_ui::system::read_battery(std::path::Path::new("/sys"));
-        loop {
-            std::thread::sleep(Duration::from_secs(30));
-            let now = lume_ui::system::read_battery(std::path::Path::new("/sys"));
-            if now != last {
-                if let Some((level, charging)) = now {
-                    let _ = t.send(Ev::Battery(level, charging));
+        let sys = std::path::Path::new("/sys");
+        let mut battery = lume_ui::system::read_battery(sys);
+        let mut network = lume_ui::system::read_network(sys);
+        for tick in 1u64.. {
+            std::thread::sleep(Duration::from_secs(5));
+            let now = lume_ui::system::read_network(sys);
+            if now != network {
+                let _ = t.send(Ev::Network(now.0, now.1));
+                network = now;
+            }
+            if tick % 6 == 0 {
+                let now = lume_ui::system::read_battery(sys);
+                if now != battery {
+                    if let Some((level, charging)) = now {
+                        let _ = t.send(Ev::Battery(level, charging));
+                    }
+                    battery = now;
                 }
-                last = now;
             }
         }
     });
@@ -193,6 +203,10 @@ fn screenshot(app: &mut lume_ui::app::App<lume_ui::system::RealSystem>, font: lu
     let creator = canvas.texture_creator();
     let mut c = lume_ui::sdl::SdlCanvas::new(canvas, creator, font).with_faces(lume_ui::font::Font::bundled_medium(), lume_ui::font::Font::bundled_bold());
     // LUME_BATTERY=82 (or 82+ for charging): a battery for screenshots on a PC without one
+    // LUME_NETWORK=wifi,bt: the network icons for screenshots
+    if let Ok(n) = std::env::var("LUME_NETWORK") {
+        app.network = (n.contains("wifi"), n.contains("bt"));
+    }
     if let Ok(b) = std::env::var("LUME_BATTERY") {
         let charging = b.ends_with('+');
         if let Ok(level) = b.trim_end_matches('+').parse::<u8>() {

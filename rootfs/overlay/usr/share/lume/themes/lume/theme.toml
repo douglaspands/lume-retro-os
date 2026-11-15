@@ -27,8 +27,8 @@ panel_bg = "#1A252F"
 panel_bg_opaque = "#1A252F"
 sel_bg = "#4DB3FF"
 sel_fg = "#0F171E"
-# Lume's --control and --text: the keycap color of the TV launcher
-nav_bg = "#2A3A48"
-nav_fg = "#F2F5F7"
+# the arrows' chip in the system's blue, as the button letters (user's choice, 2026-11-15)
+nav_bg = "#4DB3FF"
+nav_fg = "#0F171E"
 toast_bg = "#1F3040"
 toast_fg = "#F2F5F7"

@@ -29,6 +29,13 @@ impl Color {
     pub fn opaque(self) -> Color {
         Color { a: 255, ..self }
     }
+
+    /// `top` (with its alpha) laid over this color: what the screen shows there, opaque.
+    pub fn under(self, top: Color) -> Color {
+        let a = top.a as u32;
+        let mix = |b: u8, t: u8| ((b as u32 * (255 - a) + t as u32 * a + 127) / 255) as u8;
+        Color::rgb(mix(self.r, top.r), mix(self.g, top.g), mix(self.b, top.b))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -242,6 +249,11 @@ mod tests {
         assert_eq!(Color::parse("#000000a8").unwrap().a, 0xa8);
         assert_eq!(Color::parse("red"), None);
         assert_eq!(Color::parse("#12345"), None);
+        // a layer over a color: opaque wins, transparent leaves it, half is the middle
+        let bg = Color::rgb(200, 100, 0);
+        assert_eq!(bg.under(Color::parse("#000000ff").unwrap()), Color::rgb(0, 0, 0));
+        assert_eq!(bg.under(Color::parse("#00000000").unwrap()), bg);
+        assert_eq!(bg.under(Color::parse("#00000080").unwrap()), Color::rgb(100, 50, 0));
     }
 
     #[test]
