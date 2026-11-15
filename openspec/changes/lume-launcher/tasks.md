@@ -554,9 +554,71 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   cada idioma, base ausente sem travar) e captura do Dock, da grade, da busca e das
   Configurações no GA36 com o `lume`.
 
+## 11. Configurações com foco no painel (D14, pedido do usuário, 2026-11-15)
+
+- [ ] 11.1 Foco em dois níveis (`list`/`panel`): A ou ▶ entra no painel, ▲▼ trocam a linha
+  (dando a volta), ◀▶ mudam o valor, A executa, B volta ao mesmo item da lista; ◀▶ na lista
+  não mudam nada. Cada painel vira uma lista de linhas com a métrica de 1,769em e rolagem.
+  Testes: volume pelo painel, B volta à lista, ◀▶ na lista sem efeito, item dono marcado.
+- [ ] 11.2 Marcação do item dono (pílula tonal) e rodapé que segue o foco. Teste de régua do
+  painel com foco e captura no GA36.
+
+## 12. Wi-Fi nas Configurações (D15, pedido do usuário, 2026-11-15)
+
+- [ ] 12.1 Permissões e persistência: conferir no GA36 se o `game` consegue `nmcli`
+  (ligar, procurar, conectar, apagar) e `bluetoothctl` (ligar, procurar, parear) e se as
+  redes e pareamentos sobrevivem ao reboot. Se não, o ajudante `lume-netd` (D15). Anotar o
+  resultado aqui.
+- [ ] 12.2 Painel do Wi-Fi: Ligado/Desligado, rede conectada (nome e endereço), Procurar
+  redes (nome, sinal, cadeado), redes salvas com Conectar e Esquecer. Thread de trabalho com
+  tempo limite. Testes com um backend falso (lista, conectar, senha errada, esquecer).
+- [ ] 12.3 Senha pelo teclado da tela: maiúsculas, números e símbolos, mostrada como pontos,
+  passada sem argumento de linha de comando e nunca em log. Teste: o argv dos comandos não
+  contém a senha.
+- [ ] 12.4 Autoconexão: rede conhecida conecta no boot e quando o adaptador aparece. Prova no
+  GA36 com o dongle RTL8821CU.
+
+## 13. Bluetooth com foco em fone (D15, pedido do usuário, 2026-11-15)
+
+- [ ] 13.1 Painel do Bluetooth: Ligado/Desligado, pareados (Conectar, Desconectar,
+  Esquecer), Procurar aparelhos (15 s, só a pedido, fones primeiro), escolher = parear,
+  confiar e conectar. Testes com backend falso.
+- [ ] 13.2 Som no fone: `bluez-alsa` na imagem, ALSA padrão no fone enquanto conectado e de
+  volta ao alto-falante quando cai, sem reiniciar o jogo; teclas de volume no fone. Prova no
+  GA36: som do launcher e de um jogo no fone; latência anotada.
+- [ ] 13.3 Controle Bluetooth continua: um controle pareado pelo painel vira o jogador
+  seguinte (spec `wireless`).
+
+## 14. Wi-Fi Direct e Miracast (D16, pedido do usuário, 2026-11-15; P-52)
+
+- [ ] 14.1 Prova de viabilidade, anotada aqui antes de qualquer código:
+  - codificador H.264 por hardware: datasheet do A33 e do RK3326 e estado do driver de
+    codificação no mainline (`cedrus`, `hantro`, propostas);
+  - custo do H.264 em software a 640x480/30 fps com um jogo de NES, CPU e atraso, nos dois
+    consoles;
+  - P2P no dongle (`iw list`) e no `wpa_supplicant` do Alpine; ligação com um celular
+    Android.
+  Decisão registrada: Miracast fica ou volta ao P-52; Wi-Fi Direct fica se o P2P funcionar.
+- [ ] 14.2 Ligação entre consoles: "Conectar a outro console" (ficar visível, procurar,
+  convidar, aceitar ou recusar, Desconectar), nome do console editável. Teste com o GA36 e o
+  R36S juntos; nenhuma porta aberta na ligação (teste da spec `wireless`).
+- [ ] 14.3 Miracast (se a 14.1 aprovar): "Transmitir para TV", procurar, escolher, Parar;
+  tela e som; jogo continua a 60 fps no console. Prova com uma TV ou adaptador de verdade.
+
+## 15. RetroArch enxuto e shaders (D17, pedido do usuário, 2026-11-15)
+
+- [ ] 15.1 `retroarch-lume.cfg` mínimo (D17) e teste das chaves; na VM, o `retroarch.cfg`
+  igual antes e depois de um jogo e nenhuma playlist ou histórico gravado.
+- [ ] 15.2 Aport do RetroArch sem Wi-Fi e Bluetooth e sem o que nenhum caminho usa; serviço
+  de playlists fora do boot com o frontend lume. RSS e tempo até o primeiro quadro no GA36,
+  antes e depois, anotados aqui.
+- [ ] 15.3 Pacote `lume-shaders`: conjunto pequeno de GLSL leves, licença e crédito, testados
+  no GA36 e no R36S (sem erro no log, 60 fps); marcação por console; a lista do launcher só
+  com os que passaram. Captura de um jogo com shader.
+
 ## Workflow follow-up
 
 - Commits pequenos (Conventional Commits) na `feature/lume-launcher`, juntos perto do fim do
   bloco de trabalho, com o OK do usuário.
-- Arquivar com `/opsx:archive`. O P-44 vai para "Concluídas" com o change; o P-56 (PortMaster)
-  continua aberto.
+- Arquivar com `/opsx:archive`. O P-44 vai para "Concluídas" com o change (e o P-52, se o
+  Miracast ficar); o P-56 (PortMaster) e o P-63 (netplay) continuam abertos.

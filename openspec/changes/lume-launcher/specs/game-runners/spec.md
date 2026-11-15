@@ -38,6 +38,17 @@ O runner do RetroArch MUST abrir o jogo direto no core efetivo, com o aspecto e 
 - **WHEN** um jogo de GBA tem um shader próprio e é aberto
 - **THEN** o jogo abre com esse shader, e um jogo de GBA sem exceção abre sem ele
 
+### Requirement: RetroArch faz só o que o launcher pede
+Aberto pelo launcher, o RetroArch MUST carregar só o core e o conteúdo pedidos, com o aspecto, o shader e o slot pedidos, sem trabalho que o launcher não usa: playlists, histórico, miniaturas, conquistas, netplay, menus de Wi-Fi e Bluetooth, varredura de conteúdo e gravação da configuração ao sair. Nenhum serviço do boot MUST existir só para o RetroArch como frontend.
+
+#### Scenario: Configuração intacta depois do jogo
+- **WHEN** o usuário joga e sai pelo Fn+Start
+- **THEN** o `retroarch.cfg` do usuário fica igual ao de antes do jogo, e nenhuma playlist ou histórico é gravado
+
+#### Scenario: Custo medido
+- **WHEN** o mesmo jogo é aberto antes e depois da configuração enxuta, no GA36
+- **THEN** o RSS do RetroArch e o tempo até o primeiro quadro não pioram, e os valores ficam anotados na tarefa
+
 ### Requirement: Interface fora da memória durante o jogo
 Antes de abrir um jogo, a interface MUST encerrar e liberar a tela, o áudio e a memória. Durante o jogo, além do jogo, MUST ficar só o supervisor e o daemon de entrada.
 

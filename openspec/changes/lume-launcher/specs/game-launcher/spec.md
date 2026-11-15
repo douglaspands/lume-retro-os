@@ -113,7 +113,7 @@ Quando um jogo termina, por qualquer motivo, o launcher MUST reaparecer no mesmo
 - **THEN** o launcher reaparece na grade do NES com o foco nesse jogo
 
 ### Requirement: Configurações do aparelho
-O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar ou não o percentual da bateria; ligado de fábrica), Volume, Brilho, Sistema, Games (com Atualizar listas, uma ação do painel que A executa), RetroArch e Desligar, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
+O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar ou não o percentual da bateria; ligado de fábrica), Volume, Brilho, Sistema, Games (com Atualizar listas, uma ação do painel que A executa), RetroArch e Desligar, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz, e onde os valores são mudados. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
 
 #### Scenario: Lista que dá a volta
 - **WHEN** o foco está em Desligar, o último item, e o usuário aperta para baixo
@@ -126,6 +126,64 @@ O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar o
 #### Scenario: Menu do RetroArch
 - **WHEN** o usuário escolhe o item RetroArch
 - **THEN** o menu completo do RetroArch abre sem jogo e, ao sair dele, o launcher reaparece nas Configurações
+
+### Requirement: Foco no painel das Configurações
+Nas Configurações, A ou ▶ num item da lista MUST levar o foco para o painel desse item. No painel, ▲▼ MUST escolher a linha, ◀▶ MUST mudar o valor da linha em foco e A MUST executar a ação dela; B MUST devolver o foco à lista no mesmo item. Na lista, ◀▶ MUST NOT mudar valores. O item cujo painel tem o foco MUST continuar marcado na lista.
+
+#### Scenario: Mudar o volume pelo painel
+- **WHEN** o usuário está no item Volume, aperta A, e depois ▶ duas vezes
+- **THEN** o volume sobe dois passos e o foco continua no painel
+
+#### Scenario: Voltar à lista
+- **WHEN** o foco está numa linha do painel do Tema e o usuário aperta B
+- **THEN** o foco volta para o item Tema da lista e as Configurações continuam abertas
+
+### Requirement: Wi-Fi nas Configurações
+Com um adaptador Wi-Fi presente, o painel do Wi-Fi MUST oferecer: ligar e desligar o Wi-Fi; a rede conectada; procurar redes (nome, sinal e se pede senha); conectar a uma rede escolhida, pedindo a senha no teclado da tela só quando a rede ainda não é conhecida; e esquecer uma rede salva. A senha MUST NOT aparecer na tela depois de digitada, nos logs ou na lista de processos.
+
+#### Scenario: Rede nova com senha
+- **WHEN** o usuário procura redes, escolhe uma rede protegida que não conhece e digita a senha certa
+- **THEN** o console conecta, o painel mostra a rede como conectada e o ícone do Wi-Fi aparece na barra de estado
+
+#### Scenario: Senha errada
+- **WHEN** a senha digitada está errada
+- **THEN** o painel diz que a senha não foi aceita e a rede não fica salva
+
+#### Scenario: Esquecer uma rede
+- **WHEN** o usuário escolhe Esquecer numa rede salva
+- **THEN** a rede sai da lista de salvas e o console não volta a conectar nela sozinho
+
+### Requirement: Bluetooth nas Configurações
+Com um adaptador Bluetooth presente, o painel do Bluetooth MUST oferecer: ligar e desligar; os aparelhos pareados, com conectar, desconectar e esquecer; e procurar aparelhos, que MUST acontecer só quando o usuário pede e por tempo limitado, com os fones de ouvido primeiro na lista. Escolher um aparelho encontrado MUST parear e conectar.
+
+#### Scenario: Parear um fone
+- **WHEN** o usuário põe um fone em modo de pareamento, pede a procura e escolhe o fone
+- **THEN** o fone é pareado e conectado, e aparece entre os pareados
+
+#### Scenario: Sem procura sozinha
+- **WHEN** o painel do Bluetooth é aberto
+- **THEN** a lista mostra só os pareados, sem procurar aparelhos até o usuário pedir
+
+### Requirement: Ligação com outro console nas Configurações
+O painel do Wi-Fi MUST oferecer "Conectar a outro console" por Wi-Fi Direct, sem roteador: um console fica visível e espera, o outro procura, vê os consoles por perto pelo nome e convida, e o primeiro aceita ou recusa. O painel MUST mostrar o console conectado e oferecer Desconectar.
+
+#### Scenario: Dois consoles ligados
+- **WHEN** o console A fica visível e o console B o encontra, convida, e A aceita
+- **THEN** os dois painéis mostram o outro console como conectado
+
+### Requirement: Transmitir para a TV
+Se a prova de viabilidade do Miracast passar, o painel do Wi-Fi MUST oferecer "Transmitir para TV": procurar TVs e adaptadores Miracast por perto, escolher um e transmitir a tela e o som do console, inclusive durante o jogo, até o usuário escolher Parar.
+
+#### Scenario: Jogo na TV
+- **WHEN** o usuário escolhe uma TV, volta à grade e abre um jogo
+- **THEN** a TV mostra o jogo com som enquanto o console continua jogável
+
+### Requirement: Shaders que funcionam
+A lista de shaders do jogo e do console MUST mostrar só shaders que a imagem traz e que funcionam na GPU do console em uso. Um shader escolhido MUST ser aplicado ao abrir o jogo.
+
+#### Scenario: Shader aplicado
+- **WHEN** o usuário escolhe um shader para um jogo e o abre
+- **THEN** o jogo aparece com o shader aplicado, sem erro de shader no log do RetroArch
 
 ### Requirement: Volume na tela
 Com o launcher na tela, cada aperto dos botões de volume MUST aparecer na hora: nas Configurações, como o percentual do item Volume; nas outras telas, como uma linha fina em toda a borda direita da tela, nas cores do tema, preenchida de baixo para cima até o nível (100% é a borda inteira), sem número, que some sozinha pouco depois do último aperto. Enquanto a linha aparece, nada da tela pode encostar nela. O aperto no limite (0% ou 100%) MUST mostrar a linha também.

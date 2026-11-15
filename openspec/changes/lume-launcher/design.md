@@ -342,8 +342,8 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   correspondente no `retroarch.cfg` do usuário, de forma atômica. Assim o `ui_lang` de `lib.sh`
   (mensagens do sistema) e o menu do RetroArch seguem a mesma escolha, sem mudar o `lib.sh`.
 - **Wi-Fi, Bluetooth, brilho e desligar:**
-  - Wi-Fi pelo `nmcli`;
-  - Bluetooth pelo `bluetoothctl`, já na imagem (spec `wireless`);
+  - Wi-Fi pelo `nmcli` e Bluetooth pelo `bluetoothctl`, já na imagem (spec `wireless`);
+    telas e permissões em D15;
   - brilho por `/sys/class/backlight/*/brightness`, com uma regra do udev dando escrita ao grupo
     `video`, como o P-32 previa;
   - os comandos são chamados só quando a tela é usada.
@@ -366,6 +366,79 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   valor-base de cada token ficam em `/usr/share/lume/themes/base.toml`, e o nome de exibição
   de cada tema no próprio `theme.toml` (`name`, por idioma): um tema novo é só uma pasta, sem
   código nem tradução (pedido do usuário, 2026-11-14).
+
+### D14. Configurações com foco no painel (pedido do usuário, 2026-11-15)
+
+- Dois níveis de foco: `list` e `panel`. Na lista, ▲▼ trocam o item e A ou ▶ entram no painel
+  (só em itens com linhas; Sistema, que só mostra valores, e RetroArch/Desligar, que são
+  ações, executam com A como hoje). No painel, ▲▼ trocam a linha (dando a volta), ◀▶ mudam o
+  valor, A executa e B volta à lista.
+- A linha em foco do painel é a pílula `sel_bg`; o item da lista dono do painel fica com uma
+  pílula tonal (`nav_bg`) enquanto o foco está no painel, para mostrar de onde veio.
+- Cada painel vira uma lista de linhas (`PanelRow`: opção, valor, ação, informação), a mesma
+  métrica de 1,769em; o painel rola quando as linhas passam da altura.
+- O rodapé segue o foco: na lista "▲▼ Navegar, A Abrir, B Voltar"; no painel, as dicas da
+  linha em foco ("◀▶ para ajustar", "A Conectar", "A Esquecer").
+
+### D15. Wi-Fi e Bluetooth no launcher (pedido do usuário, 2026-11-15)
+
+- **Serviços**: NetworkManager (Wi-Fi e Wi-Fi Direct) e bluez, já na imagem (spec `wireless`).
+  O `lume-ui` fala com eles por `nmcli` e `bluetoothctl`, numa thread de trabalho com tempo
+  limite: a tela nunca espera um comando. Nada roda com o painel fechado, exceto o estado da
+  barra (já lido do `/sys`, 10.2).
+- **Permissão**: o `lume-ui` roda como `game`. A tarefa 12.1 confere se o NetworkManager da
+  imagem (sem polkit) aceita pedidos do `game` e se a política D-Bus do bluez aceita o grupo
+  dele. Se não, um ajudante root pequeno (`lume-netd`, socket em `/run/r36os/`, só os verbos
+  das telas, nunca um comando livre) faz os pedidos.
+- **Senha**: digitada no teclado da tela (o da busca, com maiúsculas, números e símbolos),
+  mostrada como pontos, passada por stdin ou arquivo temporário `0600` apagado em seguida,
+  nunca por argumento (lista de processos) nem em log. As redes salvas ficam no
+  NetworkManager, no armazenamento persistente (conferir na 12.1 que sobrevivem ao reboot).
+- **Autoconexão**: `autoconnect=yes` nas redes salvas; o NetworkManager conecta no boot e
+  quando o adaptador aparece.
+- **Bluetooth**: procura de 15 s só quando pedida; fones (classe de áudio ou UUID A2DP)
+  primeiro; parear, confiar (`trust`) e conectar numa ação só.
+- **Som no fone**: `bluez-alsa` (A2DP, sem PulseAudio/PipeWire). O dispositivo padrão do ALSA
+  vira o fone enquanto ele está conectado e volta ao alto-falante quando cai; o RetroArch e o
+  `lume-ui` usam o padrão. As teclas de volume (`r36os-input`) mexem no volume do fone nesse
+  tempo. A latência do A2DP (150–250 ms típicos) fica medida e anotada.
+
+### D16. Wi-Fi Direct e Miracast (pedido do usuário, 2026-11-15; P-52)
+
+- **Prova de viabilidade primeiro (grupo 14)**:
+  1. **Codificador H.264 por hardware**: o A33 (GA36) tem codificador no bloco de vídeo, mas o
+     `cedrus` do mainline só decodifica; o RK3326 (R36S) também tem bloco de vídeo, e o
+     `hantro` do mainline decodifica. Conferir nos datasheets o codificador de cada um e se
+     existe driver de codificação no mainline ou proposto (patch numerado, regra do
+     projeto). Sem driver, H.264 em software.
+  2. **Custo em software**: H.264 a 640x480 e 30 fps (perfil baseline, preset mais rápido)
+     com um jogo de NES rodando, CPU e atraso medidos nos dois consoles.
+  3. **Wi-Fi Direct**: `iw list` com `P2P-client`/`P2P-GO` no dongle (RTL8821CU, `rtw88`) e
+     P2P no `wpa_supplicant` do Alpine; ligar o console a um celular Android e, com os dois
+     aparelhos, console a console.
+- **Ligação entre consoles**: P2P pelo NetworkManager (`wifi-p2p`), nome do console = hostname
+  (editável nas Configurações), aceite com confirmação na tela. Sem nenhum serviço aberto
+  nela neste change; o netplay (P-63) abrirá só a porta do jogo e só nessa interface.
+- **Miracast**: o console como fonte WFD (RTSP + RTP/MPEG-TS, H.264 + áudio LPCM ou AAC),
+  capturando o quadro exibido pelo DRM (como o `r36os-shot`). Componentes escolhidos depois
+  da prova (GStreamer enxuto, ou um transmissor próprio pequeno). Se a prova reprovar, o
+  Miracast sai do change e volta ao P-52 com as medidas; o Wi-Fi Direct fica.
+
+### D17. RetroArch enxuto e shaders (pedido do usuário, 2026-11-15)
+
+- **Configuração**: `retroarch-lume.cfg` desliga o que o launcher não usa (histórico,
+  playlists, miniaturas, conquistas, netplay, varredura, `config_save_on_exit`, overlays,
+  notificações não essenciais, rebobinar, run-ahead) e mantém o canal de comandos em
+  `127.0.0.1` (Fn+Start e `logd`). Teste: as chaves esperadas no arquivo e o
+  `retroarch.cfg` intacto depois de um jogo na VM.
+- **Build**: o aport sai sem `--enable-wifi` e `--enable-bluetooth` (o launcher faz isso) e
+  sem o que nenhum caminho usa (conferir cada flag contra os menus que o item RetroArch das
+  Configurações ainda precisa mostrar).
+- **Boot**: o serviço de playlists do RetroArch sai do runlevel quando o frontend é o lume.
+- **Shaders**: pacote `lume-shaders` com um conjunto pequeno de shaders GLSL (`.glslp`)
+  leves, de licença livre e copiados com crédito, testados nas duas GPUs (Mali-400 GLES2 no
+  GA36, Mali-G31 no R36S): cada um abre um jogo sem erro no log e mantém 60 fps; a lista do
+  launcher mostra só os que passaram no console em uso (marcação por console no pacote).
 
 ### D13. Régua do protótipo (regra do usuário, 2026-11-15)
 

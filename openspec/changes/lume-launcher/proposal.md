@@ -28,6 +28,23 @@ reconciliação com o Lume, que é Alpine, sem EmulationStation e com o contrato
   - Configurações: Wi-Fi e Bluetooth (só com dongle), Idioma, Tema (Material escuro e claro),
     Modo lite, Volume, Brilho, Sistema, "Atualizar listas de jogos" e Desligar.
   - O desenho só acontece quando há input e o cache de capas tem teto em bytes.
+- **Configurações com foco no painel** (incluído em 2026-11-15, pedido do usuário): A ou ▶ na
+  lista entra no painel do item; no painel, ▲▼ escolhe a linha, ◀▶ muda o valor, A executa a
+  ação e B volta à lista.
+- **Wi-Fi e Bluetooth pelo launcher** (incluído em 2026-11-15, pedido do usuário; os serviços
+  NetworkManager e bluez já estão na imagem, change `usb-device-access`):
+  - Wi-Fi: ligar e desligar, procurar redes, escolher uma, digitar a senha no teclado da tela,
+    esquecer uma rede salva e conectar sozinho a uma rede conhecida;
+  - Bluetooth com foco em fone: ligar e desligar, procurar aparelhos só quando pedido, parear,
+    conectar, esquecer; o som do launcher e dos jogos vai para o fone conectado;
+  - Wi-Fi Direct entre dois consoles, base para um jogo em 2 jogadores no futuro (o netplay
+    fica no P-63);
+  - Miracast (o console como fonte, a tela e o som numa TV), começando por uma prova de
+    viabilidade: sem codificador H.264 por hardware no kernel dos dois consoles, o custo na CPU
+    decide; se reprovar, volta ao P-52 com as medidas.
+- **RetroArch só como executor** (incluído em 2026-11-15, pedido do usuário): configuração e
+  build mínimos, para o RetroArch fazer só o que o launcher pede, e shaders na imagem que
+  funcionam nas GPUs dos dois consoles (hoje a lista de shaders do launcher fica vazia).
 - **O launcher sai durante o jogo**: um supervisor pequeno (`lume-run`) roda o jogo e, quando
   ele termina, reabre a interface no mesmo console e no mesmo jogo. Durante o jogo só ficam na
   memória o `lume-run` e o daemon de entrada.
@@ -60,6 +77,7 @@ Fora do escopo:
 - scraping de capas;
 - navegador de Arquivos e tela de Capturas do protótipo;
 - estatísticas de tempo de jogo;
+- o jogo em 2 jogadores pela ligação Wi-Fi Direct (netplay, P-63);
 - temas além dos 2 Material.
 
 ## Capabilities
@@ -82,6 +100,10 @@ Fora do escopo:
 - `game-library`: o catálogo ganha a lista de emuladores por sistema (esquema 3). As listas de
   jogos passam a ser os `gamelist.xml` do EmulationStation, com diff incremental, e o frontend
   pode pedir o scan.
+- `wireless`: o frontend que configura o Wi-Fi e o Bluetooth passa a ser o launcher (não o menu
+  do RetroArch); o Wi-Fi ganha ligar/desligar e esquecer rede; o Bluetooth ganha o som no fone;
+  entram o Wi-Fi Direct entre consoles e o Miracast; a regra de nada exposto vale também na
+  ligação Wi-Fi Direct.
 
 ## Impact
 
@@ -102,11 +124,17 @@ Fora do escopo:
   `test_retroarch_cfg.py`). O jogo é aberto com aspecto e shader por `--appendconfig` e com o
   save state por slot.
 - **Kernel**: conferir cgroup v2 (`cgroup.kill`) nos dois `.config` finais.
+- **Rede e som** (2026-11-15): permissão do usuário `game` no NetworkManager e no bluez (ou um
+  ajudante root pequeno), `bluez-alsa` para o som no fone, P2P no `wpa_supplicant` e, se a
+  prova do Miracast passar, o codificador e o envio RTSP.
+- **RetroArch enxuto** (2026-11-15): `retroarch-lume.cfg` mínimo, flags do aport sem Wi-Fi e
+  Bluetooth, serviço de playlists fora do boot, e um pacote de shaders GLSL testados.
 - **Medição**: RSS, CPU parado, tempo até a primeira tela e tempo de volta do jogo, no GA36 e no
   R36S, com as métricas do `logd`.
 - **Documentação**:
   - `docs/FRONTEND.md`, `docs/CATALOG.md`, `docs/lume-launcher/` e os guias de bring-up;
   - `docs/PENDENCIAS.md`: o P-44 vira este change e o P-56 entra como nova pendência
-    (PortMaster).
+    (PortMaster); o P-52 (Miracast) entra neste change e o P-63 (netplay entre dois consoles)
+    entra como nova pendência.
 - **Branch**: `feature/lume-launcher`; a base (`main` ou `feature/boot-dtb-select`) será
   confirmada com o usuário.
