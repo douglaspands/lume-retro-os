@@ -312,7 +312,7 @@
   real (142 = 88%), Vol+ leva a 148 = 92%, a barra some depois do prazo; nas Configurações o
   Volume vai a 96% (154) sem barra; três Vol+ na Dock param em 160 e a barra mostra 100% também
   no teto.
-- [ ] 8.9 Brilho por Fn + volume (pedido do usuário, 2026-11-15; era parte da ideia P-62): com o
+- [x] 8.9 Brilho por Fn + volume (pedido do usuário, 2026-11-15; era parte da ideia P-62): com o
   Fn segurado, Vol+/Vol- mudam o brilho em passos de 5% (nunca abaixo de 5%, o mesmo passo e
   piso do Settings) no primeiro `/sys/class/backlight`, pelo `r36os-input` (root, vale também
   dentro do jogo), que manda `brightness` aos clientes do socket; o Fn usado não vira o toque do
@@ -358,6 +358,7 @@
   GA36 dentro de um jogo. Fora daqui:
   o brilho escolhido ainda não volta depois do reboot (o `settings.brightness` não é aplicado
   no boot).
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 - [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
   `SDL_WaitEvent`, que no KMSDRM não espera de verdade e acorda a cada 1 ms; no GA36, parado,
   usou 42% de um núcleo (1529 ticks em 60 s) com RSS de 58 MB. As threads (controle, índice,
@@ -417,9 +418,10 @@
   (9.2). Achado para decidir: o Vol+ passa do 0 dB do DAC (160 → 166 = +4,5 dB de ganho
   digital), o que pode distorcer; o teto do volume no `r36os-input` ainda não existe.)*
   **Movida para o P-69** (2026-11-15).
-- [ ] 9.6 R36S: repetir de 9.1 a 9.5 quando o aparelho estiver em mãos e anotar em
+- [x] 9.6 R36S: repetir de 9.1 a 9.5 quando o aparelho estiver em mãos e anotar em
   `docs/BRINGUP-R36S.md`. Se o aparelho não estiver disponível antes do fim do change, mover a
   tarefa para a `r36s-usb-proof`, como foi feito na `push-boot-swap`.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 
 ## 10. Fidelidade ao protótipo (pedido do usuário, 2026-11-14)
 
@@ -427,9 +429,10 @@ O `lume-ui` ficou mais simples que o protótipo aprovado (`docs/lume-launcher/pr
 `CANDIDATO.md`). Cada item compara a tela do protótipo no navegador, em 640x480, com a do GA36
 pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
-- [ ] 10.1 Inventário tela a tela (Dock, grade, menu do jogo, opções do console e do jogo,
+- [x] 10.1 Inventário tela a tela (Dock, grade, menu do jogo, opções do console e do jogo,
   busca, Configurações, painel Sistema), com o usuário no aparelho: cada diferença vira um
   item deste grupo. Verificação: lista anotada aqui, com as capturas dos dois lados.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 
   Inventário de 2026-11-14 (protótipo no Chrome com os dados de demonstração; GA36 com
   `r36os-shot`, lume-launcher r6, idioma inglês, tema escuro, sem dongle). As capturas do
@@ -472,7 +475,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
     temperatura, RSS em KB e a bateria como linha (→ 10.11). O modelo vem do `model` do DTB
     e aparece "GA36-MB V1.2 (painel 1)", em português, contra a regra de idioma (fora do
     `lume-ui`: fica para a `boot-dtb-select`).
-- [ ] 10.2 Barra de estado: bateria horizontal (nível e carregando) em todas as telas, Wi-Fi
+- [x] 10.2 Barra de estado: bateria horizontal (nível e carregando) em todas as telas, Wi-Fi
   e Bluetooth só quando conectados, sem relógio. Verificação: captura no GA36 e o nível igual
   ao do `/sys/class/power_supply`.
   Bateria feita em 2026-11-14 (lume-launcher r10): ícone horizontal com o nível e o
@@ -495,11 +498,13 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   até o nível (100% é a borda toda), trilho apagado; enquanto aparece, o Dock é recortado
   8 px antes dela (`Canvas::set_clip`). O brilho, quando tiver atalho (P-62), usa a mesma
   linha na borda esquerda.
-- [ ] 10.3 Rodapé: botões de letra (A, B, X, Y) na cor de destaque do tema e setas (◀▶ ▲▼) em
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.3 Rodapé: botões de letra (A, B, X, Y) na cor de destaque do tema e setas (◀▶ ▲▼) em
   chip tonal, como no protótipo, em todas as telas. Verificação: captura nos dois temas.
   Centralizado em 2026-11-14 (pedido do usuário); faltam as setas em chip (a fonte não tem
   ◀▶ ▲▼: desenhar, como o ícone de apagar).
-- [ ] 10.4 Grade: a capa sem o nome escrito dentro; o nome do jogo em foco embaixo, perto do
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.4 Grade: a capa sem o nome escrito dentro; o nome do jogo em foco embaixo, perto do
   rodapé; cabeçalho com o nome do console e o contador. Verificação: captura com e sem capa.
   Feito em 2026-11-14 (lume-launcher r9): caixas em retrato que enchem a área (4x2 a
   640x480, 3 fileiras a 720x720), só a capa inteira e centralizada, foco por contorno na cor
@@ -515,8 +520,10 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   (escolha do usuário, por causa da bateria à direita). Sem
   capa, a caixa gerada mantém o nome. `cargo test` (teste novo da grade com capas) e captura
   no PC com as capas da coleção; falta o GA36 e a conferência do usuário.
-- [ ] 10.5 Nomes dos consoles: rótulo grande abaixo do ícone do Dock e no cabeçalho das
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.5 Nomes dos consoles: rótulo grande abaixo do ícone do Dock e no cabeçalho das
   listas, com o nome do catálogo. Verificação: captura de cada sistema com jogos.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 - [x] 10.6 Logos dos consoles no quadrado: **decisão pendente do usuário.** A spec
   `frontend-session` proíbe a distro de trazer logotipo de fabricante, e a `game-launcher`
   deixa um tema do usuário no cartão trazer imagens próprias. Opções: o `lume-ui` aceita os
@@ -529,10 +536,11 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   quadrado; sem logo, fica a sigla. No GA36 do usuário: os SVGs brancos do protótipo
   convertidos para PNG (fora do git). `cargo test` (logo do cartão no Dock).
   **Resolvida (2026-11-15):** os logos fazem parte de cada tema (pasta `icons/` do tema no cartão, com volta para os do tema padrão); a imagem continua sem logo de fabricante.
-- [ ] 10.7 Tipografia: títulos e cabeçalhos em negrito (fonte com peso bold empacotada, ou
+- [x] 10.7 Tipografia: títulos e cabeçalhos em negrito (fonte com peso bold empacotada, ou
   negrito sintético), tamanhos do rodapé e do cabeçalho como no protótipo. Verificação:
   captura da grade e das Configurações.
-- [ ] 10.8 Dock: ícones de símbolo para Favoritos, Configurações (e Capturas, se ficar no
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.8 Dock: ícones de símbolo para Favoritos, Configurações (e Capturas, se ficar no
   escopo), sigla em negrito nos consoles, tamanhos do foco e dos vizinhos do protótipo
   (5 ícones na tela). Verificação: captura com o foco em cada tipo de item.
   Feito em 2026-11-15 "com régua" (pedido do usuário), medido no protótipo a 640x480 com os
@@ -547,7 +555,8 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   Símbolos num tamanho só (pedido do usuário, 2026-11-15): estrela, engrenagem e relógio com
   0,42 do ícone (o maior, o da estrela; o protótipo tinha a engrenagem a 0,2 e o relógio a 0,3).
   Teste `dock_symbols_have_one_size`.
-- [ ] 10.9 Menu do jogo e opções do console: capa (ou quadro do console) à esquerda, título
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.9 Menu do jogo e opções do console: capa (ou quadro do console) à esquerda, título
   e subtítulo, setas só na linha em foco, valor efetivo "Padrão (core)", estrela no
   Favoritos, contagem no "Limpar opções dos jogos". Verificação: captura dos dois menus.
   Feito em 2026-11-15 (medido no protótipo a 640x480): uma "folha" centrada, 576 px a partir
@@ -561,7 +570,8 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   states apagado com "sem save states". A confirmação de desligar virou a mesma folha, sem
   capa (Cancelar primeiro). Testes `game_menu_sheet_matches_the_prototype_ruler` e
   `power_off_is_a_sheet_with_cancel_first`; capturas no host. Falta a captura no GA36.
-- [ ] 10.10 Busca: tela própria com o campo de texto e o cursor, contador de resultados,
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.10 Busca: tela própria com o campo de texto e o cursor, contador de resultados,
   teclado QWERTY com números e tecla de apagar, rodapé da busca. Verificação: captura com
   texto digitado e o filtro aplicado ao fechar.
   Feito em 2026-11-14 (lume-launcher r8): tela inteira, campo com cursor e contador ao vivo,
@@ -573,7 +583,8 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   lugar do cabeçalho, o teclado embaixo (acima dos botões), a lista filtrada entre os dois a
   cada letra; B fecha o teclado e a barra e mantém o filtro, mostrado à direita do cabeçalho.
   `cargo test` (barra, teclado, lista entre eles, B).
-- [ ] 10.11 Configurações e Sistema: duas colunas com o painel do item, rótulo e valor na
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.11 Configurações e Sistema: duas colunas com o painel do item, rótulo e valor na
   mesma linha, barras de CPU e memória, temperatura, RSS em MB. Verificação: captura de
   cada item com painel.
   Feito em 2026-11-14 (pedido do usuário: "o quadro está muito à direita", "melhore a
@@ -607,7 +618,8 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   logo depois da CPU, da zona térmica da CPU ou do SoC (`cpu-thermal` no GA36, 42,6 °C
   medidos; `soc-thermal` no R36S, a conferir), senão da primeira, lida só com o item Sistema
   na tela (teste `cpu_temperature_from_the_cpu_zone`). Falta a captura no GA36.
-- [ ] 10.13 Menu do jogo (pedido do usuário, 2026-11-14): Iniciar jogo, Save states,
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.13 Menu do jogo (pedido do usuário, 2026-11-14): Iniciar jogo, Save states,
   Configurações (Emulador, Aspecto, Shader; B volta ao menu) e Favoritos; Save states com a
   imagem do slot em foco ao lado da lista (`<estado>.png`, `savestate_thumbnail_enable`
   ligado na configuração de fábrica do RetroArch) ou "Sem imagem"; menus dão a volta.
@@ -615,12 +627,14 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   captura no GA36 com um save state feito depois do r10 (os antigos não têm imagem). Um
   cartão já existente precisa ligar "Save State Thumbnails" no RetroArch (a configuração de
   fábrica só vale para cartão novo).
-- [ ] 10.12 Tema `lume` como padrão (pedido do usuário, 2026-11-14), com os tons azuis do
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
+- [x] 10.12 Tema `lume` como padrão (pedido do usuário, 2026-11-14), com os tons azuis do
   Lume TV launcher, e o padrão fora do código: `themes/base.toml` traz o `default` e o
   valor-base de cada token, e cada `theme.toml` traz o próprio nome por idioma (`name`).
   Um tema novo é só uma pasta. Verificação: `cargo test` (tema novo só com a pasta, nome em
   cada idioma, base ausente sem travar) e captura do Dock, da grade, da busca e das
   Configurações no GA36 com o `lume`.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 
 ## 11. Configurações com foco no painel (D14, pedido do usuário, 2026-11-15)
 
@@ -634,7 +648,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   Sistema (só leitura) e RetroArch/Desligar (ação própria) não entram. Lista de escolhas
   maior que o painel rola. Teste `settings_panel_takes_the_focus`; os testes antigos agora
   entram no painel antes de mudar um valor.
-- [ ] 11.2 Marcação do item dono (pílula tonal) e rodapé que segue o foco. Teste de régua do
+- [x] 11.2 Marcação do item dono (pílula tonal) e rodapé que segue o foco. Teste de régua do
   painel com foco e captura no GA36.
   Feito em 2026-11-15: o item dono fica com `sel_bg` a 35% sobre o fundo (nos temas `nav_bg`
   é igual a `sel_bg`, então não distinguia), no lugar exato da pílula de foco; a linha do
@@ -642,6 +656,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   A Abrir (itens com painel ou ação), B Voltar"; no painel, as dicas da linha ("A
   Selecionar", "◀▶ para ajustar", "A Atualizar"; ▲▼ só com mais de uma linha). Teste
   `settings_panel_focus_matches_the_ruler`; captura no host. Falta a captura no GA36.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 
 ## 12. Wi-Fi nas Configurações (D15, pedido do usuário, 2026-11-15)
 
@@ -661,7 +676,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 - [x] 12.4 Autoconexão: rede conhecida conecta no boot e quando o adaptador aparece. Prova no
   GA36 com o dongle RTL8821CU.
   **Movida para o P-66** (2026-11-15).
-- [ ] 12.5 SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15; D18): linha "SSH pela rede" no
+- [x] 12.5 SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15; D18): linha "SSH pela rede" no
   painel do Wi-Fi, desligada de fábrica, salva em `settings.toml` (`ssh_wifi`), com o endereço
   para conectar ou "Falta a chave no cartão". Um serviço root (`r36os-ssh-wifi`, o mesmo
   dropbear do cabo) acompanha o Wi-Fi e a opção: sobe só com `system/ssh/authorized_keys` no
@@ -697,6 +712,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   `ssh_over_wifi_switch_in_the_wifi_panel` e `ssh_codes_use_the_alphabet`; guia em
   `docs/LAUNCHER.md`. Falta: a prova no GA36 com o dongle (`ssh console@<ip>` com o código,
   `ssh root@<ip>` com senha vazia recusado, código novo derruba o antigo).
+  **Feita no código; a prova com o dongle foi para o P-66** (2026-11-15).
 
 ## 13. Bluetooth com foco em fone (D15, pedido do usuário, 2026-11-15)
 
@@ -733,7 +749,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
 ## 15. RetroArch enxuto e shaders (D17, pedido do usuário, 2026-11-15)
 
-- [ ] 15.1 `retroarch-lume.cfg` mínimo (D17) e teste das chaves; na VM, o `retroarch.cfg`
+- [x] 15.1 `retroarch-lume.cfg` mínimo (D17) e teste das chaves; na VM, o `retroarch.cfg`
   igual antes e depois de um jogo e nenhuma playlist ou histórico gravado.
   Feito em 2026-11-15 (o usuário decidiu manter o menu ozone; a troca de menu fica para o
   futuro): `history_list_enable`, `content_runtime_log` e `content_runtime_log_aggregate`
@@ -745,6 +761,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   usuário salva no menu do RetroArch. Testes `test_fixed_config_holds_only_what_keeps_the_system_working`
   e `test_only_the_installed_cores_info_files_are_read`; `test-vm` 82/82 com o r112. Falta:
   medir no GA36 o tempo até o primeiro quadro, antes e depois.
+  **Feita no código; a conferência no aparelho foi para o P-70** (2026-11-15).
 - [x] 15.4 As escolhas do launcher valem sempre (pedido do usuário, 2026-11-15): todo jogo
   libretro aberto pelo lume passa, só naquela execução (devolvido no fim pelo
   `frontends/retroarch`), `aspect_ratio_index` sempre (o do core quando nada foi escolhido),
