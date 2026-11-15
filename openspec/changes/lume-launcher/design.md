@@ -279,7 +279,10 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   - Fn solto sem outra tecla: o daemon repassa `BTN_MODE` (pressionar e soltar), e o menu do
     RetroArch abre;
   - qualquer outra tecla com o Fn segurado: o daemon repassa o Fn e a tecla, preservando os
-    atalhos que já usam o Fn.
+    atalhos que já usam o Fn;
+  - Vol+ ou Vol- com o Fn segurado: brilho da tela em passos de 5% (piso de 5%) no primeiro
+    `/sys/class/backlight`, e `brightness` no socket; nada é repassado e o Fn não vira o toque do
+    menu (tarefa 8.9).
 - **Socket:** `/run/r36os/input.sock` (`SOCK_SEQPACKET`, grupo `game`). O `lume-run` se conecta
   e recebe `quit`. Sem cliente conectado, o evento é descartado, e é isso que faz o Fn+Start
   fora de um jogo não fazer nada. O `lume-ui` também fica conectado, ignora o `quit` e recebe
@@ -374,7 +377,10 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   ações, executam com A como hoje). No painel, ▲▼ trocam a linha (dando a volta), ◀▶ mudam o
   valor, A executa e B volta à lista.
 - A linha em foco do painel é a pílula `sel_bg`; o item da lista dono do painel fica com uma
-  pílula tonal (`nav_bg`) enquanto o foco está no painel, para mostrar de onde veio.
+  pílula tonal enquanto o foco está no painel, para mostrar de onde veio. Como nos temas
+  `nav_bg` é o próprio `sel_bg`, o tom é `sel_bg` a 35% sobre o fundo.
+- Listas de escolha (idioma, tema): ao entrar, o foco cai na opção escolhida; ▲▼ só movem, A
+  escolhe, ◀▶ escolhem a vizinha e levam o foco junto.
 - Cada painel vira uma lista de linhas (`PanelRow`: opção, valor, ação, informação), a mesma
   métrica de 1,769em; o painel rola quando as linhas passam da altura.
 - O rodapé segue o foco: na lista "▲▼ Navegar, A Abrir, B Voltar"; no painel, as dicas da
@@ -439,6 +445,23 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   leves, de licença livre e copiados com crédito, testados nas duas GPUs (Mali-400 GLES2 no
   GA36, Mali-G31 no R36S): cada um abre um jogo sem erro no log e mantém 60 fps; a lista do
   launcher mostra só os que passaram no console em uso (marcação por console no pacote).
+
+### D18. SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15)
+
+- **Escolhas do usuário**: só chave e uma chave "SSH pela rede" no painel do Wi-Fi, desligada
+  de fábrica. É a única exceção ao "nada exposto na rede sem fio" (spec `wireless`).
+- **Por que só chave**: o SSH do cabo é root sem senha, aceitável num cabo ponto a ponto; no
+  Wi-Fi qualquer aparelho da rede alcança a porta. Sem senha não há o que adivinhar.
+- **Chave**: `ROMS/system/ssh/authorized_keys` no cartão (o usuário põe pelo PC, como os temas);
+  o serviço a copia para um lugar só do root com modo `0600` antes de subir, porque o FAT do
+  cartão não guarda dono nem modo e o dropbear recusa um arquivo aberto a todos.
+- **Serviço**: `r36os-ssh-wifi`, root, o mesmo `dropbear` do cabo com `-s` (sem senha) e `-g`
+  (sem senha do root), com `-p <ip da wlan0>:22`: nunca escuta em `0.0.0.0` nem na interface
+  P2P do Wi-Fi Direct. Acompanha o NetworkManager (dispatcher `up`/`down` da `wlan0`) e o
+  `settings.toml` (`ssh_wifi`): sobe, reinicia na troca de endereço e para quando o Wi-Fi cai ou
+  a opção é desligada. O `lume-ui` só grava a opção e lê o estado; não roda nada como root.
+- **Painel**: a linha mostra Ligado/Desligado com ◀▶; ligado, o endereço (`root@192.168.x.y`)
+  ou "Falta a chave no cartão".
 
 ### D13. Régua do protótipo (regra do usuário, 2026-11-15)
 

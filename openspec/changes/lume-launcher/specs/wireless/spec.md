@@ -39,7 +39,9 @@ sem novo pareamento.
 Com o Wi-Fi ou uma ligação Wi-Fi Direct conectados, nenhum serviço do console MUST aceitar
 conexões pela rede sem fio: os comandos de rede do frontend (o UDP 55355 do RetroArch) MUST
 escutar só em `127.0.0.1`, o SSH só na rede USB e o MTP só no cabo. A transmissão para a TV
-MUST aceitar só a TV escolhida, e só enquanto transmite.
+MUST aceitar só a TV escolhida, e só enquanto transmite. A única exceção é o SSH pela rede
+Wi-Fi, ligado pelo usuário e só com chave (requisito "SSH pela rede Wi-Fi"); ele MUST NOT
+escutar na ligação Wi-Fi Direct.
 
 #### Scenario: Comandos do RetroArch
 - **WHEN** outro aparelho da rede Wi-Fi manda `GET_STATUS` para a porta UDP 55355 do console
@@ -50,6 +52,32 @@ MUST aceitar só a TV escolhida, e só enquanto transmite.
 - **THEN** nenhuma porta do outro console aceita a conexão
 
 ## ADDED Requirements
+
+### Requirement: SSH pela rede Wi-Fi
+O usuário MUST poder ligar o SSH pela rede Wi-Fi nas Configurações, desligado de fábrica e
+salvo entre boots. O acesso MUST ser só pelas chaves de `system/ssh/authorized_keys` no cartão,
+nunca por senha, e sem chave o serviço MUST NOT subir. O serviço MUST escutar só no endereço
+da rede Wi-Fi conectada e parar quando o Wi-Fi cai ou a opção é desligada.
+
+#### Scenario: Entrar com a chave
+- **WHEN** o usuário liga "SSH pela rede", tem a chave dele no cartão e o Wi-Fi está conectado
+- **THEN** o painel mostra o endereço, `ssh root@<endereço>` entra com a chave, e uma tentativa sem a chave é recusada sem pedir senha
+
+#### Scenario: Troca de endereço e queda do Wi-Fi
+- **WHEN** o roteador dá outro endereço ao console, ou o Wi-Fi desconecta
+- **THEN** o SSH passa a escutar no endereço novo, ou deixa de escutar
+
+#### Scenario: Cabo USB sem mudança
+- **WHEN** o SSH pela rede está desligado e o cabo do PC está ligado
+- **THEN** o SSH do cabo continua como root sem senha, só em `10.55.0.1`
+
+#### Scenario: Sem chave no cartão
+- **WHEN** o usuário liga "SSH pela rede" e não há `system/ssh/authorized_keys` no cartão
+- **THEN** nada escuta na porta 22 do Wi-Fi e o painel diz que falta a chave
+
+#### Scenario: Desligado de fábrica
+- **WHEN** um cartão novo conecta no Wi-Fi
+- **THEN** a porta 22 do endereço Wi-Fi não aceita conexão
 
 ### Requirement: Som no fone Bluetooth
 Com um fone Bluetooth conectado, o som do launcher e dos jogos MUST sair no fone, e MUST

@@ -310,6 +310,27 @@
   real (142 = 88%), Vol+ leva a 148 = 92%, a barra some depois do prazo; nas Configurações o
   Volume vai a 96% (154) sem barra; três Vol+ na Dock param em 160 e a barra mostra 100% também
   no teto.
+- [ ] 8.9 Brilho por Fn + volume (pedido do usuário, 2026-11-15; era parte da ideia P-62): com o
+  Fn segurado, Vol+/Vol- mudam o brilho em passos de 5% (nunca abaixo de 5%, o mesmo passo e
+  piso do Settings) no primeiro `/sys/class/backlight`, pelo `r36os-input` (root, vale também
+  dentro do jogo), que manda `brightness` aos clientes do socket; o Fn usado não vira o toque do
+  menu do RetroArch. No `lume-ui`, fora das Configurações, uma linha na borda esquerda igual à do
+  volume, branca (token `brightness_bar`, `#ffffff` no `base.toml` e no modelo
+  `_lume-original`), que some 1,5 s depois; nas Configurações, o painel do Brilho mostra o nível.
+  O Dock deixa o espaço da linha dos dois lados. A leitura do percentual é arredondada (o
+  Settings truncava). O backlight do GA36 tem só 11 níveis (`max_brightness` 10): 5% pode
+  arredondar para o mesmo nível, e aí o daemon anda um nível (no r5 o brilho não descia de
+  100%; corrigido no r6). Verificação: `test_fn_volume_keys_change_the_backlight` (backlight
+  falso, passo, piso, sem mixer, sem toque do Fn, sem Fn volta ao volume),
+  `test_fn_volume_on_a_coarse_backlight_moves_one_level` (0-10: 9, 8, …, 1, piso), teste do
+  `lume-ui` com socketpair e `fn_volume_keys_show_a_white_line_on_the_left`. No GA36
+  (2026-11-15, r20/r5 pela imagem 20261115-031543, depois r21/r6 pelo apk): Fn+Vol+ injetado
+  levou o backlight de 8 a 9 e a 10 com a linha branca cheia na borda esquerda (captura); com
+  o r6 desceu de 10 a 2 e voltou a 4. Alguns apertos injetados viram volume porque o driver
+  reenvia o estado real do Fn em milissegundos (limitação da injeção). Falta: o usuário
+  conferir com o botão e dentro de um jogo. `r36os-input` r6, `lume-launcher` r21. Fora daqui:
+  o brilho escolhido ainda não volta depois do reboot (o `settings.brightness` não é aplicado
+  no boot).
 - [x] 8.5 `lume-ui` parado sem gastar CPU (achado da 9.1, D3): o laço dormia no
   `SDL_WaitEvent`, que no KMSDRM não espera de verdade e acorda a cada 1 ms; no GA36, parado,
   usou 42% de um núcleo (1529 ticks em 60 s) com RSS de 58 MB. As threads (controle, índice,
@@ -493,9 +514,23 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   subtítulo 22,4 px em 348,2 (jogos, ou "Ajustes do aparelho"); bateria a 17,3 px da borda;
   rodapé "◀▶ Navegar · A Selecionar" com o chip das setas (`nav_bg`/`nav_fg`). Teste
   `dock_matches_the_prototype_ruler`. Falta o Wi-Fi na barra (10.2).
+  Símbolos num tamanho só (pedido do usuário, 2026-11-15): estrela, engrenagem e relógio com
+  0,42 do ícone (o maior, o da estrela; o protótipo tinha a engrenagem a 0,2 e o relógio a 0,3).
+  Teste `dock_symbols_have_one_size`.
 - [ ] 10.9 Menu do jogo e opções do console: capa (ou quadro do console) à esquerda, título
   e subtítulo, setas só na linha em foco, valor efetivo "Padrão (core)", estrela no
   Favoritos, contagem no "Limpar opções dos jogos". Verificação: captura dos dois menus.
+  Feito em 2026-11-15 (medido no protótipo a 640x480): uma "folha" centrada, 576 px a partir
+  de 32 (94% até 36 em), `panel_bg`, padding e espaço 0,9 em; coluna da capa de 10 em
+  (`tile_bg_opaque`, a imagem até 16 em de altura), no console o logo do tema ou a sigla
+  2 em negrito; título 1,75 em negrito, subtítulo 2,1875 em abaixo (sigla do sistema;
+  "SNES · Configurações" no submenu; "Opções do console"), linhas de 2,45 em a partir de
+  4,4075 em (rótulo 1,25 em, valor 1,0625 em a 1 em da direita). Valor próprio em destaque
+  (acento, negrito); herdado no jogo como "Padrão (valor)"; ‹ › só na linha em foco; estrela
+  ☆/★ desenhada no Favoritos; contagem no "Limpar opções dos jogos" (apagado com 0); Save
+  states apagado com "sem save states". A confirmação de desligar virou a mesma folha, sem
+  capa (Cancelar primeiro). Testes `game_menu_sheet_matches_the_prototype_ruler` e
+  `power_off_is_a_sheet_with_cancel_first`; capturas no host. Falta a captura no GA36.
 - [ ] 10.10 Busca: tela própria com o campo de texto e o cursor, contador de resultados,
   teclado QWERTY com números e tecla de apagar, rodapé da busca. Verificação: captura com
   texto digitado e o filtro aplicado ao fechar.
@@ -556,12 +591,24 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
 ## 11. Configurações com foco no painel (D14, pedido do usuário, 2026-11-15)
 
-- [ ] 11.1 Foco em dois níveis (`list`/`panel`): A ou ▶ entra no painel, ▲▼ trocam a linha
+- [x] 11.1 Foco em dois níveis (`list`/`panel`): A ou ▶ entra no painel, ▲▼ trocam a linha
   (dando a volta), ◀▶ mudam o valor, A executa, B volta ao mesmo item da lista; ◀▶ na lista
   não mudam nada. Cada painel vira uma lista de linhas com a métrica de 1,769em e rolagem.
   Testes: volume pelo painel, B volta à lista, ◀▶ na lista sem efeito, item dono marcado.
+  Feito em 2026-11-15: `PanelRow` (escolha, nível, liga/desliga, ação); Idioma e Tema entram
+  na opção escolhida, ▲▼ só movem, A escolhe e ◀▶ escolhem a vizinha levando o foco; Volume,
+  Brilho e Tela ajustam com ◀▶; Games executa "Atualizar listas" com A; Wi-Fi, Bluetooth e
+  Sistema (só leitura) e RetroArch/Desligar (ação própria) não entram. Lista de escolhas
+  maior que o painel rola. Teste `settings_panel_takes_the_focus`; os testes antigos agora
+  entram no painel antes de mudar um valor.
 - [ ] 11.2 Marcação do item dono (pílula tonal) e rodapé que segue o foco. Teste de régua do
   painel com foco e captura no GA36.
+  Feito em 2026-11-15: o item dono fica com `sel_bg` a 35% sobre o fundo (nos temas `nav_bg`
+  é igual a `sel_bg`, então não distinguia), no lugar exato da pílula de foco; a linha do
+  painel em foco é a pílula `sel_bg` e a escolhida mantém o ✓. Rodapé: na lista "▲▼ Navegar,
+  A Abrir (itens com painel ou ação), B Voltar"; no painel, as dicas da linha ("A
+  Selecionar", "◀▶ para ajustar", "A Atualizar"; ▲▼ só com mais de uma linha). Teste
+  `settings_panel_focus_matches_the_ruler`; captura no host. Falta a captura no GA36.
 
 ## 12. Wi-Fi nas Configurações (D15, pedido do usuário, 2026-11-15)
 
@@ -577,6 +624,18 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   contém a senha.
 - [ ] 12.4 Autoconexão: rede conhecida conecta no boot e quando o adaptador aparece. Prova no
   GA36 com o dongle RTL8821CU.
+- [ ] 12.5 SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15; D18): linha "SSH pela rede" no
+  painel do Wi-Fi, desligada de fábrica, salva em `settings.toml` (`ssh_wifi`), com o endereço
+  para conectar ou "Falta a chave no cartão". Um serviço root (`r36os-ssh-wifi`, o mesmo
+  dropbear do cabo) acompanha o Wi-Fi e a opção: sobe só com `system/ssh/authorized_keys` no
+  cartão, só com chave (`dropbear -s -g`), escutando só no endereço da `wlan0` (nunca na
+  interface P2P), e para quando o Wi-Fi cai ou a opção desliga; a troca de endereço reinicia o
+  serviço. Testes: suíte de shell com `ip` e dropbear falsos (sem chave não sobe, sem opção não
+  sobe, endereço trocado, `-s` sempre presente, nunca na P2P) e teste do painel do `lume-ui`.
+  Prova no GA36 com o dongle: `ssh root@<ip>` entra com a chave, sem a chave é recusado sem
+  pedir senha, `nc` na porta 22 com a opção desligada não conecta; o SSH do cabo continua.
+  Documentar em `docs/LAUNCHER.md` (como pôr a chave no cartão) e em `docs/LOGS.md` se o
+  serviço registrar algo.
 
 ## 13. Bluetooth com foco em fone (D15, pedido do usuário, 2026-11-15)
 

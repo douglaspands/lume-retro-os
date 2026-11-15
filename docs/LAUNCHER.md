@@ -18,6 +18,10 @@ ao mesmo lugar. Durante o jogo, a interface sai da memória. Planejamento e deci
 | **Fn+Start** | nada | nada | **encerra o jogo aberto e volta ao launcher** |
 | Fn sozinho | — | — | abre o menu do RetroArch, dentro de um jogo do RetroArch |
 | Volume + / − | volume do sistema, em qualquer tela e em qualquer jogo | | |
+| Fn + Volume + / − | brilho da tela, em passos de 5%, em qualquer tela e em qualquer jogo | | |
+
+Fora das Configurações, o volume aparece como uma linha na borda direita da tela e o brilho
+como uma linha branca na borda esquerda; as duas somem logo depois do último aperto.
 
 A busca ignora maiúsculas e acentos e exige todas as palavras: "super bros" acha "Súper Bros".
 
