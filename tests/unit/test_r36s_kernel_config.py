@@ -74,6 +74,8 @@ def test_kernel_cmdline_and_boot_options():
     # debug serial and the panel; tty1 last becomes /dev/console
     assert cmdline.index(f"console={tty},{baud}") < cmdline.index("console=tty1")
     assert "quiet" not in cmdline
+    # the initramfs log (lume-bootsel) is not rate limited
+    assert "printk.devkmsg=on" in cmdline.split()
     opts = _options(FRAGMENT)
     assert opts["CONFIG_CMDLINE_FORCE"] == "y"
     assert opts["CONFIG_INITRAMFS_SOURCE"] == '"/initramfs/initramfs.cpio"'

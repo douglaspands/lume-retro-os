@@ -63,13 +63,12 @@
 #define CONFIRM_S 15
 #define WATCHDOG_S 60
 /*
- * The question on the screen after a kexec (D10). Off in the package while the device
- * tests of usb-device-access run (user request, 2026-11-13): a new device tree stays
- * pending and r36os-logd confirms it when the frontend starts. The tests build with
- * -DLUME_CONFIRM=1. Back to 1 when boot-dtb-select resumes.
+ * The question on the screen after a kexec (D10). It was off while the device tests of
+ * usb-device-access ran (2026-11-13 to 2026-11-15); -DLUME_CONFIRM=0 turns it off again,
+ * and then r36os-logd confirms a pending device tree when the frontend starts.
  */
 #ifndef LUME_CONFIRM
-#define LUME_CONFIRM 0
+#define LUME_CONFIRM 1
 #endif
 
 /* --- options and paths ------------------------------------------------------------- */

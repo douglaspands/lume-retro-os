@@ -836,11 +836,11 @@ def test_without_a_confirm_key_there_is_no_question(tools, root, keys_file, devi
     assert root.state()["pending"] == "ga36-panel2"          # for r36os-logd
 
 
-def test_the_package_builds_without_the_question():
-    # Off while the device tests of usb-device-access run (the tests above build with
-    # -DLUME_CONFIRM=1); r36os-logd confirms the pending device tree instead.
+def test_the_package_builds_with_the_question():
+    # D10: the question on the screen is on in the package (it was off during the
+    # usb-device-access device tests, until 2026-11-15)
     source = SOURCE.read_text()
-    assert re.search(r"#ifndef LUME_CONFIRM\n#define LUME_CONFIRM 0\n#endif", source)
+    assert re.search(r"#ifndef LUME_CONFIRM\n#define LUME_CONFIRM 1\n#endif", source)
     assert "LUME_CONFIRM" not in APKBUILD
 
 
