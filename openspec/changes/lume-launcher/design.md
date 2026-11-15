@@ -380,7 +380,8 @@ EmulationStation. Resolução: jogo, depois console, depois o primeiro emulador 
   calculadas em fração de pixel e arredondadas só no desenho. O y de um texto é o topo da
   caixa da linha no navegador (Roboto, altura de linha normal).
 - Cada tela medida ganha um teste de régua com 1 px de tolerância
-  (`grid_matches_the_prototype_ruler`, `dock_matches_the_prototype_ruler`).
+  (`grid_matches_the_prototype_ruler`, `dock_matches_the_prototype_ruler`,
+  `settings_match_the_prototype_ruler`).
 - O que o usuário pediu diferente do protótipo fica como ele pediu e anotado na tarefa:
   contador no meio do cabeçalho da lista, busca no estilo de launcher de TV, menu do jogo em
   quatro itens, Configurações em duas colunas com o painel maior.

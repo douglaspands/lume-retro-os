@@ -76,13 +76,27 @@ pub fn clock(n: u32) -> Vec<u8> {
     })
 }
 
+/// Distance from (x, y) to the segment a-b.
+fn to_segment(x: f32, y: f32, a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let t = (((x - a.0) * dx + (y - a.1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    let (px, py) = (a.0 + t * dx, a.1 + t * dy);
+    ((x - px).powi(2) + (y - py).powi(2)).sqrt()
+}
+
+/// A check mark (✓: the chosen option of a Settings list), two strokes.
+pub fn check(n: u32) -> Vec<u8> {
+    let (a, b, c) = ((-0.8, 0.05), (-0.25, 0.6), (0.85, -0.65));
+    mask(n, |x, y| to_segment(x, y, a, b).min(to_segment(x, y, b, c)) <= 0.14)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn masks_are_square_and_have_shape() {
-        for (m, name) in [(star(64), "star"), (gear(64), "gear"), (clock(64), "clock")] {
+        for (m, name) in [(star(64), "star"), (gear(64), "gear"), (clock(64), "clock"), (check(64), "check")] {
             assert_eq!(m.len(), 64 * 64, "{name}");
             let on = m.iter().filter(|a| **a > 128).count();
             assert!(on > 64 * 64 / 10 && on < 64 * 64 * 3 / 4, "{name}: {on}");

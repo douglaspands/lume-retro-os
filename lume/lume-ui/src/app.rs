@@ -1308,6 +1308,7 @@ impl<S: SystemAdapter> App<S> {
         let alpha = match key {
             "@star" => crate::glyphs::star(N),
             "@gear" => crate::glyphs::gear(N),
+            "@check" => crate::glyphs::check(N),
             _ => crate::glyphs::clock(N),
         };
         let made = c.texture_mask(N, N, &alpha).map(|t| (t, Rect::new(0, 0, N as i32, N as i32)));
@@ -1330,11 +1331,13 @@ impl<S: SystemAdapter> App<S> {
         let chip_y = h - (1.9 * em).round() as i32;
         // the text line starts 1.97 em from the bottom (448.5 at 480, measured)
         let ty = h - (1.97 * em).round() as i32;
-        // the arrows' chip is wider (2.45 em) and tonal (`nav_bg`, `nav_fg`)
-        let nav_w = (2.45 * em).round() as i32;
+        // the arrows' chips are wider (◀▶ 2.45 em, ▲▼ 2.64 em) and tonal (`nav_bg`, `nav_fg`)
+        let nav_lr = (2.45 * em).round() as i32;
+        let nav_ud = (2.64 * em).round() as i32;
         let chip_w = |btn: &str| match btn {
             "" => 0,
-            NAV_LR | NAV_UD => nav_w,
+            NAV_LR => nav_lr,
+            NAV_UD => nav_ud,
             _ => d,
         };
         let widths: Vec<i32> = hints.iter().map(|(btn, text)| c.text_width(text, px) + if btn.is_empty() { 0 } else { chip_w(btn) + inner }).collect();
@@ -1343,6 +1346,7 @@ impl<S: SystemAdapter> App<S> {
         for ((btn, text), hw) in hints.iter().zip(&widths) {
             let mut tx = x;
             if *btn == NAV_LR || *btn == NAV_UD {
+                let nav_w = chip_w(btn);
                 c.fill(Rect::new(x, chip_y, nav_w, d), d / 2, th.color("nav_bg"));
                 let (cx, cy) = (x + nav_w / 2, chip_y + d / 2);
                 // two separate triangles, tips out (as ◀▶ in the prototype's font)
@@ -1816,130 +1820,178 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    /// The Settings (prototype): the items on the left, and on the right, a little more than
-    /// half the screen, the panel of the focused item with its value, bar or description.
+    /// The Settings, measured on the prototype at 640x480 (1 em = 16 px):
+    /// - header band 2.656 em: "Settings" 1.4 em bold at (1.4 em, 0.5625 em); the battery
+    ///   ending 1.4 em from the right at 0.669 em;
+    /// - the list from (1 em, 2.756 em), 15.96 em wide: items 1.669 em tall every 1.769 em,
+    ///   the text 1.05 em, 0.84 em in and 0.21 em down; the focused one a `sel_bg` pill;
+    /// - the panel from 17.76 em to 1 em from the right edge, down to 0.4 em above the hints,
+    ///   `radius_panel`, `panel_bg`, padding 0.6 em on top and 0.9 em on the sides: its title
+    ///   1.2 em bold; then 2.34 em from its top, the item's content in 1.4875 em rows (text
+    ///   1 em, 0.3 em in, 0.12 em down): the options with a pill and ✓ on the chosen one
+    ///   (language, theme), label and value lines (Wi-Fi, Bluetooth, System, with 0.5625 em
+    ///   bars), or the level 1.6 em bold over a bar (volume, brightness); the note 0.9 em,
+    ///   muted, 0.4375 em under the content;
+    /// - hints ▲▼ Navigate, then ◀▶ to adjust or A Open, and B Back.
     fn draw_settings(&mut self, c: &mut dyn Canvas, w: i32, h: i32) {
         let th = self.theme.clone();
         let rows = self.set_rows();
         let focus = self.settings_focus.min(rows.len() - 1);
-        let title_px = th.em("title_px", w) as f32;
-        let px = th.em("label_px", w) as f32;
-        let margin = w / 40;
-        let batt_x = self.draw_battery(c, w - margin, margin + (title_px - px * 0.85) as i32 / 2, px * 0.85);
-        c.text(&self.tr("settings"), margin, margin, title_px, th.color("fg"), Align::Left, batt_x - 2 * margin);
-        let top = title_px as i32 + margin * 2;
-        let bottom = h - (px * 2.2) as i32;
-        let panel = Rect::new(w * 43 / 100, top, w - margin - w * 43 / 100, bottom - top);
-        // the list: names only, the focused one filled
-        let list_w = panel.x - margin - margin / 2;
-        let row_h = ((px * 1.75) as i32).min((bottom - top) / rows.len().max(1) as i32).max(px as i32 + 6);
-        let visible = ((bottom - top) / row_h).max(1) as usize;
+        let em = w as f32 / 40.0;
+        let e = |v: f32| (v * em).round() as i32;
+        let ef = |v: f32| v * em;
+        // header
+        let title_px = ef(1.4);
+        let status_px = th.num("status_px") as f32 * em;
+        let batt_x = self.draw_battery(c, w - e(1.4), e(0.669), status_px);
+        c.text_bold(&self.tr("settings"), e(1.4), e(0.5625), title_px, th.color("fg"), Align::Left, batt_x - e(2.4));
+        // the list
+        let top = ef(2.756);
+        let bottom = (h - e(2.394) - e(0.4)) as f32;
+        let (item_h, pitch) = (ef(1.669), ef(1.769));
+        let list = Rect::new(e(1.0), top.round() as i32, e(15.96), (bottom - top).round() as i32);
+        let visible = (((bottom - top) + (pitch - item_h)) / pitch).max(1.0) as usize;
         let first = focus.saturating_sub(visible - 1);
+        let item_px = ef(1.05);
         for (i, row) in rows.iter().enumerate().skip(first).take(visible) {
-            let r = Rect::new(margin, top + (i - first) as i32 * row_h, list_w, row_h - 4);
+            let y0 = top + (i - first) as f32 * pitch;
+            let r = Rect::new(list.x, y0.round() as i32, list.w, (y0 + item_h).round() as i32 - y0.round() as i32);
             let sel = i == focus;
             if sel {
-                c.fill(r, th.em("radius_item", w).min(r.h / 2), th.color("sel_bg"));
+                c.fill(r, r.h / 2, th.color("sel_bg"));
             }
             let (label, _) = self.set_row_texts(*row);
-            c.text(&label, r.x + 14, r.y + (r.h - px as i32) / 2, px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Left, r.w - 24);
+            c.text(&label, r.x + e(0.84), r.y + e(0.21), item_px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Left, r.w - e(1.68));
         }
         // the panel of the focused item
+        let panel = Rect::new(e(17.76), top.round() as i32, w - e(1.0) - e(17.76), (bottom - top).round() as i32);
         c.fill(panel, th.em("radius_panel", w), th.color("panel_bg"));
-        let inner = panel.inset(margin);
+        let inner = Rect::new(panel.x + e(0.9), panel.y + e(0.6), panel.w - 2 * e(0.9), panel.h - e(0.6));
         let row = rows[focus];
-        let (label, value) = self.set_row_texts(row);
-        c.text(&label, inner.x, inner.y, px * 1.1, th.color("fg"), Align::Left, inner.w);
-        let mut y = inner.y + (px * 2.2) as i32;
-        let small = px * 0.85;
+        let (label, _) = self.set_row_texts(row);
+        c.text_bold(&label, inner.x, inner.y, ef(1.2), th.color("fg"), Align::Left, inner.w);
+        let line_h = ef(1.4875);
+        let px = ef(1.0);
+        let mut y = panel.y as f32 + ef(2.34);
+        // one line of the panel: a pill when chosen, the text, and a value or a ✓ on the right
+        let line = |me: &mut Self, c: &mut dyn Canvas, y: f32, text: &str, value: Option<&str>, chosen: bool, muted_label: bool| {
+            let r = Rect::new(inner.x, y.round() as i32, inner.w, (y + line_h).round() as i32 - y.round() as i32);
+            if chosen {
+                c.fill(r, r.h / 2, th.color("sel_bg"));
+            }
+            let fg = th.color(if chosen { "sel_fg" } else { "fg" });
+            let label_fg = if muted_label && !chosen { th.color("muted") } else { fg };
+            let ty = r.y + e(0.12);
+            let vw = value.map_or(0, |v| c.text_width(v, px));
+            c.text(text, r.x + e(0.3), ty, px, label_fg, Align::Left, r.w - e(0.6) - vw - e(0.5));
+            if let Some(v) = value {
+                c.text(v, r.right() - e(0.3), ty, px, fg, Align::Right, vw + 1);
+            }
+            if chosen && value.is_none() {
+                // the ✓, drawn (the font has none), the text's size
+                if let Some((t, _)) = me.symbol(c, "@check") {
+                    let d = (px * 0.8).round() as i32;
+                    c.draw_mask(t, Rect::new(r.right() - e(0.3) - d, r.y + (r.h - d) / 2, d, d), fg);
+                }
+            }
+        };
+        let mut note: Option<(&'static str, bool)> = None; // (text key, with the ◀▶ arrows)
         match row {
+            SetRow::Language => {
+                for l in LANGUAGES {
+                    let name = self.tr(match *l {
+                        "pt" => "lang_pt",
+                        "es" => "lang_es",
+                        _ => "lang_en",
+                    });
+                    line(self, c, y, &name, None, *l == self.settings.language, false);
+                    y += line_h;
+                }
+                note = Some(("hint_adjust", true));
+            }
+            SetRow::Theme => {
+                let current = self.themes.chosen(&self.settings.theme).to_string();
+                for id in self.themes.list() {
+                    let name = self.themes.name(&id, &self.settings.language);
+                    line(self, c, y, &name, None, id == current, false);
+                    y += line_h;
+                }
+                note = Some(("hint_adjust", true));
+            }
+            SetRow::Volume | SetRow::Brightness => {
+                let key = if row == SetRow::Volume { "volume" } else { "brightness" };
+                let level = self.level.get(key).copied();
+                let big = level.map_or_else(|| "—".to_string(), |v| format!("{v}%"));
+                c.text_bold(&big, inner.x, y.round() as i32, ef(1.6), th.color("fg"), Align::Left, inner.w);
+                y += ef(1.76) + ef(0.175);
+                if let Some(v) = level {
+                    self.draw_level_bar(c, Rect::new(inner.x, y.round() as i32, inner.w, e(0.5625)), v as u32 * 100);
+                }
+                y += ef(0.5625);
+                note = Some(("hint_adjust", true));
+            }
+            SetRow::Wifi | SetRow::Bluetooth => {
+                let (_, value) = self.set_row_texts(row);
+                line(self, c, y, &self.tr("status"), Some(&value), false, true);
+                y += line_h;
+            }
             SetRow::System => {
-                let ipx = px * 0.8;
-                if let Some((_, info)) = &self.info {
-                    for (k, v) in info {
-                        // label and value on one line; the memory also as a bar
-                        let vw = c.text_width(v, ipx).min(inner.w * 3 / 5);
-                        c.text(self.texts.get(k), inner.x, y, ipx, th.color("muted"), Align::Left, inner.w - vw - 8);
-                        c.text(v, inner.right(), y, ipx, th.color("fg"), Align::Right, vw + 1);
-                        y += (ipx * 1.5) as i32;
-                        if *k == "memory" {
-                            if let Some(share) = used_share(v) {
-                                self.draw_level_bar(c, Rect::new(inner.x, y, inner.w, (ipx * 0.35) as i32 + 2), share);
-                                y += (ipx * 1.1) as i32;
-                            }
+                let info = self.info.as_ref().map(|(_, i)| i.clone()).unwrap_or_default();
+                for (k, v) in &info {
+                    let label = self.texts.get(k).to_string();
+                    line(self, c, y, &label, Some(v), false, true);
+                    y += line_h;
+                    if *k == "memory" {
+                        if let Some(share) = used_share(v) {
+                            y += ef(0.175);
+                            self.draw_level_bar(c, Rect::new(inner.x, y.round() as i32, inner.w, e(0.5625)), share);
+                            y += ef(0.5625) + ef(0.35);
                         }
                     }
                 }
             }
-            _ => {
-                // the value, large; a level also as a bar; then what the item does
-                if !value.is_empty() {
-                    c.text(&value, inner.x, y, title_px, th.color("accent"), Align::Left, inner.w);
-                    y += (title_px * 1.6) as i32;
-                }
-                if matches!(row, SetRow::Volume | SetRow::Brightness) {
-                    let key = if row == SetRow::Volume { "volume" } else { "brightness" };
-                    if let Some(v) = self.level.get(key) {
-                        self.draw_level_bar(c, Rect::new(inner.x, y, inner.w, (px * 0.5) as i32 + 2), *v as u32 * 100);
-                        y += (px * 1.4) as i32;
-                    }
-                }
-                let desc = match row {
-                    SetRow::Language => Some("desc_language"),
-                    SetRow::Theme => Some("desc_theme"),
-                    SetRow::Volume => Some("desc_volume"),
-                    SetRow::Brightness => Some("desc_brightness"),
-                    SetRow::Update => Some("desc_update"),
-                    SetRow::RetroArch => Some("desc_retroarch"),
-                    SetRow::Power => Some("desc_power"),
-                    _ => None,
-                };
-                if let Some(k) = desc {
-                    for line in wrap(c, &self.tr(k), small, inner.w) {
-                        c.text(&line, inner.x, y, small, th.color("muted"), Align::Left, inner.w);
-                        y += (small * 1.35) as i32;
-                    }
-                }
+            SetRow::Update | SetRow::RetroArch | SetRow::Power => {
+                note = Some(("note_open", false));
             }
         }
-        let mut hints = Vec::new();
+        if let Some((key, arrows)) = note {
+            let npx = ef(0.9);
+            let ny = (y + ef(0.4375)).round() as i32;
+            let mut nx = inner.x;
+            if arrows {
+                // ◀ ▶ before the text (the font has no such glyphs)
+                let (tw, tht) = ((npx * 0.62).round() as i32, (npx * 0.76).round() as i32);
+                let cy = ny + (npx * 0.6).round() as i32;
+                let muted = th.color("muted");
+                triangle(c, nx + tw / 2, cy, tw, tht, Dir::Left, muted);
+                nx += tw + e(0.25);
+                triangle(c, nx + tw / 2, cy, tw, tht, Dir::Right, muted);
+                nx += tw + e(0.35);
+            }
+            c.text(&self.tr(key), nx, ny, npx, th.color("muted"), Align::Left, inner.right() - nx);
+        }
+        let mut hints = vec![(NAV_UD, self.tr("hint_navigate"))];
         match row {
-            SetRow::Language | SetRow::Theme | SetRow::Volume | SetRow::Brightness => hints.push(("", self.tr("hint_adjust"))),
-            SetRow::Update | SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_select"))),
+            SetRow::Language | SetRow::Theme | SetRow::Volume | SetRow::Brightness => hints.push((NAV_LR, self.tr("hint_adjust"))),
+            SetRow::Update | SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_open"))),
             _ => {}
         }
         hints.push(("B", self.tr("hint_back")));
         self.draw_hints(c, w, h, &hints);
     }
 
-    /// A horizontal level bar: the track and the accent part, `share` in 1/10000.
+    /// A horizontal level bar: the track (the muted color at 30%, as the prototype) and the
+    /// accent part, `share` in 1/10000.
     fn draw_level_bar(&self, c: &mut dyn Canvas, r: Rect, share: u32) {
         let th = &self.theme;
-        c.fill(r, r.h / 2, th.color("tile_bg_opaque"));
+        let mut track = th.color("muted");
+        track.a = 77;
+        c.fill(r, r.h / 2, track);
         let fw = (r.w as i64 * share.min(10000) as i64 / 10000) as i32;
         if fw > 0 {
             c.fill(Rect::new(r.x, r.y, fw.max(r.h), r.h), r.h / 2, th.color("accent"));
         }
     }
-}
-
-/// Breaks a text into lines no wider than `max_w`, at spaces (a single long word is cut by
-/// the drawing with an ellipsis).
-fn wrap(c: &mut dyn Canvas, text: &str, px: f32, max_w: i32) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut cur = String::new();
-    for word in text.split_whitespace() {
-        let next = if cur.is_empty() { word.to_string() } else { format!("{cur} {word}") };
-        if !cur.is_empty() && c.text_width(&next, px) > max_w {
-            lines.push(std::mem::replace(&mut cur, word.to_string()));
-        } else {
-            cur = next;
-        }
-    }
-    if !cur.is_empty() {
-        lines.push(cur);
-    }
-    lines
 }
 
 /// The used share (1/10000) of a "used / total ..." text of the System panel.

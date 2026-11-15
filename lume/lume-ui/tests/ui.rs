@@ -298,6 +298,52 @@ fn dock_matches_the_prototype_ruler() {
     assert!(canvas.has_text("Navigate") && canvas.has_text("Select"));
 }
 
+/// The Settings against the prototype measured in the browser at 640x480 (2026-11-15), Theme
+/// focused: title 22.4 px bold at (22.4, 9), battery ending at 617.6; the list from (16, 44.1),
+/// 255.4 wide, items 26.7 tall every 28.3, text 16.8 px at +13.44/+3.36; the panel
+/// (284.2, 44.1) 339.8 x 391.2, title 19.2 px at (298.6, 53.7), option rows 23.8 tall from
+/// 81.6 (text 16 px at +4.8/+1.9), the note 14.4 px 7 px under them; the ▲▼ chip 42.3 wide.
+#[test]
+fn settings_match_the_prototype_ruler() {
+    let c = card("setruler", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), vol: 60, bri: 80, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Theme).unwrap();
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let text = |s: &str| canvas.texts.iter().filter(|(t, _)| t == s).map(|(_, r)| *r).collect::<Vec<_>>();
+    let title = text("Settings")[0];
+    assert!(near(title.x, 22.4) && near(title.y, 9.0) && near(title.h, 22.4), "title {title:?}");
+    let batt = text("82%")[0];
+    assert!(near(batt.right(), 617.6), "battery {batt:?}");
+    // the list: Language first, Theme second and focused
+    let sel = canvas.fills.iter().filter(|(r, col)| *col == a.theme.color("sel_bg") && r.x < 100).map(|(r, _)| *r).next().unwrap();
+    assert!(near(sel.x, 16.0) && near(sel.y, 44.1 + 28.3) && near(sel.w, 255.4) && near(sel.h, 26.7), "focused item {sel:?}");
+    let lang = text("Language")[0];
+    assert!(near(lang.x, 16.0 + 13.44) && near(lang.y, 44.1 + 3.36) && near(lang.h, 16.8), "item text {lang:?}");
+    // the panel
+    let panel = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 300).map(|(r, _)| *r).unwrap();
+    assert!(near(panel.x, 284.2) && near(panel.y, 44.1) && near(panel.w, 339.8) && near(panel.h, 391.2), "panel {panel:?}");
+    let ptitle = text("Theme").into_iter().find(|r| r.x > 280).unwrap();
+    assert!(near(ptitle.x, 298.6) && near(ptitle.y, 53.7) && near(ptitle.h, 19.2), "panel title {ptitle:?}");
+    // the options: Lume chosen (the default), a pill from 81.6, 23.8 tall
+    let chosen = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
+    assert!(near(chosen.y, 81.6) && near(chosen.h, 23.8) && near(chosen.x, 298.6) && near(chosen.w, 311.0), "chosen {chosen:?}");
+    let lume = text("Lume")[0];
+    assert!(near(lume.x, 303.4) && near(lume.y, 83.5) && near(lume.h, 16.0), "option {lume:?}");
+    let dark = text("Dark")[0];
+    assert!(near(dark.y, 83.5 + 23.8), "second option {dark:?}");
+    // the note under the three options, 14.4 px
+    let note = text("to adjust").into_iter().find(|r| r.x > 280).unwrap();
+    assert!(near(note.y, 81.6 + 3.0 * 23.8 + 7.0) && near(note.h, 14.4), "note {note:?}");
+    // the hints: ▲▼ Navigate, ◀▶ to adjust, B Back
+    let ud = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("nav_bg") && r.y > 440 && r.w > 41).map(|(r, _)| *r).unwrap();
+    assert!(near(ud.w, 42.3) && near(ud.y, 449.6), "▲▼ chip {ud:?}");
+    assert!(canvas.has_text("Navigate") && canvas.has_text("Back"));
+}
+
 #[test]
 fn search_bar_on_top_keyboard_below_and_the_list_between() {
     let c = card("tvsearch", 12, true);
@@ -693,7 +739,7 @@ fn retroarch_item_opens_the_menu_with_code_65() {
     let mut b = app(&c, FakeSystem { vol: 60, bri: 70, ..Default::default() });
     assert_eq!(b.screen, Screen::Settings);
     // the panel of each level shows it
-    for (row, text) in [(SetRow::Volume, "‹60% ›"), (SetRow::Brightness, "‹70% ›")] {
+    for (row, text) in [(SetRow::Volume, "60%"), (SetRow::Brightness, "70%")] {
         b.settings_focus = b.set_rows().iter().position(|r| *r == row).unwrap();
         let mut canvas = FakeCanvas::new(640, 480);
         b.draw(&mut canvas);
@@ -741,7 +787,9 @@ fn volume_keys_show_a_bar_or_the_settings_percent() {
     a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
     let mut canvas = FakeCanvas::new(640, 480);
     a.draw(&mut canvas);
-    assert!(canvas.has_text("‹100% ›") && !canvas.has_text("100%"), "only the Volume panel shows it");
+    // the Volume panel shows the level, large; no bar on the right edge
+    assert!(canvas.has_text("100%"), "the Volume panel shows it");
+    assert!(!canvas.fills.iter().any(|(r, col)| r.x > 620 && r.h >= 100 && *col == a.theme.color("accent")), "no volume bar in the Settings");
     // and the next step of the row starts from there
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 95);

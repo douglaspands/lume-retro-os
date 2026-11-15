@@ -503,7 +503,15 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   usabilidade"): lista à esquerda até 43% da largura, painel do item em foco à direita
   (~55%) sempre visível, com o valor grande, a barra de volume e brilho, o texto do que a
   ação faz (chaves `desc_*`) e o Sistema com rótulo e valor na mesma linha, barra da memória
-  e RSS em MB. A lista dá a volta (↓ no último vai ao primeiro). "Atualizar listas de jogos"
+  e RSS em MB. Em 2026-11-15, com régua (pedido do usuário): título 22,4 px em negrito em
+  (22,4; 9), lista em (16; 44,1) com 255,4 de largura e itens de 26,7 a cada 28,3 (texto
+  16,8 px), painel (284,2; 44,1) 339,8 x 391,2 com título 19,2 px em negrito, opções em
+  pílula de 23,8 com ✓ na escolhida (idioma, tema), linhas rótulo/valor (Wi-Fi, Sistema),
+  nível em 25,6 px negrito sobre barra de 9 px (volume, brilho) e a nota de 14,4 px ("◀ ▶
+  para ajustar", "A para abrir", setas e ✓ desenhados); rodapé "▲▼ Navegar", "◀▶ para
+  ajustar" ou "A Abrir", "B Voltar". Teste `settings_match_the_prototype_ruler`. A frase
+  descritiva de cada item saiu (o protótipo mostra só a nota). A lista dá a volta (↓ no
+  último vai ao primeiro). "Atualizar listas de jogos"
   virou "Atualizar listas" (não cabia na lista em espanhol). Modo lite removido de tudo
   (configuração, `[features]` dos temas, spec), a pedido do usuário. Falta a temperatura da
   CPU e a captura no GA36.
