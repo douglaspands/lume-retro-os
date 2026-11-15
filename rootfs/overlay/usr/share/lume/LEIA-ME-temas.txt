@@ -1,0 +1,34 @@
+Temas do launcher (Lume)
+========================
+
+Cada pasta aqui dentro e um tema, com o mesmo nome do "id" dele:
+
+  themes/<id>/theme.toml           o tema: cores, formas e tamanhos
+  themes/<id>/icons/<sistema>.png  logos dos consoles no Dock (opcional)
+
+O tema aparece em Configuracoes > Tema. Exemplo de theme.toml que muda so
+as cores do tema padrao (lume):
+
+  [theme]
+  id = "meu-tema"
+  name = { pt = "Meu tema", en = "My theme", es = "Mi tema" }
+  extends = "lume"
+
+  [tokens]
+  bg = "#101418"
+  accent = "#FFB74D"
+
+- "id" tem que ser igual ao nome da pasta.
+- "extends" herda tudo de outro tema; o arquivo so declara o que muda.
+- Cores: "#rrggbb" ou "#rrggbbaa". Tamanhos: em "em", 1/40 da largura da
+  tela (16 px numa tela de 640x480).
+- Um tema com erro (token desconhecido, cor invalida) e recusado: o launcher
+  usa o tema padrao e anota o motivo no log.
+
+Logos: uma pasta so com icons/ (sem theme.toml) da logos ao tema de mesmo
+nome. Exemplo: themes/lume/icons/snes.png para o tema padrao. O nome do
+arquivo e o id do sistema (a pasta dele em roms/). O PNG e lido pela
+transparencia e pintado na cor do icone: um logo branco ou preto com fundo
+transparente fica bom em qualquer tema.
+
+Esta pasta e o cartao sao seus: o sistema nunca apaga nada daqui.

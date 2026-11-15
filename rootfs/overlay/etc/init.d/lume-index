@@ -26,5 +26,12 @@ start() {
 		einfo "No games partition: no scan"
 		return 0
 	fi
+	# the card's folder for the user's themes, with how to fill it; made once, on new and
+	# old cards alike, and never touched again (the user may change or remove the guide)
+	themes=/storage/system/lume/themes
+	if [ ! -d "$themes" ]; then
+		mkdir -p "$themes"
+		cp /usr/share/lume/LEIA-ME-temas.txt "$themes/LEIA-ME.txt"
+	fi
 	default_start
 }

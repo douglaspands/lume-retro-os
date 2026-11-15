@@ -22,6 +22,17 @@ def test_vendor_tarball_is_reproducible(tmp_path):
     assert hashlib.sha512(first).hexdigest()
 
 
+def test_card_has_a_folder_for_the_users_themes():
+    # lume-index makes ROMS/system/lume/themes/ once, with the guide, on new and old cards
+    init = (REPO_ROOT / "rootfs/overlay/etc/init.d/lume-index").read_text()
+    assert "themes=/storage/system/lume/themes" in init
+    assert 'if [ ! -d "$themes" ]' in init
+    assert "cp /usr/share/lume/LEIA-ME-temas.txt" in init
+    guide = (REPO_ROOT / "rootfs/overlay/usr/share/lume/LEIA-ME-temas.txt").read_text()
+    for needed in ("theme.toml", "icons/", "extends", 'id = "meu-tema"'):
+        assert needed in guide, needed
+
+
 def test_tarball_is_named_by_the_lock():
     assert re.fullmatch(r"lume-vendor-[0-9a-f]{16}\.tar\.gz", lume.vendor_tarball().name)
 
@@ -49,6 +60,14 @@ def test_workspace_profile_and_msrv():
 
 
 def test_no_logo_files_in_the_package():
-    # frontend-session: no console maker logo is shipped by the launcher package
-    shipped = APKBUILD + "".join(p.read_text() for p in (REPO_ROOT / "rootfs/overlay/usr/share/lume").rglob("*") if p.is_file())
-    assert not re.search(r"logo|\.png|\.svg", shipped, re.I)
+    # frontend-session: no console maker logo is shipped by the launcher package. No image
+    # file (by name or by content), the aport installs none, and no image theme points to
+    # one. The guide of the card's themes folder (a .txt) may tell the user how to add theirs.
+    files = [p for p in (REPO_ROOT / "rootfs/overlay/usr/share/lume").rglob("*") if p.is_file()]
+    for p in files:
+        assert p.suffix.lower() not in (".png", ".svg", ".jpg", ".jpeg", ".webp"), p
+        head = p.read_bytes()[:8]
+        assert not head.startswith(b"\x89PNG") and not head.startswith(b"\xff\xd8") and b"<svg" not in p.read_bytes()[:256], p
+    assert not re.search(r"logo|\.png|\.svg", APKBUILD, re.I)
+    themes = "".join(p.read_text() for p in files if p.suffix == ".toml" and "themes" in p.parts)
+    assert not re.search(r"\.png|\.svg", themes, re.I)
