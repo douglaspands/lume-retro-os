@@ -205,7 +205,9 @@ pub struct Paths {
 const TOAST: Duration = Duration::from_millis(1800);
 /// the volume bar stays this long after the last volume key
 pub const VOLUME_BAR: Duration = Duration::from_millis(1500);
-const FRAME: Duration = Duration::from_millis(33);
+/// Frame interval while an animation runs: 60 fps, the screen's rate (30 fps made the Dock
+/// look jerky; the animation is still 0.2 s, only drawn with more steps)
+const FRAME: Duration = Duration::from_millis(16);
 
 impl<S: SystemAdapter> App<S> {
     pub fn new(p: Paths, catalog: Catalog, runners: BTreeMap<String, Runner>, arch: &str, sys: S) -> App<S> {
@@ -1137,18 +1139,33 @@ impl<S: SystemAdapter> App<S> {
         c.present();
     }
 
-    /// The volume bar: a thin vertical track in the right margin, outside the grid's
-    /// tiles and their focus ring, filled from the bottom with the accent; no number
-    /// (theme tokens only).
+    /// The volume bar (user's choice, 2026-11-15): the whole right edge of the screen as a
+    /// line, filled from the bottom with the accent; at 100% the line runs the full height.
+    /// No number. A brightness shortcut, when it exists, is the same line on the left edge.
     fn draw_volume_bar(&self, c: &mut dyn Canvas, w: i32, h: i32, v: u8) {
+        self.draw_edge_level(c, w, h, v, Edge::Right);
+    }
+
+    /// The width of an edge level line (5 px at 640x480).
+    fn edge_w(w: i32) -> i32 {
+        ((w as f32 / 40.0) * 0.3125).round().max(3.0) as i32
+    }
+
+    /// A level as a line along one edge of the screen: a faint track (the muted color at
+    /// 30%) the full height, filled from the bottom with the accent.
+    fn draw_edge_level(&self, c: &mut dyn Canvas, w: i32, h: i32, v: u8, edge: Edge) {
         let th = &self.theme;
-        let margin = w / 40;
-        let tw = (margin * 3 / 8).max(4);
-        let track = Rect::new(w - margin / 2 - tw / 2, h / 4, tw, h / 2);
-        c.fill(track, tw / 2, th.color("panel_bg_opaque"));
-        let filled = track.h * v.min(100) as i32 / 100;
+        let lw = Self::edge_w(w);
+        let x = match edge {
+            Edge::Right => w - lw,
+            Edge::Left => 0,
+        };
+        let mut track = th.color("muted");
+        track.a = 77;
+        c.fill(Rect::new(x, 0, lw, h), 0, track);
+        let filled = h * v.min(100) as i32 / 100;
         if filled > 0 {
-            c.fill(Rect::new(track.x, track.bottom() - filled, tw, filled), tw / 2, th.color("accent"));
+            c.fill(Rect::new(x, h - filled, lw, filled), 0, th.color("accent"));
         }
     }
 
@@ -1212,10 +1229,12 @@ impl<S: SystemAdapter> App<S> {
         let line = h as f32 * th.num("dock_top") as f32;
         let origin = th.num("dock_origin") as f32;
         let (peak, low, spread) = (th.num("mag_peak") as f32, th.num("mag_base") as f32, th.num("mag_spread") as f32);
+        // the prototype's Dock motion: cubic-bezier(.22, 1.25, .36, 1) over `anim_ms` (0.2 s),
+        // a light spring that passes the mark a little and settles
         let shift = match self.anim {
             Some((t, from)) => {
-                let k = (t.elapsed().as_millis() as f32 / th.num("anim_ms").max(1.0) as f32).min(1.0);
-                from * (1.0 - k) * (1.0 - k)
+                let k = (t.elapsed().as_secs_f32() * 1000.0 / th.num("anim_ms").max(1.0) as f32).min(1.0);
+                from * (1.0 - cubic_bezier(0.22, 1.25, 0.36, 1.0, k))
             }
             None => 0.0,
         };
@@ -1243,6 +1262,12 @@ impl<S: SystemAdapter> App<S> {
         }
         // the focused (largest) icon is drawn last, over its neighbors
         placed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        // while the volume line shows on the right edge, the icons stop `dock_gap` before it
+        // (user's request: the console on the right never touches the line)
+        let volume_on = self.volume_bar.is_some();
+        if volume_on {
+            c.set_clip(Some(Rect::new(0, 0, w - Self::edge_w(w) - gap.round() as i32, h)));
+        }
         for (x, size, idx) in placed {
             let left = w as f32 / 2.0 + x - size / 2.0;
             let top = line - size * origin;
@@ -1280,6 +1305,9 @@ impl<S: SystemAdapter> App<S> {
                     c.text_bold(&abbr, r.x + r.w / 2, r.y + (r.h - px as i32) / 2, px, fg, Align::Center, r.w - 8);
                 }
             }
+        }
+        if volume_on {
+            c.set_clip(None);
         }
         // the focused item's name and what it holds
         let (name, _) = self.label(self.dock[self.dock_focus]);
@@ -2023,6 +2051,42 @@ pub fn icon_mask(path: &std::path::Path, max: u32) -> Option<(u32, u32, Vec<u8>)
         .map(|p| if opaque { ((p[0] as u32 * 3 + p[1] as u32 * 6 + p[2] as u32) / 10) as u8 } else { p[3] })
         .collect();
     Some((w, h, alpha))
+}
+
+/// The CSS timing function cubic-bezier(x1, y1, x2, y2) at progress `t` (0..1): the curve's
+/// x is solved for `t` (Newton, then bisection), and its y returned. y may pass 1 (a spring).
+pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let bez = |a: f32, b: f32, s: f32| 3.0 * a * s * (1.0 - s).powi(2) + 3.0 * b * s * s * (1.0 - s) + s.powi(3);
+    let dbez = |a: f32, b: f32, s: f32| 3.0 * a * (1.0 - s).powi(2) + 6.0 * (b - a) * s * (1.0 - s) + 3.0 * (1.0 - b) * s * s;
+    let mut s = t;
+    for _ in 0..8 {
+        let d = dbez(x1, x2, s);
+        if d.abs() < 1e-6 {
+            break;
+        }
+        s = (s - (bez(x1, x2, s) - t) / d).clamp(0.0, 1.0);
+    }
+    if (bez(x1, x2, s) - t).abs() > 1e-4 {
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..30 {
+            s = (lo + hi) / 2.0;
+            if bez(x1, x2, s) < t {
+                lo = s;
+            } else {
+                hi = s;
+            }
+        }
+    }
+    bez(y1, y2, s)
+}
+
+/// A side of the screen for a level line (volume right; brightness left, P-62).
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum Edge {
+    Left,
+    Right,
 }
 
 #[derive(Clone, Copy)]

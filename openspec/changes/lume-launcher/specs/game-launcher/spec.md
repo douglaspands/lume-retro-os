@@ -128,11 +128,15 @@ O item Configurações MUST oferecer Idioma, Tema, Volume, Brilho, Sistema, Atua
 - **THEN** o menu completo do RetroArch abre sem jogo e, ao sair dele, o launcher reaparece nas Configurações
 
 ### Requirement: Volume na tela
-Com o launcher na tela, cada aperto dos botões de volume MUST aparecer na hora: nas Configurações, como o percentual do item Volume; nas outras telas, como uma barra vertical na lateral direita, nas cores do tema, que some sozinha pouco depois do último aperto. O aperto no limite (0% ou 100%) MUST mostrar a barra também.
+Com o launcher na tela, cada aperto dos botões de volume MUST aparecer na hora: nas Configurações, como o percentual do item Volume; nas outras telas, como uma linha fina em toda a borda direita da tela, nas cores do tema, preenchida de baixo para cima até o nível (100% é a borda inteira), sem número, que some sozinha pouco depois do último aperto. Enquanto a linha aparece, nada da tela pode encostar nela. O aperto no limite (0% ou 100%) MUST mostrar a linha também.
 
-#### Scenario: Barra fora das Configurações
+#### Scenario: Linha fora das Configurações
 - **WHEN** o usuário aperta volume - na grade de jogos
-- **THEN** uma barra vertical aparece na lateral direita com o novo nível e some cerca de 1,5 s depois
+- **THEN** a linha da borda direita mostra o novo nível e some cerca de 1,5 s depois
+
+#### Scenario: Dock afastado da linha
+- **WHEN** a linha do volume aparece com o Dock na tela
+- **THEN** o ícone mais à direita termina antes dela, com o espaço entre ícones
 
 #### Scenario: Percentual nas Configurações
 - **WHEN** o usuário aperta volume + com as Configurações abertas no item Volume

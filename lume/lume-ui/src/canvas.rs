@@ -99,6 +99,8 @@ pub trait Canvas {
     fn text_width_bold(&mut self, s: &str, px: f32) -> i32 {
         self.text_width(s, px)
     }
+    /// Limits drawing to `r` (None: the whole screen).
+    fn set_clip(&mut self, r: Option<Rect>);
     /// The same as `text` in the medium face (500; the regular one when there is none).
     #[allow(clippy::too_many_arguments)]
     fn text_medium(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32 {
@@ -127,6 +129,15 @@ pub struct FakeCanvas {
     current_texts: Vec<(String, Rect)>,
     current_fills: Vec<(Rect, Color)>,
     font: Option<crate::font::Font>,
+    clip: Option<Rect>,
+}
+
+/// The part of `r` inside `clip` (None when nothing is left).
+fn clip_to(r: Rect, clip: Option<Rect>) -> Option<Rect> {
+    let Some(c) = clip else { return Some(r) };
+    let (x0, y0) = (r.x.max(c.x), r.y.max(c.y));
+    let (x1, y1) = (r.right().min(c.right()), r.bottom().min(c.bottom()));
+    (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
 impl FakeCanvas {
@@ -151,7 +162,13 @@ impl Canvas for FakeCanvas {
     }
 
     fn fill(&mut self, r: Rect, _radius: i32, c: Color) {
-        self.current_fills.push((r, c));
+        if let Some(r) = clip_to(r, self.clip) {
+            self.current_fills.push((r, c));
+        }
+    }
+
+    fn set_clip(&mut self, r: Option<Rect>) {
+        self.clip = r;
     }
 
     fn texture_rgb565(&mut self, _w: u32, _h: u32, _pixels: &[u8]) -> Option<TextureId> {
@@ -172,12 +189,16 @@ impl Canvas for FakeCanvas {
 
     fn draw_texture(&mut self, _t: TextureId, _src: Rect, dst: Rect) {
         // recorded with the fills: the layout tests check that everything is on screen
-        self.current_fills.push((dst, Color::default()));
+        if let Some(dst) = clip_to(dst, self.clip) {
+            self.current_fills.push((dst, Color::default()));
+        }
     }
 
     fn draw_mask(&mut self, _t: TextureId, dst: Rect, c: Color) {
         // recorded with the fills, in its color
-        self.current_fills.push((dst, c));
+        if let Some(dst) = clip_to(dst, self.clip) {
+            self.current_fills.push((dst, c));
+        }
     }
 
     fn text(&mut self, s: &str, x: i32, y: i32, px: f32, _c: Color, align: Align, max_w: i32) -> i32 {

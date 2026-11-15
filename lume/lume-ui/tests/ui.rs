@@ -95,6 +95,20 @@ fn dock_rotates_and_skips_empty_systems() {
 }
 
 #[test]
+fn dock_motion_is_the_prototype_spring() {
+    use lume_ui::app::cubic_bezier;
+    let spring = |t: f32| cubic_bezier(0.22, 1.25, 0.36, 1.0, t);
+    assert!(spring(0.0).abs() < 1e-3 && (spring(1.0) - 1.0).abs() < 1e-3);
+    // it passes the mark a little and settles (the prototype's "light spring")
+    let peak = (1..100).map(|i| spring(i as f32 / 100.0)).fold(0.0f32, f32::max);
+    assert!(peak > 1.0 && peak < 1.1, "peak {peak}");
+    // and most of the way is done early: smooth, not slow
+    assert!(spring(0.3) > 0.75, "{}", spring(0.3));
+    // the solver against the browsers' value of the standard "ease" at the middle
+    assert!((cubic_bezier(0.25, 0.1, 0.25, 1.0, 0.5) - 0.8024).abs() < 0.002);
+}
+
+#[test]
 fn no_frame_without_an_event() {
     let c = card("frames", 3, false);
     let mut a = app(&c, FakeSystem::default());
@@ -760,6 +774,22 @@ fn volume_keys_show_a_bar_or_the_settings_percent() {
     let screen = lume_ui::canvas::Rect::new(0, 0, 640, 480);
     let bar: Vec<_> = canvas.fills.iter().filter(|(r, _)| r.x > 560 && r.h >= 100).collect();
     assert!(!bar.is_empty() && bar.iter().all(|(r, _)| screen.contains(r)), "{bar:?}");
+    // the whole right edge: a 5 px track the full height, the level filled from the bottom
+    let track = canvas.fills.iter().find(|(r, _)| r.x == 635 && r.h == 480).map(|(r, _)| *r).expect("track");
+    assert_eq!((track.w, track.y), (5, 0));
+    let level = canvas.fills.iter().find(|(r, col)| r.x == 635 && *col == a.theme.color("accent")).map(|(r, _)| *r).unwrap();
+    assert_eq!((level.h, level.bottom()), (480 * 35 / 100, 480));
+    // the Dock's icons stop a gap (8 px) before the line
+    // (the focused icon may share the accent with the hint circles and the line: the icons
+    // are the large shapes of the Dock band)
+    let icons: Vec<_> = canvas.fills.iter().filter(|(r, col)| (*col == a.theme.color("icon_bg") || *col == a.theme.color("icon_sel_bg")) && r.w > 40 && r.y < 400 && r.x < 630).map(|(r, _)| *r).collect();
+    assert!(!icons.is_empty() && icons.iter().all(|r| r.right() <= 640 - 5 - 8), "{icons:?}");
+    // at 100% the line runs the full height
+    a.handle(Ev::Volume(100));
+    let mut full = FakeCanvas::new(640, 480);
+    a.draw(&mut full);
+    assert!(full.fills.iter().any(|(r, col)| r.x == 635 && r.h == 480 && *col == a.theme.color("accent")));
+    a.handle(Ev::Volume(35));
     // in a list: the bar stays in the right margin, clear of the tiles and their focus ring
     go_dock(&mut a, DockItem::System(1));
     press(&mut a, Action::A);

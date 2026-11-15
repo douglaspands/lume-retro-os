@@ -159,6 +159,10 @@ impl<T: RenderTarget> Canvas for SdlCanvas<T> {
         Some(id)
     }
 
+    fn set_clip(&mut self, r: Option<Rect>) {
+        self.canvas.set_clip_rect(r.map(|r| sdl2::rect::Rect::new(r.x, r.y, r.w.max(0) as u32, r.h.max(0) as u32)));
+    }
+
     fn texture_mask(&mut self, w: u32, h: u32, alpha: &[u8]) -> Option<TextureId> {
         // white with the mask as alpha, tinted per draw (as the glyphs)
         let mut rgba = Vec::with_capacity(alpha.len() * 4);
