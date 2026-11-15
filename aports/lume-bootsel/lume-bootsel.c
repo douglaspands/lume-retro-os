@@ -636,6 +636,24 @@ static struct cand *next_search(const char *bad)
 static char signature[2 * PANEL_ID_MAX + 8];
 /* a panel driver that reads the ID is bound, but the panel did not answer it */
 static int panel_silent;
+/*
+ * the panel answered the read, with or without an identity: the running tree serves the
+ * device; only an ID that is not all zeros or all ones is a signature (the JD9366 of the
+ * GA36 answers 000000: its ID registers were never programmed)
+ */
+static int panel_answered;
+
+static int blank_id(const char *hex)
+{
+	const char *p;
+	int zeros = 1, ones = 1;
+
+	for (p = hex; *p; p++) {
+		zeros &= *p == '0';
+		ones &= *p == 'f';
+	}
+	return zeros || ones;
+}
 
 static int is_hex(const char *s)
 {
@@ -652,15 +670,39 @@ static void load_signature(void)
 
 	signature[0] = 0;
 	panel_silent = 0;
+	panel_answered = 0;
 	while (d && (e = readdir(d))) {
 		char *text;
 
 		if (e->d_name[0] == '.')
 			continue;
 		text = read_file(rp("/sys/bus/mipi-dsi/devices/%s/panel_id", e->d_name), NULL);
+		if (!text && access(rp("/sys/bus/mipi-dsi/devices/%s/driver", e->d_name), F_OK)) {
+			/* a probe may still be deferred (EPROBE_DEFER): give it up to 2 s */
+			int tries;
+
+			for (tries = 0; tries < 20 && access(rp("/sys/bus/mipi-dsi/devices/%s/driver",
+								 e->d_name), F_OK); tries++)
+				usleep(100000);
+			text = read_file(rp("/sys/bus/mipi-dsi/devices/%s/panel_id", e->d_name),
+					 NULL);
+			if (!text && access(rp("/sys/bus/mipi-dsi/devices/%s/driver", e->d_name),
+					    F_OK)) {
+				/* no driver bound: the panel did not answer the probe (GA36 jd9366) */
+				panel_silent = 1;
+				lg("panel %s: no driver bound, the panel did not answer its probe",
+				   e->d_name);
+			}
+		}
 		if (text) {
 			trim(text);
-			if (*text && strlen(text) <= 2 * PANEL_ID_MAX && is_hex(text)) {
+			if (*text && strlen(text) <= 2 * PANEL_ID_MAX && is_hex(text) &&
+			    blank_id(text)) {
+				panel_answered = 1;
+				lg("panel id %s (%s): the panel answered, but the ID is blank: no "
+				   "signature", text, e->d_name);
+			} else if (*text && strlen(text) <= 2 * PANEL_ID_MAX && is_hex(text)) {
+				panel_answered = 1;
 				snprintf(signature, sizeof(signature), "panel:%s", text);
 				lg("signature: panel id %s (%s)", text, e->d_name);
 			} else if (!*text) {
@@ -676,7 +718,7 @@ static void load_signature(void)
 	}
 	if (d)
 		closedir(d);
-	if (*signature)
+	if (panel_answered)
 		panel_silent = 0;
 	else if (panel_silent)
 		lg("no signature: the panel did not answer its driver");
@@ -1878,12 +1920,12 @@ static int second_start(const char *id, const char *reason)
 	if (!strcmp(reason, "search")) {
 		struct cand *next;
 
-		if (*signature) {
+		if (panel_answered) {
 			lg("search: %s works, the panel answered", id);
 			copy_str(st.good, sizeof(st.good), id);
 			st.pending[0] = 0;
 			save_state();
-			save_learned(id);
+			save_learned(id); /* only with a signature: a blank ID teaches nothing */
 			if (wd)
 				wd_stop();
 			return 0;

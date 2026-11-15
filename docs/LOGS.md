@@ -273,6 +273,8 @@ com o prefixo `lume-bootsel:`:
 | `signature: panel id <hex> (<dispositivo DSI>)` | assinatura do aparelho: o ID que o painel respondeu ao driver (D15) |
 | `no signature: the panel did not answer its driver` / `no signature: no panel driver shows panel_id` | painel mudo com o DTB em uso (dispara a busca) / kernel sem a leitura do ID (nada é testado sozinho) |
 | `panel id of <dispositivo>: unsupported` | o host DSI não faz a leitura do ID: nada se conclui sobre o painel, e a busca não roda |
+| `panel id <hex> (<dispositivo>): the panel answered, but the ID is blank: no signature` | o painel respondeu (o DTB serve), mas o ID é `000000` ou `ffffff` (nunca gravado, como no JD9366 do GA36): nada é aprendido por ele |
+| `panel <dispositivo>: no driver bound, the panel did not answer its probe` | o driver do painel recusou o probe (o `jd9366` sem resposta), depois de esperar 2 s por um probe adiado: conta como painel mudo |
 | `probe panel id <regra>: <lido> match\|no match` | regra `lume,panel-id` |
 | `learned before: <id> for panel:<hex>` / `learned: <id> for panel:<hex>` / `forgotten: ...` | o que já foi aprendido para essa assinatura / aprendizado novo / um DTB descartado sai do aprendido |
 | `search: <id> does not work (...); discarded on this device` / `search: <id> works, the panel answered` / `search: no device tree left; ...` | busca sozinha (D15): DTB descartado, achado, ou candidatos esgotados |

@@ -157,9 +157,16 @@ class Root:
         (self.path / "boot/dtbs/force").write_text(text)
 
     def panel(self, panel_id, dev="1c40000.dsi.0"):
-        """The panel_id a panel driver shows (D15); "" for a panel that did not answer."""
+        """The panel_id a panel driver shows (D15); "" for a panel that did not answer;
+        None for a DSI device with no driver bound (its probe found no panel)."""
         d = self.path / f"sys/bus/mipi-dsi/devices/{dev}"
         d.mkdir(parents=True, exist_ok=True)
+        if panel_id is None:
+            (d / "panel_id").unlink(missing_ok=True)
+            if (d / "driver").exists():
+                (d / "driver").rmdir()
+            return
+        (d / "driver").mkdir(exist_ok=True)
         (d / "panel_id").write_text(panel_id + "\n")
 
     def learned(self, **values):
@@ -913,6 +920,36 @@ def test_silent_panel_starts_the_search(tools, root, tmp_path):
     assert root.state()["pending"] == "ga36-panel2" and root.state()["bad"] == "ga36-panel1"
     assert root.prepared().path("/chosen").strings("lume,dtb-selected") == ["ga36-panel2",
                                                                            "search"]
+
+
+def test_panel_without_a_driver_bound_starts_the_search(tools, root):
+    # the GA36 jd9366 refuses its probe when the panel does not answer: no panel_id at all
+    root.ga36_panels()
+    root.panel(None)
+    rc, out, err = run(tools, root)
+    assert "panel 1c40000.dsi.0: no driver bound, the panel did not answer its probe" in err
+    assert decision(out)["reason"] == "search" and decision(out)["selected"] == "ga36-panel2"
+
+
+def test_blank_panel_id_is_no_signature(tools, root):
+    # the JD9366 of the GA36 answers 000000 (ID never programmed): the panel works, but the
+    # ID says nothing, so nothing is learned for it and nothing is searched
+    root.ga36_panels()
+    root.panel("000000")
+    rc, out, err = run(tools, root)
+    assert "panel id 000000 (1c40000.dsi.0): the panel answered, but the ID is blank" in err
+    assert decision(out)["reason"] == "default"
+    assert root.learned() == {} and root.state()["bad"] == ""
+
+
+def test_search_accepts_a_panel_with_a_blank_id(tools, root):
+    root.ga36_panels()
+    root.state(pending="ga36-panel2", bad="ga36-panel1")
+    root.after_kexec("ga36-panel2", "search")
+    root.panel("ffffff")
+    rc, out, err = run(tools, root)
+    assert rc == 0 and "search: ga36-panel2 works, the panel answered" in err
+    assert root.state()["good"] == "ga36-panel2" and root.learned() == {}
 
 
 def test_unsupported_panel_id_read_means_no_search(tools, root):
