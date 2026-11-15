@@ -29,6 +29,24 @@
 		stdout-path = "serial2:1500000n8";
 	};
 
+	/*
+	 * Log of the previous start kept in RAM (pstore/ramoops), in the region the factory
+	 * kernel reserves for it: below the RAM the bootloader hands over (from 0x200000), so
+	 * the bootloader and the trusted firmware leave it alone across a warm reset
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops@110000 {
+			compatible = "ramoops";
+			reg = <0x0 0x110000 0x0 0xf0000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+		};
+	};
+
 	/* DTB selection (boot-dtb-select D3): default of BOOT/dtbs/rk3326/, no rules yet */
 	lume-select {
 		lume,id = "r36s-v5";
