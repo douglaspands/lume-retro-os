@@ -550,8 +550,10 @@ def test_kexec_loads_the_same_kernel_with_the_chosen_tree(tools, root, tmp_path)
     root.state(manual="ga36-panel2")
     rc, out, err = run(tools, root, "--kexec", str(_fake_kexec(tmp_path, 0)), dry=False)
     assert rc == 10
+    # -c: kexec_load, the syscall that takes the tree given in --dtb (kexec_file_load ignores
+    # it on arm64 and reuses the running tree: R36S, 2026-11-15)
     assert (tmp_path / "kexec.args").read_text().split() == [
-        "-l", str(root.path / "boot/ga36/zImage"),
+        "-c", "-l", str(root.path / "boot/ga36/zImage"),
         f"--dtb={root.path / 'tmp/lume-bootsel.dtb'}"]
     assert "switching to ga36-panel2 by kexec (/boot/ga36/zImage)" in err
     assert root.state()["pending"] == "ga36-panel2"
@@ -586,7 +588,7 @@ def test_kexec_output_goes_to_the_log(tools, root, tmp_path):
     assert "lume-bootsel: iomem: 40000000-5fffffff : System RAM" in err
     assert "syscon" not in err
     calls = (tmp_path / "kexec.calls").read_text().splitlines()
-    assert calls[0].startswith("-l ") and calls[1].startswith("-d -l ")
+    assert calls[0].startswith("-c -l ") and calls[1].startswith("-c -d -l ")
     assert "ERROR: kexec -l failed (status 255); keeping the running device tree" in err
 
 
@@ -781,7 +783,7 @@ def test_no_answer_goes_back_to_the_default(tools, root, tmp_path):
     dtb = root.prepared()
     assert dtb.path("/lume-select").string("lume,id") == "ga36-panel1"
     assert dtb.path("/chosen").strings("lume,dtb-selected") == ["ga36-panel1", "reverted"]
-    assert (tmp_path / "kexec.args").read_text().split()[1] == str(root.path / "boot/ga36/zImage")
+    assert (tmp_path / "kexec.args").read_text().split()[2] == str(root.path / "boot/ga36/zImage")
 
 
 def test_no_answer_goes_back_to_the_last_confirmed_one(tools, root, tmp_path):

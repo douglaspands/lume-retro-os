@@ -5,7 +5,7 @@
 # the dtc sources.
 pkgname=lume-bootsel
 pkgver=1.0
-pkgrel=4
+pkgrel=5
 _dtcver=1.7.2
 _kexecver=2.0.32
 pkgdesc="Device tree selection for the initramfs of Lume Retro OS (static, with kexec)"
@@ -35,7 +35,7 @@ package() {
 	install -Dm755 "$srcdir"/kexec-tools-$_kexecver/build/sbin/kexec "$d"/kexec
 }
 sha512sums="
-f854dd7d54e669efb1020af0899f33d1c9922c9ba970b88855eeddc35bd8aac0febdd899268938906018ffaef7242f2b665eaee8dcc7e2dea2604cfa3faee36d  lume-bootsel.c
+1333e6484f010ee50882f37c881b89348b86e661f92f42a0bac90ef71771300a9dede81dc793b7fad7dd7deeb1530ab32886872518cc11d8a5c2450f9cef9040  lume-bootsel.c
 30f3611175a5c29556282f3f2894701a5837eb869608d89d78c280af448bbc3a5b6c83f51c28f991847c0eb7c42aa57599bbc31433f1b3b2c8d162cb2169b91f  dtc-1.7.2.tar.xz
 60f120f8e46b9fb5dcf5a5b344ee8b303878ba9f71d58a3eefa1c9f044a6a2192b285154b738970263384c6e7281a854cd48a185334c08141aa4e6cf08230654  kexec-tools-2.0.32.tar.xz
 "

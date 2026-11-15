@@ -1240,8 +1240,11 @@ static int prepare(struct cand *c, const char *reason, int watchdog)
 }
 
 /*
- * Runs kexec -l (with -d when debug) and puts every line it prints in the log ("kexec:
+ * Runs kexec -c -l (with -d when debug) and puts every line it prints in the log ("kexec:
  * <line>"): its errors would otherwise only reach the console and be lost.
+ * -c forces the kexec_load syscall. kexec-tools tries kexec_file_load first by default,
+ * and on arm64 that syscall builds the tree from the running one and ignores --dtb: the
+ * second kernel came up with the old tree and no lume,dtb-selected (R36S, 2026-11-15).
  */
 static int run_kexec(const char *kernel, int debug)
 {
@@ -1261,9 +1264,9 @@ static int run_kexec(const char *kernel, int debug)
 		close(fds[0]);
 		close(fds[1]);
 		if (debug)
-			execl(opt_kexec, "kexec", "-d", "-l", kernel, dtb_arg, (char *)NULL);
+			execl(opt_kexec, "kexec", "-c", "-d", "-l", kernel, dtb_arg, (char *)NULL);
 		else
-			execl(opt_kexec, "kexec", "-l", kernel, dtb_arg, (char *)NULL);
+			execl(opt_kexec, "kexec", "-c", "-l", kernel, dtb_arg, (char *)NULL);
 		dprintf(STDERR_FILENO, "cannot run %s: %s\n", opt_kexec, strerror(errno));
 		_exit(127);
 	}
