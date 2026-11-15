@@ -1,5 +1,5 @@
 //! Launcher settings (`ROMS/system/lume/settings.toml`, lume-launcher D6, D10): language,
-//! theme, preferred volume and brightness. Unknown or invalid values fall back to
+//! theme, preferred volume and brightness, the display options (the battery's percent). Unknown or invalid values fall back to
 //! the default, so an old or hand-edited file never stops the launcher.
 
 use std::io;
@@ -19,11 +19,13 @@ pub struct Settings {
     pub volume: Option<u8>,
     /// 0-100, `None` keeps the backlight as it is
     pub brightness: Option<u8>,
+    /// Display: the battery's percent next to its icon in the status bar
+    pub battery_percent: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None }
+        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None, battery_percent: true }
     }
 }
 
@@ -69,6 +71,10 @@ mod tests {
         // a file from before the lite mode was removed still loads
         std::fs::write(&p, "language = \"pt\"\nlite = true\n").unwrap();
         assert_eq!(Settings::load(&p).language, "pt");
+        // the battery percent: on unless the file says otherwise
+        assert!(Settings::load(&p).battery_percent);
+        std::fs::write(&p, "battery_percent = false\n").unwrap();
+        assert!(!Settings::load(&p).battery_percent);
         std::fs::write(&p, "language = \"xx\"\nvolume = 250\nunknown = 1\n").unwrap();
         let l = Settings::load(&p);
         assert_eq!(l.language, "en");

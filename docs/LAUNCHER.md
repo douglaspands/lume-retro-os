@@ -54,7 +54,8 @@ catálogo.
 
 A lista fica à esquerda; à direita, o painel do item em foco mostra o valor, a barra do nível
 ou o que o item faz. Idioma (vale também para o RetroArch e para as mensagens do sistema),
-Tema (Lume, o padrão, e Material escuro e claro), Volume, Brilho, Sistema (modelo, CPU,
+Tema (Lume, o padrão, e Material escuro e claro), Tela (mostrar ou não o percentual ao lado
+da bateria), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
 selecionado), **Atualizar listas**, RetroArch (o menu completo, sem jogo; ao sair, volta às
 Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
@@ -136,7 +137,7 @@ Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jog
 
 | Arquivo | Conteúdo |
 |---|---|
-| `ROMS/system/lume/settings.toml` | idioma, tema, volume e brilho |
+| `ROMS/system/lume/settings.toml` | idioma, tema, volume, brilho e as opções de Tela |
 | `ROMS/system/lume/themes/` | seus temas (`<id>/theme.toml`) e logos dos consoles (`<id>/icons/<sistema>.png`); o `LEIA-ME.txt` da pasta explica o formato |
 | `ROMS/system/lume/systems/<id>.toml` | opções do console |
 | `ROMS/system/lume/games/<id>.toml` | opções de cada jogo (só o que difere) |

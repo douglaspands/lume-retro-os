@@ -447,6 +447,38 @@ fn search_bar_on_top_keyboard_below_and_the_list_between() {
 }
 
 #[test]
+fn display_option_hides_the_battery_percent() {
+    let c = card("display", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    assert!(a.settings.battery_percent, "on by default");
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    // the item right after Theme, with its option and value in the panel
+    let rows = a.set_rows();
+    let display = rows.iter().position(|r| *r == SetRow::Display).unwrap();
+    assert_eq!(rows[display - 1], SetRow::Theme);
+    a.settings_focus = display;
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Display") && cv.has_text("Battery percentage") && cv.has_text("On"));
+    // ◀▶ turns it off: no percent, the icon alone ends where the percent ended
+    let pct = cv.texts.iter().find(|(t, _)| t == "82%").map(|(_, r)| *r).unwrap();
+    press(&mut a, Action::Right);
+    assert!(!a.settings.battery_percent);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("82%") && cv.has_text("Off"));
+    let fg = a.theme.color("fg");
+    let icon_right = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 45 && r.x > 500).map(|(r, _)| r.right()).max().unwrap();
+    assert!((icon_right - pct.right()).abs() <= 1, "icon ends at {icon_right}, the percent ended at {}", pct.right());
+    // saved: a new start keeps it off; ◀▶ again turns it back on
+    let b = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    assert!(!b.settings.battery_percent);
+    press(&mut a, Action::Left);
+    assert!(a.settings.battery_percent);
+}
+
+#[test]
 fn network_icons_next_to_the_battery_on_every_screen() {
     let c = card("netbar", 3, false);
     let mut a = app(&c, FakeSystem { batt: Some((82, false)), net: (true, true), ..Default::default() });

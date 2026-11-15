@@ -98,6 +98,8 @@ pub enum SetRow {
     Bluetooth,
     Language,
     Theme,
+    /// display options: the battery's percent
+    Display,
     Volume,
     Brightness,
     System,
@@ -974,7 +976,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Update, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Update, SetRow::RetroArch, SetRow::Power]);
         v
     }
 
@@ -1059,6 +1061,10 @@ impl<S: SystemAdapter> App<S> {
                         self.apply_theme();
                         self.save_settings();
                     }
+                }
+                SetRow::Display => {
+                    self.settings.battery_percent = !self.settings.battery_percent;
+                    self.save_settings();
                 }
                 SetRow::Volume | SetRow::Brightness => {
                     let key = if row == SetRow::Volume { "volume" } else { "brightness" };
@@ -1232,11 +1238,16 @@ impl<S: SystemAdapter> App<S> {
         let Some((level, _charging)) = self.battery else { return right };
         let th = &self.theme;
         let fg = th.color("fg");
-        let label = format!("{level}%");
-        let tw = c.text_width_medium(&label, px);
-        c.text_medium(&label, right - tw, y, px, fg, Align::Left, tw + 1);
         let s = px * 0.95 / 14.0; // icon units to pixels
-        let x0 = (right - tw) as f32 - px * 0.35 - 30.0 * s;
+        // the percent (Settings > Display), else the icon alone ends at `right`
+        let x0 = if self.settings.battery_percent {
+            let label = format!("{level}%");
+            let tw = c.text_width_medium(&label, px);
+            c.text_medium(&label, right - tw, y, px, fg, Align::Left, tw + 1);
+            (right - tw) as f32 - px * 0.35 - 30.0 * s
+        } else {
+            right as f32 - 29.0 * s
+        };
         let y0 = y as f32 + (px * 1.1 - 14.0 * s) / 2.0;
         // a rect from icon units (left, top, right, bottom), its edges rounded
         let rect = |l: f32, t: f32, r: f32, b: f32| {
@@ -1902,6 +1913,7 @@ impl<S: SystemAdapter> App<S> {
                 let name = self.themes.name(&self.settings.theme, &self.settings.language);
                 (self.tr("theme"), format!("‹{name} ›"))
             }
+            SetRow::Display => (self.tr("display"), self.tr(if self.settings.battery_percent { "on" } else { "off" })),
             SetRow::Volume => (self.tr("volume"), pct("volume")),
             SetRow::Brightness => (self.tr("brightness"), pct("brightness")),
             SetRow::System => (self.tr("system"), String::new()),
@@ -2020,6 +2032,13 @@ impl<S: SystemAdapter> App<S> {
                 y += ef(0.5625);
                 note = Some(("hint_adjust", true));
             }
+            SetRow::Display => {
+                // one option for now: a line with its value, as the label/value lines
+                let value = self.tr(if self.settings.battery_percent { "on" } else { "off" });
+                line(self, c, y, &self.tr("battery_percent"), Some(&value), false, false);
+                y += line_h;
+                note = Some(("hint_adjust", true));
+            }
             SetRow::Wifi | SetRow::Bluetooth => {
                 let (_, value) = self.set_row_texts(row);
                 line(self, c, y, &self.tr("status"), Some(&value), false, true);
@@ -2062,7 +2081,7 @@ impl<S: SystemAdapter> App<S> {
         }
         let mut hints = vec![(NAV_UD, self.tr("hint_navigate"))];
         match row {
-            SetRow::Language | SetRow::Theme | SetRow::Volume | SetRow::Brightness => hints.push((NAV_LR, self.tr("hint_adjust"))),
+            SetRow::Language | SetRow::Theme | SetRow::Display | SetRow::Volume | SetRow::Brightness => hints.push((NAV_LR, self.tr("hint_adjust"))),
             SetRow::Update | SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_open"))),
             _ => {}
         }

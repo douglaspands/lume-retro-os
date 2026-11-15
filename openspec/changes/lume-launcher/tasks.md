@@ -522,7 +522,10 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   nível em 25,6 px negrito sobre barra de 9 px (volume, brilho) e a nota de 14,4 px ("◀ ▶
   para ajustar", "A para abrir", setas e ✓ desenhados); rodapé "▲▼ Navegar", "◀▶ para
   ajustar" ou "A Abrir", "B Voltar". Teste `settings_match_the_prototype_ruler`. A frase
-  descritiva de cada item saiu (o protótipo mostra só a nota). A lista dá a volta (↓ no
+  descritiva de cada item saiu (o protótipo mostra só a nota). Item Tela (pedido do
+  usuário, 2026-11-15), depois de Tema: por enquanto "Percentual da bateria", Ligado
+  (fábrica) ou Desligado com ◀▶, salvo em `settings.toml` (`battery_percent`); desligado,
+  o ícone sozinho termina onde terminava o número. A lista dá a volta (↓ no
   último vai ao primeiro). "Atualizar listas de jogos"
   virou "Atualizar listas" (não cabia na lista em espanhol). Modo lite removido de tudo
   (configuração, `[features]` dos temas, spec), a pedido do usuário. Falta a temperatura da
