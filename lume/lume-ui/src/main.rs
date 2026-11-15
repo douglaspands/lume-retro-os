@@ -202,7 +202,16 @@ fn main() -> ExitCode {
     if let Err(e) = app.current_state().save(&app.runtime) {
         log(&format!("state not saved: {e}"));
     }
-    ExitCode::from(code as u8)
+    // Leave without destructors and without atexit handlers. On the R36S (panfrost) Mesa's
+    // EGL exit handler runs after SDL has torn the KMSDRM video down and crashes inside
+    // libEGL (SIGSEGV, core of 2026-11-15), so every exit (power off, open a game, the
+    // RetroArch menu) looked like a failure to lume-run (P-71). The kernel releases the
+    // display and the input devices when the process ends; the state is already saved.
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // SAFETY: _exit ends the process at once; nothing runs after it
+    unsafe { libc::_exit(code as i32) }
 }
 
 #[cfg(feature = "sdl")]
