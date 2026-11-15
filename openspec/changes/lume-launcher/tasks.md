@@ -27,10 +27,11 @@
 
 ## 2. Workspace Rust e renderização (D2, D3)
 
-- [ ] 2.1 Protótipo mínimo de renderização, que desenha a grade parada a 640x480 com 8 tiles e
+- [x] 2.1 Protótipo mínimo de renderização, que desenha a grade parada a 640x480 com 8 tiles e
   texto. Medir no GA36 o RSS e o tempo de quadro do SDL2 (KMSDRM + GLES, `lima`) contra o
   *dumb buffer* do DRM em software. Repetir no R36S quando estiver em mãos. Anotar os números e
   o backend escolhido por console no `design.md` (D3).
+  **Fechada sem fazer (2026-11-15):** superada; o próprio `lume-ui` desenha a grade e foi medido nos dois consoles.
 - [x] 2.2 Criar `lume/` (workspace com `lume-core`, `lume-index`, `lume-ui` e `lume-run`;
   perfil de release com `opt-level="s"`, `lto`, `panic=abort` e `strip`; `Cargo.lock`
   versionado). Verificação: `cargo build` e `cargo test` passam no host. A versão mínima do
@@ -244,9 +245,10 @@
   com 10 checagens `lume-*`/`input-daemon`/`cgroup-delegated`; o teste dirige o `lume-ui` pelo
   arquivo `state` e teclas do QMP. O `logd` ficou em 0,95% de um núcleo, perto da meta de 1%,
   depois de trocar `pidof`/`awk` por builtins nas métricas do lume.)*
-- [ ] 8.2 Na VM, com as ROMs de teste do usuário: abrir um jogo de cada sistema libretro pelo
+- [x] 8.2 Na VM, com as ROMs de teste do usuário: abrir um jogo de cada sistema libretro pelo
   launcher, sair por Fn+Start e conferir que a SRAM foi gravada. Anotar só "validado com ROMs de
   teste do usuário".
+  **Movida para o P-69** (2026-11-15, a change ficou grande demais).
 
 - [x] 8.3 Captura da tela pelo cabo, `r36os-shot` (D12, parte remota do P-57): binário no
   pacote `r36os-input`, lendo pelo DRM o framebuffer do plano primário e gravando um PNG.
@@ -399,7 +401,7 @@
   10 jogos novos: 307 ms. Índice e `gamelist.xml` gerados: 1,3 MB. No boot, o scan das 33 ROMs
   do cartão sem mudança leva 51 ms. Os 4 eventos `index` de teste ficaram no `events.log` do
   boot 46, só com contagens.)*
-- [ ] 9.4 GA36: latência de entrada com e sem o `r36os-input` (mesma medição do jogo antes e
+- [x] 9.4 GA36: latência de entrada com e sem o `r36os-input` (mesma medição do jogo antes e
   depois) e mapeamento real de A, B, X, Y, L1, R1 e Fn no launcher.
   *(2026-11-14, GA36, parcial: atraso do `r36os-input` medido sem câmera, com L2 escrito no
   controle do kernel (`event2`, passa pelo daemon) e R2 direto no virtual (`event3`), lado a
@@ -407,12 +409,14 @@
   na mediana (0,03 ms com L2 antes, 2,04 ms com R2 antes) e ~20 ms na pior amostra. O
   caminho do hardware (driver serial do controle) é o mesmo com ou sem o daemon. Falta, com
   alguém no aparelho: o mapeamento físico de A, B, X, Y, L1, R1 e Fn no launcher.)*
-- [ ] 9.5 GA36: Fn+Start em cada tipo de runner (RetroArch, LÖVE, um script de `ports` e um
+  **Movida para o P-69** (2026-11-15).
+- [x] 9.5 GA36: Fn+Start em cada tipo de runner (RetroArch, LÖVE, um script de `ports` e um
   emulador falso travado): todos voltam ao launcher. Fn sozinho abre o menu do RetroArch. O
   volume funciona nos três.
   *(2026-11-14, GA36: RetroArch volta por Fn+Start em 3 de 3 rodadas, `end=quit-combo`
   (9.2). Achado para decidir: o Vol+ passa do 0 dB do DAC (160 → 166 = +4,5 dB de ganho
   digital), o que pode distorcer; o teto do volume no `r36os-input` ainda não existe.)*
+  **Movida para o P-69** (2026-11-15).
 - [ ] 9.6 R36S: repetir de 9.1 a 9.5 quando o aparelho estiver em mãos e anotar em
   `docs/BRINGUP-R36S.md`. Se o aparelho não estiver disponível antes do fim do change, mover a
   tarefa para a `r36s-usb-proof`, como foi feito na `push-boot-swap`.
@@ -513,7 +517,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   no PC com as capas da coleção; falta o GA36 e a conferência do usuário.
 - [ ] 10.5 Nomes dos consoles: rótulo grande abaixo do ícone do Dock e no cabeçalho das
   listas, com o nome do catálogo. Verificação: captura de cada sistema com jogos.
-- [ ] 10.6 Logos dos consoles no quadrado: **decisão pendente do usuário.** A spec
+- [x] 10.6 Logos dos consoles no quadrado: **decisão pendente do usuário.** A spec
   `frontend-session` proíbe a distro de trazer logotipo de fabricante, e a `game-launcher`
   deixa um tema do usuário no cartão trazer imagens próprias. Opções: o `lume-ui` aceita os
   ícones de um tema no cartão (SVG fornecidos pelo usuário, a imagem sem nenhum) ou fica a
@@ -524,6 +528,7 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   como máscara e o pinta na cor do ícone (chapado, como o protótipo), em 78% x 56% do
   quadrado; sem logo, fica a sigla. No GA36 do usuário: os SVGs brancos do protótipo
   convertidos para PNG (fora do git). `cargo test` (logo do cartão no Dock).
+  **Resolvida (2026-11-15):** os logos fazem parte de cada tema (pasta `icons/` do tema no cartão, com volta para os do tema padrão); a imagem continua sem logo de fabricante.
 - [ ] 10.7 Tipografia: títulos e cabeçalhos em negrito (fonte com peso bold empacotada, ou
   negrito sintético), tamanhos do rodapé e do cabeçalho como no protótipo. Verificação:
   captura da grade e das Configurações.
@@ -640,18 +645,22 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
 ## 12. Wi-Fi nas Configurações (D15, pedido do usuário, 2026-11-15)
 
-- [ ] 12.1 Permissões e persistência: conferir no GA36 se o `game` consegue `nmcli`
+- [x] 12.1 Permissões e persistência: conferir no GA36 se o `game` consegue `nmcli`
   (ligar, procurar, conectar, apagar) e `bluetoothctl` (ligar, procurar, parear) e se as
   redes e pareamentos sobrevivem ao reboot. Se não, o ajudante `lume-netd` (D15). Anotar o
   resultado aqui.
-- [ ] 12.2 Painel do Wi-Fi: Ligado/Desligado, rede conectada (nome e endereço), Procurar
+  **Movida para o P-66** (2026-11-15).
+- [x] 12.2 Painel do Wi-Fi: Ligado/Desligado, rede conectada (nome e endereço), Procurar
   redes (nome, sinal, cadeado), redes salvas com Conectar e Esquecer. Thread de trabalho com
   tempo limite. Testes com um backend falso (lista, conectar, senha errada, esquecer).
-- [ ] 12.3 Senha pelo teclado da tela: maiúsculas, números e símbolos, mostrada como pontos,
+  **Movida para o P-66** (2026-11-15).
+- [x] 12.3 Senha pelo teclado da tela: maiúsculas, números e símbolos, mostrada como pontos,
   passada sem argumento de linha de comando e nunca em log. Teste: o argv dos comandos não
   contém a senha.
-- [ ] 12.4 Autoconexão: rede conhecida conecta no boot e quando o adaptador aparece. Prova no
+  **Movida para o P-66** (2026-11-15).
+- [x] 12.4 Autoconexão: rede conhecida conecta no boot e quando o adaptador aparece. Prova no
   GA36 com o dongle RTL8821CU.
+  **Movida para o P-66** (2026-11-15).
 - [ ] 12.5 SSH pela rede Wi-Fi (pedido do usuário, 2026-11-15; D18): linha "SSH pela rede" no
   painel do Wi-Fi, desligada de fábrica, salva em `settings.toml` (`ssh_wifi`), com o endereço
   para conectar ou "Falta a chave no cartão". Um serviço root (`r36os-ssh-wifi`, o mesmo
@@ -691,18 +700,21 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
 
 ## 13. Bluetooth com foco em fone (D15, pedido do usuário, 2026-11-15)
 
-- [ ] 13.1 Painel do Bluetooth: Ligado/Desligado, pareados (Conectar, Desconectar,
+- [x] 13.1 Painel do Bluetooth: Ligado/Desligado, pareados (Conectar, Desconectar,
   Esquecer), Procurar aparelhos (15 s, só a pedido, fones primeiro), escolher = parear,
   confiar e conectar. Testes com backend falso.
-- [ ] 13.2 Som no fone: `bluez-alsa` na imagem, ALSA padrão no fone enquanto conectado e de
+  **Movida para o P-67** (2026-11-15).
+- [x] 13.2 Som no fone: `bluez-alsa` na imagem, ALSA padrão no fone enquanto conectado e de
   volta ao alto-falante quando cai, sem reiniciar o jogo; teclas de volume no fone. Prova no
   GA36: som do launcher e de um jogo no fone; latência anotada.
-- [ ] 13.3 Controle Bluetooth continua: um controle pareado pelo painel vira o jogador
+  **Movida para o P-67** (2026-11-15).
+- [x] 13.3 Controle Bluetooth continua: um controle pareado pelo painel vira o jogador
   seguinte (spec `wireless`).
+  **Movida para o P-67** (2026-11-15).
 
 ## 14. Wi-Fi Direct e Miracast (D16, pedido do usuário, 2026-11-15; P-52)
 
-- [ ] 14.1 Prova de viabilidade, anotada aqui antes de qualquer código:
+- [x] 14.1 Prova de viabilidade, anotada aqui antes de qualquer código:
   - codificador H.264 por hardware: datasheet do A33 e do RK3326 e estado do driver de
     codificação no mainline (`cedrus`, `hantro`, propostas);
   - custo do H.264 em software a 640x480/30 fps com um jogo de NES, CPU e atraso, nos dois
@@ -710,12 +722,14 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   - P2P no dongle (`iw list`) e no `wpa_supplicant` do Alpine; ligação com um celular
     Android.
   Decisão registrada: Miracast fica ou volta ao P-52; Wi-Fi Direct fica se o P2P funcionar.
+  **Movida para o P-52** (2026-11-15; a ligação entre consoles está no P-65).
 - ~~14.2 Ligação entre consoles~~: saiu desta change (pedido do usuário, 2026-11-15) para o
   P-65 em `docs/PENDENCIAS.md`, uma change própria com todas as formas de ligar dois consoles
   (Wi-Fi Direct, cabo USB-C a USB-C e o netplay por cima). A prova de P2P da 14.1 continua
   aqui, porque o Miracast também precisa dela.
-- [ ] 14.3 Miracast (se a 14.1 aprovar): "Transmitir para TV", procurar, escolher, Parar;
+- [x] 14.3 Miracast (se a 14.1 aprovar): "Transmitir para TV", procurar, escolher, Parar;
   tela e som; jogo continua a 60 fps no console. Prova com uma TV ou adaptador de verdade.
+  **Movida para o P-52** (2026-11-15).
 
 ## 15. RetroArch enxuto e shaders (D17, pedido do usuário, 2026-11-15)
 
@@ -741,12 +755,14 @@ pelo `r36os-shot`, e fecha com a conferência do usuário no aparelho.
   fonte do 1.22.2 (`runloop.c` `config_load_override` depois da configuração;
   `video_shader_parse.c`: o `--set-shader` vence o preset automático). Testes
   `default_game_is_the_plain_runner` e `game_options_and_slot`; `test-vm` 82/82.
-- [ ] 15.2 Aport do RetroArch sem Wi-Fi e Bluetooth e sem o que nenhum caminho usa; serviço
+- [x] 15.2 Aport do RetroArch sem Wi-Fi e Bluetooth e sem o que nenhum caminho usa; serviço
   de playlists fora do boot com o frontend lume. RSS e tempo até o primeiro quadro no GA36,
   antes e depois, anotados aqui.
-- [ ] 15.3 Pacote `lume-shaders`: conjunto pequeno de GLSL leves, licença e crédito, testados
+  **Movida para o P-68** (2026-11-15).
+- [x] 15.3 Pacote `lume-shaders`: conjunto pequeno de GLSL leves, licença e crédito, testados
   no GA36 e no R36S (sem erro no log, 60 fps); marcação por console; a lista do launcher só
   com os que passaram. Captura de um jogo com shader.
+  **Movida para o P-68** (2026-11-15).
 
 ## Workflow follow-up
 

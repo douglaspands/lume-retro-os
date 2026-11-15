@@ -31,19 +31,16 @@ reconciliação com o Lume, que é Alpine, sem EmulationStation e com o contrato
 - **Configurações com foco no painel** (incluído em 2026-11-15, pedido do usuário): A ou ▶ na
   lista entra no painel do item; no painel, ▲▼ escolhe a linha, ◀▶ muda o valor, A executa a
   ação e B volta à lista.
-- **Wi-Fi e Bluetooth pelo launcher** (incluído em 2026-11-15, pedido do usuário; os serviços
-  NetworkManager e bluez já estão na imagem, change `usb-device-access`):
-  - Wi-Fi: ligar e desligar, procurar redes, escolher uma, digitar a senha no teclado da tela,
-    esquecer uma rede salva e conectar sozinho a uma rede conhecida;
-  - Bluetooth com foco em fone: ligar e desligar, procurar aparelhos só quando pedido, parear,
-    conectar, esquecer; o som do launcher e dos jogos vai para o fone conectado;
-  - SSH pela rede Wi-Fi, só com chave e desligado de fábrica (D18);
-  - Miracast (o console como fonte, a tela e o som numa TV), começando por uma prova de
-    viabilidade: sem codificador H.264 por hardware no kernel dos dois consoles, o custo na CPU
-    decide; se reprovar, volta ao P-52 com as medidas.
-- **RetroArch só como executor** (incluído em 2026-11-15, pedido do usuário): configuração e
-  build mínimos, para o RetroArch fazer só o que o launcher pede, e shaders na imagem que
-  funcionam nas GPUs dos dois consoles (hoje a lista de shaders do launcher fica vazia).
+- **SSH pela rede Wi-Fi** (incluído em 2026-11-15, pedido do usuário): ligado nas
+  Configurações (desligado de fábrica), com o código mostrado na tela como senha, fixo até o
+  usuário pedir outro (D18).
+- **RetroArch só como executor** (incluído em 2026-11-15, pedido do usuário): as escolhas do
+  launcher (aspecto, shader) vencem o que foi salvo no RetroArch, sem histórico nem registro de
+  tempo e lendo só os cores instalados; a linha de volume e de brilho também por cima do jogo
+  (patch 0011).
+- **Saíram por tamanho** (2026-11-15, decisão do usuário): o Wi-Fi completo (P-66), o
+  Bluetooth com fone (P-67), o Miracast (de volta ao P-52), o RetroArch sem Wi-Fi/Bluetooth no
+  build e os shaders (P-68), as medições dos runners (P-69).
 - **O launcher sai durante o jogo**: um supervisor pequeno (`lume-run`) roda o jogo e, quando
   ele termina, reabre a interface no mesmo console e no mesmo jogo. Durante o jogo só ficam na
   memória o `lume-run` e o daemon de entrada.
