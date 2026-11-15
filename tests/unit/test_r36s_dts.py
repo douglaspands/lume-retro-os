@@ -272,6 +272,16 @@ def test_otg_phy_port_stays_powered_without_vbus_sensing():
     assert any("keep-an-OTG-port-without-VBUS-sensing-powered" in p for p in patches)
 
 
+def test_speaker_path_powers_the_headphone_output_stage():
+    # P-45: on the R36S the speaker amplifier is fed from the RK817 headphone output stage
+    # (SPK_HP path of the vendor driver; factory dump AHP_CP 0x11, AHP_CFG0 0x80). Without
+    # it the speaker played low and distorted (2026-11-15)
+    patch = next((REPO_ROOT / "kernel/patches").glob("0024-ASoC-rk817-*.patch")).read_text()
+    for supply in ("Headphone Charge Pump", "Headphone CP Discharge LDO",
+                   "Headphone OStage", "Headphone Pre Amp"):
+        assert f'+\t{{"SPK DAC", NULL, "{supply}"}},' in patch, supply
+
+
 def test_otg_host_role_powers_the_port():
     # usb-device-access D7: 5 V from the RK817 OTG_SWITCH in the host role
     assert "vbus-supply = <&otg_switch>;" in _node("&usb20_otg")

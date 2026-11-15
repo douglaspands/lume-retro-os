@@ -24,6 +24,19 @@ replace the over-current supplies with the restart bit, invert the mute
 rate supplies and clear bits 7 and 5 of DDAC_MUTE_MIXCTL at init, so the
 speaker path ends with the vendor values.
 
+With that the speaker played, but much lower and worse than on the factory
+system. A register dump of the factory system while a tone plays (ArkOS,
+4.4.189, read over I2C) shows the headphone output stage powered as well:
+
+  AHP_CP    0x09 -> 0x11  (charge pump on, 2.3 V)
+  AHP_CFG0  0xe0 -> 0x80  (two stage opamp on, 0 dB)
+
+That is the SPK_HP path of the vendor driver, used by the Odroid Go
+family the R36S copies: the speaker amplifier is fed from the headphone
+output stage. Writing those two values by hand while the tone played made
+the speaker clearly louder and cleaner, so the speaker path also needs the
+headphone charge pump and output stage supplies.
+
 diff --git a/sound/soc/codecs/rk817_codec.c b/sound/soc/codecs/rk817_codec.c
 index 229feef..492b11e 100644
 --- a/sound/soc/codecs/rk817_codec.c
@@ -84,7 +97,7 @@ index 229feef..492b11e 100644
  
  	/* Mux for input/output path selection */
  	SND_SOC_DAPM_MUX("Playback Mux", SND_SOC_NOPM, 1, 0, &dac_mux),
-@@ -232,15 +242,13 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+@@ -232,15 +242,18 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
  	{"SPK DAC", NULL, "Class D Mode"},
  	{"SPK DAC", NULL, "DAC Bias"},
  	{"SPK DAC", NULL, "DAC Mute Off"},
@@ -100,10 +113,15 @@ index 229feef..492b11e 100644
 -	{"SPK DAC", NULL, "Class D OCPN 3"},
 -	{"SPK DAC", NULL, "High Pass Filter"},
 +	{"SPK DAC", NULL, "Class D Restart"},
- 
++	/* the speaker is fed from the headphone output stage (SPK_HP path of the vendor driver) */
++	{"SPK DAC", NULL, "Headphone Charge Pump"},
++	{"SPK DAC", NULL, "Headphone CP Discharge LDO"},
++	{"SPK DAC", NULL, "Headphone OStage"},
++	{"SPK DAC", NULL, "Headphone Pre Amp"},
+
  	/* headphone path L */
  	{"DAC L", NULL, "LDO Regulator"},
-@@ -254,6 +262,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+@@ -254,6 +267,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
  	{"DAC L", NULL, "I2S RX Channel Enable"},
  	{"DAC L", NULL, "DAC Bias"},
  	{"DAC L", NULL, "DAC Mute Off"},
@@ -111,7 +129,7 @@ index 229feef..492b11e 100644
  	{"DAC L", NULL, "Headphone Charge Pump"},
  	{"DAC L", NULL, "Headphone CP Discharge LDO"},
  	{"DAC L", NULL, "Headphone OStage"},
-@@ -271,6 +280,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
+@@ -271,6 +285,7 @@ static const struct snd_soc_dapm_route rk817_dapm_routes[] = {
  	{"DAC R", NULL, "I2S RX Channel Enable"},
  	{"DAC R", NULL, "DAC Bias"},
  	{"DAC R", NULL, "DAC Mute Off"},
