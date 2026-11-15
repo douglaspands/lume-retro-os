@@ -20,8 +20,14 @@ does not power the port off for lack of VBUS, neither on its first run
 nor when a host cable is removed. The ID pin handling (extcon USB-HOST)
 is unchanged, so the role can still follow the ID pin.
 
+The B-session valid signal is ignored too. On the R36S V5 it does rise
+with a charger on the separate DC connector, and the state machine then
+ran charger detection on the data lines of the OTG port (where a PC is)
+and dropped the gadget: plugging the charger disconnected the console
+from the PC for good. The RK817 detects the charger on its own.
+
 diff --git a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
-index 8f4c08e..414327a 100644
+index 8f4c08e..a4ca3ad 100644
 --- a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
 +++ b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
 @@ -209,6 +209,7 @@ struct rockchip_usb2phy_port {
@@ -32,7 +38,23 @@ index 8f4c08e..414327a 100644
  	bool            host_disconnect;
  	int		bvalid_irq;
  	int		id_irq;
-@@ -678,7 +679,7 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
+@@ -666,7 +667,14 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
+ 	unsigned long delay;
+ 	bool vbus_attach, sch_work, notify_charger;
+
+-	vbus_attach = property_enabled(rphy->grf,
++	/*
++	 * A port without VBUS sensing of its own may still see a B-session from
++	 * another connector (the DC charger input of the R36S V5); charger
++	 * detection would then run on the data lines of this port and power it
++	 * off. Ignore the signal: the controller decides the role.
++	 */
++	vbus_attach = !rport->vbus_always_on &&
++		      property_enabled(rphy->grf,
+ 				       &rport->port_cfg->utmi_bvalid);
+
+ 	sch_work = false;
+@@ -678,7 +686,7 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
  	switch (rport->state) {
  	case OTG_STATE_UNDEFINED:
  		rport->state = OTG_STATE_B_IDLE;
@@ -41,7 +63,7 @@ index 8f4c08e..414327a 100644
  			rockchip_usb2phy_power_off(rport->phy);
  		fallthrough;
  	case OTG_STATE_B_IDLE:
-@@ -759,7 +760,8 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
+@@ -759,7 +767,8 @@ static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)
  		if (extcon_get_state(rphy->edev, EXTCON_USB_HOST) == 0) {
  			dev_dbg(&rport->phy->dev, "usb otg host disconnect\n");
  			rport->state = OTG_STATE_B_IDLE;
@@ -51,7 +73,7 @@ index 8f4c08e..414327a 100644
  		}
  		break;
  	default:
-@@ -1298,6 +1300,10 @@ static int rockchip_usb2phy_otg_port_init(struct rockchip_usb2phy *rphy,
+@@ -1298,6 +1307,10 @@ static int rockchip_usb2phy_otg_port_init(struct rockchip_usb2phy *rphy,
  	 */
  	rport->suspended = true;
  	rport->vbus_attached = false;

@@ -20,9 +20,9 @@ index 58e735b..9e9e43c 100644
 +      rockchip,vbus-always-on:
 +        type: boolean
 +        description:
-+          The board does not route VBUS to the PHY, so the B-session valid
-+          signal never rises. The port is then never powered off for lack
-+          of VBUS; the controller decides the role (for example from the ID
++          The board does not route VBUS of this connector to the PHY. The
++          B-session valid signal is ignored and the port is never powered
++          off for lack of VBUS; the controller decides the role (from the ID
 +          pin or a USB role switch that overrides the session signals).
 +
      required:
