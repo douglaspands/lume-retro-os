@@ -3,6 +3,7 @@
 pub mod app;
 pub mod canvas;
 pub mod font;
+pub mod glyphs;
 pub mod i18n;
 pub mod input;
 pub mod launch;

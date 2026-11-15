@@ -43,6 +43,9 @@ fn main() -> ExitCode {
         log("no font in /usr/share/lume/fonts");
         return ExitCode::FAILURE;
     };
+    // linear scaling: the Dock's logos and symbols are masks drawn smaller than decoded, and
+    // nearest-neighbour scaling gave them jagged edges (set before any texture exists)
+    sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "1");
     // LUME_SCREENSHOT=out.png [LUME_KEYS=Right,A,...] [LUME_SIZE=640x480]: draws one frame in
     // software after those buttons and saves it (documentation and visual checks; no screen)
     if let Some(out) = std::env::var_os("LUME_SCREENSHOT") {
@@ -84,7 +87,7 @@ fn main() -> ExitCode {
     log(&format!("video {}, renderer {}, {w}x{h}", video.current_video_driver(), canvas.info().name));
     sdl.mouse().show_cursor(false);
     let creator = canvas.texture_creator();
-    let mut c = SdlCanvas::new(canvas, creator, font);
+    let mut c = SdlCanvas::new(canvas, creator, font).with_faces(lume_ui::font::Font::bundled_medium(), lume_ui::font::Font::bundled_bold());
     let mut pump = sdl.event_pump().expect("SDL event pump");
     // The threads wake the loop through this channel, not SDL's queue: SDL_WaitEvent has no
     // real wait on KMSDRM and polls every millisecond (42% of a core on the GA36, 2026-11-14).
@@ -105,6 +108,22 @@ fn main() -> ExitCode {
             let _ = t.send(Ev::Volume(v));
         }));
     }
+    // battery of the status bar: two sysfs reads every 30 s, an event only when it changes
+    // (the loop stays asleep otherwise)
+    let t = tx.clone();
+    std::thread::spawn(move || {
+        let mut last = lume_ui::system::read_battery(std::path::Path::new("/sys"));
+        loop {
+            std::thread::sleep(Duration::from_secs(30));
+            let now = lume_ui::system::read_battery(std::path::Path::new("/sys"));
+            if now != last {
+                if let Some((level, charging)) = now {
+                    let _ = t.send(Ev::Battery(level, charging));
+                }
+                last = now;
+            }
+        }
+    });
     // index watcher: lume-index bumps cache/index/GEN after a scan
     let t = tx.clone();
     let index_dir = card.join("cache/index");
@@ -172,7 +191,7 @@ fn screenshot(app: &mut lume_ui::app::App<lume_ui::system::RealSystem>, font: lu
     let surface = sdl2::surface::Surface::new(w, h, sdl2::pixels::PixelFormatEnum::RGB888).expect("surface");
     let canvas = surface.into_canvas().expect("software canvas");
     let creator = canvas.texture_creator();
-    let mut c = lume_ui::sdl::SdlCanvas::new(canvas, creator, font);
+    let mut c = lume_ui::sdl::SdlCanvas::new(canvas, creator, font).with_faces(lume_ui::font::Font::bundled_medium(), lume_ui::font::Font::bundled_bold());
     for k in std::env::var("LUME_KEYS").unwrap_or_default().split(',').filter(|k| !k.is_empty()) {
         let a = match k {
             "Up" => Action::Up,

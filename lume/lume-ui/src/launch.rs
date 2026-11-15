@@ -62,6 +62,19 @@ impl Dirs {
     }
 }
 
+/// The picture RetroArch saves next to a state (savestate_thumbnail_enable): the state
+/// file plus ".png" (`<game>.state3.png`, `<game>.state.png` for slot 0,
+/// `<game>.state.auto.png`).
+pub fn state_picture(prefix: &Path, slot: &str) -> PathBuf {
+    let base = prefix.file_name().map(|b| b.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = match slot {
+        "auto" => format!("{base}.state.auto.png"),
+        "0" => format!("{base}.state.png"),
+        n => format!("{base}.state{n}.png"),
+    };
+    prefix.with_file_name(name)
+}
+
 /// The request for a game with its effective options; `slot` for "Start from save state".
 pub fn game(dirs: &Dirs, catalog: &Catalog, runner: &Runner, system: &str, path: &str, eff: &Effective, slot: Option<Slot>) -> Request {
     let rom = dirs.rom(system, path);
@@ -173,6 +186,14 @@ mod tests {
             shader: shader.map(Into::into),
             has_game_options: false,
         }
+    }
+
+    #[test]
+    fn state_pictures_follow_retroarch_names() {
+        let p = std::path::Path::new("/storage/states/snes/Alpha (USA)");
+        assert_eq!(state_picture(p, "3"), PathBuf::from("/storage/states/snes/Alpha (USA).state3.png"));
+        assert_eq!(state_picture(p, "0"), PathBuf::from("/storage/states/snes/Alpha (USA).state.png"));
+        assert_eq!(state_picture(p, "auto"), PathBuf::from("/storage/states/snes/Alpha (USA).state.auto.png"));
     }
 
     #[test]

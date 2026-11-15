@@ -1,16 +1,16 @@
 //! Declarative themes (lume-launcher D11, docs/lume-launcher/formato-de-tema.md): a TOML file
-//! with tokens (colors, shapes, sizes), an optional parent (`extends`) and feature flags. The
-//! engine never knows a theme by name. Sizes are in `em`, 1/40 of the screen width (16 px at
-//! 640x480), so layouts follow the resolution.
+//! with a display name, tokens (colors, shapes, sizes) and an optional parent (`extends`).
+//! The engine knows no theme and no token value: the image brings
+//! themes/base.toml, with the default theme and the base value of every token (which also
+//! says which tokens exist and their types). A new theme is only a folder with a file.
 //!
 //! ```toml
 //! [theme]
 //! id = "material-light"
+//! name = { en = "Light", pt = "Claro", es = "Claro" }
 //! extends = "material-dark"     # only what changes
 //! [tokens]
 //! bg = "#FEF7FF"
-//! [features]
-//! lite = false                  # true forces the lite mode
 //! ```
 //!
 //! Themes live in /usr/share/lume/themes/<id>/theme.toml and on the card in
@@ -23,52 +23,14 @@ use std::path::{Path, PathBuf};
 
 use crate::canvas::Color;
 
-pub const DEFAULT_THEME: &str = "material-dark";
-
-const DEFAULTS: &str = r##"
-bg = "#14161a"
-fg = "#f0f0f0"
-muted = "#9aa0aa"
-accent = "#4cc2ff"
-accent_fg = "#001018"
-overlay = "#000000aa"
-radius_icon = 1.4
-radius_tile = 0.5
-radius_panel = 1.4
-radius_item = 1.6
-cols = 4
-rows = 2
-icon = 5.8
-dock_gap = 0.6
-mag_peak = 1.5
-mag_base = 0.8
-mag_spread = 0.8
-dock_top = 0.45
-icon_bg = "#2a2f38"
-icon_fg = "#ffffff"
-icon_sel_bg = "#2a2f38"
-icon_sel_fg = "#ffffff"
-tile_bg = "#ffffff18"
-tile_bg_sel = "#ffffff30"
-tile_bg_opaque = "#22262c"
-panel_bg = "#1b1f25e6"
-panel_bg_opaque = "#1b1f25"
-sel_bg = "#4cc2ff"
-sel_fg = "#001018"
-toast_bg = "#4cc2ff"
-toast_fg = "#001018"
-label_px = 1.25
-title_px = 1.6
-anim_ms = 200
-cache_bytes = 4194304
-"##;
+/// The base of every theme, in the image's themes folder.
+pub const BASE_FILE: &str = "base.toml";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub id: String,
     pub colors: BTreeMap<String, Color>,
     pub nums: BTreeMap<String, f64>,
-    pub lite: bool,
     /// Folder of the theme (for icons/<system>.png)
     pub dir: Option<PathBuf>,
 }
@@ -79,27 +41,25 @@ struct ThemeFile {
     theme: ThemeHead,
     #[serde(default)]
     tokens: toml::Table,
-    #[serde(default)]
-    features: Features,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThemeHead {
     id: String,
+    /// display name per language (en, pt, es); missing: the id
+    #[serde(default)]
+    name: BTreeMap<String, String>,
     #[serde(default)]
     extends: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Copy, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Features {
-    #[serde(default)]
-    lite: bool,
-}
-
-fn defaults() -> toml::Table {
-    toml::from_str(DEFAULTS).expect("default tokens parse")
+struct BaseFile {
+    /// id of the theme used when none is chosen or the chosen one is invalid
+    default: String,
+    tokens: toml::Table,
 }
 
 impl Theme {
@@ -116,25 +76,9 @@ impl Theme {
         (self.num(k) * width as f64 / 40.0).round() as i32
     }
 
-    /// The theme as drawn with the lite mode: no animation and no transparency (each
-    /// translucent color becomes its opaque variant, or itself without alpha).
-    pub fn lite(&self) -> Theme {
-        let mut t = self.clone();
-        t.lite = true;
-        t.nums.insert("anim_ms".into(), 0.0);
-        let keys: Vec<String> = t.colors.keys().cloned().collect();
-        for k in keys {
-            let opaque = self.colors.get(&format!("{k}_opaque")).copied();
-            let c = t.colors[&k];
-            if c.a < 255 {
-                t.colors.insert(k, opaque.unwrap_or(c.opaque()));
-            }
-        }
-        t
-    }
-
-    fn from_table(id: &str, table: &toml::Table, lite: bool, dir: Option<PathBuf>) -> Result<Theme, String> {
-        let base = defaults();
+    /// A theme from its resolved tokens, checked against the base (the known tokens and
+    /// their types).
+    fn from_table(id: &str, base: &toml::Table, table: &toml::Table, dir: Option<PathBuf>) -> Result<Theme, String> {
         let mut colors = BTreeMap::new();
         let mut nums = BTreeMap::new();
         for (k, v) in table {
@@ -159,18 +103,37 @@ impl Theme {
                 return Err(format!("{k}: out of range"));
             }
         }
-        Ok(Theme { id: id.to_string(), colors, nums, lite, dir })
+        Ok(Theme { id: id.to_string(), colors, nums, dir })
     }
 }
 
-/// Where themes are looked up: the card first, then the image.
+/// Where themes are looked up (the card first, then the image) and the image's base.
 pub struct Themes {
     pub dirs: Vec<PathBuf>,
+    /// base value of every token (themes/base.toml of the image)
+    pub base: toml::Table,
+    /// the default theme id (themes/base.toml of the image)
+    pub default: String,
 }
 
 impl Themes {
     pub fn new(card: &Path, share: &Path) -> Themes {
-        Themes { dirs: vec![card.join("themes"), share.join("themes")] }
+        Themes::from_dirs(vec![card.join("themes"), share.join("themes")], &share.join("themes").join(BASE_FILE))
+    }
+
+    /// Themes in `dirs`, with the base file `base`. Without a valid base (a broken image)
+    /// the error is logged: no token is known and every color shows as magenta.
+    pub fn from_dirs(dirs: Vec<PathBuf>, base: &Path) -> Themes {
+        let parsed = std::fs::read_to_string(base)
+            .map_err(|e| e.to_string())
+            .and_then(|t| toml::from_str::<BaseFile>(&t).map_err(|e| e.message().to_string()));
+        match parsed {
+            Ok(b) => Themes { dirs, base: b.tokens, default: b.default },
+            Err(e) => {
+                lume_core::log::line("lume-ui", &format!("theme base {} not loaded: {e}", base.display()));
+                Themes { dirs, base: toml::Table::new(), default: String::new() }
+            }
+        }
     }
 
     fn file(&self, id: &str) -> Option<PathBuf> {
@@ -196,7 +159,51 @@ impl Themes {
         ids
     }
 
-    fn resolve(&self, id: &str, depth: u32) -> Result<(toml::Table, bool, PathBuf), String> {
+    /// The chosen theme, or the default one when none is chosen (empty).
+    pub fn chosen<'a>(&'a self, id: &'a str) -> &'a str {
+        if id.is_empty() {
+            &self.default
+        } else {
+            id
+        }
+    }
+
+    /// Where the Dock icons of a theme are looked up, in order: `<dir>/<id>/icons` of the
+    /// theme and then of each parent (`extends`), the card before the image. A card folder
+    /// themes/<id>/icons/ gives icons to that theme even without a theme.toml there (the
+    /// image's own themes bring none: no manufacturer logo in the distro).
+    pub fn icon_dirs(&self, id: &str) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let mut cur = Some(self.chosen(id).to_string());
+        let mut depth = 0;
+        while let Some(id) = cur.take() {
+            if depth > 8 || id.is_empty() || id.contains(['/', '.']) {
+                break;
+            }
+            depth += 1;
+            out.extend(self.dirs.iter().map(|d| d.join(&id).join("icons")));
+            cur = self
+                .file(&id)
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .and_then(|t| toml::from_str::<ThemeFile>(&t).ok())
+                .and_then(|f| f.theme.extends);
+        }
+        out
+    }
+
+    /// Display name of a theme in `lang` (then English, then the id).
+    pub fn name(&self, id: &str, lang: &str) -> String {
+        let id = self.chosen(id);
+        let head = self
+            .file(id)
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| toml::from_str::<ThemeFile>(&t).ok())
+            .map(|f| f.theme.name)
+            .unwrap_or_default();
+        head.get(lang).or_else(|| head.get("en")).cloned().unwrap_or_else(|| id.to_string())
+    }
+
+    fn resolve(&self, id: &str, depth: u32) -> Result<(toml::Table, PathBuf), String> {
         if depth > 8 {
             return Err("circular extends".into());
         }
@@ -206,34 +213,35 @@ impl Themes {
         if file.theme.id != id {
             return Err(format!("{}: id {} does not match the folder", path.display(), file.theme.id));
         }
-        let (mut table, mut lite) = match &file.theme.extends {
-            Some(parent) => {
-                let (t, l, _) = self.resolve(parent, depth + 1)?;
-                (t, l)
-            }
-            None => (defaults(), false),
+        let mut table = match &file.theme.extends {
+            Some(parent) => self.resolve(parent, depth + 1)?.0,
+            None => self.base.clone(),
         };
         for (k, v) in file.tokens {
             table.insert(k, v);
         }
-        lite |= file.features.lite;
-        Ok((table, lite, path.parent().unwrap().to_path_buf()))
+        Ok((table, path.parent().unwrap().to_path_buf()))
     }
 
     pub fn load(&self, id: &str) -> Result<Theme, String> {
-        let (table, lite, dir) = self.resolve(id, 0)?;
-        Theme::from_table(id, &table, lite, Some(dir))
+        let id = self.chosen(id);
+        let (table, dir) = self.resolve(id, 0)?;
+        Theme::from_table(id, &self.base, &table, Some(dir))
     }
 
-    /// The theme `id`, or the default one when it is invalid (logged), or the built-in
-    /// defaults when even that one is missing.
+    /// The theme `id` (empty: the default one), or the default one when it is invalid
+    /// (logged), or the bare base tokens when even that one is missing.
     pub fn load_or_default(&self, id: &str) -> Theme {
         match self.load(id) {
             Ok(t) => t,
             Err(e) => {
-                lume_core::log::line("lume-ui", &format!("theme {id} refused: {e}; using {DEFAULT_THEME}"));
-                self.load(DEFAULT_THEME)
-                    .unwrap_or_else(|_| Theme::from_table("builtin", &defaults(), false, None).expect("defaults are valid"))
+                lume_core::log::line("lume-ui", &format!("theme {id} refused: {e}; using {}", self.default));
+                self.load(&self.default).unwrap_or_else(|_| Theme::from_table("base", &self.base, &self.base, None).unwrap_or(Theme {
+                    id: "base".into(),
+                    colors: BTreeMap::new(),
+                    nums: BTreeMap::new(),
+                    dir: None,
+                }))
             }
         }
     }
@@ -243,23 +251,79 @@ impl Themes {
 mod tests {
     use super::*;
 
+    fn share() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rootfs/overlay/usr/share/lume")
+    }
+
     fn image_themes() -> Themes {
-        let share = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rootfs/overlay/usr/share/lume");
-        Themes { dirs: vec![share.join("themes")] }
+        Themes::from_dirs(vec![share().join("themes")], &share().join("themes").join(BASE_FILE))
     }
 
     #[test]
-    fn material_themes_load_and_inherit() {
+    fn image_themes_load_and_inherit() {
         let t = image_themes();
-        assert_eq!(t.list(), ["material-dark", "material-light"]);
+        assert_eq!(t.default, "lume");
+        assert_eq!(t.list(), ["lume", "material-dark", "material-light"]);
+        // no choice is the default theme
+        let lume = t.load("").unwrap();
+        assert_eq!(lume.id, "lume");
         let dark = t.load("material-dark").unwrap();
         let light = t.load("material-light").unwrap();
+        assert_eq!(lume.color("bg"), Color::rgb(0x0F, 0x17, 0x1E));
+        assert_eq!(lume.color("accent"), Color::rgb(0x4D, 0xB3, 0xFF));
         assert_eq!(dark.color("bg"), Color::rgb(0x14, 0x12, 0x18));
         assert_eq!(light.color("bg"), Color::rgb(0xFE, 0xF7, 0xFF));
         // shapes and positions come from the dark theme
         assert_eq!(light.num("mag_peak"), dark.num("mag_peak"));
+        assert_eq!(lume.num("mag_peak"), dark.num("mag_peak"));
         assert_eq!(light.num("cols"), 4.0);
         assert_eq!(dark.em("icon", 640), 96);
+        // a token no theme sets comes from the base file
+        assert_eq!(dark.num("cache_bytes"), 4194304.0);
+    }
+
+    #[test]
+    fn every_image_theme_has_a_name_in_each_language() {
+        let t = image_themes();
+        for id in t.list() {
+            for lang in crate::i18n::LANGUAGES {
+                assert_ne!(t.name(&id, lang), id, "{id} has no {lang} name");
+            }
+        }
+        assert_eq!(t.name("material-dark", "pt"), "Escuro");
+        assert_eq!(t.name("", "en"), "Lume");
+    }
+
+    #[test]
+    fn a_new_theme_is_only_a_folder() {
+        let dir = std::env::temp_dir().join(format!("lume-themes-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("ocean")).unwrap();
+        std::fs::write(dir.join("ocean/theme.toml"), "[theme]\nid = \"ocean\"\nname = { en = \"Ocean\" }\nextends = \"lume\"\n[tokens]\naccent = \"#00ffaa\"\n").unwrap();
+        let mut t = image_themes();
+        t.dirs.insert(0, dir);
+        assert!(t.list().contains(&"ocean".to_string()));
+        assert_eq!(t.name("ocean", "pt"), "Ocean"); // English when the language is missing
+        let o = t.load("ocean").unwrap();
+        assert_eq!(o.color("accent"), Color::rgb(0, 0xff, 0xaa));
+        assert_eq!(o.color("bg"), Color::rgb(0x0F, 0x17, 0x1E));
+    }
+
+    #[test]
+    fn icons_of_a_theme_and_its_parents_card_first() {
+        let card = std::env::temp_dir().join(format!("lume-icons-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&card);
+        // icons only, no theme.toml: they belong to the image's lume theme
+        std::fs::create_dir_all(card.join("lume/icons")).unwrap();
+        let mut t = image_themes();
+        t.dirs.insert(0, card.clone());
+        let image = share().join("themes");
+        assert_eq!(t.load("lume").unwrap().id, "lume", "an icons-only folder does not hide the theme");
+        assert_eq!(
+            t.icon_dirs(""),
+            [card.join("lume/icons"), image.join("lume/icons"), card.join("material-dark/icons"), image.join("material-dark/icons")]
+        );
+        assert!(t.icon_dirs("../x").is_empty());
     }
 
     #[test]
@@ -279,18 +343,30 @@ mod tests {
         t.dirs.insert(0, dir);
         for id in ["bad-color", "unknown", "loop", "cols", "missing", "../x"] {
             assert!(t.load(id).is_err(), "{id}");
-            assert_eq!(t.load_or_default(id).id, DEFAULT_THEME, "{id}");
+            assert_eq!(t.load_or_default(id).id, t.default, "{id}");
         }
     }
 
     #[test]
-    fn lite_mode_has_no_animation_or_transparency() {
-        let base = Theme::from_table("x", &defaults(), false, None).unwrap();
-        assert!(base.color("tile_bg").a < 255 && base.num("anim_ms") > 0.0);
-        let lite = base.lite();
-        assert_eq!(lite.num("anim_ms"), 0.0);
-        assert!(lite.colors.values().all(|c| c.a == 255));
-        // the declared opaque variant is used
-        assert_eq!(lite.color("tile_bg"), base.color("tile_bg_opaque"));
+    fn missing_base_does_not_stop_the_launcher() {
+        let t = Themes::from_dirs(vec![share().join("themes")], Path::new("/nonexistent/base.toml"));
+        assert!(t.default.is_empty());
+        // every token is unknown without the base: the theme is refused, nothing panics
+        let th = t.load_or_default("material-dark");
+        assert_eq!(th.color("bg"), Color::rgb(255, 0, 255));
+    }
+
+    #[test]
+    fn there_is_no_lite_mode_any_more() {
+        // the old [features] lite flag is an unknown section now: such a theme is refused
+        let dir = std::env::temp_dir().join(format!("lume-themes-lite-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("old")).unwrap();
+        std::fs::write(dir.join("old/theme.toml"), "[theme]\nid = \"old\"\n[features]\nlite = true\n").unwrap();
+        let mut t = image_themes();
+        t.dirs.insert(0, dir);
+        assert!(t.load("old").is_err());
+        // animation is a token like any other: a theme turns it off with anim_ms = 0
+        assert!(t.load("lume").unwrap().num("anim_ms") > 0.0);
     }
 }

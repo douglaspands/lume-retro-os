@@ -42,6 +42,8 @@ pub enum Ev {
     UpdateDone(bool),
     /// a volume key changed the level (percent), told by the input daemon
     Volume(u8),
+    /// the battery level (percent) or charging state changed
+    Battery(u8, bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +81,8 @@ pub struct Grid {
 enum Row {
     Start,
     StartState,
+    /// opens the game's Settings submenu
+    Settings,
     Emulator,
     Aspect,
     Shader,
@@ -92,7 +96,6 @@ pub enum SetRow {
     Bluetooth,
     Language,
     Theme,
-    Lite,
     Volume,
     Brightness,
     System,
@@ -102,8 +105,10 @@ pub enum SetRow {
 }
 
 enum Overlay {
-    /// game menu (Some(game)) or console options (None) of a system
-    Menu { sys: usize, game: Option<GameRef>, focus: usize },
+    /// game menu (Some(game)) or console options (None) of a system; `sub`: the game's
+    /// Settings submenu (emulator, aspect, shader)
+    Menu { sys: usize, game: Option<GameRef>, focus: usize, sub: bool },
+    /// save states of a game with the picture of the focused one
     Slots { game: GameRef, slots: Vec<String>, focus: usize },
     Keyboard { focus: usize },
     Confirm { focus: usize },
@@ -126,9 +131,21 @@ impl Jump {
     }
 }
 
-const KEYS: &[&str] = &["abcdefghij", "klmnopqrst", "uvwxyz0123", "456789-'.&"];
-/// keys of the last keyboard row, after the characters
-const KEY_ACTIONS: usize = 3; // space, clear, done
+/// Search keyboard (prototype): numbers, then QWERTY; the filter ignores case.
+const KEYS: &[&str] = &["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+/// keys of the last keyboard row, after the characters: space, backspace, clear, OK
+const KEY_ACTIONS: usize = 4;
+/// the keyboard opens on Q (row 1, column 0); focus is row * 16 + column
+const KEY_START: usize = 16;
+/// longest search text (prototype)
+const SEARCH_MAX: usize = 24;
+/// games in Recent
+const RECENT_MAX: usize = 50;
+/// The "button" of a hint for the left/right arrows: drawn as two triangles in a tonal chip
+/// (the font has no ◀▶).
+pub const NAV_LR: &str = "◀▶";
+/// The same for up/down (▲▼).
+pub const NAV_UD: &str = "▲▼";
 
 pub struct App<S: SystemAdapter> {
     pub texts: Texts,
@@ -152,6 +169,8 @@ pub struct App<S: SystemAdapter> {
     toast: Option<(String, Instant)>,
     /// the volume bar outside the Settings: level and when it goes away
     pub volume_bar: Option<(u8, Instant)>,
+    /// the status bar's battery: level and charging (None: no battery, nothing drawn)
+    pub battery: Option<(u8, bool)>,
     pub dock: Vec<DockItem>,
     pub dock_focus: usize,
     pub grid: Option<Grid>,
@@ -163,6 +182,8 @@ pub struct App<S: SystemAdapter> {
     free_list: Vec<TextureId>,
     /// Dock icons of a card theme (icons/<system>.png), per system id; None: no icon
     icons: BTreeMap<String, Option<(TextureId, Rect)>>,
+    /// the picture of the save state slot on screen: its file and texture (one at a time)
+    slot_pic: Option<(PathBuf, Option<(TextureId, Rect)>)>,
     pub jump: Jump,
     pub exit: Option<Exit>,
     pub updating: Option<(usize, usize)>,
@@ -192,10 +213,7 @@ impl<S: SystemAdapter> App<S> {
         let settings_path = card.join("settings.toml");
         let settings = Settings::load(&settings_path);
         let themes = Themes::new(&card, &p.share);
-        let mut theme = themes.load_or_default(&settings.theme);
-        if settings.lite {
-            theme = theme.lite();
-        }
+        let theme = themes.load_or_default(&settings.theme);
         let cache = theme.num("cache_bytes") as usize;
         let lib = Library::load(&card, &catalog);
         let mut app = App {
@@ -219,6 +237,7 @@ impl<S: SystemAdapter> App<S> {
             overlay: None,
             toast: None,
             volume_bar: None,
+            battery: None,
             dock: Vec::new(),
             dock_focus: 0,
             grid: None,
@@ -228,6 +247,7 @@ impl<S: SystemAdapter> App<S> {
             thumbs: Lru::new(cache),
             free_list: Vec::new(),
             icons: BTreeMap::new(),
+            slot_pic: None,
             jump: Jump { last: None, speed: 1 },
             exit: None,
             updating: None,
@@ -236,6 +256,7 @@ impl<S: SystemAdapter> App<S> {
             cols: 4,
             rows: 2,
         };
+        app.battery = app.sys.battery();
         app.build_dock();
         if let Some(st) = State::load(&app.runtime) {
             app.restore(&st);
@@ -353,7 +374,7 @@ impl<S: SystemAdapter> App<S> {
         let all = match kind {
             ListKind::System(s) => self.lib.games_of(s),
             ListKind::Favorites => self.lib.favorites(),
-            ListKind::Recent => self.lib.recents(50),
+            ListKind::Recent => self.lib.recents(RECENT_MAX),
         };
         self.grid = Some(Grid { kind, items: all.clone(), all, focus: 0, top: 0, filter: String::new() });
     }
@@ -373,6 +394,17 @@ impl<S: SystemAdapter> App<S> {
 
     pub fn overlay_open(&self) -> bool {
         self.overlay.is_some()
+    }
+
+    /// Leaves the search: the text without edge spaces filters the list, from its first game.
+    fn close_search(&mut self) {
+        let Some(g) = self.grid.as_mut() else { return };
+        g.filter = g.filter.trim().to_string();
+        self.apply_filter();
+        if let Some(g) = self.grid.as_mut() {
+            g.focus = 0;
+            g.top = 0;
+        }
     }
 
     fn apply_filter(&mut self) {
@@ -450,6 +482,12 @@ impl<S: SystemAdapter> App<S> {
                 self.level.insert("volume", v);
                 self.volume_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
                 true
+            }
+            Ev::Battery(level, charging) => {
+                let new = Some((level.min(100), charging));
+                let changed = self.battery != new;
+                self.battery = new;
+                changed
             }
             Ev::Input(a, repeat) => {
                 if self.updating.is_some() {
@@ -560,12 +598,12 @@ impl<S: SystemAdapter> App<S> {
                 return;
             }
             Action::X => {
-                self.overlay = Some(Overlay::Keyboard { focus: 0 });
+                self.overlay = Some(Overlay::Keyboard { focus: KEY_START });
                 return;
             }
             Action::Y => {
                 if let ListKind::System(s) = g.kind {
-                    self.overlay = Some(Overlay::Menu { sys: s, game: None, focus: 0 });
+                    self.overlay = Some(Overlay::Menu { sys: s, game: None, focus: 0, sub: false });
                 }
                 return;
             }
@@ -592,7 +630,7 @@ impl<S: SystemAdapter> App<S> {
             Action::R1 => (f + self.jump.step(now, 1, n, page)).min(n - 1),
             Action::A | Action::Start => {
                 let game = g.items[f];
-                self.overlay = Some(Overlay::Menu { sys: game.sys, game: Some(game), focus: 0 });
+                self.overlay = Some(Overlay::Menu { sys: game.sys, game: Some(game), focus: 0, sub: false });
                 f
             }
             _ => f,
@@ -618,18 +656,21 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    fn menu_rows(&self, sys: usize, game: Option<GameRef>) -> Vec<Row> {
+    /// Rows of a menu: the game menu (start, save states, settings, favorite), the game's
+    /// Settings submenu, or the console options. Aspect and shader only for a libretro core.
+    fn menu_rows(&self, sys: usize, game: Option<GameRef>, sub: bool) -> Vec<Row> {
+        if game.is_some() && !sub {
+            return vec![Row::Start, Row::StartState, Row::Settings, Row::Favorite];
+        }
         let eff = self.effective(sys, game);
         let libretro = self.runner_of(&eff.emulator).is_some_and(|r| r.kind == Kind::Libretro);
-        let mut rows = Vec::new();
-        if game.is_some() {
-            rows.extend([Row::Start, Row::StartState]);
-        }
-        rows.push(Row::Emulator);
+        let mut rows = vec![Row::Emulator];
         if libretro {
             rows.extend([Row::Aspect, Row::Shader]);
         }
-        rows.push(if game.is_some() { Row::Favorite } else { Row::ClearGames });
+        if game.is_none() {
+            rows.push(Row::ClearGames);
+        }
         rows
     }
 
@@ -762,13 +803,15 @@ impl<S: SystemAdapter> App<S> {
 
     fn overlay_input(&mut self, ov: Overlay, a: Action, _repeat: bool) -> Option<Overlay> {
         match ov {
-            Overlay::Menu { sys, game, mut focus } => {
-                let rows = self.menu_rows(sys, game);
+            Overlay::Menu { sys, game, mut focus, sub } => {
+                let rows = self.menu_rows(sys, game, sub);
                 focus = focus.min(rows.len() - 1);
                 match a {
+                    // B in the Settings submenu goes back to the game menu, on Settings
+                    Action::B if sub => return Some(Overlay::Menu { sys, game, focus: 2, sub: false }),
                     Action::B => return None,
-                    Action::Up => focus = focus.saturating_sub(1),
-                    Action::Down => focus = (focus + 1).min(rows.len() - 1),
+                    Action::Up => focus = (focus + rows.len() - 1) % rows.len(),
+                    Action::Down => focus = (focus + 1) % rows.len(),
                     Action::Left | Action::Right => {
                         let dir = if a == Action::Left { -1 } else { 1 };
                         if matches!(rows[focus], Row::Emulator | Row::Aspect | Row::Shader) {
@@ -787,6 +830,7 @@ impl<S: SystemAdapter> App<S> {
                                 return Some(Overlay::Slots { game: g, slots: s.usable, focus: 0 });
                             }
                         }
+                        Row::Settings => return Some(Overlay::Menu { sys, game, focus: 0, sub: true }),
                         Row::Favorite => {
                             let g = game.unwrap();
                             let on = !self.lib.is_favorite(g);
@@ -805,13 +849,13 @@ impl<S: SystemAdapter> App<S> {
                     },
                     _ => {}
                 }
-                Some(Overlay::Menu { sys, game, focus })
+                Some(Overlay::Menu { sys, game, focus, sub })
             }
             Overlay::Slots { game, slots, mut focus } => {
                 match a {
-                    Action::B => return Some(Overlay::Menu { sys: game.sys, game: Some(game), focus: 1 }),
-                    Action::Up => focus = focus.saturating_sub(1),
-                    Action::Down => focus = (focus + 1).min(slots.len() - 1),
+                    Action::B => return Some(Overlay::Menu { sys: game.sys, game: Some(game), focus: 1, sub: false }),
+                    Action::Up => focus = (focus + slots.len() - 1) % slots.len(),
+                    Action::Down => focus = (focus + 1) % slots.len(),
                     Action::A => {
                         let slot = match slots[focus].as_str() {
                             "auto" => Slot::Auto,
@@ -827,27 +871,35 @@ impl<S: SystemAdapter> App<S> {
             Overlay::Keyboard { mut focus } => {
                 let row_len = |r: usize| if r < KEYS.len() { KEYS[r].chars().count() } else { KEY_ACTIONS };
                 let (mut r, mut c) = (focus / 16, focus % 16);
+                // the D-pad stops at the edges (prototype); B and OK close and keep the text
                 match a {
-                    Action::Left => c = (c + row_len(r) - 1) % row_len(r),
-                    Action::Right => c = (c + 1) % row_len(r),
-                    Action::Up => r = (r + KEYS.len()) % (KEYS.len() + 1),
-                    Action::Down => r = (r + 1) % (KEYS.len() + 1),
-                    Action::B => {
-                        let g = self.grid.as_mut()?;
-                        // B on an empty filter closes the keyboard
-                        g.filter.pop()?;
-                        self.apply_filter();
+                    Action::Left => c = c.saturating_sub(1),
+                    Action::Right => c = (c + 1).min(row_len(r) - 1),
+                    Action::Up => r = r.saturating_sub(1),
+                    Action::Down => r = (r + 1).min(KEYS.len()),
+                    Action::B | Action::Start => {
+                        self.close_search();
+                        return None;
                     }
-                    Action::Start => return None,
                     Action::A => {
                         let g = self.grid.as_mut()?;
+                        let full = g.filter.chars().count() >= SEARCH_MAX;
                         if r < KEYS.len() {
-                            g.filter.push(KEYS[r].chars().nth(c).unwrap());
+                            if !full {
+                                g.filter.push(KEYS[r].chars().nth(c).unwrap());
+                            }
                         } else {
                             match c {
-                                0 => g.filter.push(' '),
-                                1 => g.filter.clear(),
-                                _ => return None,
+                                0 if !full => g.filter.push(' '),
+                                1 => {
+                                    g.filter.pop();
+                                }
+                                2 => g.filter.clear(),
+                                3 => {
+                                    self.close_search();
+                                    return None;
+                                }
+                                _ => {}
                             }
                         }
                         self.apply_filter();
@@ -909,7 +961,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Lite, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Update, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Update, SetRow::RetroArch, SetRow::Power]);
         v
     }
 
@@ -930,11 +982,7 @@ impl<S: SystemAdapter> App<S> {
     }
 
     fn apply_theme(&mut self) {
-        let mut t = self.themes.load_or_default(&self.settings.theme);
-        if self.settings.lite {
-            t = t.lite();
-        }
-        self.theme = t;
+        self.theme = self.themes.load_or_default(&self.settings.theme);
         for (_, icon) in std::mem::take(&mut self.icons) {
             if let Some((t, _)) = icon {
                 self.free_list.push(t);
@@ -942,19 +990,24 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    /// The Dock icon of a system from the theme folder, decoded once (only a card theme
-    /// brings icons; the distro has none).
+    /// The Dock icon of a system: icons/<system>.png of the theme or a parent, card first
+    /// (only the user's card brings them; the distro has none), decoded once as a mask and
+    /// drawn flat in the icon color (as the prototype's logos). The Rect is its size.
     fn icon(&mut self, c: &mut dyn Canvas, id: &str) -> Option<(TextureId, Rect)> {
         if let Some(i) = self.icons.get(id) {
             return *i;
         }
-        let tile = lume_index::thumbs::Tile { w: 128, h: 128 };
-        let made = self.theme.dir.as_ref().map(|d| d.join("icons").join(format!("{id}.png"))).filter(|p| p.exists()).and_then(|p| {
-            let px = lume_index::thumbs::render(&p, tile)?;
-            let (cw, ch) = (u16::from_le_bytes([px[0], px[1]]) as i32, u16::from_le_bytes([px[2], px[3]]) as i32);
-            let t = c.texture_rgb565(128, 128, &px[4..])?;
-            Some((t, Rect::new((128 - cw) / 2, (128 - ch) / 2, cw.max(1), ch.max(1))))
-        });
+        let made = self
+            .themes
+            .icon_dirs(&self.theme.id)
+            .into_iter()
+            .map(|d| d.join(format!("{id}.png")))
+            .find(|p| p.is_file())
+            .and_then(|p| {
+                let (w, h, alpha) = icon_mask(&p, ICON_PX)?;
+                let t = c.texture_mask(w, h, &alpha)?;
+                Some((t, Rect::new(0, 0, w as i32, h as i32)))
+            });
         self.icons.insert(id.to_string(), made);
         made
     }
@@ -970,8 +1023,9 @@ impl<S: SystemAdapter> App<S> {
         };
         match a {
             Action::B => self.screen = Screen::Dock,
-            Action::Up => self.settings_focus = self.settings_focus.saturating_sub(1),
-            Action::Down => self.settings_focus = (self.settings_focus + 1).min(rows.len() - 1),
+            // the list wraps: down on the last item goes to the first, up on the first to the last
+            Action::Up => self.settings_focus = (self.settings_focus + rows.len() - 1) % rows.len(),
+            Action::Down => self.settings_focus = (self.settings_focus + 1) % rows.len(),
             Action::Left | Action::Right => match row {
                 SetRow::Language => {
                     let i = LANGUAGES.iter().position(|l| *l == self.settings.language).unwrap_or(0) as i32;
@@ -986,16 +1040,12 @@ impl<S: SystemAdapter> App<S> {
                 SetRow::Theme => {
                     let list = self.themes.list();
                     if !list.is_empty() {
-                        let i = list.iter().position(|t| *t == self.settings.theme).unwrap_or(0) as i32;
+                        let current = self.themes.chosen(&self.settings.theme).to_string();
+                        let i = list.iter().position(|t| *t == current).unwrap_or(0) as i32;
                         self.settings.theme = list[(i + dir).rem_euclid(list.len() as i32) as usize].clone();
                         self.apply_theme();
                         self.save_settings();
                     }
-                }
-                SetRow::Lite => {
-                    self.settings.lite = !self.settings.lite;
-                    self.apply_theme();
-                    self.save_settings();
                 }
                 SetRow::Volume | SetRow::Brightness => {
                     let key = if row == SetRow::Volume { "volume" } else { "brightness" };
@@ -1026,11 +1076,6 @@ impl<S: SystemAdapter> App<S> {
                     }
                 }
                 SetRow::Power => self.overlay = Some(Overlay::Confirm { focus: 0 }),
-                SetRow::Lite => {
-                    self.settings.lite = !self.settings.lite;
-                    self.apply_theme();
-                    self.save_settings();
-                }
                 _ => {}
             },
             _ => {}
@@ -1052,6 +1097,7 @@ impl<S: SystemAdapter> App<S> {
         let th = self.theme.clone();
         c.clear(th.color("bg"));
         c.fill(Rect::new(0, 0, w, h), 0, th.color("bg"));
+        // (the search is drawn by the grid itself: bar on top, keyboard below, tiles between)
         match self.screen {
             Screen::Dock => self.draw_dock(c, w, h),
             Screen::Grid => self.draw_grid(c, w, h),
@@ -1059,7 +1105,7 @@ impl<S: SystemAdapter> App<S> {
         }
         if let Some(ov) = &self.overlay {
             let ov = match ov {
-                Overlay::Menu { sys, game, focus } => Overlay::Menu { sys: *sys, game: *game, focus: *focus },
+                Overlay::Menu { sys, game, focus, sub } => Overlay::Menu { sys: *sys, game: *game, focus: *focus, sub: *sub },
                 Overlay::Slots { game, slots, focus } => Overlay::Slots { game: *game, slots: slots.clone(), focus: *focus },
                 Overlay::Keyboard { focus } => Overlay::Keyboard { focus: *focus },
                 Overlay::Confirm { focus } => Overlay::Confirm { focus: *focus },
@@ -1091,25 +1137,53 @@ impl<S: SystemAdapter> App<S> {
         c.present();
     }
 
-    /// The volume bar: a panel on the right edge, a vertical track filled from the bottom
-    /// with the accent, and the percent under it (theme tokens only).
+    /// The volume bar: a thin vertical track in the right margin, outside the grid's
+    /// tiles and their focus ring, filled from the bottom with the accent; no number
+    /// (theme tokens only).
     fn draw_volume_bar(&self, c: &mut dyn Canvas, w: i32, h: i32, v: u8) {
         let th = &self.theme;
-        let px = th.em("label_px", w) as f32 * 0.8;
-        let pw = (w / 13).max(px as i32 * 3);
-        let ph = h / 2;
-        let panel = Rect::new(w - pw - w / 40, (h - ph) / 2, pw, ph);
-        c.fill(panel, th.em("radius_panel", w).min(pw / 2), th.color("panel_bg"));
-        let tw = (pw / 4).max(4);
-        let top = panel.y + pw / 2;
-        let track = Rect::new(panel.x + (pw - tw) / 2, top, tw, panel.bottom() - px as i32 * 2 - top);
-        c.fill(track, tw / 2, th.color("tile_bg"));
+        let margin = w / 40;
+        let tw = (margin * 3 / 8).max(4);
+        let track = Rect::new(w - margin / 2 - tw / 2, h / 4, tw, h / 2);
+        c.fill(track, tw / 2, th.color("panel_bg_opaque"));
         let filled = track.h * v.min(100) as i32 / 100;
         if filled > 0 {
             c.fill(Rect::new(track.x, track.bottom() - filled, tw, filled), tw / 2, th.color("accent"));
         }
-        let label = format!("{v}%");
-        c.text(&label, panel.x + pw / 2, track.bottom() + px as i32 / 2, px, th.color("fg"), Align::Center, pw - 4);
+    }
+
+    /// The status bar's battery, right-aligned at `right` with the text top at `y`: the
+    /// prototype's icon (a 30x14 box: body 25x12 with a 1.6 stroke, a 2x5 terminal, the level
+    /// in a 20x7 bar), 0.95 of the text tall, 0.35 of it before the percent. The bar is in
+    /// the accent while charging. Returns the x where it starts.
+    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32) -> i32 {
+        self.draw_battery_weight(c, right, y, px, true)
+    }
+
+    /// `draw_battery` with the percent in the medium (500) or the regular (400) weight.
+    fn draw_battery_weight(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, medium: bool) -> i32 {
+        let Some((level, charging)) = self.battery else { return right };
+        let th = &self.theme;
+        let label = format!("{level}%");
+        let tw = if medium { c.text_width_medium(&label, px) } else { c.text_width(&label, px) };
+        if medium {
+            c.text_medium(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
+        } else {
+            c.text(&label, right - tw, y, px, th.color("fg"), Align::Left, tw + 1);
+        }
+        let s = px * 0.95 / 14.0; // icon units to pixels
+        let u = |v: f32| (v * s).round() as i32;
+        let x = right - tw - (px * 0.35).round() as i32 - u(30.0);
+        let iy = y + ((px * 1.1 - 14.0 * s) / 2.0).round() as i32;
+        let body = Rect::new(x + u(0.2), iy + u(0.2), u(26.6), u(13.6));
+        c.fill(body, u(3.3), th.color("fg"));
+        c.fill(Rect::new(x + u(1.8), iy + u(1.8), u(23.4), u(10.4)), u(1.7), th.color("bg"));
+        c.fill(Rect::new(x + u(27.0), iy + u(4.5), u(2.0).max(1), u(5.0)), u(1.0), th.color("fg"));
+        let fw = u(20.0 * level.min(100) as f32 / 100.0);
+        if fw > 0 {
+            c.fill(Rect::new(x + u(3.5), iy + u(3.5), fw, u(7.0)), u(1.0), th.color(if charging { "accent" } else { "fg" }));
+        }
+        x
     }
 
     fn label(&self, item: DockItem) -> (String, String) {
@@ -1121,12 +1195,22 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The Dock, measured on the prototype at 640x480 (1 em = 16 px): icons `icon` em at
+    /// rest, magnified by a gaussian (`mag_*`: 10.8, 8.13 and 5.09 em next to the focus,
+    /// 4.32 em further), `dock_gap` em apart; each icon passes at `dock_origin` of its height
+    /// through the line at `dock_top` of the screen (201.6 px), so a larger icon rises; the
+    /// corner radius and the content grow with the icon (the abbreviation 0.28 of it, bold;
+    /// a logo 78% x 56%; the star 0.42; the gear 0.2). The name (`dock_name_px`) 6.54 em under
+    /// that line, its subtitle (`dock_sub_px`, muted) 2.62 em lower; the battery 1.08 em from
+    /// the right edge at 0.51 em; the hints ◀▶ Navigate, A Select.
     fn draw_dock(&mut self, c: &mut dyn Canvas, w: i32, h: i32) {
         let th = &self.theme.clone();
         let n = self.dock.len() as i32;
-        let base = th.em("icon", w) as f32;
-        let gap = base * th.num("dock_gap") as f32;
-        let cy = (h as f64 * th.num("dock_top")) as i32;
+        let em = w as f32 / 40.0;
+        let base = th.num("icon") as f32 * em;
+        let gap = th.num("dock_gap") as f32 * em;
+        let line = h as f32 * th.num("dock_top") as f32;
+        let origin = th.num("dock_origin") as f32;
         let (peak, low, spread) = (th.num("mag_peak") as f32, th.num("mag_base") as f32, th.num("mag_spread") as f32);
         let shift = match self.anim {
             Some((t, from)) => {
@@ -1159,60 +1243,129 @@ impl<S: SystemAdapter> App<S> {
         }
         // the focused (largest) icon is drawn last, over its neighbors
         placed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        let label_px = th.em("label_px", w) as f32;
         for (x, size, idx) in placed {
-            let r = Rect::new(w / 2 + x as i32 - size as i32 / 2, cy - size as i32 / 2, size as i32, size as i32);
+            let left = w as f32 / 2.0 + x - size / 2.0;
+            let top = line - size * origin;
+            let r = Rect::new(left.round() as i32, top.round() as i32, size.round() as i32, size.round() as i32);
             if r.right() < 0 || r.x > w {
                 continue;
             }
             let focused = idx == self.dock_focus;
             let (bg, fg) = if focused { (th.color("icon_sel_bg"), th.color("icon_sel_fg")) } else { (th.color("icon_bg"), th.color("icon_fg")) };
-            c.fill(r, th.em("radius_icon", w) * size as i32 / base as i32, bg);
-            let icon = match self.dock[idx] {
-                DockItem::System(s) => {
-                    let id = self.lib.systems[s].id.clone();
-                    self.icon(c, &id)
-                }
-                _ => None,
+            c.fill(r, (th.num("radius_icon") as f32 * em * size / base).round() as i32, bg);
+            // the content of the icon: a card logo, a symbol of the launcher, or the abbreviation
+            let (key, share, lift) = match self.dock[idx] {
+                DockItem::System(s) => (self.lib.systems[s].id.clone(), 0.0, 0.0),
+                DockItem::Favorites => ("@star".to_string(), 0.42, 0.01),
+                DockItem::Settings => ("@gear".to_string(), 0.2, 0.0),
+                DockItem::Recent => ("@clock".to_string(), 0.3, 0.0),
             };
+            let icon = if share > 0.0 { self.symbol(c, &key) } else { self.icon(c, &key) };
             match icon {
-                Some((t, src)) => c.draw_texture(t, src, r.inset(r.w / 8)),
+                Some((t, isz)) if share > 0.0 => {
+                    let d = (size * share).round() as i32;
+                    let cy = r.y as f32 + r.h as f32 * (0.5 - lift);
+                    c.draw_mask(t, Rect::new(r.x + (r.w - d) / 2, (cy - d as f32 / 2.0).round() as i32, d, d * isz.h / isz.w.max(1)), fg);
+                }
+                Some((t, isz)) => {
+                    // the logo fits 78% x 56% of the tile (prototype), flat in the icon color
+                    let (bw, bh) = (r.w as f64 * 0.78, r.h as f64 * 0.56);
+                    let k = f64::min(bw / isz.w as f64, bh / isz.h as f64);
+                    let (dw, dh) = ((isz.w as f64 * k) as i32, (isz.h as f64 * k) as i32);
+                    c.draw_mask(t, Rect::new(r.x + (r.w - dw) / 2, r.y + (r.h - dh) / 2, dw, dh), fg);
+                }
                 None => {
                     let (_, abbr) = self.label(self.dock[idx]);
-                    let px = (size * 0.30).max(10.0);
-                    c.text(&abbr, r.x + r.w / 2, r.y + (r.h - px as i32) / 2, px, fg, Align::Center, r.w - 8);
+                    let px = (size * 0.28).max(8.0);
+                    c.text_bold(&abbr, r.x + r.w / 2, r.y + (r.h - px as i32) / 2, px, fg, Align::Center, r.w - 8);
                 }
             }
         }
+        // the focused item's name and what it holds
         let (name, _) = self.label(self.dock[self.dock_focus]);
-        let title_px = th.em("title_px", w) as f32;
-        let ty = cy + (base * peak) as i32 / 2 + title_px as i32 / 2;
-        c.text(&name, w / 2, ty, title_px, th.color("fg"), Align::Center, w - 32);
-        if let DockItem::System(s) = self.dock[self.dock_focus] {
-            let count = format!("{} {}", self.lib.systems[s].index.len(), self.tr("games"));
-            c.text(&count, w / 2, ty + title_px as i32 + 6, label_px * 0.85, th.color("muted"), Align::Center, w - 32);
-        }
-        self.draw_hints(c, w, h, &[("A", self.tr("hint_select"))]);
+        let name_px = th.num("dock_name_px") as f32 * em;
+        let sub_px = th.num("dock_sub_px") as f32 * em;
+        let name_y = (line + 6.544 * em).round() as i32;
+        c.text(&name, w / 2, name_y, name_px, th.color("fg"), Align::Center, w - 2 * em as i32);
+        let sub = match self.dock[self.dock_focus] {
+            DockItem::System(s) => format!("{} {}", self.lib.systems[s].index.len(), self.tr("games")),
+            DockItem::Favorites => format!("{} {}", self.lib.favorites().len(), self.tr("games")),
+            DockItem::Recent => format!("{} {}", self.lib.recents(RECENT_MAX).len(), self.tr("games")),
+            DockItem::Settings => self.tr("dock_settings_sub"),
+        };
+        c.text(&sub, w / 2, name_y + (2.62 * em).round() as i32, sub_px, th.color("muted"), Align::Center, w - 2 * em as i32);
+        // status bar: the battery at the top right (regular weight here, as the prototype)
+        self.draw_battery_weight(c, w - (1.08 * em).round() as i32, (0.51 * em).round() as i32, th.num("status_px") as f32 * em, false);
+        self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select"))]);
     }
 
+    /// A symbol of the launcher (`@star`, `@gear`, `@clock`) as a mask texture, made once.
+    fn symbol(&mut self, c: &mut dyn Canvas, key: &str) -> Option<(TextureId, Rect)> {
+        if let Some(i) = self.icons.get(key) {
+            return *i;
+        }
+        const N: u32 = 128;
+        let alpha = match key {
+            "@star" => crate::glyphs::star(N),
+            "@gear" => crate::glyphs::gear(N),
+            _ => crate::glyphs::clock(N),
+        };
+        let made = c.texture_mask(N, N, &alpha).map(|t| (t, Rect::new(0, 0, N as i32, N as i32)));
+        self.icons.insert(key.to_string(), made);
+        made
+    }
+
+    /// The button hints, as the prototype at 640x480 (1 em = 16 px): a band of 2.4 em at the
+    /// bottom, centered as a whole; each hint is a 1.48 em circle in the accent with its
+    /// letter bold (0.85 of the text), 0.36 em, then the text (`hint_px`, muted); 1.44 em
+    /// between hints.
     fn draw_hints(&self, c: &mut dyn Canvas, w: i32, h: i32, hints: &[(&str, String)]) {
         let th = &self.theme;
-        let px = th.em("label_px", w) as f32 * 0.8;
-        let y = h - px as i32 - 10;
-        let mut x = w - 16;
-        for (btn, text) in hints.iter().rev() {
-            let tw = c.text_width(text, px);
-            x -= tw;
-            c.text(text, x, y, px, th.color("muted"), Align::Left, tw + 1);
-            if btn.is_empty() {
-                x -= 18;
-                continue;
+        let em = w as f32 / 40.0;
+        let px = th.num("hint_px") as f32 * em;
+        let d = (1.48 * em).round() as i32;
+        let lpx = px * 0.85;
+        let inner = (0.36 * em).round() as i32;
+        let between = (1.44 * em).round() as i32;
+        let chip_y = h - (1.9 * em).round() as i32;
+        // the text line starts 1.97 em from the bottom (448.5 at 480, measured)
+        let ty = h - (1.97 * em).round() as i32;
+        // the arrows' chip is wider (2.45 em) and tonal (`nav_bg`, `nav_fg`)
+        let nav_w = (2.45 * em).round() as i32;
+        let chip_w = |btn: &str| match btn {
+            "" => 0,
+            NAV_LR | NAV_UD => nav_w,
+            _ => d,
+        };
+        let widths: Vec<i32> = hints.iter().map(|(btn, text)| c.text_width(text, px) + if btn.is_empty() { 0 } else { chip_w(btn) + inner }).collect();
+        let total = widths.iter().sum::<i32>() + between * (hints.len() as i32 - 1).max(0);
+        let mut x = (w - total) / 2;
+        for ((btn, text), hw) in hints.iter().zip(&widths) {
+            let mut tx = x;
+            if *btn == NAV_LR || *btn == NAV_UD {
+                c.fill(Rect::new(x, chip_y, nav_w, d), d / 2, th.color("nav_bg"));
+                let (cx, cy) = (x + nav_w / 2, chip_y + d / 2);
+                // two separate triangles, tips out (as ◀▶ in the prototype's font)
+                let (tw, tht) = ((d as f32 * 0.42).round() as i32, (d as f32 * 0.55).round() as i32);
+                let sep = (d / 8).max(2);
+                let fg = th.color("nav_fg");
+                if *btn == NAV_LR {
+                    triangle(c, cx - sep / 2 - tw / 2, cy, tw, tht, Dir::Left, fg);
+                    triangle(c, cx + sep / 2 + tw / 2, cy, tw, tht, Dir::Right, fg);
+                } else {
+                    triangle(c, cx - sep / 2 - tht / 2, cy, tht, tw, Dir::Up, fg);
+                    triangle(c, cx + sep / 2 + tht / 2, cy, tht, tw, Dir::Down, fg);
+                }
+                tx += nav_w + inner;
+            } else if !btn.is_empty() {
+                c.fill(Rect::new(x, chip_y, d, d), d / 2, th.color("accent"));
+                // centered by Roboto's line height (1.172 of the size), as the browser does
+                c.text_bold(btn, x + d / 2, chip_y + ((d as f32 - lpx * 1.172) / 2.0).round() as i32, lpx, th.color("accent_fg"), Align::Center, d);
+                tx += d + inner;
             }
-            let bw = px as i32 + 8;
-            x -= bw + 6;
-            c.fill(Rect::new(x, y - 2, bw, px as i32 + 4), (px as i32 + 4) / 2, th.color("accent"));
-            c.text(btn, x + bw / 2, y, px * 0.85, th.color("accent_fg"), Align::Center, bw);
-            x -= 18;
+            let tw = c.text_width(text, px);
+            c.text(text, tx, ty, px, th.color("muted"), Align::Left, tw + 1);
+            x += hw + between;
         }
     }
 
@@ -1224,32 +1377,74 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The game list, measured on the prototype at 640x480 (1 em = 16 px, w / 40):
+    /// - header band 3.325 em: the list name (`list_title_px`, bold) at (1.75 em, 0.7 em), the
+    ///   counter in the middle and the battery ending 1.75 em from the right, both at 1 em
+    ///   (`status_px`);
+    /// - tiles from (1 em, 3.525 em), 0.7 em apart, down to 0.4 em above the name band; the
+    ///   cover only, 0.4 em inside its tile; the focused tile 3% larger with a 0.2 em accent
+    ///   outline 0.05 em away;
+    /// - the focused game's name centered in a 2.106 em band (`list_name_px`) above the hints
+    ///   band (2.394 em).
+    ///
+    /// While searching (TV launcher style) the header band is the search bar, the keyboard
+    /// sits above the hints, and the tiles that are left fill the space between, filtered as
+    /// the user types.
     fn draw_grid(&mut self, c: &mut dyn Canvas, w: i32, h: i32) {
         let th = self.theme.clone();
         let Some(kind) = self.grid.as_ref().map(|g| g.kind) else { return };
-        let title_px = th.em("title_px", w) as f32;
-        let label_px = th.em("label_px", w) as f32 * 0.85;
-        let margin = w / 40;
-        let top = title_px as i32 + margin * 2;
-        let footer = (label_px * 2.2) as i32;
+        let kb = match &self.overlay {
+            Some(Overlay::Keyboard { focus }) => Some(*focus),
+            _ => None,
+        };
+        let em = w as f32 / 40.0;
+        let e = |v: f32| (v * em).round() as i32;
+        let title_px = th.num("list_title_px") as f32 * em;
+        let status_px = th.num("status_px") as f32 * em;
+        let name_px = th.num("list_name_px") as f32 * em;
+        let hints_top = h - e(2.394);
+        let kb_rect = kb.map(|_| self.keyboard_rect(w, hints_top));
+        let name_top = kb_rect.map_or(hints_top, |r| r.y) - e(2.106);
+        let top = e(3.525);
+        let bottom = name_top - e(0.4);
         let cols = th.num("cols").max(1.0) as i32;
-        let gap = margin;
-        let tile_w = (w - 2 * margin - (cols - 1) * gap) / cols;
-        let art_h = tile_w * 3 / 4;
-        let tile_h = art_h + (label_px * 1.6) as i32;
-        let avail = h - top - footer;
-        // a square screen gets more rows (spec: layout independent of the resolution)
-        let rows = (th.num("rows") as i32).max(avail / (tile_h + gap)).max(1);
+        // positions in fractions of a pixel, rounded only when drawn: the prototype's 143.6 px
+        // tiles 11.2 px apart would drift a pixel per column otherwise
+        let gap = 0.7 * em;
+        let tile_w = (w as f32 - 2.0 * em - (cols - 1) as f32 * gap) / cols as f32;
+        let avail = (bottom - top) as f32;
+        // a taller screen gets more rows (spec: layout independent of the resolution), each
+        // tile at least as tall as wide (a box is portrait); the search keeps what fits
+        let min_rows = if kb.is_some() { 1 } else { th.num("rows") as i32 };
+        let rows = min_rows.max((avail / (tile_w + gap)) as i32).max(1);
+        let tile_h = (avail - (rows - 1) as f32 * gap) / rows as f32;
+        let cell = |col: i32, row: i32| {
+            let (x0, y0) = (em + col as f32 * (tile_w + gap), top as f32 + row as f32 * (tile_h + gap));
+            let (x, y) = (x0.round() as i32, y0.round() as i32);
+            Rect::new(x, y, (x0 + tile_w).round() as i32 - x, (y0 + tile_h).round() as i32 - y)
+        };
         self.cols = cols as usize;
         self.rows = rows as usize;
         self.scroll_to_focus();
         let title = self.list_title(kind);
         let g = self.grid.as_ref().unwrap();
         let (filter, items, focus, gtop) = (g.filter.clone(), g.items.clone(), g.focus, g.top);
-        let header = if filter.is_empty() { title } else { format!("{title} · “{filter}”") };
-        c.text(&header, margin, margin, title_px, th.color("fg"), Align::Left, w - 2 * margin - 80);
-        if !items.is_empty() {
-            c.text(&format!("{}/{}", focus + 1, items.len()), w - margin, margin + 4, label_px, th.color("muted"), Align::Right, 120);
+        if kb.is_some() {
+            self.draw_search_bar(c, w, &filter, items.len());
+        } else {
+            // header: the list name on the left, the counter in the middle, the battery right
+            // and, with a filter on, the filter just left of the battery
+            let count = if items.is_empty() { String::new() } else { format!("{} / {}", focus + 1, items.len()) };
+            let cw = c.text_width_medium(&count, status_px);
+            let batt_x = self.draw_battery(c, w - e(1.75), e(1.0), status_px);
+            if !filter.is_empty() {
+                let right = if batt_x < w - e(1.75) { batt_x - e(1.0) } else { w - e(1.75) };
+                c.text(&format!("“{filter}”"), right, e(1.0), status_px, th.color("accent"), Align::Right, right - w / 2 - cw / 2 - e(1.0));
+            }
+            c.text_bold(&title, e(1.75), e(0.7), title_px, th.color("fg"), Align::Left, w / 2 - cw / 2 - e(2.75));
+            if !items.is_empty() {
+                c.text_medium(&count, w / 2, e(1.0), status_px, th.color("muted"), Align::Center, cw + 1);
+            }
         }
         if items.is_empty() {
             let key = if !filter.is_empty() {
@@ -1259,48 +1454,146 @@ impl<S: SystemAdapter> App<S> {
             } else {
                 "no_recent"
             };
-            c.text(&self.tr(key), w / 2, h / 2 - label_px as i32, label_px, th.color("muted"), Align::Center, w - 2 * margin);
+            c.text(&self.tr(key), w / 2, (top + bottom) / 2 - status_px as i32 / 2, status_px, th.color("muted"), Align::Center, w - 2 * e(1.0));
         }
         let first = gtop * cols as usize;
+        let radius = th.em("radius_tile", w);
+        let pad = 0.4 * em;
         for (k, r) in items.iter().enumerate().skip(first).take((cols * rows) as usize) {
             let pos = (k - first) as i32;
-            let x = margin + (pos % cols) * (tile_w + gap);
-            let y = top + (pos / cols) * (tile_h + gap);
-            let focused = k == focus;
-            let tile = Rect::new(x, y, tile_w, tile_h);
-            c.fill(tile, th.em("radius_tile", w), th.color(if focused { "tile_bg_sel" } else { "tile_bg" }));
+            let focused = k == focus && kb.is_none();
+            let mut tile = cell(pos % cols, pos / cols);
+            let mut pad_px = pad;
             if focused {
-                c.fill(Rect::new(x, y + tile_h - 4, tile_w, 4), 2, th.color("accent"));
+                // 3% larger around its center, then the outline 0.05 em away, 0.2 em wide
+                let (cx, cy) = (tile.x as f32 + tile.w as f32 / 2.0, tile.y as f32 + tile.h as f32 / 2.0);
+                let (sw, sh) = (tile_w * 1.03, tile_h * 1.03);
+                tile = Rect::new((cx - sw / 2.0).round() as i32, (cy - sh / 2.0).round() as i32, sw.round() as i32, sh.round() as i32);
+                pad_px *= 1.03;
+                let (off, ring) = (e(0.05).max(1), e(0.2).max(2));
+                c.fill(tile.inset(-(off + ring)), radius + off + ring, th.color("accent"));
+                c.fill(tile.inset(-off), radius + off, th.color("bg"));
+                c.fill(tile, radius, th.color("tile_bg_sel"));
+            } else {
+                c.fill(tile, radius, th.color("tile_bg"));
             }
-            let art = Rect::new(x + 6, y + 6, tile_w - 12, art_h - 6);
-            let name = self.lib.name(*r).to_string();
+            let art = tile.inset(pad_px.round() as i32);
             match self.texture(c, *r) {
                 Some((t, src)) => {
-                    // the image keeps its shape, centered in the art area
+                    // only the cover: it keeps its shape, centered in the tile
                     let k = f64::min(art.w as f64 / src.w as f64, art.h as f64 / src.h as f64);
                     let (dw, dh) = ((src.w as f64 * k) as i32, (src.h as f64 * k) as i32);
                     c.draw_texture(t, src, Rect::new(art.x + (art.w - dw) / 2, art.y + (art.h - dh) / 2, dw, dh));
                 }
                 None => {
-                    // the generated box: the name on the tile color
-                    c.fill(art, th.em("radius_tile", w) / 2, th.color("icon_bg"));
-                    c.text(&name, art.x + art.w / 2, art.y + art.h / 2 - label_px as i32 / 2, label_px, th.color("icon_fg"), Align::Center, art.w - 8);
+                    // no cover: the generated box, with the name on it
+                    let name = self.lib.name(*r).to_string();
+                    c.fill(art, radius / 2, th.color("icon_bg"));
+                    c.text(&name, art.x + art.w / 2, art.y + art.h / 2 - status_px as i32 / 2, status_px, th.color("icon_fg"), Align::Center, art.w - 8);
                 }
             }
-            c.text(&name, x + tile_w / 2, y + art_h + 4, label_px, th.color(if focused { "fg" } else { "muted" }), Align::Center, tile_w - 8);
             if self.has_badge(*r) {
-                c.fill(Rect::new(x + tile_w - 16, y + 8, 10, 10), 5, th.color("accent"));
+                c.fill(Rect::new(tile.right() - e(1.0), tile.y + e(0.5), e(0.6), e(0.6)), e(0.3), th.color("accent"));
             }
             if self.lib.is_favorite(*r) && kind != ListKind::Favorites {
                 // favorite: a dot in the text color, top left (the options badge is top right)
-                c.fill(Rect::new(x + 6, y + 8, 10, 10), 5, th.color("fg"));
+                c.fill(Rect::new(tile.x + e(0.4), tile.y + e(0.5), e(0.6), e(0.6)), e(0.3), th.color("fg"));
             }
         }
-        let mut hints = vec![("A", self.tr("hint_select")), ("B", self.tr("hint_back")), ("X", self.tr("hint_search"))];
+        // the focused game's name, centered in its band above the hints (or the keyboard)
+        if let Some(r) = items.get(focus) {
+            let name = self.lib.name(*r).to_string();
+            // the band's top padding is 0.15 of the font (prototype)
+            c.text_medium(&name, w / 2, name_top + (name_px * 0.15).round() as i32, name_px, th.color("fg"), Align::Center, w - 2 * e(1.0));
+        }
+        if let (Some(f), Some(r)) = (kb, kb_rect) {
+            self.draw_keyboard(c, r, f, w);
+            self.draw_hints(c, w, h, &[("A", self.tr("hint_select")), ("B", self.tr("hint_close"))]);
+            return;
+        }
+        // the prototype's order: A, X, Y, B
+        let mut hints = vec![("A", self.tr("hint_select")), ("X", self.tr("hint_search"))];
         if matches!(kind, ListKind::System(_)) {
             hints.push(("Y", self.tr("hint_options")));
         }
+        hints.push(("B", self.tr("hint_back")));
         self.draw_hints(c, w, h, &hints);
+    }
+
+    /// The search keyboard's place: the full width, ending at the hints band.
+    fn keyboard_rect(&self, w: i32, hints_top: i32) -> Rect {
+        let em = w as f32 / 40.0;
+        let (key_h, gap, pad) = ((1.6 * em).round() as i32, (0.25 * em).round() as i32, (0.5 * em).round() as i32);
+        let rows = KEYS.len() as i32 + 1;
+        let kh = rows * key_h + (rows - 1) * gap + 2 * pad;
+        Rect::new(0, hints_top - kh, w, kh)
+    }
+
+    /// The search bar in the header band: the typed text with a cursor, the live count.
+    fn draw_search_bar(&mut self, c: &mut dyn Canvas, w: i32, text: &str, count: usize) {
+        let th = self.theme.clone();
+        let em = w as f32 / 40.0;
+        let e = |v: f32| (v * em).round() as i32;
+        let field_px = th.num("list_name_px") as f32 * em;
+        let status_px = th.num("status_px") as f32 * em;
+        let field = Rect::new(e(1.0), e(0.5), w - 2 * e(1.0), e(2.4));
+        c.fill(field, th.em("radius_item", w).min(field.h / 2), th.color("panel_bg_opaque"));
+        let count_txt = format!("{count} {}", self.tr("games"));
+        let cw = c.text_width(&count_txt, status_px);
+        c.text(&count_txt, field.right() - e(1.0), field.y + (field.h - status_px as i32) / 2, status_px, th.color("muted"), Align::Right, cw + 1);
+        let room = field.w - e(3.0) - cw;
+        // the end of a long text stays visible
+        let mut shown: &str = text;
+        while !shown.is_empty() && c.text_width(shown, field_px) > room {
+            let next = shown.char_indices().nth(1).map_or(shown.len(), |(i, _)| i);
+            shown = &shown[next..];
+        }
+        let tx = field.x + e(1.0);
+        let ty = field.y + (field.h - field_px as i32) / 2;
+        let tw = if shown.is_empty() { 0 } else { c.text(shown, tx, ty, field_px, th.color("fg"), Align::Left, room) };
+        c.fill(Rect::new(tx + tw + 2, ty + 2, (field_px / 12.0).max(2.0) as i32, field_px as i32), 0, th.color("accent"));
+    }
+
+    /// The on-screen keyboard (QWERTY with numbers, then space, backspace, clear and OK) in
+    /// `r`, on its own panel.
+    fn draw_keyboard(&mut self, c: &mut dyn Canvas, r: Rect, focus: usize, w: i32) {
+        let th = self.theme.clone();
+        let em = w as f32 / 40.0;
+        let e = |v: f32| (v * em).round() as i32;
+        let (key_h, gap, pad) = (e(1.6), e(0.25), e(0.5));
+        let px = th.num("status_px") as f32 * em;
+        // the panel a step darker than the keys, in every theme
+        c.fill(r, 0, th.color("tile_bg_opaque"));
+        let key_w = (w - 2 * e(1.0) - 9 * gap) / 10;
+        let (fr, fc) = (focus / 16, focus % 16);
+        let radius = th.em("radius_item", w).min(key_h / 2);
+        let key = |c: &mut dyn Canvas, k: Rect, label: &str, sel: bool| {
+            c.fill(k, radius, th.color(if sel { "sel_bg" } else { "tile_bg_sel" }));
+            c.text(label, k.x + k.w / 2, k.y + (k.h - px as i32) / 2, px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Center, k.w - 4);
+        };
+        for (ri, row) in KEYS.iter().enumerate() {
+            let n = row.chars().count() as i32;
+            let x0 = (w - (n * key_w + (n - 1) * gap)) / 2;
+            let y = r.y + pad + ri as i32 * (key_h + gap);
+            for (ci, ch) in row.chars().enumerate() {
+                key(c, Rect::new(x0 + ci as i32 * (key_w + gap), y, key_w, key_h), &ch.to_string(), ri == fr && ci == fc);
+            }
+        }
+        // backspace has no label: the bundled font has no ⌫ (nor ←), so it is drawn
+        let labels = [self.tr("key_space"), String::new(), self.tr("key_clear"), self.tr("key_done")];
+        let widths: Vec<i32> = labels.iter().map(|l| (c.text_width(l, px) + key_w).max(key_w * 3 / 2)).collect();
+        let total: i32 = widths.iter().sum::<i32>() + gap * (widths.len() as i32 - 1);
+        let mut x = (w - total) / 2;
+        let y = r.y + pad + KEYS.len() as i32 * (key_h + gap);
+        for (ci, l) in labels.iter().enumerate() {
+            let sel = fr == KEYS.len() && fc == ci;
+            let k = Rect::new(x, y, widths[ci], key_h);
+            key(c, k, l, sel);
+            if ci == 1 {
+                back_icon(c, k.x + k.w / 2, k.y + k.h / 2, (px * 0.8) as i32, th.color(if sel { "sel_fg" } else { "fg" }));
+            }
+            x += widths[ci] + gap;
+        }
     }
 
     /// The texture of a cover and its image part, from the LRU (made from the mapped slot
@@ -1388,12 +1681,13 @@ impl<S: SystemAdapter> App<S> {
 
     fn draw_overlay(&mut self, c: &mut dyn Canvas, ov: &Overlay, w: i32, h: i32) {
         match ov {
-            Overlay::Menu { sys, game, focus } => {
-                let rows = self.menu_rows(*sys, *game);
+            Overlay::Menu { sys, game, focus, sub } => {
+                let rows = self.menu_rows(*sys, *game, *sub);
                 let mut out = Vec::new();
                 for row in &rows {
                     out.push(match row {
                         Row::Start => (self.tr("start"), String::new(), true),
+                        Row::Settings => (self.tr("settings"), String::new(), true),
                         Row::StartState => {
                             let s = self.slots(game.unwrap());
                             let v = if !s.usable.is_empty() {
@@ -1413,53 +1707,86 @@ impl<S: SystemAdapter> App<S> {
                     });
                 }
                 let title = match game {
+                    Some(g) if *sub => format!("{} · {}", self.lib.name(*g), self.tr("settings")),
                     Some(g) => self.lib.name(*g).to_string(),
                     None => format!("{} · {}", self.lib.systems[*sys].name, self.tr("console_options")),
                 };
                 self.draw_panel(c, w, h, &out, *focus, &title);
             }
-            Overlay::Slots { game, slots, focus } => {
-                let rows: Vec<(String, String, bool)> = slots
-                    .iter()
-                    .map(|s| (if s == "auto" { self.tr("slot_auto") } else { self.texts.n("slot", s) }, String::new(), true))
-                    .collect();
-                let title = format!("{} · {}", self.lib.name(*game), self.tr("start_state"));
-                self.draw_panel(c, w, h, &rows, *focus, &title);
-            }
-            Overlay::Keyboard { focus } => {
-                let th = self.theme.clone();
-                let px = th.em("label_px", w) as f32;
-                let key = (w - 64) / 10;
-                let kh = (px * 1.8) as i32;
-                let kb_h = kh * (KEYS.len() as i32 + 1) + 24;
-                // above the button hints (label_px * 0.8 tall, 10 px from the bottom)
-                let hints_h = (px * 0.8) as i32 + 20;
-                let r = Rect::new(16, h - kb_h - hints_h, w - 32, kb_h);
-                c.fill(r, th.em("radius_panel", w), th.color("panel_bg"));
-                let (fr, fc) = (focus / 16, focus % 16);
-                for (ri, row) in KEYS.iter().enumerate() {
-                    for (ci, ch) in row.chars().enumerate() {
-                        let k = Rect::new(r.x + 16 + ci as i32 * key, r.y + 12 + ri as i32 * kh, key - 4, kh - 4);
-                        let sel = ri == fr && ci == fc;
-                        c.fill(k, 8, th.color(if sel { "sel_bg" } else { "tile_bg" }));
-                        c.text(&ch.to_string(), k.x + k.w / 2, k.y + (k.h - px as i32) / 2, px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Center, k.w);
-                    }
-                }
-                let labels = [self.tr("key_space"), self.tr("key_clear"), self.tr("key_done")];
-                let aw = (r.w - 32) / 3;
-                for (ci, l) in labels.iter().enumerate() {
-                    let k = Rect::new(r.x + 16 + ci as i32 * aw, r.y + 12 + KEYS.len() as i32 * kh, aw - 4, kh - 4);
-                    let sel = fr == KEYS.len() && fc == ci;
-                    c.fill(k, 8, th.color(if sel { "sel_bg" } else { "tile_bg" }));
-                    c.text(l, k.x + k.w / 2, k.y + (k.h - px as i32) / 2, px * 0.9, th.color(if sel { "sel_fg" } else { "fg" }), Align::Center, k.w - 8);
-                }
-            }
+            Overlay::Slots { game, slots, focus } => self.draw_slots(c, *game, slots, *focus, w, h),
+            Overlay::Keyboard { .. } => {}
             Overlay::Confirm { focus } => {
                 let rows = vec![(self.tr("cancel"), String::new(), true), (self.tr("power_off"), String::new(), true)];
                 let title = self.tr("power_ask");
                 self.draw_panel(c, w, h, &rows, *focus, &title);
             }
         }
+    }
+
+    /// The save states of a game: the slots on the left, the picture RetroArch saved with the
+    /// focused one on the right (savestate_thumbnail_enable), or a note when there is none.
+    fn draw_slots(&mut self, c: &mut dyn Canvas, game: GameRef, slots: &[String], focus: usize, w: i32, h: i32) {
+        let th = self.theme.clone();
+        let px = th.em("label_px", w) as f32;
+        let margin = w / 40;
+        let row_h = (px * 1.9) as i32;
+        let panel = Rect::new(margin, margin * 2, w - 2 * margin, h - margin * 2 - (px * 2.4) as i32);
+        c.fill(Rect::new(0, 0, w, h), 0, th.color("overlay"));
+        c.fill(panel, th.em("radius_panel", w), th.color("panel_bg"));
+        let title = format!("{} · {}", self.lib.name(game), self.tr("start_state"));
+        c.text(&title, panel.x + 24, panel.y + (px * 0.6) as i32, px, th.color("muted"), Align::Left, panel.w - 48);
+        let top = panel.y + (px * 2.2) as i32;
+        let list = Rect::new(panel.x + 12, top, panel.w * 2 / 5 - 12, panel.bottom() - top - 12);
+        let visible = (list.h / row_h).max(1) as usize;
+        let first = focus.saturating_sub(visible - 1);
+        for (i, s) in slots.iter().enumerate().skip(first).take(visible) {
+            let row = Rect::new(list.x, list.y + (i - first) as i32 * row_h, list.w, row_h - 4);
+            let fg = if i == focus {
+                c.fill(row, th.em("radius_item", w).min(row.h / 2), th.color("sel_bg"));
+                th.color("sel_fg")
+            } else {
+                th.color("fg")
+            };
+            let label = if s == "auto" { self.tr("slot_auto") } else { self.texts.n("slot", s) };
+            c.text(&label, row.x + 16, row.y + (row.h - px as i32) / 2, px, fg, Align::Left, row.w - 24);
+        }
+        // the picture of the focused slot, kept in its shape
+        let pic = Rect::new(list.right() + margin, top, panel.right() - 12 - list.right() - margin, list.h);
+        c.fill(pic, th.em("radius_tile", w), th.color("tile_bg_opaque"));
+        match slots.get(focus).and_then(|s| self.slot_picture(c, game, s)) {
+            Some((t, src)) => {
+                let area = pic.inset(6);
+                let k = f64::min(area.w as f64 / src.w as f64, area.h as f64 / src.h as f64);
+                let (dw, dh) = ((src.w as f64 * k) as i32, (src.h as f64 * k) as i32);
+                c.draw_texture(t, src, Rect::new(area.x + (area.w - dw) / 2, area.y + (area.h - dh) / 2, dw, dh));
+            }
+            None => {
+                c.text(&self.tr("no_picture"), pic.x + pic.w / 2, pic.y + (pic.h - px as i32) / 2, px * 0.9, th.color("muted"), Align::Center, pic.w - 16);
+            }
+        }
+    }
+
+    /// The picture of one save state slot (`<state file>.png`), decoded once per slot shown;
+    /// the previous one is freed.
+    fn slot_picture(&mut self, c: &mut dyn Canvas, game: GameRef, slot: &str) -> Option<(TextureId, Rect)> {
+        let rom = self.dirs.rom(&self.lib.systems[game.sys].id, self.lib.path(game));
+        let path = launch::state_picture(&self.dirs.states_prefix(&rom), slot);
+        if let Some((p, pic)) = &self.slot_pic {
+            if *p == path {
+                return *pic;
+            }
+        }
+        if let Some((_, Some((t, _)))) = self.slot_pic.take() {
+            c.free_texture(t);
+        }
+        let tile = lume_index::thumbs::Tile { w: 320, h: 240 };
+        let pic = lume_index::thumbs::render(&path, tile).and_then(|px| {
+            let (cw, ch) = (u16::from_le_bytes([px[0], px[1]]) as i32, u16::from_le_bytes([px[2], px[3]]) as i32);
+            let t = c.texture_rgb565(tile.w as u32, tile.h as u32, &px[4..])?;
+            Some((t, Rect::new((tile.w as i32 - cw) / 2, (tile.h as i32 - ch) / 2, cw.max(1), ch.max(1))))
+        });
+        self.slot_pic = Some((path, pic));
+        pic
     }
 
     pub fn set_row_texts(&self, row: SetRow) -> (String, String) {
@@ -1476,12 +1803,10 @@ impl<S: SystemAdapter> App<S> {
                 (self.tr("language"), format!("‹{} ›", self.tr(key)))
             }
             SetRow::Theme => {
-                // the image themes have a translated name; a card theme shows its id
-                let key = format!("theme_{}", self.settings.theme);
-                let name = if TEXT_KEYS.contains(&key.as_str()) { self.texts.get(&key).to_string() } else { self.settings.theme.clone() };
+                // the name comes from the theme file (its id when it has none)
+                let name = self.themes.name(&self.settings.theme, &self.settings.language);
                 (self.tr("theme"), format!("‹{name} ›"))
             }
-            SetRow::Lite => (self.tr("lite"), self.tr(if self.settings.lite { "on" } else { "off" })),
             SetRow::Volume => (self.tr("volume"), pct("volume")),
             SetRow::Brightness => (self.tr("brightness"), pct("brightness")),
             SetRow::System => (self.tr("system"), String::new()),
@@ -1491,6 +1816,8 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The Settings (prototype): the items on the left, and on the right, a little more than
+    /// half the screen, the panel of the focused item with its value, bar or description.
     fn draw_settings(&mut self, c: &mut dyn Canvas, w: i32, h: i32) {
         let th = self.theme.clone();
         let rows = self.set_rows();
@@ -1498,49 +1825,200 @@ impl<S: SystemAdapter> App<S> {
         let title_px = th.em("title_px", w) as f32;
         let px = th.em("label_px", w) as f32;
         let margin = w / 40;
-        c.text(&self.tr("settings"), margin, margin, title_px, th.color("fg"), Align::Left, w - 2 * margin);
-        let row_h = (px * 1.75) as i32;
+        let batt_x = self.draw_battery(c, w - margin, margin + (title_px - px * 0.85) as i32 / 2, px * 0.85);
+        c.text(&self.tr("settings"), margin, margin, title_px, th.color("fg"), Align::Left, batt_x - 2 * margin);
         let top = title_px as i32 + margin * 2;
-        let info_open = rows.get(focus) == Some(&SetRow::System);
-        let list_w = if info_open { w * 11 / 20 } else { w - 2 * margin };
-        let visible = ((h - top - (px * 2.2) as i32) / row_h).max(1) as usize;
+        let bottom = h - (px * 2.2) as i32;
+        let panel = Rect::new(w * 43 / 100, top, w - margin - w * 43 / 100, bottom - top);
+        // the list: names only, the focused one filled
+        let list_w = panel.x - margin - margin / 2;
+        let row_h = ((px * 1.75) as i32).min((bottom - top) / rows.len().max(1) as i32).max(px as i32 + 6);
+        let visible = ((bottom - top) / row_h).max(1) as usize;
         let first = focus.saturating_sub(visible - 1);
         for (i, row) in rows.iter().enumerate().skip(first).take(visible) {
-            let y = top + (i - first) as i32 * row_h;
-            let r = Rect::new(margin, y, list_w, row_h - 4);
+            let r = Rect::new(margin, top + (i - first) as i32 * row_h, list_w, row_h - 4);
             let sel = i == focus;
             if sel {
                 c.fill(r, th.em("radius_item", w).min(r.h / 2), th.color("sel_bg"));
             }
-            let fg = th.color(if sel { "sel_fg" } else { "fg" });
-            let (label, value) = self.set_row_texts(*row);
-            let ty = r.y + (r.h - px as i32) / 2;
-            let vw = if value.is_empty() || info_open { 0 } else { c.text_width(&value, px * 0.9) };
-            c.text(&label, r.x + 14, ty, px, fg, Align::Left, r.w - 28 - vw - 12);
-            if !value.is_empty() && !info_open {
-                c.text(&value, r.right() - 14, ty, px * 0.9, if sel { fg } else { th.color("muted") }, Align::Right, r.w / 2);
-            }
+            let (label, _) = self.set_row_texts(*row);
+            c.text(&label, r.x + 14, r.y + (r.h - px as i32) / 2, px, th.color(if sel { "sel_fg" } else { "fg" }), Align::Left, r.w - 24);
         }
-        if info_open {
-            let r = Rect::new(margin + list_w + margin, top, w - list_w - 3 * margin, h - top - (px * 2.2) as i32);
-            c.fill(r, th.em("radius_panel", w), th.color("panel_bg"));
-            let ipx = px * 0.75;
-            let mut y = r.y + 12;
-            if let Some((_, info)) = &self.info {
-                for (k, v) in info {
-                    c.text(self.texts.get(k), r.x + 12, y, ipx * 0.9, th.color("muted"), Align::Left, r.w - 24);
-                    c.text(v, r.x + 12, y + ipx as i32, ipx, th.color("fg"), Align::Left, r.w - 24);
-                    y += (ipx * 2.3) as i32;
+        // the panel of the focused item
+        c.fill(panel, th.em("radius_panel", w), th.color("panel_bg"));
+        let inner = panel.inset(margin);
+        let row = rows[focus];
+        let (label, value) = self.set_row_texts(row);
+        c.text(&label, inner.x, inner.y, px * 1.1, th.color("fg"), Align::Left, inner.w);
+        let mut y = inner.y + (px * 2.2) as i32;
+        let small = px * 0.85;
+        match row {
+            SetRow::System => {
+                let ipx = px * 0.8;
+                if let Some((_, info)) = &self.info {
+                    for (k, v) in info {
+                        // label and value on one line; the memory also as a bar
+                        let vw = c.text_width(v, ipx).min(inner.w * 3 / 5);
+                        c.text(self.texts.get(k), inner.x, y, ipx, th.color("muted"), Align::Left, inner.w - vw - 8);
+                        c.text(v, inner.right(), y, ipx, th.color("fg"), Align::Right, vw + 1);
+                        y += (ipx * 1.5) as i32;
+                        if *k == "memory" {
+                            if let Some(share) = used_share(v) {
+                                self.draw_level_bar(c, Rect::new(inner.x, y, inner.w, (ipx * 0.35) as i32 + 2), share);
+                                y += (ipx * 1.1) as i32;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                // the value, large; a level also as a bar; then what the item does
+                if !value.is_empty() {
+                    c.text(&value, inner.x, y, title_px, th.color("accent"), Align::Left, inner.w);
+                    y += (title_px * 1.6) as i32;
+                }
+                if matches!(row, SetRow::Volume | SetRow::Brightness) {
+                    let key = if row == SetRow::Volume { "volume" } else { "brightness" };
+                    if let Some(v) = self.level.get(key) {
+                        self.draw_level_bar(c, Rect::new(inner.x, y, inner.w, (px * 0.5) as i32 + 2), *v as u32 * 100);
+                        y += (px * 1.4) as i32;
+                    }
+                }
+                let desc = match row {
+                    SetRow::Language => Some("desc_language"),
+                    SetRow::Theme => Some("desc_theme"),
+                    SetRow::Volume => Some("desc_volume"),
+                    SetRow::Brightness => Some("desc_brightness"),
+                    SetRow::Update => Some("desc_update"),
+                    SetRow::RetroArch => Some("desc_retroarch"),
+                    SetRow::Power => Some("desc_power"),
+                    _ => None,
+                };
+                if let Some(k) = desc {
+                    for line in wrap(c, &self.tr(k), small, inner.w) {
+                        c.text(&line, inner.x, y, small, th.color("muted"), Align::Left, inner.w);
+                        y += (small * 1.35) as i32;
+                    }
                 }
             }
         }
-        let mut hints = vec![("A", self.tr("hint_select")), ("B", self.tr("hint_back"))];
-        if matches!(rows.get(focus), Some(SetRow::Language | SetRow::Theme | SetRow::Volume | SetRow::Brightness)) {
-            hints.insert(0, ("", self.tr("hint_adjust")));
+        let mut hints = Vec::new();
+        match row {
+            SetRow::Language | SetRow::Theme | SetRow::Volume | SetRow::Brightness => hints.push(("", self.tr("hint_adjust"))),
+            SetRow::Update | SetRow::RetroArch | SetRow::Power => hints.push(("A", self.tr("hint_select"))),
+            _ => {}
         }
+        hints.push(("B", self.tr("hint_back")));
         self.draw_hints(c, w, h, &hints);
+    }
+
+    /// A horizontal level bar: the track and the accent part, `share` in 1/10000.
+    fn draw_level_bar(&self, c: &mut dyn Canvas, r: Rect, share: u32) {
+        let th = &self.theme;
+        c.fill(r, r.h / 2, th.color("tile_bg_opaque"));
+        let fw = (r.w as i64 * share.min(10000) as i64 / 10000) as i32;
+        if fw > 0 {
+            c.fill(Rect::new(r.x, r.y, fw.max(r.h), r.h), r.h / 2, th.color("accent"));
+        }
     }
 }
 
-/// Text keys built at run time: theme names and the System panel (the i18n test reads them)
-pub const TEXT_KEYS: &[&str] = &["theme_material-dark", "theme_material-light", "model", "cpu", "memory", "launcher_rss", "storage", "battery"];
+/// Breaks a text into lines no wider than `max_w`, at spaces (a single long word is cut by
+/// the drawing with an ellipsis).
+fn wrap(c: &mut dyn Canvas, text: &str, px: f32, max_w: i32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let next = if cur.is_empty() { word.to_string() } else { format!("{cur} {word}") };
+        if !cur.is_empty() && c.text_width(&next, px) > max_w {
+            lines.push(std::mem::replace(&mut cur, word.to_string()));
+        } else {
+            cur = next;
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
+/// The used share (1/10000) of a "used / total ..." text of the System panel.
+fn used_share(v: &str) -> Option<u32> {
+    let (a, b) = v.split_once(" / ")?;
+    let used: f64 = a.trim().parse().ok()?;
+    let total: f64 = b.split_whitespace().next()?.parse().ok()?;
+    (total > 0.0).then(|| (used / total * 10000.0).round() as u32)
+}
+
+/// Largest side of a decoded Dock icon (the focused tile is about 170 px at 640x480).
+const ICON_PX: u32 = 192;
+
+/// A PNG as a mask fitting `max` x `max`: its alpha, or its brightness when it is opaque
+/// (a white logo on black). None if it is not a valid PNG or is too large to decode.
+pub fn icon_mask(path: &std::path::Path, max: u32) -> Option<(u32, u32, Vec<u8>)> {
+    let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(32 << 20);
+    reader.limits(limits);
+    let img = reader.decode().ok()?.to_rgba8();
+    let (iw, ih) = img.dimensions();
+    let k = f64::min(max as f64 / iw.max(1) as f64, max as f64 / ih.max(1) as f64).min(1.0);
+    let (w, h) = (((iw as f64 * k).round() as u32).max(1), ((ih as f64 * k).round() as u32).max(1));
+    let small = image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle);
+    let opaque = small.pixels().all(|p| p[3] == 255);
+    let alpha = small
+        .pixels()
+        .map(|p| if opaque { ((p[0] as u32 * 3 + p[1] as u32 * 6 + p[2] as u32) / 10) as u8 } else { p[3] })
+        .collect();
+    Some((w, h, alpha))
+}
+
+#[derive(Clone, Copy)]
+enum Dir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// A filled triangle `w` x `h` centered on (cx, cy), pointing to `dir`, made of 1 px lines
+/// (fills only: any backend, any font).
+fn triangle(c: &mut dyn Canvas, cx: i32, cy: i32, w: i32, h: i32, dir: Dir, color: crate::canvas::Color) {
+    let (w, h) = (w.max(2), h.max(2));
+    match dir {
+        Dir::Left | Dir::Right => {
+            for i in 0..w {
+                // column i from the tip: its height grows to h at the base
+                let hh = h * (i + 1) / w;
+                let x = if matches!(dir, Dir::Left) { cx - w / 2 + i } else { cx + w / 2 - 1 - i };
+                c.fill(Rect::new(x, cy - hh / 2, 1, hh.max(1)), 0, color);
+            }
+        }
+        Dir::Up | Dir::Down => {
+            for i in 0..h {
+                let ww = w * (i + 1) / h;
+                let y = if matches!(dir, Dir::Up) { cy - h / 2 + i } else { cy + h / 2 - 1 - i };
+                c.fill(Rect::new(cx - ww / 2, y, ww.max(1), 1), 0, color);
+            }
+        }
+    }
+}
+
+/// The backspace icon centered on (cx, cy), `size` wide: a left arrow head made of 1 px
+/// columns and a shaft, with fills only (works on any backend and font).
+fn back_icon(c: &mut dyn Canvas, cx: i32, cy: i32, size: i32, color: crate::canvas::Color) {
+    let size = size.max(8);
+    let head = size * 2 / 5;
+    let half = size * 2 / 5;
+    let x0 = cx - size / 2;
+    for i in 0..head {
+        let hh = half * (i + 1) / head;
+        c.fill(Rect::new(x0 + i, cy - hh, 1, 2 * hh + 1), 0, color);
+    }
+    let shaft = (size / 6).max(2);
+    c.fill(Rect::new(x0 + head, cy - shaft / 2, size - head, shaft), 0, color);
+}
+
+/// Text keys built at run time: the System panel (the i18n test reads them). Theme names
+/// come from each theme file.
+pub const TEXT_KEYS: &[&str] = &["model", "cpu", "memory", "launcher_rss", "storage", "battery"];

@@ -150,6 +150,296 @@ fn grid_jump_filter_and_back() {
     assert_eq!(a.dock[a.dock_focus], DockItem::System(0));
 }
 
+#[test]
+fn card_logo_on_the_dock_in_the_icon_color() {
+    let c = card("logo", 3, false);
+    // an icons-only folder on the card for the default theme: a white disc on transparency
+    let icons = c.root.join("storage/system/lume/themes/lume/icons");
+    fs::create_dir_all(&icons).unwrap();
+    let logo = image::RgbaImage::from_fn(200, 100, |x, y| {
+        let inside = (x as i32 - 100).pow(2) + (y as i32 - 50).pow(2) < 45 * 45;
+        image::Rgba([255, 255, 255, if inside { 255 } else { 0 }])
+    });
+    logo.save_with_format(icons.join("nes.png"), ImageFormat::Png).unwrap();
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(0));
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    // the focused tile shows the logo (2:1, inside 78% x 56% of the tile) in its icon color
+    let sel = a.theme.color("icon_sel_fg");
+    let logo = canvas.fills.iter().find(|(r, col)| *col == sel && r.w > 50 && r.w < 300).map(|(r, _)| *r).expect("logo drawn");
+    assert_eq!(logo.w, logo.h * 2, "{logo:?}");
+    let tile = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("icon_sel_bg") && r.contains(&logo)).map(|(r, _)| *r).expect("on its tile");
+    assert!(logo.w <= tile.w * 78 / 100 + 1 && logo.h <= tile.h * 56 / 100 + 1, "{logo:?} in {tile:?}");
+    // a system without a logo keeps its abbreviation
+    assert!(canvas.has_text("SNES"));
+}
+
+#[test]
+fn footer_centered_and_counter_in_the_middle() {
+    let c = card("footer", 12, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    // the hints as a whole: as much room on the left as on the right
+    let row: Vec<_> = canvas.texts.iter().filter(|(_, r)| r.y > 440).map(|(_, r)| *r).collect();
+    let (left, right) = (row.iter().map(|r| r.x).min().unwrap(), row.iter().map(|r| r.right()).max().unwrap());
+    // the first button's chip starts a little left of its letter
+    assert!((left - (640 - right)).abs() <= 12, "left {left}, right {}", 640 - right);
+    let count = canvas.texts.iter().find(|(t, _)| t == "1 / 12").unwrap().1;
+    assert!((count.x + count.w / 2 - 320).abs() <= 2, "{count:?}");
+}
+
+#[test]
+fn battery_in_the_status_bar_of_every_screen() {
+    let c = card("battery", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("82%"), "Dock");
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("82%"), "list");
+    // the counter sits left of the battery, both on the header line
+    let pct = canvas.texts.iter().find(|(t, _)| t == "82%").unwrap().1;
+    let count = canvas.texts.iter().find(|(t, _)| t == "1 / 3").unwrap().1;
+    assert!(count.right() < pct.x && pct.right() <= 640 && pct.y < 40, "{count:?} {pct:?}");
+    // a change redraws; the same reading does not
+    assert!(a.handle(Ev::Battery(81, true)));
+    assert!(!a.handle(Ev::Battery(81, true)));
+    go_back(&mut a);
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("81%"), "Settings");
+    // no battery (the VM): nothing drawn
+    let mut b = app(&c, FakeSystem::default());
+    let mut canvas = FakeCanvas::new(640, 480);
+    b.draw(&mut canvas);
+    assert!(!canvas.texts.iter().any(|(t, _)| t.ends_with('%')));
+}
+
+/// The game list against the prototype measured in the browser at 640x480 (2026-11-15):
+/// header title at (28, 11.2) 28 px bold, counter and battery at y 16 (19.2 px), tiles
+/// 143.6 x 167 from (16, 56.4) 11.2 apart, the focused name band 408-441.7 (22.4 px), the
+/// hint circles 23.7 px at y 449.6. One pixel of rounding allowed.
+#[test]
+fn grid_matches_the_prototype_ruler() {
+    let c = card("ruler", 12, true);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::Right);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let title = a.lib.systems[1].name.clone();
+    let t = canvas.texts.iter().find(|(s, _)| *s == title).unwrap().1;
+    assert!(near(t.x, 28.0) && near(t.y, 11.2) && near(t.h, 28.0), "title {t:?}");
+    let count = canvas.texts.iter().find(|(s, _)| s == "2 / 12").unwrap().1;
+    assert!(near(count.y, 16.0) && near(count.h, 19.2) && (count.x + count.w / 2 - 320).abs() <= 1, "counter {count:?}");
+    let batt = canvas.texts.iter().find(|(s, _)| s == "82%").unwrap().1;
+    assert!(near(batt.right(), 612.0) && near(batt.y, 16.0), "battery {batt:?}");
+    // the unfocused tiles: the first and the third of the first row
+    let tiles: Vec<_> = canvas.fills.iter().filter(|(_, col)| *col == a.theme.color("tile_bg")).map(|(r, _)| *r).collect();
+    let first = tiles.iter().find(|r| near(r.x, 16.0)).copied().expect("first tile");
+    assert!(near(first.y, 56.4) && near(first.w, 143.6) && near(first.h, 167.0), "tile {first:?}");
+    let third = tiles.iter().find(|r| r.y == first.y && r.x > 300).copied().unwrap();
+    assert!(near(third.x, 16.0 + 2.0 * (143.6 + 11.2)), "third {third:?}");
+    let second_row = tiles.iter().find(|r| r.y > 200).copied().unwrap();
+    assert!(near(second_row.y, 56.4 + 167.0 + 11.2), "second row {second_row:?}");
+    // the focused tile: 3% larger, about its center
+    let sel = canvas.fills.iter().find(|(_, col)| *col == a.theme.color("tile_bg_sel")).map(|(r, _)| *r).unwrap();
+    assert!(near(sel.w, 147.9) && near(sel.h, 172.0) && near(sel.y, 53.9), "focused {sel:?}");
+    // the focused name, 22.4 px in the band 408-441.7
+    let name = canvas.texts.iter().find(|(s, _)| s == "Game 0001").unwrap().1;
+    assert!(near(name.h, 22.4) && name.y >= 408 && name.bottom() <= 442, "name {name:?}");
+    // the hint circles
+    let chip = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("accent") && r.w == r.h && r.y > 440).map(|(r, _)| *r).unwrap();
+    assert!(near(chip.w, 23.7) && near(chip.y, 449.6), "chip {chip:?}");
+}
+
+/// The Dock against the prototype measured in the browser at 640x480 (2026-11-15), Favorites
+/// focused: the icons 172.8 at (233.6, 89.1), 130.1 at (414.4, 116.9) and 81.5 at
+/// (552.5, 148.5), 8 px apart; the name 33.6 px at y 306.3, its subtitle 22.4 px at 348.2;
+/// the battery ending at 622.7; the arrows' chip 39.2 x 23.7 at y 449.6. One pixel allowed.
+#[test]
+fn dock_matches_the_prototype_ruler() {
+    let c = card("dockruler", 12, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, false)), ..Default::default() });
+    go_dock(&mut a, DockItem::Favorites);
+    a.handle(Ev::Tick);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let fills = |col: &str| canvas.fills.iter().filter(|(_, c)| *c == a.theme.color(col)).map(|(r, _)| *r).collect::<Vec<_>>();
+    let sel = fills("icon_sel_bg").into_iter().find(|r| r.w > 100).unwrap();
+    assert!(near(sel.x, 233.6) && near(sel.y, 89.1) && near(sel.w, 172.8), "focused {sel:?}");
+    let icons = fills("icon_bg");
+    let n1 = icons.iter().find(|r| r.x > 400 && r.w > 100).copied().unwrap();
+    assert!(near(n1.x, 414.4) && near(n1.y, 116.9) && near(n1.w, 130.1), "neighbor {n1:?}");
+    let n2 = icons.iter().find(|r| r.x > 540 && r.x < 600).copied().unwrap();
+    assert!(near(n2.x, 552.5) && near(n2.y, 148.5) && near(n2.w, 81.5), "second {n2:?}");
+    assert!(near(n1.x - sel.right(), 8.0), "gap {}", n1.x - sel.right());
+    // the star on the focused icon: 0.42 of it, in the icon's color
+    let star = canvas.fills.iter().find(|(r, col)| *col == a.theme.color("icon_sel_fg") && sel.contains(r) && r.w > 40).map(|(r, _)| *r).unwrap();
+    assert!(near(star.w, 172.8 * 0.42), "star {star:?}");
+    let name = canvas.texts.iter().find(|(s, _)| s == "Favorites").unwrap().1;
+    assert!(near(name.y, 306.3) && near(name.h, 33.6), "name {name:?}");
+    let sub = canvas.texts.iter().find(|(s, _)| s.ends_with(" games")).unwrap().1;
+    assert!(near(sub.y, 348.2) && near(sub.h, 22.4), "subtitle {sub:?}");
+    let batt = canvas.texts.iter().find(|(s, _)| s == "82%").unwrap().1;
+    assert!(near(batt.right(), 622.7), "battery {batt:?}");
+    let nav = fills("nav_bg").into_iter().find(|r| r.y > 440).unwrap();
+    assert!(near(nav.w, 39.2) && near(nav.h, 23.7) && near(nav.y, 449.6), "nav chip {nav:?}");
+    assert!(canvas.has_text("Navigate") && canvas.has_text("Select"));
+}
+
+#[test]
+fn search_bar_on_top_keyboard_below_and_the_list_between() {
+    let c = card("tvsearch", 12, true);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::X);
+    // type "1" (numbers row, first key): the list filters as the user types
+    press(&mut a, Action::Up);
+    press(&mut a, Action::A);
+    assert_eq!(a.grid.as_ref().unwrap().filter, "1");
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let n = a.grid.as_ref().unwrap().items.len();
+    assert!(n > 0 && n < 12, "{n}");
+    // the bar in the header band, with the text and the count; no title, no battery
+    let typed = canvas.texts.iter().find(|(s, _)| s == "1").map(|(_, r)| *r).filter(|r| r.y < 53).expect("typed text in the bar");
+    assert!(canvas.has_text(&format!("{n} games")) && typed.y < 53);
+    assert!(!canvas.has_text(&a.lib.systems[1].name));
+    // the keyboard at the bottom, above the hints; the tiles between the bar and it
+    let q = canvas.texts.iter().find(|(s, _)| s == "Q").unwrap().1;
+    assert!(q.y > 240, "{q:?}");
+    // (the keyboard panel may share the tiles' color: the tiles are the tall, narrow ones)
+    let tiles: Vec<_> = canvas.fills.iter().filter(|(r, col)| *col == a.theme.color("tile_bg") && r.w > 100 && r.w < 300 && r.h > 100).map(|(r, _)| *r).collect();
+    assert!(!tiles.is_empty() && tiles.iter().all(|r| r.y >= 53 && r.bottom() < q.y), "{tiles:?}");
+    assert!(canvas.has_text("Close") && !canvas.has_text("Search"));
+    // B lowers the keyboard and the bar goes away; the filter stays on the list
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(!canvas.has_text("Q") && !canvas.has_text(&format!("{n} games")));
+    // the list name stays whole; the filter shows on the right of the header
+    assert!(canvas.has_text(&a.lib.systems[1].name) && canvas.has_text("“1”"));
+    assert_eq!(a.grid.as_ref().unwrap().items.len(), n);
+}
+
+#[test]
+fn grid_shows_covers_only_and_the_focused_name_above_the_hints() {
+    let c = card("covers-grid", 12, true);
+    let mut a = app(&c, FakeSystem::default());
+    let mut canvas = FakeCanvas::new(640, 480);
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::Right);
+    a.draw(&mut canvas);
+    // only the focused game has its name written, once, between the tiles and the hints
+    let names: Vec<_> = canvas.texts.iter().filter(|(t, _)| t.starts_with("Game ")).collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(names[0].0, "Game 0001");
+    let hint = canvas.texts.iter().find(|(t, _)| t == "Select").unwrap();
+    assert!(names[0].1.y < hint.1.y && hint.1.y - names[0].1.y < 60, "{:?} {:?}", names[0].1, hint.1);
+    assert!(canvas.has_text("2 / 12"));
+    // a tile is a box: portrait, at least as tall as wide
+    let tiles: Vec<_> = canvas.fills.iter().filter(|(r, col)| r.y > 40 && r.w > 100 && *col == a.theme.color("tile_bg")).collect();
+    assert!(!tiles.is_empty() && tiles.iter().all(|(r, _)| r.h >= r.w), "{tiles:?}");
+}
+
+#[test]
+fn default_theme_comes_from_the_image_and_cycles() {
+    let c = card("theme", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    // nothing chosen: the default of themes/base.toml
+    assert_eq!(a.settings.theme, "");
+    assert_eq!(a.theme.id, "lume");
+    assert_eq!(a.set_row_texts(SetRow::Theme).1, "‹Lume ›");
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Theme).unwrap();
+    press(&mut a, Action::Right);
+    assert_eq!(a.settings.theme, "material-dark");
+    assert_eq!(a.theme.id, "material-dark");
+    assert_eq!(a.set_row_texts(SetRow::Theme).1, "‹Dark ›");
+    // the choice is saved and read back
+    let b = app(&c, FakeSystem::default());
+    assert_eq!(b.theme.id, "material-dark");
+}
+
+#[test]
+fn search_screen_types_erases_and_closes() {
+    let c = card("search", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let mut canvas = FakeCanvas::new(640, 480);
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    press(&mut a, Action::X);
+    assert!(a.overlay_open());
+    // opens on Q; Z is two rows down; the D-pad stops at the edges
+    press(&mut a, Action::Left);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert_eq!(a.grid.as_ref().unwrap().filter, "Z");
+    assert_eq!(a.grid.as_ref().unwrap().items.len(), 1);
+    // the screen shows the typed text, the live count and its own hints
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("Z"));
+    assert!(canvas.has_text("1 games"));
+    assert!(canvas.has_text("OK"));
+    assert!(!canvas.has_text("Search"), "the grid hints are not drawn under the search");
+    // last row: space, backspace, clear, OK
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Right);
+    press(&mut a, Action::A);
+    assert_eq!(a.grid.as_ref().unwrap().filter, "");
+    assert_eq!(a.grid.as_ref().unwrap().items.len(), 3);
+    // the text stops at 24 characters
+    press(&mut a, Action::Up);
+    for _ in 0..30 {
+        press(&mut a, Action::A);
+    }
+    assert_eq!(a.grid.as_ref().unwrap().filter.chars().count(), 24);
+    for _ in 0..24 {
+        press(&mut a, Action::Down);
+        press(&mut a, Action::A); // backspace (the column stays on it)
+        press(&mut a, Action::Up);
+    }
+    assert_eq!(a.grid.as_ref().unwrap().filter, "");
+    // type "S", then B closes the search and keeps the filter, from the first game
+    press(&mut a, Action::Up);
+    press(&mut a, Action::A);
+    assert_eq!(a.grid.as_ref().unwrap().filter, "S");
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+    assert_eq!(a.screen, Screen::Grid);
+    let g = a.grid.as_ref().unwrap();
+    assert_eq!((g.items.len(), g.focus), (2, 0));
+    // then B in the grid clears the filter before leaving the list
+    press(&mut a, Action::B);
+    assert_eq!(a.grid.as_ref().unwrap().items.len(), 3);
+}
+
+/// From a list: the focused game's menu, then its Settings (Start game, Save states,
+/// Settings, Favorites).
+fn open_game_settings(a: &mut App<FakeSystem>) {
+    press(a, Action::A);
+    press(a, Action::Down);
+    press(a, Action::Down);
+    press(a, Action::A);
+}
+
 fn go_back(a: &mut App<FakeSystem>) {
     while a.screen != Screen::Dock {
         press(a, Action::B);
@@ -187,7 +477,7 @@ fn native_runner_has_no_aspect_or_shader() {
     let mut canvas = FakeCanvas::new(640, 480);
     go_dock(&mut a, DockItem::System(2)); // ports
     press(&mut a, Action::A);
-    press(&mut a, Action::A);
+    open_game_settings(&mut a);
     a.draw(&mut canvas);
     assert!(canvas.has_text("Emulator"));
     assert!(!canvas.has_text("Aspect") && !canvas.has_text("Shader"));
@@ -195,7 +485,7 @@ fn native_runner_has_no_aspect_or_shader() {
     go_back(&mut a);
     go_dock(&mut a, DockItem::System(0));
     press(&mut a, Action::A);
-    press(&mut a, Action::A);
+    open_game_settings(&mut a);
     a.draw(&mut canvas);
     assert!(canvas.has_text("Aspect") && canvas.has_text("Shader"));
 }
@@ -213,10 +503,7 @@ fn console_default_then_game_exception() {
     let sys = fs::read_to_string(c.root.join("storage/system/lume/systems/nes.toml")).unwrap();
     assert!(sys.contains("nestopia"), "{sys}");
     // one game back on fceumm: an exception with a badge
-    press(&mut a, Action::A);
-    for _ in 0..2 {
-        press(&mut a, Action::Down); // Start, Start state, Emulator
-    }
+    open_game_settings(&mut a); // Emulator first
     press(&mut a, Action::Right); // Default -> fceumm (differs from the console)
     let games = fs::read_to_string(c.root.join("storage/system/lume/games/nes.toml")).unwrap();
     assert!(games.contains("fceumm"), "{games}");
@@ -235,8 +522,8 @@ fn favorites_and_recents() {
     go_dock(&mut a, DockItem::System(0));
     press(&mut a, Action::A);
     press(&mut a, Action::A);
-    // Start, Start state, Emulator, Aspect, Shader, Favorites
-    for _ in 0..5 {
+    // Start game, Save states, Settings, Favorites
+    for _ in 0..3 {
         press(&mut a, Action::Down);
     }
     press(&mut a, Action::A);
@@ -300,6 +587,97 @@ fn settings_adapters_language_and_power() {
 }
 
 #[test]
+fn settings_list_wraps_and_the_panel_takes_half_the_screen() {
+    let c = card("setwrap", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let n = a.set_rows().len();
+    assert!(!a.set_rows().iter().any(|r| format!("{r:?}") == "Lite"), "no lite mode");
+    // up on the first item goes to the last; down on the last to the first
+    press(&mut a, Action::Up);
+    assert_eq!(a.settings_focus, n - 1);
+    press(&mut a, Action::Down);
+    assert_eq!(a.settings_focus, 0);
+    // the panel on the right is a little more than half the screen
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let panel = canvas.fills.iter().filter(|(r, col)| *col == a.theme.color("panel_bg") && r.h > 200).map(|(r, _)| *r).next().unwrap();
+    assert!(panel.w > 320 && panel.w < 400 && panel.right() >= 600, "{panel:?}");
+    // the list keeps to the left of it
+    let lang = canvas.texts.iter().find(|(t, r)| t == "Language" && r.x < 100).unwrap().1;
+    assert!(lang.right() < panel.x, "{lang:?}");
+}
+
+#[test]
+fn game_menu_start_states_settings_favorite() {
+    let c = card("gamemenu", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    press(&mut a, Action::A);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    for t in ["Start game", "Save states", "Settings", "Add to favorites"] {
+        assert!(canvas.has_text(t), "{t}");
+    }
+    assert!(!canvas.has_text("Emulator"), "the core is in Settings now");
+    // Settings opens core, aspect and shader; B goes back to the game menu
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("Emulator") && canvas.has_text("Aspect") && canvas.has_text("Shader"));
+    press(&mut a, Action::B);
+    assert!(a.overlay_open());
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("Start game"));
+    // the menu wraps too: up from Start game is Favorites
+    press(&mut a, Action::B);
+    press(&mut a, Action::A);
+    press(&mut a, Action::Up);
+    press(&mut a, Action::A);
+    assert_eq!(a.lib.favorites().len(), 1);
+}
+
+#[test]
+fn save_states_show_their_picture() {
+    let c = card("statepic", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    // two states of the first NES game (by name: Super Mario Bros); one has a picture
+    let states = c.root.join("storage/states/nes");
+    fs::create_dir_all(&states).unwrap();
+    fs::write(states.join("Super Mario Bros.state1"), "x").unwrap();
+    fs::write(states.join("Super Mario Bros.state2"), "x").unwrap();
+    RgbImage::from_pixel(256, 224, Rgb([200, 30, 30])).save_with_format(states.join("Super Mario Bros.state1.png"), ImageFormat::Png).unwrap();
+    go_dock(&mut a, DockItem::System(0));
+    press(&mut a, Action::A);
+    let first = a.grid.as_ref().unwrap().items.iter().position(|r| a.lib.name(*r) == "Super Mario Bros").unwrap();
+    a.grid.as_mut().unwrap().focus = first;
+    press(&mut a, Action::A);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A); // Save states
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("Slot 1") && canvas.has_text("Slot 2"));
+    let live = canvas.live_textures;
+    assert!(live >= 1, "the picture of slot 1 is a texture");
+    assert!(!canvas.has_text("No picture"));
+    // slot 2 has none: a note, and the previous picture is freed
+    press(&mut a, Action::Down);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("No picture"));
+    assert_eq!(canvas.live_textures, live - 1);
+    // the list wraps; B goes back to the game menu on Save states
+    press(&mut a, Action::Down);
+    a.draw(&mut canvas);
+    assert!(!canvas.has_text("No picture"));
+    press(&mut a, Action::B);
+    a.draw(&mut canvas);
+    assert!(canvas.has_text("Start game"));
+}
+
+#[test]
 fn retroarch_item_opens_the_menu_with_code_65() {
     let c = card("ramenu", 3, false);
     let mut a = app(&c, FakeSystem::default());
@@ -314,9 +692,13 @@ fn retroarch_item_opens_the_menu_with_code_65() {
     // seen on the GA36 on 2026-11-14)
     let mut b = app(&c, FakeSystem { vol: 60, bri: 70, ..Default::default() });
     assert_eq!(b.screen, Screen::Settings);
-    let mut canvas = FakeCanvas::new(640, 480);
-    b.draw(&mut canvas);
-    assert!(canvas.has_text("‹60% ›") && canvas.has_text("‹70% ›") && !canvas.has_text("—"));
+    // the panel of each level shows it
+    for (row, text) in [(SetRow::Volume, "‹60% ›"), (SetRow::Brightness, "‹70% ›")] {
+        b.settings_focus = b.set_rows().iter().position(|r| *r == row).unwrap();
+        let mut canvas = FakeCanvas::new(640, 480);
+        b.draw(&mut canvas);
+        assert!(canvas.has_text(text) && !canvas.has_text("—"), "{text}");
+    }
 }
 
 #[test]
@@ -324,14 +706,27 @@ fn volume_keys_show_a_bar_or_the_settings_percent() {
     let c = card("volbar", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
     let mut canvas = FakeCanvas::new(640, 480);
-    // on the Dock: the bar on the right edge, with the level, gone after its time
+    // on the Dock: the bar on the right edge, no number, gone after its time
     assert!(a.handle(Ev::Volume(35)));
     a.draw(&mut canvas);
-    assert!(canvas.has_text("35%"));
+    assert!(!canvas.has_text("35%"));
     // the bar's shapes (the Dock itself runs off both edges on purpose)
     let screen = lume_ui::canvas::Rect::new(0, 0, 640, 480);
     let bar: Vec<_> = canvas.fills.iter().filter(|(r, _)| r.x > 560 && r.h >= 100).collect();
     assert!(!bar.is_empty() && bar.iter().all(|(r, _)| screen.contains(r)), "{bar:?}");
+    // in a list: the bar stays in the right margin, clear of the tiles and their focus ring
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    for _ in 0..3 {
+        press(&mut a, Action::Right); // the focus on the last column
+    }
+    assert!(a.handle(Ev::Volume(60)));
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let bar: Vec<_> = canvas.fills.iter().filter(|(r, c)| r.h >= 100 && r.w <= 8 && *c == a.theme.color("accent")).collect();
+    let tiles_right = canvas.fills.iter().filter(|(r, _)| r.w > 100 && r.w < 300 && r.h > 100).map(|(r, _)| r.right()).max().unwrap();
+    assert!(!bar.is_empty() && bar.iter().all(|(r, _)| r.x >= tiles_right), "{bar:?} vs {tiles_right}");
+    go_back(&mut a);
     let wait = a.wait().unwrap();
     assert!(wait <= lume_ui::app::VOLUME_BAR && wait > Duration::from_millis(1000));
     a.volume_bar = a.volume_bar.map(|(v, _)| (v, Instant::now()));
@@ -343,11 +738,11 @@ fn volume_keys_show_a_bar_or_the_settings_percent() {
     press(&mut a, Action::A);
     assert!(a.handle(Ev::Volume(100)));
     assert_eq!(a.volume_bar, None);
+    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
     let mut canvas = FakeCanvas::new(640, 480);
     a.draw(&mut canvas);
-    assert!(canvas.has_text("‹100% ›") && !canvas.has_text("100%"), "only the row shows it");
+    assert!(canvas.has_text("‹100% ›") && !canvas.has_text("100%"), "only the Volume panel shows it");
     // and the next step of the row starts from there
-    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Volume).unwrap();
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 95);
 }
@@ -384,6 +779,11 @@ fn layouts_fit_three_resolutions() {
         if (w, h) == (720, 720) {
             assert!(a.rows > 2, "a square screen gets more rows");
         }
+        // the search screen: every key on screen and no key label cut
+        press(&mut a, Action::X);
+        a.draw(&mut canvas);
+        assert!(canvas.fills.iter().all(|(r, _)| screen.contains(r)), "search {w}x{h}");
+        assert!(canvas.clipped.is_empty(), "search {w}x{h}: cut {:?}", canvas.clipped);
         let _ = canvas.size();
     }
 }

@@ -106,6 +106,21 @@ mod tests {
         assert!(unused.is_empty(), "keys never used: {unused:?}");
     }
 
+    /// Every character of the three languages and the symbols the code draws exist in the
+    /// font given by LUME_FONT (the image's Roboto; skipped without it: the font is not in
+    /// git). Run: LUME_FONT=.../Roboto-Regular.ttf cargo test -p lume-ui every_glyph
+    #[test]
+    fn the_font_has_every_glyph_the_launcher_draws() {
+        let Some(font) = crate::font::Font::bundled() else { return };
+        let mut chars: BTreeSet<char> = "‹›“”·…%/0123456789".chars().collect();
+        for lang in LANGUAGES {
+            let t: BTreeMap<String, String> = toml::from_str(&std::fs::read_to_string(dir().join(format!("{lang}.toml"))).unwrap()).unwrap();
+            chars.extend(t.values().flat_map(|v| v.chars()));
+        }
+        let missing: Vec<char> = chars.into_iter().filter(|c| !c.is_whitespace() && !font.has(*c)).collect();
+        assert!(missing.is_empty(), "missing glyphs: {missing:?}");
+    }
+
     #[test]
     fn numbers_and_fallback() {
         let t = Texts::load(&dir(), "pt");

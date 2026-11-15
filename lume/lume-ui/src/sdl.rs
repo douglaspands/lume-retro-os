@@ -27,6 +27,18 @@ pub struct SdlCanvas<T: RenderTarget> {
     next: TextureId,
     font: Font,
     glyphs: HashMap<(char, u32), GlyphTex>,
+    /// the medium and bold faces with their glyphs, swapped with the regular ones while
+    /// drawing in that weight
+    medium: Option<Font>,
+    glyphs_medium: HashMap<(char, u32), GlyphTex>,
+    bold: Option<Font>,
+    glyphs_bold: HashMap<(char, u32), GlyphTex>,
+}
+
+#[derive(Clone, Copy)]
+enum Face {
+    Medium,
+    Bold,
 }
 
 fn sdl(c: Color) -> sdl2::pixels::Color {
@@ -36,7 +48,52 @@ fn sdl(c: Color) -> sdl2::pixels::Color {
 impl<T: RenderTarget> SdlCanvas<T> {
     /// `creator` is `canvas.texture_creator()` (not generic in sdl2).
     pub fn new(canvas: sdl2::render::Canvas<T>, creator: TextureCreator<T::Context>, font: Font) -> SdlCanvas<T> {
-        SdlCanvas { canvas, creator, textures: HashMap::new(), next: 1, font, glyphs: HashMap::new() }
+        SdlCanvas {
+            canvas,
+            creator,
+            textures: HashMap::new(),
+            next: 1,
+            font,
+            glyphs: HashMap::new(),
+            medium: None,
+            glyphs_medium: HashMap::new(),
+            bold: None,
+            glyphs_bold: HashMap::new(),
+        }
+    }
+
+    /// Adds the medium (500) and bold (700) faces; without one, that weight uses the
+    /// regular face.
+    pub fn with_faces(mut self, medium: Option<Font>, bold: Option<Font>) -> SdlCanvas<T> {
+        self.medium = medium;
+        self.bold = bold;
+        self
+    }
+
+    /// Runs `f` with another face (and its glyph cache) in place of the regular one.
+    fn as_face<R>(&mut self, face: Face, f: impl FnOnce(&mut Self) -> R) -> R {
+        let (slot, cache) = match face {
+            Face::Medium => (&mut self.medium, &mut self.glyphs_medium),
+            Face::Bold => (&mut self.bold, &mut self.glyphs_bold),
+        };
+        let Some(mut other) = slot.take() else { return f(self) };
+        let mut other_glyphs = std::mem::take(cache);
+        std::mem::swap(&mut self.font, &mut other);
+        std::mem::swap(&mut self.glyphs, &mut other_glyphs);
+        let r = f(self);
+        std::mem::swap(&mut self.glyphs, &mut other_glyphs);
+        std::mem::swap(&mut self.font, &mut other);
+        match face {
+            Face::Medium => {
+                self.medium = Some(other);
+                self.glyphs_medium = other_glyphs;
+            }
+            Face::Bold => {
+                self.bold = Some(other);
+                self.glyphs_bold = other_glyphs;
+            }
+        }
+        r
     }
 
     fn glyph(&mut self, ch: char, px: f32) -> &GlyphTex {
@@ -102,6 +159,29 @@ impl<T: RenderTarget> Canvas for SdlCanvas<T> {
         Some(id)
     }
 
+    fn texture_mask(&mut self, w: u32, h: u32, alpha: &[u8]) -> Option<TextureId> {
+        // white with the mask as alpha, tinted per draw (as the glyphs)
+        let mut rgba = Vec::with_capacity(alpha.len() * 4);
+        for a in alpha {
+            rgba.extend_from_slice(&[255, 255, 255, *a]);
+        }
+        let mut t = self.creator.create_texture_static(PixelFormatEnum::ABGR8888, w, h).ok()?;
+        t.update(None, &rgba, (w * 4) as usize).ok()?;
+        t.set_blend_mode(BlendMode::Blend);
+        let id = self.next;
+        self.next += 1;
+        self.textures.insert(id, t);
+        Some(id)
+    }
+
+    fn draw_mask(&mut self, t: TextureId, dst: Rect, c: Color) {
+        if let Some(tex) = self.textures.get_mut(&t) {
+            tex.set_color_mod(c.r, c.g, c.b);
+            tex.set_alpha_mod(c.a);
+            let _ = self.canvas.copy(tex, None, sdl2::rect::Rect::new(dst.x, dst.y, dst.w.max(1) as u32, dst.h.max(1) as u32));
+        }
+    }
+
     fn free_texture(&mut self, t: TextureId) {
         if let Some(tex) = self.textures.remove(&t) {
             unsafe { tex.destroy() };
@@ -143,6 +223,22 @@ impl<T: RenderTarget> Canvas for SdlCanvas<T> {
 
     fn text_width(&mut self, s: &str, px: f32) -> i32 {
         self.font.width(s, px)
+    }
+
+    fn text_bold(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32 {
+        self.as_face(Face::Bold, |me| me.text(s, x, y, px, c, align, max_w))
+    }
+
+    fn text_width_bold(&mut self, s: &str, px: f32) -> i32 {
+        self.as_face(Face::Bold, |me| me.font.width(s, px))
+    }
+
+    fn text_medium(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32 {
+        self.as_face(Face::Medium, |me| me.text(s, x, y, px, c, align, max_w))
+    }
+
+    fn text_width_medium(&mut self, s: &str, px: f32) -> i32 {
+        self.as_face(Face::Medium, |me| me.font.width(s, px))
     }
 
     fn present(&mut self) {

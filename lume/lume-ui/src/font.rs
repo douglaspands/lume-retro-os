@@ -1,10 +1,16 @@
 //! Text with fontdue (lume-launcher D3): glyphs rasterized in Rust, no FreeType. The font is
-//! Noto Sans from /usr/share/lume/fonts (LUME_FONT replaces it, for the tests); glyphs are
-//! cached per size, and the backend keeps them in a texture atlas.
+//! Roboto, the prototype's, from /usr/share/lume/fonts in three weights: regular (400),
+//! medium (500) and bold (700). LUME_FONT, LUME_FONT_MEDIUM and LUME_FONT_BOLD replace them
+//! (the tests, the screenshots on a PC). Glyphs are cached per size, and the backend keeps
+//! them in textures.
 
 use std::collections::HashMap;
 
-pub const DEFAULT_PATHS: &[&str] = &["/usr/share/lume/fonts/NotoSans-Regular.ttf"];
+pub const DEFAULT_PATHS: &[&str] = &["/usr/share/lume/fonts/Roboto-Regular.ttf"];
+/// The medium face (counter, battery, the focused game's name).
+pub const MEDIUM_PATHS: &[&str] = &["/usr/share/lume/fonts/Roboto-Medium.ttf"];
+/// The bold face (titles, button letters).
+pub const BOLD_PATHS: &[&str] = &["/usr/share/lume/fonts/Roboto-Bold.ttf"];
 
 pub struct Glyph {
     pub metrics: fontdue::Metrics,
@@ -24,13 +30,27 @@ impl Font {
         Some(Font { font, cache: HashMap::new(), advances: HashMap::new() })
     }
 
-    /// The image font, or LUME_FONT; None when there is none (the fake backend then
-    /// estimates widths).
-    pub fn bundled() -> Option<Font> {
-        if let Some(p) = std::env::var_os("LUME_FONT") {
+    fn face(env: &str, paths: &[&str]) -> Option<Font> {
+        if let Some(p) = std::env::var_os(env) {
             return Font::load(&p.to_string_lossy());
         }
-        DEFAULT_PATHS.iter().find_map(|p| Font::load(p))
+        paths.iter().find_map(|p| Font::load(p))
+    }
+
+    /// The regular face, or LUME_FONT; None when there is none (the fake backend then
+    /// estimates widths).
+    pub fn bundled() -> Option<Font> {
+        Font::face("LUME_FONT", DEFAULT_PATHS)
+    }
+
+    /// The medium face, or LUME_FONT_MEDIUM; None: medium text uses the regular face.
+    pub fn bundled_medium() -> Option<Font> {
+        Font::face("LUME_FONT_MEDIUM", MEDIUM_PATHS)
+    }
+
+    /// The bold face, or LUME_FONT_BOLD; None: bold text uses the regular face.
+    pub fn bundled_bold() -> Option<Font> {
+        Font::face("LUME_FONT_BOLD", BOLD_PATHS)
     }
 
     fn key(c: char, px: f32) -> (char, u32) {
@@ -63,6 +83,11 @@ impl Font {
     /// Ascent of the font at `px` (baseline offset from the top of a line).
     pub fn ascent(&self, px: f32) -> f32 {
         self.font.horizontal_line_metrics(px).map(|m| m.ascent).unwrap_or(px * 0.8)
+    }
+
+    /// Whether the font has a glyph for `c` (index 0 is the "missing" box).
+    pub fn has(&self, c: char) -> bool {
+        self.font.lookup_glyph_index(c) != 0
     }
 
     /// The longest prefix of `s` that fits in `max_w` with an ellipsis.

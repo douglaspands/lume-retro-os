@@ -3,6 +3,7 @@
 # sun.
 [theme]
 id = "material-light"
+name = { en = "Light", pt = "Claro", es = "Claro" }
 extends = "material-dark"
 
 [tokens]
@@ -23,5 +24,7 @@ panel_bg = "#ECE6F0"
 panel_bg_opaque = "#ECE6F0"
 sel_bg = "#E8DEF8"
 sel_fg = "#1D192B"
+nav_bg = "#E8DEF8"
+nav_fg = "#1D192B"
 toast_bg = "#322F35"
 toast_fg = "#F5EFF7"

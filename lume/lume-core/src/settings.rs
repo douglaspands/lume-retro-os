@@ -1,5 +1,5 @@
 //! Launcher settings (`ROMS/system/lume/settings.toml`, lume-launcher D6, D10): language,
-//! theme, lite mode, preferred volume and brightness. Unknown or invalid values fall back to
+//! theme, preferred volume and brightness. Unknown or invalid values fall back to
 //! the default, so an old or hand-edited file never stops the launcher.
 
 use std::io;
@@ -13,8 +13,8 @@ pub const LANGUAGES: &[&str] = &["en", "pt", "es"];
 #[serde(default)]
 pub struct Settings {
     pub language: String,
+    /// theme id; empty: the default theme of the image (themes/base.toml)
     pub theme: String,
-    pub lite: bool,
     /// 0-100, `None` keeps the mixer as it is
     pub volume: Option<u8>,
     /// 0-100, `None` keeps the backlight as it is
@@ -23,7 +23,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { language: "en".into(), theme: "material-dark".into(), lite: false, volume: None, brightness: None }
+        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None }
     }
 }
 
@@ -63,9 +63,12 @@ mod tests {
     #[test]
     fn round_trip_and_fallbacks() {
         let p = std::env::temp_dir().join(format!("lume-settings-{}.toml", std::process::id()));
-        let s = Settings { language: "es".into(), lite: true, volume: Some(70), ..Default::default() };
+        let s = Settings { language: "es".into(), volume: Some(70), ..Default::default() };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p), s);
+        // a file from before the lite mode was removed still loads
+        std::fs::write(&p, "language = \"pt\"\nlite = true\n").unwrap();
+        assert_eq!(Settings::load(&p).language, "pt");
         std::fs::write(&p, "language = \"xx\"\nvolume = 250\nunknown = 1\n").unwrap();
         let l = Settings::load(&p);
         assert_eq!(l.language, "en");

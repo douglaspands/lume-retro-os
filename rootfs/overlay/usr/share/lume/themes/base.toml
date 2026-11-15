@@ -1,0 +1,60 @@
+# Base of every theme (lume-launcher D11, docs/lume-launcher/formato-de-tema.md).
+# `default`: the theme used when none is chosen, or when the chosen one is invalid.
+# [tokens]: the value of every token a theme does not set. This list is also the list of
+# tokens that exist: a theme that sets any other token is refused. A string is a color
+# (#rrggbb or #rrggbbaa); a number is a size in em (1/40 of the screen width) or a count.
+# Only the image brings this file: a card theme cannot change it.
+default = "lume"
+
+[tokens]
+bg = "#14161a"
+fg = "#f0f0f0"
+muted = "#9aa0aa"
+accent = "#4cc2ff"
+accent_fg = "#001018"
+overlay = "#000000aa"
+radius_icon = 1.4
+radius_tile = 0.5
+radius_panel = 1.4
+radius_item = 1.6
+cols = 4
+rows = 2
+icon = 5.8
+# The Dock (prototype at 640x480): icons dock_gap em apart; each icon passes at dock_origin
+# of its height through the line at dock_top of the screen height (a larger icon rises);
+# the name (dock_name_px) and its subtitle (dock_sub_px) under it
+dock_gap = 0.5
+mag_peak = 1.5
+mag_base = 0.8
+mag_spread = 0.8
+dock_top = 0.42
+dock_origin = 0.651
+dock_name_px = 2.1
+dock_sub_px = 1.4
+icon_bg = "#2a2f38"
+icon_fg = "#ffffff"
+icon_sel_bg = "#2a2f38"
+icon_sel_fg = "#ffffff"
+tile_bg = "#ffffff18"
+tile_bg_sel = "#ffffff30"
+tile_bg_opaque = "#22262c"
+panel_bg = "#1b1f25e6"
+panel_bg_opaque = "#1b1f25"
+sel_bg = "#4cc2ff"
+sel_fg = "#001018"
+# the arrows' chip of the button hints (tonal)
+nav_bg = "#2a2f38"
+nav_fg = "#ffffff"
+toast_bg = "#4cc2ff"
+toast_fg = "#001018"
+label_px = 1.25
+title_px = 1.6
+# The game list, measured on the prototype at 640x480 (1 em = 16 px): the header title
+# (28 px, bold), the focused game's name (22.4 px), the counter and the battery (19.2 px)
+# and the button hints of every screen (19.2 px, letters 16.3 px bold in a 23.7 px circle)
+list_title_px = 1.75
+list_name_px = 1.4
+status_px = 1.2
+hint_px = 1.2
+anim_ms = 200
+cache_bytes = 4194304

@@ -19,6 +19,21 @@ pub trait SystemAdapter {
     fn set_brightness(&mut self, pct: u8);
     /// (text key, value) pairs of the System panel
     fn info(&self) -> Vec<(&'static str, String)>;
+    /// battery level in percent and whether it is charging; None without a battery
+    fn battery(&self) -> Option<(u8, bool)>;
+}
+
+/// The battery of /sys/class/power_supply (the first supply of type Battery): level and
+/// charging. Two small sysfs reads; the status bar asks every 30 s from its own thread.
+pub fn read_battery(sys: &Path) -> Option<(u8, bool)> {
+    let bat = std::fs::read_dir(sys.join("class/power_supply"))
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| std::fs::read_to_string(p.join("type")).map(|t| t.trim() == "Battery").unwrap_or(false))?;
+    let cap = read_num(&bat.join("capacity"))?.min(100) as u8;
+    let status = std::fs::read_to_string(bat.join("status")).unwrap_or_default();
+    Some((cap, matches!(status.trim(), "Charging" | "Full")))
 }
 
 pub struct RealSystem {
@@ -177,22 +192,22 @@ impl SystemAdapter for RealSystem {
         let kb = |k: &str| mem.lines().find(|l| l.starts_with(k)).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
         out.push(("memory", format!("{} / {} MB", (kb("MemTotal:") - kb("MemAvailable:")) / 1024, kb("MemTotal:") / 1024)));
         let rss = std::fs::read_to_string(self.proc_.join("self/status")).unwrap_or_default();
-        let rss = rss.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)).unwrap_or("?").to_string();
-        out.push(("launcher_rss", format!("{rss} KB")));
+        let rss = rss.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)).and_then(|k| k.parse::<u64>().ok());
+        out.push(("launcher_rss", rss.map(|k| format!("{} MB", (k + 512) / 1024)).unwrap_or_else(|| "?".into())));
         let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
         let storage = std::ffi::CString::new("/storage").unwrap();
         if unsafe { libc::statvfs(storage.as_ptr(), &mut st) } == 0 {
             let gb = |blocks: u64| blocks as f64 * st.f_frsize as f64 / 1e9;
             out.push(("storage", format!("{:.1} / {:.1} GB", gb(st.f_blocks as u64 - st.f_bavail as u64), gb(st.f_blocks as u64))));
         }
-        if let Some(bat) = std::fs::read_dir(self.sys.join("class/power_supply")).ok().and_then(|d| {
-            d.flatten().map(|e| e.path()).find(|p| std::fs::read_to_string(p.join("type")).map(|t| t.trim() == "Battery").unwrap_or(false))
-        }) {
-            let cap = read_num(&bat.join("capacity")).unwrap_or(0);
-            let status = std::fs::read_to_string(bat.join("status")).unwrap_or_default();
-            out.push(("battery", format!("{cap}%{}", if status.trim() == "Charging" { " +" } else { "" })));
+        if let Some((cap, charging)) = read_battery(&self.sys) {
+            out.push(("battery", format!("{cap}%{}", if charging { " +" } else { "" })));
         }
         out
+    }
+
+    fn battery(&self) -> Option<(u8, bool)> {
+        read_battery(&self.sys)
     }
 }
 
@@ -227,6 +242,7 @@ pub struct FakeSystem {
     pub vol: u8,
     pub bri: u8,
     pub info_reads: std::cell::Cell<u32>,
+    pub batt: Option<(u8, bool)>,
 }
 
 impl SystemAdapter for FakeSystem {
@@ -258,11 +274,32 @@ impl SystemAdapter for FakeSystem {
         self.info_reads.set(self.info_reads.get() + 1);
         vec![("model", "Fake".into()), ("launcher_rss", "1234 KB".into())]
     }
+    fn battery(&self) -> Option<(u8, bool)> {
+        self.batt
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battery_from_sysfs() {
+        let sys = std::env::temp_dir().join(format!("lume-sys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&sys);
+        let ps = sys.join("class/power_supply");
+        for (name, kind) in [("axp20x-usb", "USB"), ("axp20x-battery", "Battery")] {
+            std::fs::create_dir_all(ps.join(name)).unwrap();
+            std::fs::write(ps.join(name).join("type"), format!("{kind}\n")).unwrap();
+        }
+        assert_eq!(read_battery(&sys), None, "no capacity yet");
+        std::fs::write(ps.join("axp20x-battery/capacity"), "82\n").unwrap();
+        std::fs::write(ps.join("axp20x-battery/status"), "Discharging\n").unwrap();
+        assert_eq!(read_battery(&sys), Some((82, false)));
+        std::fs::write(ps.join("axp20x-battery/status"), "Charging\n").unwrap();
+        assert_eq!(read_battery(&sys), Some((82, true)));
+        assert_eq!(read_battery(Path::new("/nonexistent")), None);
+    }
 
     #[test]
     fn language_is_written_for_retroarch_and_lib_sh() {

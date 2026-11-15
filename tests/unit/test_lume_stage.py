@@ -32,7 +32,10 @@ def test_aport_builds_offline_from_the_stage():
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', APKBUILD, re.M)
     for b in ("lume-run", "lume-ui", "lume-index"):
         assert f"{b}" in APKBUILD
-    assert "NotoSans-Regular" in APKBUILD and "OFL-1.1" in APKBUILD
+    # the prototype's font, in the three weights the launcher draws with
+    for face in ("Roboto-Regular", "Roboto-Medium", "Roboto-Bold"):
+        assert face in APKBUILD
+    assert "font-roboto" in APKBUILD and "Apache-2.0" in APKBUILD
     assert "/aports/*/stage/" in (REPO_ROOT / ".gitignore").read_text()
     assert "lume-launcher" in (REPO_ROOT / "rootfs/packages.txt").read_text().split()
 

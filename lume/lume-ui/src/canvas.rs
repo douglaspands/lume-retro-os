@@ -78,14 +78,35 @@ pub trait Canvas {
     fn fill(&mut self, r: Rect, radius: i32, c: Color);
     /// A texture made from RGB565 pixels (thumbnails), owned by the backend.
     fn texture_rgb565(&mut self, w: u32, h: u32, pixels: &[u8]) -> Option<TextureId>;
+    /// A mask texture (one alpha byte per pixel), drawn in one color by `draw_mask`: flat
+    /// icons such as the console logos of a card theme, like the glyphs.
+    fn texture_mask(&mut self, w: u32, h: u32, alpha: &[u8]) -> Option<TextureId>;
     fn free_texture(&mut self, t: TextureId);
     /// The `src` part of a texture into `dst`.
     fn draw_texture(&mut self, t: TextureId, src: Rect, dst: Rect);
+    /// A whole mask texture into `dst`, in the color `c`.
+    fn draw_mask(&mut self, t: TextureId, dst: Rect, c: Color);
     /// One line of text with its left (or center, right) at `x` and its top at `y`, clipped
     /// to `max_w` (an ellipsis when it does not fit). Returns the drawn width.
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32;
     fn text_width(&mut self, s: &str, px: f32) -> i32;
+    /// The same as `text` in the bold face (the regular one when there is no bold).
+    #[allow(clippy::too_many_arguments)]
+    fn text_bold(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32 {
+        self.text(s, x, y, px, c, align, max_w)
+    }
+    fn text_width_bold(&mut self, s: &str, px: f32) -> i32 {
+        self.text_width(s, px)
+    }
+    /// The same as `text` in the medium face (500; the regular one when there is none).
+    #[allow(clippy::too_many_arguments)]
+    fn text_medium(&mut self, s: &str, x: i32, y: i32, px: f32, c: Color, align: Align, max_w: i32) -> i32 {
+        self.text(s, x, y, px, c, align, max_w)
+    }
+    fn text_width_medium(&mut self, s: &str, px: f32) -> i32 {
+        self.text_width(s, px)
+    }
     fn present(&mut self);
 }
 
@@ -143,9 +164,20 @@ impl Canvas for FakeCanvas {
         self.live_textures -= 1;
     }
 
+    fn texture_mask(&mut self, _w: u32, _h: u32, _alpha: &[u8]) -> Option<TextureId> {
+        self.textures += 1;
+        self.live_textures += 1;
+        Some(self.textures)
+    }
+
     fn draw_texture(&mut self, _t: TextureId, _src: Rect, dst: Rect) {
         // recorded with the fills: the layout tests check that everything is on screen
         self.current_fills.push((dst, Color::default()));
+    }
+
+    fn draw_mask(&mut self, _t: TextureId, dst: Rect, c: Color) {
+        // recorded with the fills, in its color
+        self.current_fills.push((dst, c));
     }
 
     fn text(&mut self, s: &str, x: i32, y: i32, px: f32, _c: Color, align: Align, max_w: i32) -> i32 {
