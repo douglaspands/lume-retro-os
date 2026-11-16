@@ -25,6 +25,7 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
         print(f"layer {name} ({target.alpine_arch})", flush=True)
         build_layer(target, v, language, rebuild_packages)
         layers[name] = _layer_info(target)
+    extras = {}
     if img_target.name == "vm":
         img = image.build_image(TARGETS["vm"], v=v, language=language)
         info = {**layers["vm"], "alpine": _alpine()}
@@ -34,8 +35,14 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
         info = {"alpine": _alpine(), "layers": layers, "bootloaders": console_bootloaders()}
         manifests = {f"manifest-{n}.txt": rootfs.target_out(TARGETS[n]) / "manifest.txt"
                      for n in img_target.layers}
+        # the GA36 panel boot images: for a dd to sector 172032 from the PC, not on BOOT
+        extras = image.ga36_android_boot_images(rootfs.target_out(TARGETS["ga36"]))
+        # the files of BOOT with their SHA256, read back from the FAT (task 5.1): what
+        # `r36os push` sends and checks on the console
+        extras[image.BOOT_LIST] = img.parent / image.BOOT_LIST
     # image archived with the timestamp in out/images/<image>/
-    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests)
+    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests,
+                         extras)
     print(f"ok: {img}\narchived: {dest}")
 
 
@@ -102,10 +109,12 @@ ANDROID_BOOT = {"ga36": {"panel1": "sun8i-a33-ga36-mb-v1.2-panel1.dtb",
 
 
 def build_console_kernel(target: Target) -> None:
-    """Stage 1: out/<target>/kernel/ with the image, modules.tar, validated dtbs/ and boot."""
+    """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (BOOT
+    <console>/modules, outside SYSTEM), validated dtbs/ and boot."""
     out = rootfs.target_out(target)
     kdir = out / "kernel"
     zimage = kernel.build_kernel(target.name, kdir, initramfs_dir=out)
+    rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules")
     arch, vendor = DTS_VENDOR[target.name]
     kernel.build_dtbs(target.name, arch, vendor, kdir / "dtbs")
     if target.name in uboot.UBOOT_TARGETS:

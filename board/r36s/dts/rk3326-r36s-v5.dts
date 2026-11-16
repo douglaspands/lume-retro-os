@@ -29,6 +29,31 @@
 		stdout-path = "serial2:1500000n8";
 	};
 
+	/*
+	 * Log of the previous start kept in RAM (pstore/ramoops), in the region the factory
+	 * kernel reserves for it: below the RAM the bootloader hands over (from 0x200000), so
+	 * the bootloader and the trusted firmware leave it alone across a warm reset
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops@110000 {
+			compatible = "ramoops";
+			reg = <0x0 0x110000 0x0 0xf0000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+		};
+	};
+
+	/* DTB selection (boot-dtb-select D3): default of BOOT/dtbs/rk3326/, no rules yet */
+	lume-select {
+		lume,id = "r36s-v5";
+		lume,priority = <0>;
+		lume,default;
+	};
+
 	/* Sticks: SARADC channel 1 behind a 4-way mux (A gpio0 13, B gpio0 12) */
 	joystick_mux_controller: mux-controller {
 		compatible = "gpio-mux";
@@ -149,7 +174,7 @@
 		};
 	};
 
-	/* 17 buttons, active low; r36os-padmerge joins them with the sticks (D8) */
+	/* 17 buttons, active low; r36os-input joins them with the sticks (lume-launcher D8) */
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -791,12 +816,29 @@
 &u2phy {
 	status = "okay";
 
+	/*
+	 * No VBUS sensing on this port (see &usb20_otg): without vbus-always-on the PHY driver
+	 * powers the port off at its first state-machine run, and the dwc2 in device mode
+	 * hangs in its core reset with no PHY clock (kernel patch 0030, measured 2026-11-15)
+	 */
 	u2phy_otg: otg-port {
+		rockchip,vbus-always-on;
 		status = "okay";
 	};
 };
 
+/*
+ * OTG port (usb-device-access D1, measured 2026-11-13): the u2phy sees the ID pin but not
+ * the VBUS of the OTG port, so the controller never gets a B-session for a PC. The role
+ * switch overrides the session valid bits; the port is device by default and r36os-usb
+ * sets host when the ID pin goes low (USB-HOST in the u2phy extcon).
+ * Host role (usb-device-access D7): 5 V on the port from the RK817 OTG_SWITCH, as the
+ * ROCKNIX DTS of the R36S does; without a consumer the kernel turned it off at 30 s.
+ */
 &usb20_otg {
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+	vbus-supply = <&otg_switch>;
 	status = "okay";
 };
 

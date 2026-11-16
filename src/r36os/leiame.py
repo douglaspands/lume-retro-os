@@ -67,4 +67,9 @@ def render(cat: dict | None = None) -> str:
                     f"  não abrir no outro.\n")
         if s["id"] == "psx":
             out.append("  Jogos de vários discos: crie um .m3u listando os .cue/.chd.\n")
+        if s["id"] == "love":
+            out.append("  Jogos LÖVE (11.5) em arquivo .love. Fn+Start fecha o jogo.\n")
+        if s["id"] == "ports":
+            out.append("  Scripts .sh nativos (Linux, musl), abertos pelo launcher.\n"
+                       "  Fn+Start fecha o script e tudo o que ele abriu.\n")
     return "".join(out)

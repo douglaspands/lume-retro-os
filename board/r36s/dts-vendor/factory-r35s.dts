@@ -1,0 +1,335 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Rockchip RK3326, converted from a vendor RK3326 device tree by
+ * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * Source: factory/rk3326-r35s-linux.dtb
+ * SHA-256: 205c7ef6ea86f81f0e3bb7f1bc042b966b3c51c68cfee44ce17b51966fba43ab
+ * Note: speaker gain: source spk-volume 1 ignored, the native safe value is used
+ */
+
+#include "rk3326-r36s-v5.dts"
+
+/ {
+	model = "Rockchip RK3326 (converted)";
+
+	lume-select {
+		lume,id = "factory-r35s";
+		lume,priority = <0>;
+		/delete-property/ lume,default;
+	};
+
+	/delete-node/ gpio-keys;
+	/delete-node/ volume-keys;
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&btn_pins>;
+
+		button-dpad-up {
+			gpios = <&gpio3 RK_PA7 GPIO_ACTIVE_LOW>;
+			label = "DPAD-UP";
+			linux,code = <0x220>;
+		};
+
+		button-dpad-down {
+			gpios = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
+			label = "DPAD-DOWN";
+			linux,code = <0x221>;
+		};
+
+		button-dpad-left {
+			gpios = <&gpio3 RK_PB2 GPIO_ACTIVE_LOW>;
+			label = "DPAD-LEFT";
+			linux,code = <0x222>;
+		};
+
+		button-dpad-right {
+			gpios = <&gpio3 RK_PB1 GPIO_ACTIVE_LOW>;
+			label = "DPAD-RIGHT";
+			linux,code = <0x223>;
+		};
+
+		button-key-btn-a {
+			gpios = <&gpio3 RK_PB6 GPIO_ACTIVE_LOW>;
+			label = "KEY BTN-A";
+			linux,code = <0x131>;
+		};
+
+		button-btn-b {
+			gpios = <&gpio3 RK_PB4 GPIO_ACTIVE_LOW>;
+			label = "BTN-B";
+			linux,code = <0x130>;
+		};
+
+		button-btn-y {
+			gpios = <&gpio3 RK_PB3 GPIO_ACTIVE_LOW>;
+			label = "BTN-Y";
+			linux,code = <0x134>;
+		};
+
+		button-btn-x {
+			gpios = <&gpio3 RK_PB5 GPIO_ACTIVE_LOW>;
+			label = "BTN-X";
+			linux,code = <0x133>;
+		};
+
+		button-f3 {
+			gpios = <&gpio0 RK_PB3 GPIO_ACTIVE_LOW>;
+			label = "F3";
+			linux,code = <0x2c2>;
+		};
+
+		button-f4 {
+			gpios = <&gpio3 RK_PD3 GPIO_ACTIVE_LOW>;
+			label = "F4";
+			linux,code = <0x2c3>;
+		};
+
+		button-top-left {
+			gpios = <&gpio3 RK_PA3 GPIO_ACTIVE_LOW>;
+			label = "TOP-LEFT";
+			linux,code = <0x136>;
+		};
+
+		button-top-right {
+			gpios = <&gpio3 RK_PA0 GPIO_ACTIVE_LOW>;
+			label = "TOP-RIGHT";
+			linux,code = <0x137>;
+		};
+
+		button-f1 {
+			gpios = <&gpio3 RK_PA5 GPIO_ACTIVE_LOW>;
+			label = "F1";
+			linux,code = <0x2c0>;
+		};
+
+		button-top-left2 {
+			gpios = <&gpio3 RK_PA2 GPIO_ACTIVE_LOW>;
+			label = "TOP-LEFT2";
+			linux,code = <0x138>;
+		};
+
+		button-top-right2 {
+			gpios = <&gpio3 RK_PA1 GPIO_ACTIVE_LOW>;
+			label = "TOP-RIGHT2";
+			linux,code = <0x139>;
+		};
+
+		button-f2 {
+			gpios = <&gpio3 RK_PA6 GPIO_ACTIVE_LOW>;
+			label = "F2";
+			linux,code = <0x2c1>;
+		};
+
+		button-f5 {
+			gpios = <&gpio3 RK_PA4 GPIO_ACTIVE_LOW>;
+			label = "F5";
+			linux,code = <0x2c4>;
+		};
+	};
+
+	volume-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&vol_pins>;
+		autorepeat;
+
+		button-gpio-btn-volup {
+			gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_LOW>;
+			label = "GPIO BTN-VOLUP";
+			linux,code = <0x73>;
+		};
+
+		button-gpio-btn-voldn {
+			gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_LOW>;
+			label = "GPIO BTN-VOLDN";
+			linux,code = <0x72>;
+		};
+	};
+
+	mux-controller {
+		mux-gpios = <&gpio0 RK_PB5 GPIO_ACTIVE_LOW>,
+			    <&gpio0 RK_PB4 GPIO_ACTIVE_LOW>;
+	};
+
+	adc-mux {
+		io-channels = <&saradc 1>;
+	};
+
+	/delete-node/ gpio-leds;
+
+	gpio-leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_pins>;
+
+		led-0 {
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&gpio0 RK_PA0 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-1 {
+			color = <LED_COLOR_ID_RED>;
+			function = LED_FUNCTION_INDICATOR;
+			gpios = <&gpio0 RK_PA5 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	rk817-sound {
+		simple-audio-card,hp-det-gpios = <&gpio2 RK_PC6 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&internal_display {
+	compatible = "rocknix,generic-dsi";
+	/delete-property/ vcc-supply;
+	vdd-supply = <&vcc_lcd>;
+	reset-gpios = <&gpio3 RK_PC0 GPIO_ACTIVE_LOW>;
+	enable-gpios = <&gpio1 RK_PC2 GPIO_ACTIVE_LOW>;
+	panel_description =
+		"G size=153,85 delays=100,100,20,200,20 format=rgb888 lanes=4 flags=0xe03",
+		"M clock=27000 horizontal=640,120,10,120 vertical=480,17,4,13 default=1",
+		"M clock=25500 horizontal=640,188,2,190 vertical=480,13,2,5",
+		"M clock=30600 horizontal=640,87,2,87 vertical=480,13,2,5",
+		"I seq=b9f11287",
+		"I seq=b2780470",
+		"I seq=b31010fcfc03ff00000000",
+		"I seq=b480",
+		"I seq=b50a0a",
+		"I seq=b67a7a",
+		"I seq=b82622f013",
+		"I seq=ba338105f90e0e2000000000000000442500910a0000014f01000037",
+		"I seq=bc47",
+		"I seq=bf0211008004",
+		"I seq=c0737350500000127300",
+		"I seq=c17300323277f47777ccccffff1111000032",
+		"I seq=c7b8000a1001090000edc500a5",
+		"I seq=c810401e03",
+		"I seq=cc0b",
+		"I seq=e000070d3f3f3f4449060b0c0f130f12161f00070d3f3f3f4449060b0c0f130f12161f",
+		"I seq=e111119100000000",
+		"I seq=e307070b0b0b0b00000000ff04c010",
+		"I seq=e9c810020000b0b11131232880b0b127080004020000000004020000008888ba60240888888888888888ba713518888888888800000001000000000000000000",
+		"I seq=ea970a820203070000000000008188ba17538888888888888088ba064288888888888823000002a500000000000000000000000000000000000000000000",
+		"I seq=efffff01",
+		"I seq=11 wait=fa",
+		"I seq=29 wait=32";
+};
+
+&dsi {
+	rockchip,lane-rate = <180>;
+};
+
+&backlight {
+	pwms = <&pwm1 0 40000 0>;
+	/delete-property/ num-interpolated-steps;
+	brightness-levels = <0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160>;
+	default-brightness-level = <80>;
+};
+
+&battery {
+	charge-full-design-microamp-hours = <3188000>;
+	voltage-max-design-microvolt = <4182000>;
+	voltage-min-design-microvolt = <3400000>;
+	ocv-capacity-table-0 = <4182000 100>,
+				<4075000 95>,
+				<4028000 90>,
+				<4012000 85>,
+				<3961000 80>,
+				<3911000 75>,
+				<3886000 70>,
+				<3852000 65>,
+				<3809000 60>,
+				<3759000 55>,
+				<3701000 50>,
+				<3660000 45>,
+				<3634000 40>,
+				<3615000 35>,
+				<3599000 30>,
+				<3582000 25>,
+				<3559000 20>,
+				<3529000 15>,
+				<3493000 10>,
+				<3444000 5>,
+				<3400000 0>;
+};
+
+&spk_amp {
+	enable-gpios = <&gpio3 RK_PC4 GPIO_ACTIVE_HIGH>;
+};
+
+&rk817 {
+	interrupt-parent = <&gpio0>;
+	interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
+};
+
+&gpio0 {
+	/delete-node/ joystick-mux-en-hog;
+	joystick-mux-en-hog {
+		gpio-hog;
+		gpios = <RK_PC1 GPIO_ACTIVE_LOW>;
+		output-high;
+		line-name = "joystick-mux-en";
+	};
+};
+
+&gpio1 {
+	/delete-node/ lcd-enable-hog;
+};
+
+&gpio3 {
+	/delete-node/ lcd-stbyb-hog;
+	lcd-stbyb-hog {
+		gpio-hog;
+		gpios = <RK_PB7 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "lcd-stbyb";
+	};
+};
+
+&btn_pins {
+	rockchip,pins =
+		<3 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB0 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB1 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB6 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB3 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PB5 RK_FUNC_GPIO &pcfg_pull_up>,
+		<0 RK_PB3 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA3 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA5 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA2 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA1 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA6 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PA4 RK_FUNC_GPIO &pcfg_pull_up>;
+};
+
+&vol_pins {
+	rockchip,pins =
+		<3 RK_PC6 RK_FUNC_GPIO &pcfg_pull_up>,
+		<3 RK_PC5 RK_FUNC_GPIO &pcfg_pull_up>;
+};
+
+&led_pins {
+	rockchip,pins =
+		<0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_none>,
+		<0 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
+};
+
+&hp_det {
+	rockchip,pins = <2 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
+};
+
+&spk_amp_enable_h {
+	rockchip,pins = <3 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
+};
+
+&pmic_int {
+	rockchip,pins = <0 RK_PA7 RK_FUNC_GPIO &pcfg_pull_up>;
+};

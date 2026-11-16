@@ -1,0 +1,8 @@
+# Native Ports scripts (lume-launcher D5): a .sh of roms/ports/, run by the system shell as
+# the game user. Everything it starts stays in the game cgroup, so Fn+Start ends it all.
+[runner]
+id = "sh"
+kind = "native"
+exec = ["/bin/sh", "{rom}"]
+quit = "sigterm"
+timeout = 3

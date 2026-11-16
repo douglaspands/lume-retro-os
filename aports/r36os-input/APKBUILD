@@ -1,0 +1,53 @@
+# Lume Retro OS: the input daemon (lume-launcher D8; it grew out of r36os-padmerge). Grabs
+# the built-in controls of the console, publishes one virtual gamepad under the name the
+# RetroArch autoconfig knows, turns Fn+Start into "quit" for the launcher and handles the
+# volume buttons. One profile per board in /usr/share/r36os/input/.
+# Also r36os-shot (lume-launcher D12): a PNG of the screen through DRM, used over the cable.
+pkgname=r36os-input
+pkgver=1.0
+pkgrel=9
+pkgdesc="Built-in controls of the console: one gamepad, Fn+Start and volume (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+depends="openrc alsa-utils"
+# linux/input.h, linux/uinput.h and the DRM uapi headers; zlib for the PNG of r36os-shot
+makedepends="linux-headers zlib-dev"
+options="!check" # tested on the host (tests/unit/test_r36os_input.py, test_r36os_shot.py)
+replaces="r36os-padmerge"
+provides="r36os-padmerge=$pkgver-r$pkgrel"
+source="input.c
+	shot.c
+	r36os-input.initd
+	61-r36os-input.rules
+	ga36.conf
+	r36s.conf
+	vm.conf
+	"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o r36os-input input.c
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o r36os-shot shot.c -lz
+}
+
+package() {
+	install -Dm755 r36os-input "$pkgdir"/usr/bin/r36os-input
+	install -Dm755 r36os-shot "$pkgdir"/usr/bin/r36os-shot
+	install -Dm755 "$srcdir"/r36os-input.initd "$pkgdir"/etc/init.d/r36os-input
+	install -Dm644 "$srcdir"/61-r36os-input.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/61-r36os-input.rules
+	for p in ga36 r36s vm; do
+		install -Dm644 "$srcdir"/$p.conf "$pkgdir"/usr/share/r36os/input/$p.conf
+	done
+}
+
+sha512sums="
+91a4a79cd607ffd1a796e12641ed68e702655e662248d55f46db127b78fcd6ee82aa8dafdb03eab7a659f080a655b9bbfabfbe73945a5ac42ebc29a3cd703faa  input.c
+10fc7b7280fd3ff88a5f1e1ba8ab65a1986a9002145955f2b1d4654eb4e5131c92888b7d8769d7febc360d01ef3ba099bfb349212c80a55789422e54dbb20875  shot.c
+f320f93d3e0fece5fe13d4198de09b271f941fa9c93b04ce78363b4c565822987ab9317be4602e63e477fc463399f2cdedbd7ce8ac547f44a9bb36629aa8528c  r36os-input.initd
+5b70818bc95a33fdb91085dc3e8e2f543aeaa3a510e82c6e58aff8731650b48beb333c40c897197d817faef1874e87625bc6e67695d521b52becafdf515bbdc1  61-r36os-input.rules
+db5ac0bd38f7c58e82bf4041e1d5746609a45ed443bb04486db704767bf4e0b848e5cf6af6876d7d844fb5fc5dc892061a5868da232c3a4fcc6c83aa8cb49ca2  ga36.conf
+978a13918d5a6b6d0931df187e8e9d65265359dd708d00674abcab17d525b5f4b2c1cacc8ce23a819688603013c33ea4e0631c056e862db980ff009c9462c67e  r36s.conf
+177f428e545959742f2e99fa915f5d4a6b5902821fb490ffa061b4539836d4bd8f6bd0d41ca6480a1a8e2e041d5b82ffe6e2cdeaeabe7c59db12ea375d02bd61  vm.conf
+"

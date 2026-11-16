@@ -14,7 +14,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 ### 2. Cache de Ferramentas, Toolchains Sandbox-Safe e Receitas One-Shot
 - **Zero turnos de sondagem**: NÃO rode `which`, `whereis` ou `--version`. Consulte `.ctx/bins.json`.
 - Ferramentas pré-verificadas disponíveis no ambiente:
-  `asdf`, `cargo`, `cat`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sqlite3`, `systemctl`, `tail`, `tree`, `uv`, `wc`
+  `asdf`, `cargo`, `cat`, `cp`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sha256sum`, `sqlite3`, `sync`, `systemctl`, `tail`, `tree`, `uv`, `wc`
 - **Toolchains**:
 - **Python**: Invoque via `uv run` ou `.venv/bin/ctx` ou `.venv/bin/python` ou `.venv/bin/python3`. Proibido: `python`, `python3`, `/usr/bin/python`, `/usr/bin/python3`, `/usr/local/bin/python`, `/usr/local/bin/python3`. (Python deve ser executado via 'uv run' ou pelo .venv do workspace ('.venv/bin/ctx' / '.venv/bin/python'), nunca pelo python global. Sem uv, o python da máquina serve só para criar o venv: 'python3 -m venv .venv'.)
 - **Nodejs**: Invoque via `asdf exec`. Proibido: `/usr/bin/node`, `/usr/bin/npm`, `/usr/bin/npx`, `/usr/local/bin/node`. (Node.js/npm/npx devem usar a versão gerenciada pelo asdf (~/.asdf/shims ou 'asdf exec').)
@@ -40,6 +40,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 ### 4. Comandos Atômicos (sem encadeamento shell)
 - É **proibido** encadear comandos shell com `&&`, `||`, `;`, `&`, subshells `$()` ou backticks: o guardrail recusa (`deny`).
 - Execute **um comando por chamada**, para que cada um seja avaliado e auditado sozinho.
+- Script para outra máquina ou shell (`ssh host '…'`, `sh -c '…'`) vai inteiro em **aspas simples**: só as regras destrutivas valem dentro dele.
 
 ### 5. Política Container-First e Armazenamento Btrfs
 - **Container-First**: Para utilitários ou bancos de dados temporários (PostgreSQL, Redis, etc.), utilize containers efêmeros rootless (`podman run --rm` ou `docker run --rm`). NUNCA instale pacotes no host sem confirmação explícita.

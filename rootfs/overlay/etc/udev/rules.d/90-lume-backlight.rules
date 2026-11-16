@@ -1,0 +1,3 @@
+# Brightness from the launcher (lume-launcher D10, task 7.5): the backlight level is writable
+# by the video group, so lume-ui (user game) changes it without root.
+SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chgrp video /sys%p/brightness", RUN+="/bin/chmod g+w /sys%p/brightness"

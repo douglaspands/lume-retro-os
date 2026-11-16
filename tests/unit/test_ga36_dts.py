@@ -82,6 +82,25 @@ def test_board_pins():
     assert 'stdout-path = "serial1:115200n8"' in DTSI
 
 
+def test_otg_role_by_the_id_pin_only():
+    # usb-device-access D1: the AXP USB input is the DC port, so it must not be the VBUS of
+    # the OTG PHY; without a VBUS source the PHY reports VBUS present (device by default)
+    phy = _node("usbphy")
+    assert "usb0_id_det-gpios" in phy
+    assert "vbus_det" not in phy and "vbus_power-supply" not in phy
+    assert 'dr_mode = "otg"' in _node("usb_otg")
+
+
+def test_otg_host_role_powers_the_port():
+    # usb-device-access D7: 5 V from the AXP DRIVEVBUS output while an OTG adapter is on
+    assert "usb0_vbus-supply = <&reg_drivevbus>;" in _node("usbphy")
+    assert 'status = "okay"' in _node("reg_drivevbus")
+    # the AXP223 registers reg_drivevbus only with this property; without it the PHY
+    # deferred its probe forever and no USB came up (GA36 boot 29, build 20261113-214629)
+    pmic = re.search(r"axp22x: pmic@3a3 \{(.*?)\n\t\};", _code(DTSI), re.S).group(1)
+    assert "x-powers,drive-vbus-en;" in pmic
+
+
 def test_backlight_and_volume_keys():
     code = _code(DTSI)
     assert "pwms = <&pwm 0 50000 0>" in code                    # PWM0, 20 kHz

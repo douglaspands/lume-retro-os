@@ -1,0 +1,38 @@
+# Lume Retro OS: the lume-launcher (openspec change lume-launcher, D2). The Rust workspace
+# lume/ and its crates are staged in stage/ by r36os.lume.stage() before abuild runs (the
+# crates come from a distfiles tarball checked by SHA512 and pinned by Cargo.lock), so the
+# build is offline: cargo --offline --frozen.
+pkgname=lume-launcher
+pkgver=0.1.0
+pkgrel=27
+pkgdesc="Game launcher of Lume Retro OS: interface, game lists and supervisor"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-only AND Apache-2.0"
+depends="sdl2 retroarch love"
+makedepends="cargo sdl2-dev font-roboto"
+options="!check" # cargo tests run on the host (cargo test --manifest-path lume/Cargo.toml)
+source=""
+builddir="$startdir/stage/lume"
+
+prepare() {
+	default_prepare
+	[ -f "$builddir/Cargo.lock" ] || die "run r36os.lume.stage() first (r36os build or pkg do it)"
+}
+
+build() {
+	cargo build --release --offline --frozen
+}
+
+package() {
+	for b in lume-run lume-ui lume-index; do
+		install -Dm755 target/release/$b "$pkgdir"/usr/bin/$b
+	done
+	# Roboto, the prototype's font (Apache-2.0), in its three weights: 400, 500 and 700
+	for f in Roboto-Regular Roboto-Medium Roboto-Bold; do
+		install -Dm644 /usr/share/fonts/roboto/$f.ttf "$pkgdir"/usr/share/lume/fonts/$f.ttf
+	done
+	install -Dm644 "$startdir"/FONTS "$pkgdir"/usr/share/licenses/$pkgname/FONTS
+}
+
+sha512sums=""

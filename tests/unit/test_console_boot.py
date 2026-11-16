@@ -5,6 +5,7 @@ import hashlib
 import random
 import struct
 from compression import zstd
+from pathlib import Path
 
 import pytest
 
@@ -338,36 +339,115 @@ def test_assemble_lists_conflicting_sectors():
 MiB = 2**20
 
 
-def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB):
+def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB,
+                r36s_modules=20 * MiB):
     return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
-            "r36s/Image": image, "r36s/rk3326-r36s-v5.dtb": 60_000,
-            "ga36/dtbs/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
-            "ga36/android-boot/android-boot-panel1.img": 12 * MiB,
-            "ga36/android-boot/android-boot-panel2.img": 12 * MiB}
+            "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
+            "ga36/zImage": 6 * MiB, "ga36/modules": 2 * MiB, "r36s/modules": r36s_modules,
+            "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000}
 
 
 def test_console_boot_files_layout(tmp_path):
     from r36os import image
 
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
-    assert {"boot.ini", "ga36/SYSTEM", "r36s/SYSTEM", "r36s/Image",
-            "r36s/rk3326-r36s-v5.dtb"} <= set(files)
+    assert {"boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
+            "dtbs/rk3326/rk3326-r36s-v5.dtb"} <= set(files)
     assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
+    assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
+    # kernel-modules-image D1: each console's modules image next to its kernel
+    assert files["ga36/modules"] == tmp_path / "ga36/kernel/modules"
+    assert files["r36s/modules"] == tmp_path / "r36s/kernel/modules"
     (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
     (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
+    (tmp_path / "r36s/kernel/dtbs").mkdir(parents=True)
+    (tmp_path / "r36s/kernel/dtbs/b.dtb").write_bytes(b"d")
     (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
-    assert "ga36/dtbs/a.dtb" in files and "ga36/android-boot/android-boot-panel2.img" in files
+    assert "dtbs/a33/a.dtb" in files and "dtbs/rk3326/b.dtb" in files
+    # only what the consoles read: the panel boot images are archived with the build
+    assert not [p for p in files if "android-boot" in p]
+    assert image.ga36_android_boot_images(tmp_path / "ga36") == {
+        "ga36-android-boot-panel2.img": tmp_path / "ga36/kernel/android-boot-panel2.img"}
+    assert "android-boot" not in image._CONSOLE.split("# Disk:")[0]
+    # boot-dtb-select D8: the DTBs only live in the SoC folders
+    assert not [p for p in files if p.startswith("ga36/dtbs/") or p.startswith("r36s/r")]
     # task 4.5: the factory files go to the root of BOOT
     factory = {"rg351mp-kernel.dtb": tmp_path / "a", "logo.bmp": tmp_path / "b"}
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s", factory)
     assert files["logo.bmp"] == tmp_path / "b" and "rg351mp-kernel.dtb" in files
 
 
-def test_console_image_copies_the_factory_files_to_the_boot_root():
+def test_boot_copy_commands_come_from_the_one_boot_list(tmp_path):
+    # usb-device-access 5.1: the FAT is filled from console_boot_files(), the list that
+    # flash and push use, with no glob of its own
     from r36os import image
 
-    assert "$M /out/factory-boot/* ::" in image._CONSOLE
+    files = {"logo.bmp": tmp_path / "out/factory-boot/logo.bmp",
+             "ga36/SYSTEM": tmp_path / "ga36/SYSTEM",
+             "dtbs/a33/x.dtb": tmp_path / "ga36/kernel/dtbs/x.dtb"}
+    cmds = image.boot_copy_commands(files, {tmp_path / "out": "/out", tmp_path / "ga36": "/ga36"})
+    assert cmds["dirs"] == "::dtbs ::dtbs/a33 ::ga36"
+    assert cmds["copies"].splitlines() == [
+        '$M "/ga36/kernel/dtbs/x.dtb" "::dtbs/a33/x.dtb"', '$M "/ga36/SYSTEM" "::ga36/SYSTEM"',
+        '$M "/out/factory-boot/logo.bmp" "::logo.bmp"']
+    assert cmds["paths"] == '"dtbs/a33/x.dtb" "ga36/SYSTEM" "logo.bmp" "VERSION"'
+    assert not [line for line in image._CONSOLE.splitlines()
+                if line.startswith("$M") and "*" in line]          # no glob copies left
+    with pytest.raises(image.ConsoleImageError, match="outside the volumes"):
+        image.boot_copy_commands({"x": Path("/elsewhere/x")}, {tmp_path: "/out"})
+
+
+def test_boot_list_is_the_fat_content(tmp_path):
+    # the list read back from a real FAT holds every file once, VERSION last, with the
+    # SHA256 of what was copied (mtools in the builder, as the image build)
+    import hashlib
+    import shutil
+    import subprocess
+
+    from r36os import image
+    from r36os.container import Container, ensure_builder
+    from r36os.targets import TARGETS
+
+    if shutil.which("podman") is None:
+        pytest.skip("no podman")
+    src = tmp_path / "src"
+    files = {"boot.ini": b"ini", "ga36/SYSTEM": b"sys" * 1000, "dtbs/a33/p1.dtb": b"d1",
+             "dtbs/rk3326/r.dtb": b"d2"}
+    for path, data in files.items():
+        (src / path).parent.mkdir(parents=True, exist_ok=True)
+        (src / path).write_bytes(data)
+    (tmp_path / "VERSION").write_text("v\n")
+    cmds = image.boot_copy_commands({p: src / p for p in files}, {tmp_path: "/out"})
+    script = image._CONSOLE.split("# at least")[0].format(
+        boot_bytes=64 * 2**20, boot_start=0, **cmds)    # FAT32 needs some size
+    r = subprocess.run(Container(image=ensure_builder(TARGETS["vm"]),
+                                 volumes={tmp_path: "/out"}).argv(script),
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    listed = image.read_boot_list(tmp_path / image.BOOT_LIST)
+    want = {**files, "VERSION": b"v\n"}
+    assert [p for p, _ in listed] == [*sorted(files), "VERSION"]
+    assert dict(listed) == {p: hashlib.sha256(d).hexdigest() for p, d in want.items()}
+
+
+def test_archived_boot_list_matches_the_build():
+    # the latest console build: its boot-files.sha256 names what console_boot_files lists
+    from r36os import image
+    from r36os.archive import images_dir
+    from r36os.targets import IMAGES
+
+    path = images_dir(IMAGES["console"]) / "latest" / image.BOOT_LIST
+    if not path.exists():
+        pytest.skip("no console build with a BOOT list yet")
+    names = [p for p, _ in image.read_boot_list(path)]
+    assert names[-1] == "VERSION" and len(set(names)) == len(names)
+    for want in ("boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
+                 f"dtbs/rk3326/{image.R36S_DTB}"):
+        assert want in names, want
+    if "ga36/modules" not in names:
+        pytest.skip("latest console build is older than kernel-modules-image")
+    assert "r36s/modules" in names
 
 
 def test_console_boot_within_limits():
@@ -395,6 +475,16 @@ def test_console_boot_needs_64_mib_free():
                                              image=1110 * MiB))
 
 
+def test_console_boot_counts_the_modules_images():
+    # kernel-modules-image: the 64 MiB free account includes both modules files
+    from r36os import image
+
+    big = {"ga36_system": 440 * MiB, "r36s_system": 440 * MiB, "image": 1000 * MiB}
+    image.check_console_boot(_boot_sizes(**big, r36s_modules=20 * MiB))
+    with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
+        image.check_console_boot(_boot_sizes(**big, r36s_modules=100 * MiB))
+
+
 def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     """Every /<dir>/ the assembly script reads is a mounted volume (the first build failed:
     the boot area folder and /out were the same path, and the dict kept only one)."""
@@ -403,10 +493,19 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     from r36os import image, version
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    for f in ("ga36/SYSTEM", "ga36/kernel/dtbs/a.dtb", "ga36/kernel/android-boot-panel1.img",
-              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
+    for f in ("ga36/SYSTEM", "ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
+              "ga36/kernel/android-boot-panel1.img", "ga36/kernel/modules",
+              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/modules",
+              "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
+    # the build checks the lume-select node of every DTB (boot-dtb-select D3)
+    from r36os import fdt
+    for f, ident in (("ga36/kernel/dtbs/a.dtb", "a"),
+                     ("r36s/kernel/dtbs/rk3326-r36s-v5.dtb", "r36s-v5")):
+        node = fdt.Node(props={"lume,id": fdt.s(ident), "lume,priority": fdt.u32(0),
+                               "lume,default": b""})
+        (tmp_path / f).write_bytes(fdt.build(fdt.Node(children={"lume-select": node})))
 
     def fake_area(dest):
         dest.write_bytes(b"area")
@@ -447,7 +546,7 @@ def test_boot_ini_loads_the_r36s_kernel_and_dtb():
     ini = (image.REPO_ROOT / "board/r36s/boot.ini").read_text()
     assert ini.startswith("odroidgoa-uboot-config\n")   # the header the factory U-Boot wants
     assert "load mmc 1:1 ${loadaddr} r36s/Image" in ini
-    assert f"load mmc 1:1 ${{dtb_loadaddr}} r36s/{image.R36S_DTB}" in ini
+    assert f"load mmc 1:1 ${{dtb_loadaddr}} dtbs/rk3326/{image.R36S_DTB}" in ini
     assert "booti ${loadaddr} - ${dtb_loadaddr}" in ini      # no uInitrd: built in
     assert "bootargs" not in ini.replace("no bootargs", "")  # CMDLINE_FORCE in the kernel
 

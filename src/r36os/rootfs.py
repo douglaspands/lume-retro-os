@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from r36os import lang, leiame, pkglists, version
+from r36os import catalog, lang, leiame, pkglists, version
 from r36os.container import ALPINE_VERSION, Container, ensure_builder
 from r36os.packages import keys_dir
 from r36os.paths import REPO_ROOT, ensure_dir, out_dir
@@ -49,11 +49,13 @@ apk add --root $R --initdb --update-cache --no-progress \\
     --repositories-file $R/etc/apk/repositories -X /repo \\
     $(cat /work/packages.txt)
 
-# Modules of the cross-compiled kernel (consoles, stage 1), with modules.dep
-if [ -f /out/kernel/modules.tar ]; then tar -C $R -xf /out/kernel/modules.tar; fi
+# Mount point of the console modules image (BOOT/<console>/modules, kernel-modules-image
+# D3): the modules of the cross-compiled kernel stay out of SYSTEM, so a kernel-only change
+# does not change it. The VM gets its modules from the packaged kernel.
+mkdir -p $R/lib/modules
 
 cp -a /overlay/. $R/
-# Version of this build (D15): timestamp in BUILD_ID
+# System version (D15); the build id stays in BOOT/VERSION, so SYSTEM does not change
 if [ -f /work/os-release ]; then cp /work/os-release $R/etc/os-release; fi
 # Factory menu language, chosen at build time (r36os build --lang)
 cfg=$R/usr/share/r36os/factory/retroarch/retroarch.cfg
@@ -78,6 +80,11 @@ if [ -n "$(ls $R/boot 2>/dev/null)" ]; then
   rm -rf /out/kernel && mkdir -p /out/kernel && cp -a $R/boot/. /out/kernel/
 fi
 rm -rf $R/boot/* $R/var/cache/apk/*
+# Nothing that changes from one build to the next with the same packages, so that SYSTEM
+# comes out the same and `r36os push` skips it: the apk log (install times) and the
+# machine-id made at install (random; every card shared it). The machine-id and dbus
+# services make one at boot when it is missing.
+rm -f $R/var/log/apk.log $R/etc/machine-id $R/var/lib/dbus/machine-id
 mkdir -p $R/boot $R/storage
 
 tar -C $R --numeric-owner --sort=name -cf /out/rootfs.tar .
@@ -88,8 +95,8 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
                  language: str = lang.DEFAULT) -> Path:
     """Build the target rootfs; write rootfs.tar, manifest.txt and kernel/ to out/<target>/.
 
-    With `v`, /etc/os-release carries the id of this build. `language` is the factory menu
-    language (default English).
+    With `v`, /etc/os-release is the Lume one (the system version; the build id stays in
+    BOOT/VERSION). `language` is the factory menu language (default English).
     """
     retro_lang = lang.retro_language(language)
     out = ensure_dir(target_out(target))
@@ -97,8 +104,13 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
     osr = work / "os-release"
     osr.unlink(missing_ok=True)
     if v is not None:
-        osr.write_text(version.os_release(v))
+        osr.write_text(version.os_release())
     (work / "packages.txt").write_text("\n".join(pkglists.all_packages(target)) + "\n")
+    # The catalog and the launcher runners of the image are checked before any build step
+    # (game-library: an emulator citing a missing runner stops the build)
+    errs = catalog.validate(catalog.load())
+    if errs:
+        raise RuntimeError("invalid catalog: " + "; ".join(errs))
     (work / "LEIA-ME.txt").write_text(leiame.render())
     tty, baud = serial_console(target)
     script = _ROOTFS_SCRIPT.format(
@@ -149,4 +161,34 @@ def make_system(target: Target, rootfs_tar: Path, dest: Path,
         raise SystemTooLargeError(
             f"SYSTEM at {size / 2**20:.1f} MiB exceeds the {limit_mib} MiB limit"
         )
+    return dest
+
+
+# The modules image of a console (kernel-modules-image D1, D2): the content of lib/modules/
+# at the root (one <release>/ folder), owned by root, with no build times, so the same
+# modules.tar always gives the same file. Same compression as SYSTEM.
+_MODULES_SCRIPT = """
+rm -rf /tmp/m
+mkdir -p /tmp/m
+tar -C /tmp/m -xf {src}
+tar -C /tmp/m/lib/modules --numeric-owner --owner=0 --group=0 --sort=name -cf /tmp/modules.tar .
+mksquashfs - /out/{dest} -tar -comp zstd -Xcompression-level 19 \\
+    -b 256K -noappend -quiet -mkfs-time 0 -all-time 0 < /tmp/modules.tar
+"""
+
+
+def make_modules_image(modules_tar: Path, dest: Path) -> Path:
+    """Build the console modules squashfs `dest` from the kernel modules.tar
+    (`lib/modules/<release>/...`), with the `lib/modules/` prefix taken off."""
+    ensure_dir(dest.parent)
+    # one volume when both are in the same folder (out/<console>/kernel/): a dict with the
+    # same path twice keeps only one of the mounts
+    volumes = {dest.parent: "/out"}
+    src = f"/out/{modules_tar.name}"
+    if modules_tar.parent.resolve() != dest.parent.resolve():
+        volumes[modules_tar.parent] = "/in"
+        src = f"/in/{modules_tar.name}"
+    # mksquashfs does not depend on the target arch: always the x86_64 builder.
+    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
+        _MODULES_SCRIPT.format(src=src, dest=dest.name))
     return dest

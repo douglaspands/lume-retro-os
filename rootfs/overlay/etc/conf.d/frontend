@@ -1,3 +1,4 @@
-# Frontend da sessão: nome de um executável em /usr/libexec/r36os/frontends/.
-# Para trocar, instale o pacote do novo frontend e mude este valor (docs/FRONTEND.md).
-FRONTEND="retroarch"
+# Session frontend: the name of an executable in /usr/libexec/r36os/frontends/.
+# Default: lume (the lume-launcher). "retroarch" is the fallback frontend: the RetroArch menu
+# at boot, as before the launcher (docs/FRONTEND.md).
+FRONTEND="lume"

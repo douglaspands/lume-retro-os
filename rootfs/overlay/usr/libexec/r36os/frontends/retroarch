@@ -13,8 +13,20 @@
 # RetroArch's "Reset to Default Config" loads LUME_RETROARCH_DEFAULTS after its built-in
 # defaults (aports/retroarch patch 0006): the factory user config with the fixed keys
 # merged in, written to the user's runtime dir (RAM) on every start.
-# BOARD_FILE, R36OS_SHARE and R36OS_EXTRA_CFG only change for the tests.
+#
+# Opened by the lume-launcher (LUME_LAUNCHER set by lume-run), quitting goes back to the game
+# list: LUME_RETROARCH_QUIT=launcher tells RetroArch to label the item "Quit" and to skip
+# the confirmation (aports/retroarch patch 0010).
+#
+# Keys for one run only (lume-launcher D7), given before the RetroArch arguments:
+#   --lume-set KEY=VALUE   the value for this run (aspect_ratio_index)
+#   --lume-keep KEY        a key RetroArch itself changes for this run (state_slot, by -e)
+# The user's values of those keys are saved in LUME_RESTORE (on the card) and written back
+# when RetroArch ends; if it was killed, at the start of the next run. RetroArch saves its
+# whole config, so without this the run's value would become the user's.
+# BOARD_FILE, R36OS_SHARE, R36OS_EXTRA_CFG and LUME_RESTORE only change for the tests.
 SHARE=${R36OS_SHARE:-/usr/share/r36os}
+RESTORE=${LUME_RESTORE:-/storage/system/lume/retroarch-restore.cfg}
 EXTRA=${R36OS_EXTRA_CFG:-/run/r36os/retroarch-extra.cfg}
 USER_CFG=$HOME/.config/retroarch/retroarch.cfg
 DEFAULTS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-defaults.cfg
@@ -38,8 +50,23 @@ merge_fixed() {  # user_cfg fixed_cfg...
 	' USER="$user" "$@" "$user" > "$user.tmp.$$" && mv -f "$user.tmp.$$" "$user"
 }
 
+# Writes back the user's values saved in $RESTORE: "KEY = value" lines replace the key,
+# "#unset KEY" lines remove it (the user had none); then the file goes away.
+restore_user_keys() {
+	[ -f "$RESTORE" ] || return 0
+	awk '
+		function key(l) { if (match(l, /^[A-Za-z0-9_]+[ \t]*=/)) { k = substr(l, 1, RLENGTH - 1); sub(/[ \t]+$/, "", k); return k } return "" }
+		FILENAME != USER { if ($1 == "#unset") { del[$2] = 1; next } k = key($0); if (k != "") { if (!(k in val)) order[++n] = k; val[k] = $0 } next }
+		{ k = key($0); if (k != "" && (k in del)) next; if (k != "" && (k in val)) { if (!(k in done)) print val[k]; done[k] = 1 } else print }
+		END { for (i = 1; i <= n; i++) if (!(order[i] in done)) print val[order[i]] }
+	' USER="$USER_CFG" "$RESTORE" "$USER_CFG" > "$USER_CFG.tmp.$$" && mv -f "$USER_CFG.tmp.$$" "$USER_CFG" &&
+		rm -f "$RESTORE"
+}
+
 # shellcheck disable=SC2086
 merge_fixed "$USER_CFG" $CFGS
+# a run killed before it could put the user's values back
+restore_user_keys
 # distro defaults for the reset: factory config + fixed keys (skipped if the runtime dir
 # is not writable; the reset then behaves as upstream)
 if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
@@ -48,6 +75,40 @@ if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
 	export LUME_RETROARCH_DEFAULTS="$DEFAULTS"
 fi
 [ -n "${R36OS_MERGE_ONLY:-}" ] && exit 0
-exec retroarch \
+[ -n "${LUME_LAUNCHER:-}" ] && export LUME_RETROARCH_QUIT=launcher
+
+# keys of this run only
+RUN_KEYS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-run.cfg
+: > "$RUN_KEYS"
+SAVE=""
+while :; do
+	case "${1:-}" in
+	--lume-set)
+		k=${2%%=*}
+		printf '%s = "%s"\n' "$k" "${2#*=}" >> "$RUN_KEYS"
+		SAVE="$SAVE $k"
+		shift 2 ;;
+	--lume-keep)
+		SAVE="$SAVE $2"
+		shift 2 ;;
+	*) break ;;
+	esac
+done
+if [ -z "$SAVE" ]; then
+	exec retroarch \
+		--config "$USER_CFG" \
+		--verbose "$@"
+fi
+# the user's values first, on the card, so a cut run still gives them back
+mkdir -p "${RESTORE%/*}"
+for k in $SAVE; do
+	line=$(grep -E "^$k[[:space:]]*=" "$USER_CFG" | tail -n 1)
+	if [ -n "$line" ]; then echo "$line"; else echo "#unset $k"; fi
+done > "$RESTORE.tmp" && sync "$RESTORE.tmp" 2>/dev/null; mv -f "$RESTORE.tmp" "$RESTORE"
+[ -s "$RUN_KEYS" ] && merge_fixed "$USER_CFG" "$RUN_KEYS"
+retroarch \
 	--config "$USER_CFG" \
 	--verbose "$@"
+rc=$?
+restore_user_keys
+exit $rc

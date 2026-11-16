@@ -1,8 +1,11 @@
 """Image version (D15): the build timestamp, `YYYYMMDD-HHMMSS`.
 
-The same value goes to /etc/os-release (BUILD_ID), to BOOT/VERSION (readable on a PC) and
-to the folder and image names in out/images/<target>/. The repository commit is recorded
-in the image build.json, for traceability.
+The same value goes to BOOT/VERSION (readable on a PC and, as /boot/VERSION, on the
+console) and to the folder and image names in out/images/<target>/. The repository commit
+is recorded in the image build.json, for traceability. /etc/os-release carries only the
+system version, not the build: SYSTEM must come out byte for byte the same when nothing in
+it changed, so that `r36os push` skips it (a GA36 kernel change used to resend the 310 MB
+SYSTEM of the R36S too).
 """
 
 from __future__ import annotations
@@ -48,16 +51,16 @@ def current(now: float | None = None) -> BuildVersion:
     )
 
 
-def os_release(v: BuildVersion) -> str:
-    """Contents of the image /etc/os-release."""
+def os_release() -> str:
+    """Contents of the image /etc/os-release: the system version, never the build (the
+    build is in /boot/VERSION), so that SYSTEM does not change from one build to the next."""
     return (
         'NAME="Lume Retro OS"\n'
         "ID=lumeretro\n"
         "ID_LIKE=alpine\n"
         f"VERSION_ID={VERSION_ID}\n"
-        f'VERSION="{VERSION_ID} ({v.build_id})"\n'
-        f"BUILD_ID={v.build_id}\n"
-        f'PRETTY_NAME="Lume Retro OS {VERSION_ID} ({v.build_id})"\n'
+        f'VERSION="{VERSION_ID}"\n'
+        f'PRETTY_NAME="Lume Retro OS {VERSION_ID}"\n'
     )
 
 

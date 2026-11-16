@@ -7,6 +7,8 @@
       build.json                       timestamp, commit, layers (kernel, patches, SYSTEM
                                        size), bootloaders, Alpine, sizes
       SHA256SUMS                       of the uncompressed image and of the .zst
+      boot-files.sha256                console: every file of BOOT with its SHA256, read
+                                       back from the FAT, VERSION last (r36os push)
     out/images/console/latest -> 20261109-214233
 
 Write it to a card: `uv run r36os flash <image> /dev/sdX`.
@@ -48,11 +50,13 @@ def _compress(src: Path, dest: Path) -> tuple[str, str]:
 
 
 def archive_image(target: ImageTarget | Target, img: Path, v: BuildVersion,
-                  info: dict | None = None, manifests: dict[str, Path] | None = None) -> Path:
+                  info: dict | None = None, manifests: dict[str, Path] | None = None,
+                  extras: dict[str, Path] | None = None) -> Path:
     """Keep the image of this build with its manifests, build.json and sums; update `latest`.
 
     `manifests` maps the archived name to the manifest of each system (default: the
-    manifest.txt next to the image).
+    manifest.txt next to the image). `extras` maps the archived name to other files of the
+    build kept next to the image (the GA36 panel boot images), listed in SHA256SUMS.
     """
     dest = ensure_dir(images_dir(target) / v.build_id)
     name = f"{target.name}-{v.build_id}.img"
@@ -72,7 +76,11 @@ def archive_image(target: ImageTarget | Target, img: Path, v: BuildVersion,
         **(info or {}),
     }
     (dest / "build.json").write_text(json.dumps(build, indent=2, ensure_ascii=False) + "\n")
-    (dest / "SHA256SUMS").write_text(f"{sha_raw}  {name}\n{sha_zst}  {name}.zst\n")
+    sums = f"{sha_raw}  {name}\n{sha_zst}  {name}.zst\n"
+    for archived, src in sorted((extras or {}).items()):
+        shutil.copy(src, dest / archived)
+        sums += f"{hashlib.sha256((dest / archived).read_bytes()).hexdigest()}  {archived}\n"
+    (dest / "SHA256SUMS").write_text(sums)
     latest = images_dir(target) / "latest"
     latest.unlink(missing_ok=True)
     latest.symlink_to(v.build_id)

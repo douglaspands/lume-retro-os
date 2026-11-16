@@ -1,0 +1,20 @@
+[package]
+name = "lume-index"
+description = "Game list scan, gamelist.xml diff, binary index and thumbnails (lume-launcher D4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lume-index"
+path = "src/main.rs"
+
+[dependencies]
+lume-core.workspace = true
+libc.workspace = true
+quick-xml = "0.37"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

@@ -1,0 +1,34 @@
+# Lume (the default theme): the blue tones of the Lume TV launcher (themes/lume/theme.css in
+# github.com/douglaspands/lume-tv-launcher, same author; values copied, nothing depends on
+# that project). Shapes, sizes and positions come from material-dark.
+# Lume roles: --bg -> bg; --secondary (text) -> fg; --text-muted -> muted; --primary ->
+# accent, focused Dock icon and focused row (filled, as the Lume settings items);
+# --on-primary -> their text; --surface-row -> tiles; --surface-focus -> focused tile and
+# toast; --surface-icon -> Dock icons and panels.
+[theme]
+id = "lume"
+name = { en = "Lume", pt = "Lume", es = "Lume" }
+extends = "material-dark"
+
+[tokens]
+bg = "#0F171E"
+fg = "#F2F5F7"
+muted = "#AEB9C2"
+accent = "#4DB3FF"
+accent_fg = "#0F171E"
+icon_bg = "#1A252F"
+icon_fg = "#F2F5F7"
+icon_sel_bg = "#4DB3FF"
+icon_sel_fg = "#0F171E"
+tile_bg = "#17222C"
+tile_bg_sel = "#1F3040"
+tile_bg_opaque = "#17222C"
+panel_bg = "#1A252F"
+panel_bg_opaque = "#1A252F"
+sel_bg = "#4DB3FF"
+sel_fg = "#0F171E"
+# the arrows' chip in the system's blue, as the button letters (user's choice, 2026-11-15)
+nav_bg = "#4DB3FF"
+nav_fg = "#0F171E"
+toast_bg = "#1F3040"
+toast_fg = "#F2F5F7"

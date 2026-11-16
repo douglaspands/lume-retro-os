@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Sun, 15 Nov 2026 16:00:00 -0300
+Subject: [PATCH] dt-bindings: phy: rockchip,inno-usb2phy: add rockchip,vbus-always-on
+
+Some boards do not route VBUS of the OTG connector to the PHY, so the
+B-session valid signal never rises (the R36S V5 handheld, RK3326). The
+OTG state machine then powers the port off on its first run and never
+powers it on again for a device role. Describe such a port with a
+boolean, the same name the Rockchip BSP kernel uses.
+
+diff --git a/Documentation/devicetree/bindings/phy/rockchip,inno-usb2phy.yaml b/Documentation/devicetree/bindings/phy/rockchip,inno-usb2phy.yaml
+index 58e735b..9e9e43c 100644
+--- a/Documentation/devicetree/bindings/phy/rockchip,inno-usb2phy.yaml
++++ b/Documentation/devicetree/bindings/phy/rockchip,inno-usb2phy.yaml
+@@ -129,6 +129,14 @@ properties:
+           Phandle to a regulator that provides power to VBUS.
+           See ./phy-bindings.txt for details.
+
++      rockchip,vbus-always-on:
++        type: boolean
++        description:
++          The board does not route VBUS of this connector to the PHY. The
++          B-session valid signal is ignored and the port is never powered
++          off for lack of VBUS; the controller decides the role (from the ID
++          pin or a USB role switch that overrides the session signals).
++
+     required:
+       - "#phy-cells"
+

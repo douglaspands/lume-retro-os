@@ -32,6 +32,7 @@ total=0
 jq -r --arg arch "$ARCH" '
 	.cores as $cores
 	| .systems[]
+	| select(.core != null)
 	| (.core_by_arch[$arch] // .core) as $core
 	| ((.bios | map(.files[]) | join(" ")) | if . == "" then "-" else . end) as $bios
 		| [.id, .name, $core, $cores[$core].file, (.extensions | join(" ")), $bios]

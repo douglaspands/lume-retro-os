@@ -254,6 +254,40 @@ def test_stick_channels_and_directions_as_tested_on_the_device():
     assert inverted == {"ABS_X", "ABS_Y"}
 
 
+def test_otg_port_is_device_by_default_with_a_role_switch():
+    # usb-device-access D1: the u2phy does not see the VBUS of the OTG port, so the dwc2
+    # role switch overrides the session bits; r36os-usb sets host from the ID pin
+    otg = _node("&usb20_otg")
+    assert "usb-role-switch;" in otg
+    assert 'role-switch-default-mode = "peripheral";' in otg
+    assert "dr_mode" not in otg              # "otg" from px30.dtsi: host stays possible
+
+
+def test_otg_phy_port_stays_powered_without_vbus_sensing():
+    # kernel patch 0030: without the property the PHY driver powers the port off for lack of
+    # VBUS and the dwc2 hangs in its core reset in device mode (R36S boot 59, 2026-11-15)
+    assert "rockchip,vbus-always-on;" in _node("u2phy_otg: otg-port")
+    patches = sorted(p.name for p in (REPO_ROOT / "kernel/patches").glob("*inno-usb2*"))
+    assert any("vbus-always-on" in p for p in patches)
+    assert any("keep-an-OTG-port-without-VBUS-sensing-powered" in p for p in patches)
+
+
+def test_speaker_path_powers_the_headphone_output_stage():
+    # P-45: on the R36S the speaker amplifier is fed from the RK817 headphone output stage
+    # (SPK_HP path of the vendor driver; factory dump AHP_CP 0x11, AHP_CFG0 0x80). Without
+    # it the speaker played low and distorted (2026-11-15)
+    patch = next((REPO_ROOT / "kernel/patches").glob("0024-ASoC-rk817-*.patch")).read_text()
+    for supply in ("Headphone Charge Pump", "Headphone CP Discharge LDO",
+                   "Headphone OStage", "Headphone Pre Amp"):
+        assert f'+\t{{"SPK DAC", NULL, "{supply}"}},' in patch, supply
+
+
+def test_otg_host_role_powers_the_port():
+    # usb-device-access D7: 5 V from the RK817 OTG_SWITCH in the host role
+    assert "vbus-supply = <&otg_switch>;" in _node("&usb20_otg")
+    assert "otg_switch: OTG_SWITCH {" in CODE
+
+
 def test_leds():
     assert _gpio(_node("red_led: led-0")) == (0, 5, "GPIO_ACTIVE_HIGH")
     assert _gpio(_node("blue_led: led-1")) == (0, 0, "GPIO_ACTIVE_HIGH")

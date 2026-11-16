@@ -58,12 +58,20 @@ allow = [
     "dnf list",
     "dnf info",
     "dnf search",
+    # steps of the built-in copy-verify recipe (docs/ctx/MELHORIAS.md, M-07): it never ran
+    # here, every step fell outside this list; the path rules still ask for writes outside
+    # the workspace
+    "cp",
+    "sync",
+    "sha256sum",
+    # commits on the feature branch without a prompt (user, 2026-11-15); push still asks
+    "git add",
+    "git commit",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
 ask = [
     "git push",
-    "git commit",
     "git checkout",
     "git reset",
     "git rebase",
@@ -156,7 +164,8 @@ ask_fallback = "deny"
 # Leitura/escrita de arquivos via shell (cat/head/tail/sed -n, sed -i, >, >>, heredoc, tee) -> ferramenta nativa do harness.
 # "off": só instruções (AGENTS.md/CLAUDE.md/GEMINI.md). "coach": o guardrail nega com a ferramenta certa na mensagem.
 # Meça antes e depois com `ctx metrics` (ver guia, seção "Ferramentas Nativas de Arquivo").
-mode = "off"
+# "coach" since 2026-11-13 (ctx evaluate: search adoption 1%; MELHORIAS.md M-23)
+mode = "coach"
 # Codex só recebe orientação de escrita (apply_patch): ele não tem ferramenta de leitura e lê via shell por design.
 harnesses = ["claude", "antigravity"]
 
@@ -344,6 +353,20 @@ base_url = "https://raw.githubusercontent.com/christianhaitian/linux/{version}/{
 [upstream.rocknix]
 base_url = "https://raw.githubusercontent.com/ROCKNIX/distribution/{version}/{path}"
 
+# ROCKNIX joypad drivers (singleadc/multiadc, the amux-channel-mapping of the clone DTBs).
+# version = commit pinned by ROCKNIX (ac1be0fa0c4e1f7feb9a900fc428d7ac6014029c).
+[upstream.rocknix-joypad]
+base_url = "https://raw.githubusercontent.com/ROCKNIX/rocknix-joypad/{version}/{path}"
+
+# uMTP-Responder (umtprd, the MTP side of the USB gadget). version = release tag (umtprd-1.6.8).
+[upstream.umtprd]
+base_url = "https://raw.githubusercontent.com/viveris/uMTP-Responder/{version}/{path}"
+
+# RetroArch, the version of aports/retroarch (version = tag, e.g. v1.22.2): network
+# commands, config overrides and shader preset order (lume-launcher D7, D17).
+[upstream.retroarch]
+base_url = "https://raw.githubusercontent.com/libretro/RetroArch/{version}/{path}"
+
 # ctx:section recall
 # Memória local entre sessões (`ctx recall`, `ctx fact`). Nada sai da máquina; `paths.deny` é respeitado.
 # [recall]
@@ -371,3 +394,8 @@ base_url = "https://raw.githubusercontent.com/ROCKNIX/distribution/{version}/{pa
 # tokens_per_call = 250               # custo médio de uma chamada de ferramenta evitada
 # recall_hit_calls = 2                # chamadas que um acerto de recall/fato costuma evitar
 # search_adoption_ok = 0.5            # fração de buscas via ctx (vs rg/grep/sed) para "compensa"
+
+# --- ctx 0.5.0: seções novas (defaults comentados; descomente para customizar) ---
+# ctx:section metrics-confidence
+# Na tabela [metrics.evaluate] (ctx 0.5):
+# confident_sessions = 30             # abaixo disso o veredito do `ctx evaluate` sai como "provisório"

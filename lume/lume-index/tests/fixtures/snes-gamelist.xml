@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<gameList>
+	<game id="81234" source="ScreenScraper.fr">
+		<path>./Alpha Quest (USA).sfc</path>
+		<name>Alpha Quest</name>
+		<desc>Fixture entry with every field a scraper writes, plus unknown ones.</desc>
+		<image>./images/Alpha Quest (USA)-image.png</image>
+		<marquee>./images/Alpha Quest (USA)-marquee.png</marquee>
+		<rating>0.75</rating>
+		<releasedate>19940101T000000</releasedate>
+		<developer>Nobody</developer>
+		<genre>Action</genre>
+		<players>1-2</players>
+		<scraperextra lang="xx">must stay</scraperextra>
+	</game>
+	<game>
+		<path>./Beta Racer.smc</path>
+		<name>Beta Racer</name>
+		<favorite>true</favorite>
+		<playcount>7</playcount>
+		<lastplayed>20260101T101010</lastplayed>
+	</game>
+</gameList>

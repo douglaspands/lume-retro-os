@@ -1,0 +1,30 @@
+# Material 3, light (lume-launcher D11): the shapes, sizes and positions of the dark theme,
+# with the color roles of the light baseline scheme. The example of "extends". Good in the
+# sun.
+[theme]
+id = "material-light"
+name = { en = "Light", pt = "Claro", es = "Claro" }
+extends = "material-dark"
+
+[tokens]
+bg = "#FEF7FF"
+fg = "#1D1B20"
+muted = "#49454F"
+accent = "#6750A4"
+accent_fg = "#FFFFFF"
+overlay = "#0000005a"
+icon_bg = "#ECE6F0"
+icon_fg = "#1D1B20"
+icon_sel_bg = "#EADDFF"
+icon_sel_fg = "#21005D"
+tile_bg = "#F3EDF7"
+tile_bg_sel = "#E6E0E9"
+tile_bg_opaque = "#F3EDF7"
+panel_bg = "#ECE6F0"
+panel_bg_opaque = "#ECE6F0"
+sel_bg = "#E8DEF8"
+sel_fg = "#1D192B"
+nav_bg = "#E8DEF8"
+nav_fg = "#1D192B"
+toast_bg = "#322F35"
+toast_fg = "#F5EFF7"

@@ -46,6 +46,15 @@ cmd_start() {
 	dmesg | sed -n 's/.*lume: \(ROMS partition created.*\)/\1/p' | while read -r l; do event roms OK "$l"; done
 	dmesg | sed -n 's/.*lume: ROMS checked: \(.*\)/\1/p' | while read -r l; do event roms OK "checked: $l"; done
 	dmesg | sed -n 's/.*lume: \(ERROR.*\)/\1/p' | while read -r l; do event boot FAIL "$l"; done
+	# Device tree choice (lume-bootsel in the initramfs; "before kexec:" once per kexec, so
+	# twice after a revert): the choice, the confirmation on the screen or the revert
+	dmesg | sed -En 's/.*lume-bootsel: (before kexec: )*(selected .*|fallback: .*|ERROR.*|confirmed on screen: .*|not confirmed .*)/\2/p' |
+		while read -r l; do
+			case "$l" in
+			selected*|"confirmed on screen"*) event boot OK "device tree $l" ;;
+			*) event boot FAIL "device tree $l" ;;
+			esac
+		done
 	# Erros do kernel neste boot (nível err ou pior): contagem e os 3 primeiros
 	local errs
 	errs=$(dmesg -l err,crit,alert,emerg 2>/dev/null)
@@ -72,7 +81,8 @@ discover() {
 		for z in $ZONES; do printf ',temp_%s_c' "$(cat "$z/type" 2>/dev/null | tr -c 'a-zA-Z0-9_\n' '_')"; done
 		for p in $POLICIES; do printf ',freq_%s_mhz' "${p##*/}"; done
 		for c in $CPUS; do printf ',cpu%s_pct' "$c"; done
-		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal\n'
+		printf ',mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal'
+		printf ',lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct\n'
 	} > "$LOGS_RAM/metrics.header"
 }
 
@@ -86,13 +96,51 @@ passive_trip() {  # zona
 	done
 }
 
-# Estado do frontend pelo comando de rede local (GET_STATUS)
+# State of the lume-launcher (lume-launcher D10): lume-run writes ui, game:<runner> or off
+# to its status file. Under the launcher no game name is ever logged: lume-run writes the
+# game lines of events.log itself.
+LUME_STATUS=${LUME_STATUS:-/run/user/1000/lume/status}
+LUME=""
+lume_active() { [ -f "$LUME_STATUS" ] && proc_pid lume-run; }
+
+# PID of a process by name in PID (fails when it is not running). The pid of the previous
+# sample is kept in PU_<name>_P and checked by /proc/<pid>/comm (a builtin read), so pidof,
+# which walks all of /proc, runs only when the process changed (logd budget: 1% of a core).
+proc_pid() {  # name
+	local var=$1 comm=""
+	while :; do
+		case "$var" in *-*) var="${var%%-*}_${var#*-}" ;; *) break ;; esac
+	done
+	eval "PID=\${PU_${var}_P:-}"
+	[ -n "$PID" ] && { read -r comm < "/proc/$PID/comm"; } 2>/dev/null
+	if [ -z "$PID" ] || [ "$comm" != "$1" ]; then
+		PID=$(pidof "$1" 2>/dev/null)
+		PID=${PID%% *}
+	fi
+	eval "PU_${var}_P=\$PID"
+	[ -n "$PID" ]
+}
+
+# Frontend state through the local network command (GET_STATUS)
 FE_STATE="" FE_CORE="" FE_CONTENT="" FE_FRAMES=""
 frontend_state() {
-	local r st rest
-	FE_CORE="" FE_CONTENT="" FE_FRAMES=""
+	local r st rest s
+	FE_CORE="" FE_CONTENT="" FE_FRAMES="" LUME=""
+	lume_active && LUME=1
+	# the launcher on screen (the most common state): no RetroArch to look for
+	if [ -n "$LUME" ]; then
+		{ read -r s < "$LUME_STATUS"; } 2>/dev/null
+		case "$s" in game:*) ;; *) FE_STATE=launcher; return ;; esac
+	fi
 	if ! pidof retroarch >/dev/null 2>&1; then
-		# outro frontend instalado em /usr/libexec/r36os/frontends/, ou nenhum
+		if [ -n "$LUME" ]; then
+			case "$s" in
+			game:*) FE_STATE=game FE_CORE=${s#game:} ;;
+			*) FE_STATE=launcher ;;
+			esac
+			return
+		fi
+		# another frontend installed in /usr/libexec/r36os/frontends/, or none
 		if pgrep -f /usr/libexec/r36os/frontends/ >/dev/null 2>&1; then
 			FE_STATE=other
 		else
@@ -116,6 +164,7 @@ frontend_state() {
 			FE_FRAMES=${r##*,frames=}
 			FE_FRAMES=$(printf '%s' "$FE_FRAMES" | tr -cd '0-9') ;;
 		esac
+		[ -n "$LUME" ] && FE_CONTENT=""
 		;;
 	CONTENTLESS) FE_STATE=menu ;;
 	*) FE_STATE=no_answer ;;
@@ -123,6 +172,57 @@ frontend_state() {
 }
 
 csv_field() { printf '%s' "$1" | tr ',\n' ';;'; }
+
+# Resident memory (KiB) and CPU (% of one core since the previous sample) of a process by
+# name, as "rss,cpu" in PU_OUT; "," when it is not running (lume-launcher 6.4: lume-ui,
+# lume-run, r36os-input). /proc ticks are USER_HZ (100), so ticks per second is the
+# percentage. Not called in $(...): the previous sample lives in shell variables.
+# Shell builtins only (the logd cost budget is 1% of a core): the pid is kept between
+# samples and pidof runs only when that pid no longer has the name.
+PU_OUT=""
+# uptime ("123.4" or "123.45") in centiseconds, in CS, with shell arithmetic only
+uptime_cs() {
+	local i=${1%%.*} f=""
+	case "$1" in *.*) f=${1#*.} ;; esac
+	f=${f}00
+	f=${f%"${f#??}"}
+	# "1$f - 100": a leading zero would make "08" an invalid octal number
+	CS=$(( i * 100 + 1$f - 100 ))
+}
+proc_usage() {  # name uptime
+	local name=$1 up=$2 pid old stat ticks rss="" k v x var prev_t prev_u pct=""
+	var=$name
+	while :; do
+		case "$var" in *-*) var="${var%%-*}_${var#*-}" ;; *) break ;; esac
+	done
+	eval "old=\${PU_${var}_P:-}"
+	proc_pid "$name"
+	pid=$PID
+	if [ -z "$pid" ] || ! { read -r stat < "/proc/$pid/stat"; } 2>/dev/null; then
+		eval "PU_${var}_P='' PU_${var}_T='' PU_${var}_U=''"
+		PU_OUT=","
+		return 0
+	fi
+	# a new process (lume-ui comes back after each game): no CPU until its second sample
+	[ "$pid" = "$old" ] || eval "PU_${var}_T='' PU_${var}_U=''"
+	# fields after "(comm) ": utime and stime are the 12th and 13th
+	set -- ${stat##*) }
+	ticks=$(( ${12} + ${13} ))
+	{
+		while read -r k v x; do
+			[ "$k" = VmRSS: ] && { rss=$v; break; }
+		done < "/proc/$pid/status"
+	} 2>/dev/null
+	uptime_cs "$up"
+	eval "prev_t=\${PU_${var}_T:-} prev_u=\${PU_${var}_U:-}"
+	if [ -n "$prev_t" ] && [ "$ticks" -ge "$prev_t" ] && [ "$CS" -gt "$prev_u" ]; then
+		# tenths of a percent: ticks are centiseconds of CPU
+		x=$(( (ticks - prev_t) * 1000 / (CS - prev_u) ))
+		pct="$((x / 10)).$((x % 10))"
+	fi
+	eval "PU_${var}_P=$pid PU_${var}_T=$ticks PU_${var}_U=$CS"
+	PU_OUT="$rss,$pct"
+}
 
 # Frontend trace (trace/boot-<n>.log): one line per sample with the RetroArch process
 # state, the new kernel messages and, when it stops answering, a detailed snapshot. It
@@ -323,6 +423,87 @@ pcm_pos() {
 	echo -
 }
 
+# OTG port (usb-device-access D1): what the kernel sees of the port, to learn how each
+# console tells a PC, a charger and an OTG adapter apart. Fields, each only when present:
+#   extcon=<name>:USB=<0|1>,USB-HOST=<0|1>  the PHY: USB is VBUS seen by the PHY, USB-HOST
+#                                           is the ID pin pulled low (OTG adapter)
+#   musb=<mode>          MUSB controller (GA36): b_idle, b_peripheral, a_host...
+#   role=<name>:<role>   USB role switch: none, host or device
+#   udc=<name>:<state>   gadget side: not attached, attached, configured...
+#   vbus=<name>:<0|1>    online of each USB power supply (the charger input of the PMIC)
+#   host_devs=<n>        USB devices behind the host ports (root hubs not counted)
+# "none" when the console has none of them (the vm). SYS_ROOT is overridden by the tests.
+SYS_ROOT=${SYS_ROOT:-/sys}
+# usb_scan sets USB_S without a subshell (logd runs every few seconds: one fork less per
+# sample, see the logs-cost check of test-vm); usb_state prints it
+# (all reads are the shell's own read: no process per file)
+usb_state() { usb_scan; echo "$USB_S"; }
+_rd() { V=""; [ -r "$1" ] && read -r V < "$1" 2>/dev/null; return 0; }   # first line -> V
+usb_scan() {
+	local f d l s out="" devs=0
+	for f in "$SYS_ROOT"/class/extcon/*/state; do
+		[ -r "$f" ] || continue
+		s=""
+		while IFS= read -r l; do s="$s,$l"; done < "$f"
+		case "$s" in *USB*) ;; *) continue ;; esac
+		d=${f%/state}
+		_rd "$d/name"
+		out="$out extcon=${V:-${d##*/}}:${s#,}"
+	done
+	for f in "$SYS_ROOT"/bus/platform/devices/musb-hdrc.*/mode; do
+		[ -r "$f" ] && _rd "$f" && out="$out musb=$V"
+	done
+	for f in "$SYS_ROOT"/class/usb_role/*/role; do
+		[ -r "$f" ] || continue
+		d=${f%/role}
+		_rd "$f"
+		out="$out role=${d##*/}:$V"
+	done
+	for f in "$SYS_ROOT"/class/udc/*/state; do
+		[ -r "$f" ] || continue
+		d=${f%/state}
+		_rd "$f"
+		out="$out udc=${d##*/}:${V// /_}"
+	done
+	for d in "$SYS_ROOT"/class/power_supply/*; do
+		_rd "$d/type"
+		[ "$V" = USB ] || continue
+		_rd "$d/online"
+		out="$out vbus=${d##*/}:$V"
+	done
+	for d in "$SYS_ROOT"/bus/usb/devices/[0-9]*-*; do
+		[ -e "$d" ] || continue
+		case "${d##*/}" in *:*) continue ;; esac
+		devs=$((devs + 1))
+	done
+	if [ -z "$out" ] && [ "$devs" = 0 ]; then
+		USB_S=none
+	else
+		USB_S="${out# } host_devs=$devs"
+	fi
+	return 0
+}
+
+# One "usb:" trace line per sample, and a usb event when the state changes. The gadget
+# (r36os-usb, D2) is "connected" while its UDC is configured by a PC.
+USB_LAST=none USB_CONNECTED=0
+usb_watch() {
+	local s
+	usb_scan
+	s=$USB_S
+	trace "usb: $s"
+	[ "$s" = "$USB_LAST" ] && return 0
+	USB_LAST=$s
+	event usb OK "otg: $s"
+	case " $s " in
+	*" udc="*":configured "*)
+		[ "$USB_CONNECTED" = 1 ] || { USB_CONNECTED=1; event usb OK "device: connected"; } ;;
+	*)
+		[ "$USB_CONNECTED" = 0 ] || { USB_CONNECTED=0; event usb OK "device: disconnected"; } ;;
+	esac
+	return 0
+}
+
 # One line per sample + detection of "RetroArch alive but not answering" and of a hang
 trace_sample() {
 	local pid line t th="" dri=0 f r gpu="" vb st utime stime threads ticks
@@ -486,8 +667,19 @@ sample() {
 	game_track "$up"
 	line="$line,$FE_STATE,$(csv_field "$FE_CORE"),$(csv_field "$FE_CONTENT"),$FPS,"
 	[ -n "$GAME_KEY" ] && line="$line$GAME_NOMINAL"
+	# the lume status says what runs: no lookup for lume-run without the launcher, nor for
+	# lume-ui during a game (it exits while the game runs)
+	for p in lume-ui lume-run r36os-input; do
+		case "$p" in
+		lume-ui) [ "$FE_STATE" = launcher ] || { line="$line,,"; continue; } ;;
+		lume-run) [ -n "$LUME" ] || { line="$line,,"; continue; } ;;
+		esac
+		proc_usage "$p" "$up"
+		line="$line,$PU_OUT"
+	done
 	echo "$line" >> "$LOGS_RAM/metrics.pending"
 	trace_sample
+	usb_watch
 }
 
 # Nominal FPS of the running core: the last "Geometry: ... FPS: <n>," line of the frontend
@@ -507,12 +699,13 @@ game_track() {  # uptime
 	local up=$1 key=""
 	case "$FE_STATE" in game|paused) key="$FE_CORE|$FE_CONTENT" ;; esac
 	if [ "$key" != "$GAME_KEY" ]; then
-		if [ -n "$GAME_KEY" ]; then
+		# under the launcher, lume-run logs the start and the end (without names)
+		if [ -n "$GAME_KEY" ] && [ -z "$LUME" ]; then
 			event game OK "closed: core=$GAME_CORE content=$GAME_CONTENT duration=$(( ${up%.*} - GAME_T0 ))s"
 		fi
 		if [ -n "$key" ]; then
 			GAME_CORE=$FE_CORE GAME_CONTENT=$FE_CONTENT GAME_T0=${up%.*}
-			event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
+			[ -z "$LUME" ] && event game OK "opened: core=$FE_CORE content=$FE_CONTENT"
 		fi
 		GAME_KEY=$key GAME_NOMINAL="" FPS_PREV_FRAMES="" SLOW_N=0 SLOW=0
 	fi
@@ -533,7 +726,7 @@ game_track() {  # uptime
 		SLOW_N=$((SLOW_N + 1))
 		if [ "$SLOW_N" -ge 2 ] && [ "$SLOW" = 0 ]; then
 			SLOW=1
-			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL) content=$GAME_CONTENT"
+			event game FAIL "slow: core=$GAME_CORE $FPS fps (nominal $GAME_NOMINAL)${GAME_CONTENT:+ content=$GAME_CONTENT}"
 		fi
 	else
 		SLOW_N=0
@@ -544,13 +737,45 @@ game_track() {  # uptime
 	fi
 }
 
+# Waits for the frontend (up to 60 s): 0 when it started
+wait_frontend() {
+	local i=0
+	while [ $i -lt "${FRONTEND_WAIT:-60}" ]; do
+		dmesg | grep -q "lume: frontend started" && return 0
+		sleep 1
+		i=$((i + 1))
+	done
+	return 1
+}
+
+# The frontend is up (boot-dtb-select D6, D10). A device tree still pending here is one
+# the screen could not confirm (no confirm key in the initramfs): it is confirmed now,
+# good=<it> and no pending in ROMS/system/etc/dtb-<soc>[-<serial>].conf, keeping manual=
+# and bad=. Every other pending one was confirmed or reverted on the screen, and one still
+# pending at the next boot did not get here, so lume-bootsel discards it.
+DTB_CONF_DIR=${DTB_CONF_DIR:-/storage/system/etc}
+dtb_confirm() {
+	local id soc name conf manual bad
+	id=$(dtb_id)
+	soc=$(dtb_soc)
+	name=$(dtb_conf_name)
+	[ -n "$id" ] && [ -n "$name" ] || return 0
+	logs_on_disk || return 0
+	conf=$DTB_CONF_DIR/$name
+	grep -qx "pending=$id" "$conf" 2>/dev/null || return 0
+	manual=$(sed -n 's/^manual=//p' "$conf" 2>/dev/null | tail -n 1)
+	bad=$(sed -n 's/^bad=//p' "$conf" 2>/dev/null | tail -n 1)
+	printf '# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, r36os-logd)\nmanual=%s\ngood=%s\npending=\nbad=%s\n' \
+		"$soc" "$(dtb_serial)" "$manual" "$id" "$bad" > "$conf.tmp" || return 0
+	fsync "$conf.tmp" 2>/dev/null
+	mv -f "$conf.tmp" "$conf"
+	event boot OK "device tree $id confirmed: the frontend started (no question on the screen)"
+}
+
 # Retrato do hardware deste boot (hw/boot-<n>.txt), depois que o frontend sobe
 hw_snapshot() {
 	local out="$LOGS_RAM/hw.txt" n
 	n=$(boot_n)
-	# espera o frontend (até 60 s) para medir o tempo até ele
-	local i=0
-	while [ $i -lt 60 ] && ! dmesg | grep -q "lume: frontend started"; do sleep 1; i=$((i + 1)); done
 	/usr/libexec/r36os/hwinfo > "$out" 2>&1
 	if logs_on_disk; then atomic_copy "$out" "$LOGS_DIR/hw/boot-$n.txt"; fi
 }
@@ -563,8 +788,11 @@ cmd_run() {
 		discover
 		: > "$LOGS_RAM/stat.prev"
 		KMSG_SEEN=$(dmesg | wc -l)
-		hw_snapshot
 	fi
+	# wait for the frontend (also to time it in the hardware snapshot), then confirm the
+	# device tree; the snapshot is taken even when the frontend did not start
+	if wait_frontend; then dtb_confirm; fi
+	[ "$LOG_ENABLE" = 1 ] && hw_snapshot
 	while :; do
 		[ "$LOG_ENABLE" = 1 ] && sample
 		now=$(cut -d. -f1 /proc/uptime)

@@ -1,0 +1,44 @@
+#!/sbin/openrc-run
+# Game lists of the lume-launcher (lume-launcher D4): scans roms/ against each
+# roms/<id>/gamelist.xml and refreshes the index and thumbnails in ROMS/system/lume/cache/.
+# Runs in the background as the game user: the launcher shows the previous index at once
+# and reloads when this scan bumps cache/index/GEN. lume-index holds a flock on
+# cache/lock, so a restart (usb-gadget, when the PC lets go of the card) never runs two
+# scans at once. Its summary line (games per system, no names) goes to the syslog.
+
+description="Launcher game lists"
+command=/usr/bin/lume-index
+command_user="game:game"
+command_background=yes
+pidfile=/run/lume-index.pid
+output_logger="logger -t lume-index"
+error_logger="logger -t lume-index"
+
+depend() {
+	need localmount
+	after r36os-persist
+	before frontend
+}
+
+start() {
+	# nothing to scan without the games partition (not a failure)
+	if ! mountpoint -q /storage; then
+		einfo "No games partition: no scan"
+		return 0
+	fi
+	# the card's folder for the user's themes, with how to fill it; made once, on new and
+	# old cards alike, and never touched again (the user may change or remove the guide)
+	themes=/storage/system/lume/themes
+	if [ ! -d "$themes" ]; then
+		mkdir -p "$themes"
+		cp /usr/share/lume/LEIA-ME-temas.txt "$themes/LEIA-ME.txt"
+	fi
+	# the model of the original theme, for the user to copy: a "_" folder, which the
+	# launcher ignores; the system's, so it follows the image (written only when it differs)
+	model=/usr/share/lume/theme-template/_lume-original/theme.toml
+	if ! cmp -s "$model" "$themes/_lume-original/theme.toml"; then
+		mkdir -p "$themes/_lume-original"
+		cp "$model" "$themes/_lume-original/theme.toml"
+	fi
+	default_start
+}

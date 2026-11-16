@@ -35,7 +35,7 @@ cartão original (`R36OS_R36S_FACTORY`), conferida por SHA256 (`src/r36os/r36s_v
 
 O `boot.ini` de fábrica carrega `Image`, `uInitrd` e `rk3326-r35s-linux.dtb` de
 `mmc 1:1`. O nosso (`board/r36s/boot.ini`) carrega `r36s/Image` (kernel com o initramfs
-embutido) e `r36s/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no kernel
+embutido) e o DTB padrão `dtbs/rk3326/rk3326-r36s-v5.dtb`, sem `uInitrd`; a linha de comando fica no kernel
 (`CONFIG_CMDLINE_FORCE`: `root=PARTUUID=4c554d32-01`, `ttyS2` a 1500000 e `tty1`).
 
 **Tarefa 1.1, o U-Boot lê o nosso `boot.ini`?** **Sim (medido em 2026-11-12)**, mas com
@@ -59,12 +59,67 @@ R36S para no logo, procure `BOOT/error.log` pelo PC.
 | 16384 a 32767 | `uboot.img` (x4) e `trust.img` (x2) | R36S |
 | 38192 em diante | U-Boot 2017, tabela `softw411`, FAT "bootloader", env | GA36 |
 | 172032 | imagem de boot Android do painel 1 do GA36 | build |
-| 262144 | `BOOT` (FAT32, 2 GiB): `VERSION`, `boot.ini`, `rg351mp-kernel.dtb` e `rg351p-kernel.dtb` (de fábrica), `ga36/`, `r36s/` | build |
+| 262144 | `BOOT` (FAT32, 2 GiB): ver a tabela abaixo | build |
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai
 sobre dados do GA36 (`src/r36os/bootarea.py`). O initramfs de cada console monta o próprio
 sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
+
+**A partição `BOOT`** (a mesma nos dois consoles; `docs/BRINGUP-GA36.md` tem a mesma tabela):
+
+| Caminho | O que é |
+|---|---|
+| `VERSION` | build gravado no cartão |
+| `boot.ini` | lido pelo U-Boot do R36S: carrega `r36s/Image` e `dtbs/rk3326/rk3326-r36s-v5.dtb` |
+| `rg351mp-kernel.dtb`, `rg351p-kernel.dtb` | de fábrica: o U-Boot do R36S os exige para iniciar (seção 2) |
+| `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
+| `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
+| `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
+| `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
+| `r36s/` | `SYSTEM`, `Image` e `modules` |
+
+A `BOOT` tem só o que os consoles leem; as imagens de boot dos painéis do GA36 ficam na pasta
+do build no PC (`docs/BRINGUP-GA36.md`, seção 3).
+
+**Trocar o logo:** pelo PC, substituir `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits.
+No R36S vale no boot seguinte. (No GA36, o logo da `BOOT` depende da tarefa 2.2 de
+`boot-dtb-select`; até lá ele mostra o logo da área de fábrica.)
+
+### 3.1 Escolher o device tree (DTB)
+
+O U-Boot sempre inicia o kernel com o DTB padrão. No initramfs, o `lume-bootsel` olha
+`BOOT/dtbs/rk3326/` e decide, nesta ordem: o arquivo `BOOT/dtbs/force`; a lista na tela
+(tecla segurada ao ligar); a volta ao último DTB que funcionou; a escolha salva da lista; as
+regras de cada DTB (leituras de ADC, GPIO e I2C); o padrão. Se o escolhido não é o que está
+rodando, o kernel reinicia uma vez com ele (kexec, 1 a 2 s a mais). Hoje há um só DTB do
+R36S, então o boot segue sempre com o padrão, sem troca.
+
+- **Pelo PC:** escrever o nome (por exemplo `r36s-v5`) em `BOOT/dtbs/force`. Apagar o
+  arquivo volta ao automático. Um nome que não existe é ignorado (motivo no log).
+- **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
+  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-rk3326.conf` e "Automatic"
+  apaga a escolha. (Teclas provisórias até a prova 1.2 de `boot-dtb-select`.)
+- **DTB novo:** copiar o `.dtb` (com o nó `lume-select`) para `BOOT/dtbs/rk3326/` basta
+  para ele entrar na lista.
+- **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
+  `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
+- **DTBs convertidos** (`BOOT/dtbs/rk3326/vendor/`, change `boot-dtb-select` D17): só são
+  lidos quando o `force`, a lista ou o estado os nomeiam. Na lista eles aparecem com
+  "(converted)"; esquerda/L1 e direita/R1 pulam uma página.
+
+**DTB de fábrica convertido, provado (2026-11-16, build `20261115-232617`, boots 92 a 95):**
+`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `r36os dtb-import`) em
+`BOOT/dtbs/force`. Boot 92: tela preta. O painel respondeu o ID (`fe5202`) ao driver
+`panel-generic-dsi`, mas o DTB convertido não levava a taxa da DSI, e a estimativa do
+mainline não dá imagem neste painel. Depois que o conversor passou a gravar a taxa do kernel
+do fabricante (180 Mbps, a mesma do nativo) e os tempos da PHY do nativo, o boot 94 mostrou
+imagem. A pergunta foi confirmada com A, e tela, botões, analógicos, som e brilho
+funcionaram como no nativo. O launcher abriu em 30,8 s, contra cerca de 24 s no nativo; a
+diferença é o kexec. O boot 93, sem ninguém na frente, mostrou a volta sozinha
+(`not confirmed within 15 s`, `reverted`). Ao tirar o `force` e o aprendido, o boot 95
+voltou ao `r36s-v5` (`auto`).
 
 ## 4. Primeiro boot
 
@@ -127,8 +182,11 @@ nitidez e cores e o histórico completo estão na tarefa 4.6 da change `r36s-sin
 Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 
 1. `uv run r36os build console` (com `podman ps` vazio antes).
-2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e, se o DTS
-   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/r36s/`.
+2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e
+   `out/r36s/kernel/modules` para `BOOT/r36s/modules` (os dois juntos: com módulos de outra
+   versão o console sobe sem módulos e o log de boot tem uma linha `ERROR`) e, se o DTS
+   mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`. Pelo cabo,
+   `uv run r36os push` faz isso sozinho.
 3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
    desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
    (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos
@@ -139,10 +197,24 @@ Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 ## 7. Controle
 
 Os botões (`gpio-keys`) e os dois analógicos (`adc-joystick`, SARADC canal 1 atrás de um
-multiplexador) são unidos pelo serviço `r36os-padmerge` num único **"R36S Gamepad"**, com
-os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
+multiplexador) são unidos pelo daemon de entrada `r36os-input` (perfil
+`/usr/share/r36os/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
+com os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
 índices (`/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg`). Os botões de volume são
-um dispositivo à parte (`volume-keys`), como no GA36.
+um dispositivo à parte (`volume-keys`), também capturado pelo daemon.
+
+O daemon captura as origens com exclusividade (`EVIOCGRAB`) e cuida de três coisas além da
+junção:
+
+- **Fn (F5, `BTN_MODE`) sozinho**: sai como apertar e soltar o Fn, quando ele é solto (o menu
+  do RetroArch abre nessa hora).
+- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/r36os/input.sock`, e nenhuma das
+  duas teclas sai; o jogo aberto pelo launcher é encerrado. Fora de um jogo, nada acontece.
+- **Volume**: os botões mudam o controle `Master` do `rk817int` em passos de 5%, em qualquer
+  programa, e não chegam aos programas.
+
+`r36os-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
+`bus=0x6`).
 
 | Tecla no DTS | Função provisória | Confirmar |
 |---|---|---|
@@ -183,9 +255,45 @@ sistema achava que havia fone e ficava mudo).
 - **Abertos:** o som é muito mais baixo que no ArkOS de fábrica e há zumbido em silêncio
   (P-45); a troca de saída com o fone não acontece (P-42).
 
-## 9. Checklist de conferência
+## Pelo cabo USB
 
-## 8. Checklist de conferência
+Ligue o PC na porta **OTG** do R36S, não na de carga (DC), e sem adaptador. O console
+aparece no PC como **"Lume R36S"** (fabricante "Lume Retro OS"), com duas funções:
+
+- **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
+- **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
+  `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
+  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
+  `README.md`).
+
+**Espaço da `BOOT` no `push` (change `push-boot-swap`):** o `push` renomeia o
+`r36s/SYSTEM` e o `r36s/modules` em uso para `.old` (apagados no `push` seguinte), para não
+perder clusters na FAT. Os `push` anteriores a essa change perdiam ~290 MB a cada troca do
+`SYSTEM`; se o cartão do R36S tiver esse resto, o `push` avisa com
+`warning: BOOT has <N> MiB in lost clusters` e segue. Para recuperar, com o cartão no leitor
+do PC: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
+`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
+com uma linha `ERROR ... using r36s/SYSTEM.old from the previous build` no log.
+*Primeiro `push` no R36S com a change: pendente (tarefa 6.1 da change `r36s-usb-proof`).*
+
+**Como funciona no R36S:** o `u2phy` vê o pino ID, mas não o VBUS da porta OTG (medição de
+2026-11-13, change `usb-device-access`). O controlador (dwc2) usa um *role switch* que começa
+como device e força a sessão por override. O serviço `r36os-usb` lê o `USB-HOST` do `extcon`
+e troca para host quando um adaptador OTG puxa o ID para baixo, para o pendrive no adaptador
+continuar funcionando. Ele enumerou na medição, antes do role switch; com o role switch
+ainda não foi provado.
+
+**Diagnóstico:**
+- a linha `usb:` do `ROMS/logs/trace/boot-<n>.log` mostra o PHY (`extcon`), o papel do role
+  switch (`role=`) e o estado do gadget (`udc=…:configured` com o PC ligado);
+- no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
+  `ssh: login accepted`;
+- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` (inclusive `port role host|device`) e
+  `umtprd:` (a saída do servidor MTP).
+
+**Medido:** o modo device ainda não foi provado no R36S (a prova com o PC foi feita no GA36).
+
+## 9. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
 |---|---|---|

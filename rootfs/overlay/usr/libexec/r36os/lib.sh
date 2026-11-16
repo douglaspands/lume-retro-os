@@ -77,6 +77,50 @@ note_new_dir() { [ "$1" = n ] && [ -d "$2/$3" ] && : > "$R36OS_RUN/rescan.${WATC
 
 board() { cat "${BOARD_FILE:-/etc/r36os/board}" 2>/dev/null; }
 
+# Device tree in use (boot-dtb-select): chosen by lume-bootsel in the initramfs among the
+# DTBs of BOOT/dtbs/<soc>/. DT_ROOT is overridden by the tests.
+DT_ROOT=${DT_ROOT:-/proc/device-tree}
+# lume,id of the running device tree (empty without the lume-select node)
+dtb_id() { [ -r "$DT_ROOT/lume-select/lume,id" ] && tr -d '\000' < "$DT_ROOT/lume-select/lume,id"; return 0; }
+# folder of the SoC under BOOT/dtbs/, from the SoC compatible (the same as /etc/soc)
+dtb_soc() {
+	case " $(tr '\000' ' ' < "$DT_ROOT/compatible" 2>/dev/null) " in
+	*" allwinner,sun8i-a33 "*) echo a33 ;;
+	*" rockchip,rk3326 "*) echo rk3326 ;;
+	esac
+}
+# SoC serial number, as lume-bootsel reads it: letters and digits only; all zeros is none
+SOC0_DIR=${SOC0_DIR:-/sys/devices/soc0}
+dtb_serial() {
+	local s
+	# test first: a failed redirection is reported by the shell, before 2>/dev/null applies
+	[ -r "$SOC0_DIR/serial_number" ] || return 0
+	s=$(tr -cd '[:alnum:]' < "$SOC0_DIR/serial_number")
+	case "$s" in *[!0]*) echo "$s" ;; esac
+}
+# state file of the choice on ROMS/system/etc: one per device (dtb-<soc>-<serial>.conf),
+# or one per SoC without a serial number (dtb-<soc>.conf)
+dtb_conf_name() {
+	local soc s
+	soc=$(dtb_soc)
+	[ -n "$soc" ] || return 0
+	s=$(dtb_serial)
+	echo "dtb-$soc${s:+-$s}.conf"
+}
+# "<id> (<reason>)": after a kexec the reason is in /chosen, else in the boot log
+dtb_in_use() {
+	local id reason
+	[ -d "$DT_ROOT" ] || { echo "none (no device tree)"; return 0; }
+	id=$(dtb_id)
+	[ -n "$id" ] || { echo "no lume-select node"; return 0; }
+	if [ -r "$DT_ROOT/chosen/lume,dtb-selected" ]; then
+		reason="$(tr '\000' '\n' < "$DT_ROOT/chosen/lume,dtb-selected" | sed -n 2p), after kexec"
+	else
+		reason=$(dmesg 2>/dev/null | sed -n 's/.*lume-bootsel: selected .* (reason: \([a-z]*\))$/\1/p' | tail -n 1)
+	fi
+	echo "$id (${reason:-reason unknown})"
+}
+
 # Idioma das mensagens para o usuário: o user_language do RetroArch (escolhido no menu e
 # persistido pelo r36os-persist). Logs são sempre em inglês. Textos em en, pt e es (os
 # mesmos idiomas do rótulo "Desligar"); os outros idiomas caem no inglês.
@@ -90,4 +134,31 @@ ui_lang() {
 		[ -n "$v" ] && break
 	done
 	case "$v" in 7|8) echo pt ;; 3) echo es ;; *) echo en ;; esac
+}
+
+# Games cgroup of the launcher (lume-launcher D9): <root>/lume/ handed to <user>, with the
+# leaf <root>/lume/session/ where the frontend runs. lume-run then creates lume/game-<n>/
+# itself and may move its games there, because the common ancestor (lume/) is the user's.
+# Prints the cgroup.procs file of the session leaf; fails without a cgroup v2 at <root>, with
+# the reason on stderr. CGROUP_ROOT only changes for the tests.
+lume_cgroup() {  # user
+	local root="${CGROUP_ROOT:-/sys/fs/cgroup}" cg f
+	cg="$root/lume"
+	[ -f "$root/cgroup.controllers" ] || {
+		echo "no cgroup v2 at $root" >&2
+		return 1
+	}
+	mkdir -p "$cg/session" 2>/dev/null || {
+		echo "cannot create $cg/session" >&2
+		return 1
+	}
+	for f in "$cg" "$cg/cgroup.procs" "$cg/cgroup.subtree_control" "$cg/session" \
+		"$cg/session/cgroup.procs"; do
+		[ -e "$f" ] || continue
+		chown "$1:$1" "$f" 2>/dev/null || {
+			echo "cannot hand $f to $1" >&2
+			return 1
+		}
+	done
+	echo "$cg/session/cgroup.procs"
 }

@@ -6,7 +6,7 @@
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin
 
-mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp
+mkdir -p /proc /sys /dev /boot /lower /rw /newroot /tmp /roms /modules
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
@@ -72,19 +72,89 @@ log "boot disk at $DISK"
 ROMS_OK=$(setup_storage "$DISK")
 
 mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
+
+# ROMS before SYSTEM: the device tree selection keeps its state there; it moves to
+# /newroot/storage once the root is ready.
+ROMS_MOUNTED=""
+mount_roms() {
+	mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
+		"$(part_node "$DISK" 2)" /roms
+}
+if [ "$ROMS_OK" = ok ]; then
+	mkdir -p /roms
+	if mount_roms; then
+		ROMS_MOUNTED=1
+	else
+		log "ERROR: failed to mount ROMS; continuing without games partition"
+	fi
+fi
+
+# Device tree selection (boot-dtb-select): lume-bootsel picks the DTB of BOOT/dtbs/<soc>/
+# and, when it is not the running one, loads this same kernel with it (status 10). Then
+# everything is unmounted and kexec -e restarts the kernel; the second start sees the
+# choice in /chosen and goes on. On the GA36 (D16) it rewrites the boot image instead
+# (status 11), and the console reboots into it. Without a device tree (the vm) it only
+# logs that.
+select_dtb() {
+	local rc=0 kernel=""
+	[ -x /bin/lume-bootsel ] || return 0
+	case "$BOARD" in
+	ga36) kernel=ga36/zImage ;;
+	r36s) kernel=r36s/Image ;;
+	esac
+	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} ${kernel:+--kernel $kernel} \
+		--disk "$DISK" || rc=$?
+	if [ $rc = 11 ]; then
+		log "rebooting into the boot image with the chosen device tree"
+		sync
+		[ -n "$ROMS_MOUNTED" ] && umount /roms
+		umount /boot
+		reboot -f
+		# reboot -f does not return; if it does, go on with the running device tree
+		log "ERROR: reboot failed; booting with the running device tree"
+		mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
+		if [ -n "$ROMS_MOUNTED" ] && ! mount_roms; then
+			ROMS_MOUNTED=""
+			log "ERROR: failed to mount ROMS; continuing without games partition"
+		fi
+		return 0
+	fi
+	[ $rc = 10 ] || return 0
+	log "restarting the kernel with the chosen device tree"
+	sync
+	[ -n "$ROMS_MOUNTED" ] && umount /roms
+	umount /boot
+	kexec -e
+	# kexec -e only returns when it fails: go on with the running device tree
+	log "ERROR: kexec -e failed; booting with the running device tree"
+	mount -t vfat -o ro,noatime "$BOOT" /boot || rescue "failed to mount BOOT"
+	if [ -n "$ROMS_MOUNTED" ] && ! mount_roms; then
+		ROMS_MOUNTED=""
+		log "ERROR: failed to mount ROMS; continuing without games partition"
+	fi
+	# the chosen device tree never ran: not pending, and the watchdog armed for it stops
+	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} --kexec-failed || true
+}
+select_dtb
+
 SYSTEM=$(system_file "$BOARD")
-# Never falls back to the SYSTEM of another console (another architecture)
-[ -f "/boot/$SYSTEM" ] || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
-mount -t squashfs -o ro,loop "/boot/$SYSTEM" /lower || rescue "failed to mount $SYSTEM"
+# Never falls back to the SYSTEM of another console (another architecture); only to the
+# SYSTEM.old of this one, the previous build left by a push cut between its two renames
+ROOT_FILE=$(boot_file /boot "$SYSTEM") || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
+mount -t squashfs -o ro,loop "/boot/$ROOT_FILE" /lower || rescue "failed to mount $ROOT_FILE"
 mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
 mkdir -p /rw/upper /rw/work
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
 	|| rescue "failed to mount overlay"
-log "root: $SYSTEM (read-only) + 32 MiB RAM layer"
+log "root: $ROOT_FILE (read-only) + 32 MiB RAM layer"
 
-if [ "$ROMS_OK" = ok ]; then
-	if mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
-		"$(part_node "$DISK" 2)" /newroot/storage; then
+# Kernel modules of this console (kernel-modules-image D4): BOOT/<console>/modules on
+# /lib/modules of the new root. After select_dtb: an open loop on BOOT would stop the
+# umount before the kexec.
+mount_modules "$BOARD" /boot /modules /newroot
+
+if [ -n "$ROMS_MOUNTED" ]; then
+	if mount --move /roms /newroot/storage; then
 		CATALOG=/newroot/usr/share/r36os/systems.json
 		if [ -f "$CATALOG" ]; then
 			# absolute path: the initramfs PATH has no /usr/bin

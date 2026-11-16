@@ -143,6 +143,93 @@ check "system: rescue names the file and the console" \
 	'grep -q "rescue \"BOOT has no \$SYSTEM, the system of the \$(console_label \"\$BOARD\")" "$INIT"'
 check "system: never mounts /boot/SYSTEM directly" '! grep -q "/boot/SYSTEM " "$INIT"'
 
+### 9b. The .old of a push cut between its two renames (push-boot-swap D4)
+check "boot_file: present" '[ "$(boot_file "$B" ga36/SYSTEM 2>"$W/bf1")" = ga36/SYSTEM ] && [ ! -s "$W/bf1" ]'
+: > "$B/ga36/SYSTEM.old"
+check "boot_file: present wins over .old" '[ "$(boot_file "$B" ga36/SYSTEM 2>/dev/null)" = ga36/SYSTEM ]'
+rm "$B/ga36/SYSTEM"
+check "boot_file: only .old" '[ "$(boot_file "$B" ga36/SYSTEM 2>"$W/bf2")" = ga36/SYSTEM.old ]'
+check "boot_file: .old logged as ERROR" 'grep -qx "lume: ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build" "$W/bf2"'
+check "boot_file: neither fails" '! boot_file "$B" r36s/SYSTEM >/dev/null 2>"$W/bf3" && [ ! -s "$W/bf3" ]'
+check "boot_file: no other console" '! boot_file "$B" r36s/SYSTEM >/dev/null 2>&1'
+check "system: init mounts the boot_file result" \
+	'grep -q "ROOT_FILE=\$(boot_file /boot \"\$SYSTEM\") || rescue" "$INIT" && grep -q "ro,loop \"/boot/\$ROOT_FILE\" /lower" "$INIT"'
+rm "$B/ga36/SYSTEM.old"; : > "$B/ga36/SYSTEM"
+
+### 10. Kernel modules image of each console (kernel-modules-image 2.1, 2.2)
+check "modules: ga36 -> ga36/modules" '[ "$(modules_file ga36)" = ga36/modules ]'
+check "modules: r36s -> r36s/modules" '[ "$(modules_file r36s)" = r36s/modules ]'
+check "modules: vm -> nothing" '[ -z "$(modules_file vm)" ] && [ -z "$(modules_file "")" ]'
+M=$W/img
+mkdir -p "$M/6.18.62"
+check "modules: one folder, same release" 'modules_match "$M" 6.18.62'
+check "modules: other release" '! modules_match "$M" 6.18.63'
+check "modules: no release given" '! modules_match "$M" ""'
+mkdir -p "$M/6.18.61"
+check "modules: two folders" '! modules_match "$M" 6.18.62'
+check "modules: found lists both" '[ "$(modules_found "$M")" = "6.18.61 6.18.62" ]'
+check "modules: empty image" '! modules_match "$W/none" 6.18.62'
+
+# mount_modules with fake mount/umount/uname: the "image" is a text file with the
+# release folders it holds; the loop mount makes those folders in the mount point
+RUNNING=6.18.62-r36os
+MOUNT_FAILS=""
+MLOG=$W/mount.log
+uname() { echo "$RUNNING"; }
+mount() {
+	echo "mount $*" >> "$MLOG"
+	case "$1" in
+	--move) cp -a "$2/." "$3/" && rm -rf "$2"/* ;;
+	-t) [ -z "$MOUNT_FAILS" ] || return 1
+		for d in $(cat "$5"); do mkdir -p "$6/$d"; done ;;
+	esac
+}
+umount() { echo "umount $*" >> "$MLOG"; rm -rf "$1"/*; }
+run_modules() {  # $1 board, $2 releases in the image (unset: no file) -> log in $W/mlog
+	rm -rf "$W/mb" "$W/mm" "$W/root" "$MLOG"
+	mkdir -p "$W/mb/ga36" "$W/mb/r36s" "$W/root/lib/modules"; : > "$MLOG"
+	[ $# -lt 2 ] || echo "$2" > "$W/mb/$1/modules"
+	mount_modules "$1" "$W/mb" "$W/mm" "$W/root" 2> "$W/mlog"
+}
+run_modules ga36 "$RUNNING"
+check "mount: same release on /lib/modules" '[ -d "$W/root/lib/modules/$RUNNING" ]'
+check "mount: read-only loop of its own file" 'grep -qx "mount -t squashfs -o ro,loop $W/mb/ga36/modules $W/mm" "$MLOG"'
+check "mount: moved into the new root" 'grep -qx "mount --move $W/mm $W/root/lib/modules" "$MLOG"'
+check "mount: logged" 'grep -qx "lume: modules: ga36/modules ($RUNNING)" "$W/mlog"'
+run_modules r36s "$RUNNING"
+check "mount: r36s uses its own folder" 'grep -q "$W/mb/r36s/modules " "$MLOG" && ! grep -q "/ga36/" "$MLOG"'
+run_modules ga36
+check "missing: nothing mounted" '[ ! -s "$MLOG" ] && [ -z "$(ls "$W/root/lib/modules")" ]'
+check "missing: ERROR with the path" 'grep -qx "lume: ERROR: BOOT has no ga36/modules; starting without kernel modules" "$W/mlog"'
+run_modules ga36 6.18.61-r36os
+check "release: not on /lib/modules" '[ -z "$(ls "$W/root/lib/modules")" ] && grep -q "^umount $W/mm" "$MLOG"'
+check "release: ERROR with both releases" 'grep -qx "lume: ERROR: ga36/modules holds modules for 6.18.61-r36os, the running kernel is $RUNNING; starting without kernel modules" "$W/mlog"'
+run_modules ga36 "$RUNNING 6.18.61-r36os"
+check "two folders: not mounted" '[ -z "$(ls "$W/root/lib/modules")" ] && grep -q "holds modules for 6.18.61-r36os $RUNNING," "$W/mlog"'
+# push-boot-swap D4: only modules.old, from a push cut between its two renames
+run_modules ga36
+echo "$RUNNING" > "$W/mb/ga36/modules.old"
+mount_modules ga36 "$W/mb" "$W/mm" "$W/root" 2> "$W/mlog"
+check "old: mounts modules.old" 'grep -qx "mount -t squashfs -o ro,loop $W/mb/ga36/modules.old $W/mm" "$MLOG" && [ -d "$W/root/lib/modules/$RUNNING" ]'
+check "old: ERROR names the .old" 'grep -qx "lume: ERROR: BOOT has no ga36/modules; using ga36/modules.old from the previous build" "$W/mlog"'
+run_modules ga36
+echo 6.18.61-r36os > "$W/mb/ga36/modules.old"
+mount_modules ga36 "$W/mb" "$W/mm" "$W/root" 2> "$W/mlog"
+check "old: release check still applies" '[ -z "$(ls "$W/root/lib/modules")" ] && grep -q "ga36/modules.old holds modules for 6.18.61-r36os" "$W/mlog"'
+MOUNT_FAILS=1 run_modules ga36 "$RUNNING"
+check "no mount: ERROR" 'grep -qx "lume: ERROR: failed to mount ga36/modules; starting without kernel modules" "$W/mlog"'
+MOUNT_FAILS=""
+run_modules vm
+check "vm: nothing done, nothing logged" '[ ! -s "$MLOG" ] && [ ! -s "$W/mlog" ]'
+unset -f mount umount uname
+# the init: after select_dtb and the overlay, before the moves and switch_root
+line_of() { grep -n "$1" "$INIT" | head -n1 | cut -d: -f1; }
+CALL=$(line_of '^mount_modules "\$BOARD" /boot /modules /newroot$')
+check "init: calls mount_modules" '[ -n "$CALL" ]'
+check "init: after select_dtb" '[ "$CALL" -gt "$(line_of "^select_dtb$")" ]'
+check "init: after the overlay" '[ "$CALL" -gt "$(line_of "^mount -t overlay")" ]'
+check "init: before BOOT moves and switch_root" '[ "$CALL" -lt "$(line_of "^mount --move /boot")" ] && [ "$CALL" -lt "$(line_of "exec switch_root")" ]'
+
 rm -rf "$W"
 echo "falhas: $FAILS"
 [ $FAILS -eq 0 ]

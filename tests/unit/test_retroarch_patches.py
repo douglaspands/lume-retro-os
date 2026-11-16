@@ -17,11 +17,13 @@ SRC = cache_dir() / "distfiles/retroarch-1.22.2.tar.gz"
 PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch",
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
-           "0007-config-autosave.patch"]
+           "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
+           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
-           "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c"]
+           "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c",
+           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -36,6 +38,22 @@ def test_patches_are_listed_in_order_with_matching_checksums():
 
 def test_pkgrel_is_high_so_the_local_package_wins():
     assert int(re.search(r"^pkgrel=(\d+)", APKBUILD, re.M).group(1)) >= 100
+
+
+def test_wifi_and_bluetooth_menus_are_built():
+    # usb-device-access D11: the Wi-Fi (nmcli) and Bluetooth (bluetoothctl) drivers
+    build = re.search(r"^build\(\) \{(.*?)^\}", APKBUILD, re.S | re.M).group(1)
+    assert "--enable-wifi" in build and "--enable-bluetooth" in build
+    assert "--disable-wifi" not in build and "--disable-bluetooth" not in build
+    assert "--disable-ssl" in build
+
+
+def test_network_commands_listen_on_localhost_only():
+    # usb-device-access D11: with Wi-Fi, UDP 55355 must not be reachable from the network
+    text = (APORT / "0009-network-commands-on-localhost.patch").read_text()
+    assert '-   int fd = socket_init((void**)&res, port, NULL,' in text
+    assert '+   int fd = socket_init((void**)&res, port, "127.0.0.1",' in text
+    assert text.count("\n+") - text.count("\n+++") == 3 and text.count("\n-") - text.count("\n---") == 1
 
 
 def test_confirmation_patch_only_touches_the_menu_item_and_the_message():
@@ -102,6 +120,28 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     # 0008 (3 dB headroom) was removed on 2026-11-13: 100% volume is 0 dB again
     drv = (tmp_path / "audio/audio_driver.c").read_text()
     assert "LUME_AUDIO_HEADROOM_DB" not in drv
+    # 0010: under the launcher the quit item keeps the upstream wording and no confirmation
+    msg = (tmp_path / "msg_hash.c").read_text()
+    assert 'getenv("LUME_RETROARCH_QUIT")' in msg
+    assert msg.index("lume_quit_returns_to_launcher())") < msg.index("#ifdef HAVE_LANGEXTRA\n   switch")
+    assert "settings->bools.quit_press_twice && !lume_quit_returns_to_launcher()" in quit_fn
+    # 0011: LUME_LEVEL draws the launcher's level line, a registered graphics widget
+    assert '{ "LUME_LEVEL",       command_lume_level,' in (tmp_path / "command.h").read_text()
+    assert "gfx_widget_lume_level_show(string_is_equal(side, \"left\"), percent, rgb);" in command
+    assert "&gfx_widget_lume_level," in (tmp_path / "gfx/gfx_widgets.c").read_text()
+    assert "extern const gfx_widget_t gfx_widget_lume_level;" in (tmp_path / "gfx/gfx_widgets.h").read_text()
+    assert "#define LUME_LEVEL_DURATION 1500" in widget
+
+
+def test_quit_label_patch_keeps_the_three_languages():
+    text = (APORT / "0010-quit-label-follows-the-frontend.patch").read_text()
+    assert re.findall(r"^\+\+\+ b/(\S+)", text, re.M) == ["msg_hash.c", "menu/cbs/menu_cbs_ok.c"]
+    for words in ('"Quit"', '"Sair"', '"Cerrar RetroArch"', "volta à lista de jogos",
+                  "go back to the game list", "vuelve a la lista de juegos"):
+        assert words in text, words
+    # the frontend script sets the variable only when the launcher opens RetroArch
+    script = (REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/frontends/retroarch").read_text()
+    assert "LUME_RETROARCH_QUIT=launcher" in script
 
 
 def test_volume_curve_steps_and_cap():

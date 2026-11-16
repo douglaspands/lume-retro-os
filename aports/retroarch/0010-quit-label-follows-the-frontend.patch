@@ -1,0 +1,86 @@
+From: Lume Retro OS
+Subject: [PATCH] menu: "Quit" goes back to the launcher when opened by it
+
+Patches 0001 and 0002 label the quit item "Shut Down" and ask for a second
+press, because with RetroArch as the frontend quitting powers the console off.
+Opened by the lume-launcher (the frontend script sets
+LUME_RETROARCH_QUIT=launcher), quitting only goes back to the game list, so
+the item keeps the upstream wording (en, pt_BR and es) and quits at once. As
+the fallback frontend nothing changes.
+
+--- a/msg_hash.c
++++ b/msg_hash.c
+@@ -15,6 +15,7 @@
+  */
+
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+
+ #include <lrc_hash.h>
+@@ -566,10 +567,45 @@ static const char *msg_hash_to_str_ga(enum msg_hash_enums msg)
+ }
+ #endif
+
++/* Lume Retro OS: opened by the lume-launcher (LUME_RETROARCH_QUIT=launcher, set by the
++ * frontend script), quitting RetroArch goes back to the game list instead of powering the
++ * console off, so the menu item keeps the upstream wording instead of "Shut Down" (patch
++ * 0001). Only the languages the system ships messages for. */
++bool lume_quit_returns_to_launcher(void)
++{
++   static int cached = -1;
++   if (cached < 0)
++   {
++      const char *v = getenv("LUME_RETROARCH_QUIT");
++      cached        = v && string_is_equal(v, "launcher");
++   }
++   return cached == 1;
++}
++
++static const char *lume_quit_text(enum msg_hash_enums msg)
++{
++   bool sub = (msg == MENU_ENUM_SUBLABEL_QUIT_RETROARCH);
++   switch (uint_user_language)
++   {
++      case RETRO_LANGUAGE_PORTUGUESE_BRAZIL:
++      case RETRO_LANGUAGE_PORTUGUESE_PORTUGAL:
++         return sub ? "Fecha o RetroArch e volta à lista de jogos." : "Sair";
++      case RETRO_LANGUAGE_SPANISH:
++         return sub ? "Cierra RetroArch y vuelve a la lista de juegos." : "Cerrar RetroArch";
++      default:
++         return sub ? "Close RetroArch and go back to the game list." : "Quit";
++   }
++}
++
+ const char *msg_hash_to_str(enum msg_hash_enums msg)
+ {
+    const char *ret = NULL;
+
++   if (   (msg == MENU_ENUM_LABEL_VALUE_QUIT_RETROARCH
++         || msg == MENU_ENUM_SUBLABEL_QUIT_RETROARCH)
++       && lume_quit_returns_to_launcher())
++      return lume_quit_text(msg);
++
+ #ifdef HAVE_LANGEXTRA
+    switch (uint_user_language)
+    {
+--- a/menu/cbs/menu_cbs_ok.c
++++ b/menu/cbs/menu_cbs_ok.c
+@@ -5785,13 +5785,16 @@ STATIC_DEFAULT_ACTION_OK_CMD_FUNC(action_ok_cheat_apply_changes,      CMD_EVENT_
+  * (on by default) the item has to be selected twice within 3 seconds; the
+  * first time only shows "Press again...". Other ways to quit are untouched. */
+ #define LUME_QUIT_CONFIRM_USEC (3 * 1000000)
++/* msg_hash.c (patch 0010): opened by the lume-launcher, quitting goes back to the game
++ * list, so the item quits at once, without the confirmation */
++bool lume_quit_returns_to_launcher(void);
+ static int action_ok_quit(const char *path,
+       const char *label, unsigned type, size_t idx, size_t entry_idx)
+ {
+    static retro_time_t quit_time = 0;
+    settings_t *settings          = config_get_ptr();
+
+-   if (settings->bools.quit_press_twice)
++   if (settings->bools.quit_press_twice && !lume_quit_returns_to_launcher())
+    {
+       retro_time_t now = cpu_features_get_time_usec();
+       bool confirmed   = (now - quit_time < LUME_QUIT_CONFIRM_USEC);

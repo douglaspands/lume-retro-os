@@ -38,7 +38,8 @@ echo "2026-11-09T10:00:00,1.0,menu" >> "$LOGS_RAM/metrics.pending"
 echo "2026-11-09T10:00:05,6.0,game" >> "$LOGS_RAM/metrics.pending"
 echo "frontend line 1" > "$FRONTEND_LOG"
 logs_flush
-check "evento: descarregado com data, boot, categoria e resultado" 'grep -qE "^[0-9-]{10}T[0-9:]{8} 7 test FAIL second, with spaces$" $LOGS_DIR/events.log && [ ! -e $LOGS_RAM/events.pending ]'
+check "evento: descarregado com data, boot, categoria e resultado" 'grep -qE "^[0-9-]{10}T[0-9:]{8} 7 test FAIL second, with spaces$" $LOGS_DIR/events.log && [ ! -s $LOGS_RAM/events.pending ]'
+check "event: the buffer is back, empty and writable by the launcher" '[ "$(stat -c %a $LOGS_RAM/events.pending)" = 666 ]'
 check "métricas: cabeçalho uma vez + 2 linhas" '[ "$(grep -c "" $LOGS_DIR/metrics/boot-7.csv)" = 3 ] && head -n 1 $LOGS_DIR/metrics/boot-7.csv | grep -q "^time,uptime_s"'
 echo "2026-11-09T10:00:10,11.0,menu" >> "$LOGS_RAM/metrics.pending"
 logs_flush
@@ -195,6 +196,60 @@ check "audio: lines already read are not reported again" '[ "$(grep -c " audio F
 : > "$FRONTEND_LOG"
 AUDIO_LOG_POS=0
 
+### logd: OTG port sample (usb-device-access 1.1), on a fake /sys shaped like the GA36
+SYS_ROOT="$W/sys"
+rm -rf "$SYS_ROOT"
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending "$LOGS_DIR"/events*.log
+check "usb: a console without OTG sysfs (the vm) is none" '[ "$(usb_state)" = none ]'
+usb_watch
+check "usb: the vm logs a trace line and no event" 'grep -q " usb: none$" $LOGS_RAM/trace.pending && ! grep -q " usb " $LOGS_RAM/events.pending 2>/dev/null'
+mkdir -p "$SYS_ROOT/class/extcon/extcon0" "$SYS_ROOT/bus/platform/devices/musb-hdrc.1.auto" \
+	"$SYS_ROOT/class/udc/musb-hdrc.1.auto" "$SYS_ROOT/class/power_supply/axp20x-usb" \
+	"$SYS_ROOT/class/power_supply/axp20x-battery" "$SYS_ROOT/bus/usb/devices/usb1" \
+	"$SYS_ROOT/bus/usb/devices/1-0:1.0"
+echo 1c19400.phy > "$SYS_ROOT/class/extcon/extcon0/name"
+echo USB > "$SYS_ROOT/class/power_supply/axp20x-usb/type"
+echo Battery > "$SYS_ROOT/class/power_supply/axp20x-battery/type"
+echo 1 > "$SYS_ROOT/class/power_supply/axp20x-battery/online"
+usb_fake() {  # USB USB-HOST musb-mode udc-state vbus-online host-devices
+	printf 'USB=%s\nUSB-HOST=%s\n' "$1" "$2" > "$SYS_ROOT/class/extcon/extcon0/state"
+	echo "$3" > "$SYS_ROOT/bus/platform/devices/musb-hdrc.1.auto/mode"
+	echo "$4" > "$SYS_ROOT/class/udc/musb-hdrc.1.auto/state"
+	echo "$5" > "$SYS_ROOT/class/power_supply/axp20x-usb/online"
+	rm -rf "$SYS_ROOT/bus/usb/devices/1-1" "$SYS_ROOT/bus/usb/devices/1-1:1.0"
+	[ "$6" = 0 ] || mkdir -p "$SYS_ROOT/bus/usb/devices/1-1" "$SYS_ROOT/bus/usb/devices/1-1:1.0"
+}
+usb_fake 0 0 b_idle "not attached" 0 0
+check "usb: nothing plugged" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=0 musb=b_idle udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:0 host_devs=0" ]'
+usb_fake 0 0 b_idle "not attached" 1 0
+check "usb: charger on the DC port (only the PMIC input)" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=0 musb=b_idle udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:1 host_devs=0" ]'
+usb_fake 1 0 b_peripheral configured 1 0
+check "usb: PC cable on the OTG port" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral udc=musb-hdrc.1.auto:configured vbus=axp20x-usb:1 host_devs=0" ]'
+usb_fake 0 1 a_host "not attached" 0 1
+check "usb: OTG adapter with a pendrive (interfaces not counted)" '[ "$(usb_state)" = "extcon=1c19400.phy:USB=0,USB-HOST=1 musb=a_host udc=musb-hdrc.1.auto:not_attached vbus=axp20x-usb:0 host_devs=1" ]'
+mkdir -p "$SYS_ROOT/class/usb_role/ff300000.usb-role-switch" "$SYS_ROOT/class/extcon/extcon1"
+echo device > "$SYS_ROOT/class/usb_role/ff300000.usb-role-switch/role"
+printf 'HDMI=0\n' > "$SYS_ROOT/class/extcon/extcon1/state"
+check "usb: a role switch is listed, an extcon without USB cables is not" 'usb_state | grep -q " role=ff300000.usb-role-switch:device " && ! usb_state | grep -q HDMI'
+rm -rf "$SYS_ROOT/class/usb_role" "$SYS_ROOT/class/extcon/extcon1"
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending
+USB_LAST=none
+usb_fake 0 0 b_idle "not attached" 0 0
+usb_watch; usb_watch
+usb_fake 1 0 b_peripheral configured 1 0
+usb_watch; usb_watch
+check "usb: one trace line per sample" '[ "$(grep -c " usb: " $LOGS_RAM/trace.pending)" = 4 ]'
+check "usb: one event per change only" '[ "$(grep -c " usb OK otg: " $LOGS_RAM/events.pending)" = 2 ] && grep " usb OK otg: " $LOGS_RAM/events.pending | tail -n 1 | grep -q "usb OK otg: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral"'
+check "usb: a PC that configures the gadget is connected" 'grep -q " usb OK device: connected$" $LOGS_RAM/events.pending'
+usb_fake 1 0 b_peripheral configured 1 0
+usb_watch
+usb_fake 0 0 b_idle "not attached" 0 0
+usb_watch
+check "usb: unplugging the PC is disconnected, each once" '[ "$(grep -c " usb OK device: connected$" $LOGS_RAM/events.pending)" = 1 ] && [ "$(grep -c " usb OK device: disconnected$" $LOGS_RAM/events.pending)" = 1 ]'
+rm -f "$LOGS_RAM"/events.pending "$LOGS_RAM"/trace.pending
+rm -rf "$SYS_ROOT"
+SYS_ROOT=/sys USB_LAST=none USB_CONNECTED=0
+
 ### logd: game FPS from the GET_STATUS frame counter (RetroArch patch 0004)
 pidof() { return 0; }
 nc() { printf '%s' "$NC_REPLY"; }
@@ -230,6 +285,47 @@ FE_STATE=menu FE_CORE="" FE_CONTENT="" FE_FRAMES=""; game_track 77.50; logs_flus
 check "fps: closing the game clears the nominal FPS" '[ -z "$GAME_KEY" ] && [ -z "$GAME_NOMINAL" ] && grep -q "game OK closed: core=gba content=kart" $LOGS_DIR/events.log'
 : > "$FRONTEND_LOG"
 FE_STATE=stopped
+
+### logd under the lume-launcher (lume-launcher 6.4): RetroArch absent is not a failure
+LUME_STATUS="$W/lume-status"
+# fake pidof: prints a pid, as the real one (logd keeps it and reads /proc/<pid>/comm)
+pidof() { case "$1" in lume-run) echo $$ ;; *) return 1 ;; esac; }
+echo ui > "$LUME_STATUS"
+frontend_state
+check "lume: no retroarch, interface on screen is launcher" '[ "$FE_STATE" = launcher ] && [ -n "$LUME" ]'
+echo game:love > "$LUME_STATUS"
+frontend_state
+check "lume: a native game is game, with the runner as core" '[ "$FE_STATE" = game ] && [ "$FE_CORE" = love ] && [ -z "$FE_CONTENT" ]'
+pidof() { echo $$; }
+nc() { printf '%s' "$NC_REPLY"; }
+NC_REPLY='GET_STATUS PLAYING super_nes,Secret Title (U),crc32=1a2b3c,frames=10
+'
+frontend_state
+check "lume: RetroArch game under the launcher has no content name" '[ "$FE_STATE" = game ] && [ "$FE_CORE" = super_nes ] && [ -z "$FE_CONTENT" ]'
+rm -f "$LOGS_RAM"/events.pending
+game_track 5.00
+FE_STATE=menu FE_CORE="" FE_FRAMES=""; game_track 9.00
+check "lume: logd writes no opened/closed lines (lume-run does)" '! grep -q " game " $LOGS_RAM/events.pending 2>/dev/null'
+unset -f pidof nc
+rm -f "$LUME_STATUS"; LUME=""
+frontend_state
+check "lume: without the status file it is the old logic" '[ "$FE_STATE" != launcher ]'
+### process usage columns: a busy loop stands in for lume-run
+printf '#!/bin/sh\nwhile :; do :; done\n' > "$W/lumeprobe"
+chmod +x "$W/lumeprobe"
+"$W/lumeprobe" &
+LR=$!
+sleep 0.2
+proc_usage lumeprobe 10.0; u1=$PU_OUT
+sleep 0.5
+proc_usage lumeprobe 10.5; u2=$PU_OUT
+check "usage: rss, and cpu from the second sample on" 'echo "$u1" | grep -qE "^[0-9]+,$" && echo "$u2" | grep -qE "^[0-9]+,[0-9]+\.[0-9]$"'
+proc_usage no-such-proc 1.0
+check "usage: a missing process gives empty columns" '[ "$PU_OUT" = "," ]'
+uptime_cs 116.58; a=$CS; uptime_cs 10.5; b=$CS; uptime_cs 7.08; c=$CS; uptime_cs 42; d=$CS
+check "usage: uptime in centiseconds, no octal trap" '[ "$a" = 11658 ] && [ "$b" = 1050 ] && [ "$c" = 708 ] && [ "$d" = 4200 ]' "$a $b $c $d"
+kill $LR 2>/dev/null; wait $LR 2>/dev/null
+check "usage: the metrics header has the launcher columns" 'grep -q "lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct" rootfs/overlay/usr/libexec/r36os/logd'
 
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
@@ -428,6 +524,83 @@ check "single card: the boot log header names the console" \
 	'grep -q "echo \"== console: \$(board)\"" rootfs/overlay/usr/libexec/r36os/bootlog'
 check "single card: the hardware snapshot names the board" \
 	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
+
+### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
+### the frontend starts and the events of the choice made in the initramfs
+DT_ROOT=$W/dt
+DTB_CONF_DIR=$W/storage/system/etc
+mkdir -p "$DT_ROOT/lume-select" "$DTB_CONF_DIR"
+printf 'ga36mb,ga36-mb-v1.2\000allwinner,sun8i-a33\000' > "$DT_ROOT/compatible"
+printf 'ga36-panel2\000' > "$DT_ROOT/lume-select/lume,id"
+dmesg() { cat "$W/dmesg" 2>/dev/null; }
+printf '[    1.2] lume-bootsel: rules of ga36-panel2: match\n[    1.3] lume-bootsel: selected ga36-panel2 (reason: rule)\n' > "$W/dmesg"
+check "dtb: id and SoC folder of the running tree" '[ "$(dtb_id) $(dtb_soc)" = "ga36-panel2 a33" ]'
+check "dtb: in use, with the reason from the boot log" '[ "$(dtb_in_use)" = "ga36-panel2 (rule)" ]'
+mkdir -p "$DT_ROOT/chosen"
+printf 'ga36-panel2\000forced\000' > "$DT_ROOT/chosen/lume,dtb-selected"
+check "dtb: in use after a kexec, with the reason from /chosen" '[ "$(dtb_in_use)" = "ga36-panel2 (forced, after kexec)" ]'
+rm -f "$DT_ROOT/chosen/lume,dtb-selected"
+
+### Task 5.3: the state file is per device (SoC serial number) and the frontend confirms
+### only the pending device tree that the screen could not confirm
+SOC0_DIR=$W/soc0
+mkdir -p "$SOC0_DIR"
+check "dtb: without a serial number the state file is per SoC" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
+printf '0000000000000000\n' > "$SOC0_DIR/serial_number"
+check "dtb: an all-zero serial number counts as none" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
+printf '02c00042:a1b2c3d4\n' > "$SOC0_DIR/serial_number"
+check "dtb: with a serial number the state file is per device" '[ "$(dtb_conf_name)" = dtb-a33-02c00042a1b2c3d4.conf ]'
+DEV1=$DTB_CONF_DIR/dtb-a33-02c00042a1b2c3d4.conf
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+printf 'manual=ga36-panel2\ngood=ga36-panel1\npending=ga36-panel2\nbad=old\n' > "$DEV1"
+printf 'manual=\ngood=\npending=ga36-panel2\nbad=\n' > "$DTB_CONF_DIR/dtb-a33.conf"
+dtb_confirm; logs_flush
+check "dtb: the frontend confirms the pending one (good, no pending, manual and bad kept)" \
+	'grep -qx good=ga36-panel2 $DEV1 && grep -qx pending= $DEV1 && grep -qx manual=ga36-panel2 $DEV1 && grep -qx bad=old $DEV1'
+check "dtb: only the file of this device is touched" 'grep -qx pending=ga36-panel2 $DTB_CONF_DIR/dtb-a33.conf'
+check "dtb: confirmation event" 'grep -q " boot OK device tree ga36-panel2 confirmed: the frontend started (no question on the screen)" $LOGS_DIR/events.log'
+dtb_confirm; logs_flush
+check "dtb: confirmed once (no rewrite, no new event)" '[ "$(grep -c "confirmed: the frontend" $LOGS_DIR/events.log)" = 1 ] && [ ! -e $DEV1.tmp ]'
+printf 'manual=\ngood=ga36-panel2\npending=\nbad=\n' > "$DEV1"
+printf 'r36s,r36s-v5\000rockchip,rk3326\000' > "$DT_ROOT/compatible"
+printf 'r36s-v5\000' > "$DT_ROOT/lume-select/lume,id"
+dtb_confirm
+check "dtb: nothing pending, nothing written (the default is never pending)" \
+	'[ ! -e $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf ] && grep -qx good=ga36-panel2 $DEV1'
+printf 'manual=\ngood=\npending=r36s-v6\nbad=\n' > "$DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf"
+dtb_confirm
+check "dtb: a pending one that is not running is left to lume-bootsel" \
+	'grep -qx pending=r36s-v6 $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf'
+check "dtb: the hardware snapshot has the device tree in use and the state file" \
+	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" rootfs/overlay/usr/libexec/r36os/hwinfo'
+rm -rf "$DT_ROOT/lume-select"
+dtb_confirm
+check "dtb: without the node nothing is written" '[ "$(dtb_in_use)" = "no lume-select node" ]'
+DT_ROOT=$W/none
+check "dtb: the vm has no device tree" '[ "$(dtb_in_use)" = "none (no device tree)" ] && [ -z "$(dtb_conf_name)" ]'
+printf '%s\n' "[    2.0] lume-bootsel: before kexec: fallback: ga36-panel2 was not confirmed in the previous boot; discarded" \
+	"[    2.1] lume-bootsel: before kexec: selected other (reason: fallback)" \
+	"[    2.2] lume-bootsel: ERROR: kexec -l failed (status 1); keeping the running device tree" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: the choice becomes an event" 'grep -q " boot OK device tree selected other (reason: fallback)" $LOGS_DIR/events.log'
+check "dtb: fallback and errors become failure events" \
+	'grep -q " boot FAIL device tree fallback: ga36-panel2 was not confirmed" $LOGS_DIR/events.log && grep -q " boot FAIL device tree ERROR: kexec -l failed" $LOGS_DIR/events.log'
+# third start after a revert: the lines of the first start come with two prefixes
+printf '%s\n' "[    1.0] lume-bootsel: before kexec: before kexec: selected ga36-panel2 (reason: forced)" \
+	"[    1.1] lume-bootsel: before kexec: question shown: keep ga36-panel2? (15 s)" \
+	"[    1.2] lume-bootsel: before kexec: not confirmed within 15 s: ga36-panel2 discarded on this device, going back to ga36-panel1" \
+	"[    1.3] lume-bootsel: before kexec: selected ga36-panel1 (reason: reverted)" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: revert events (the choice, the missing answer and the way back)" \
+	'grep -q " boot OK device tree selected ga36-panel2 (reason: forced)" $LOGS_DIR/events.log && grep -q " boot FAIL device tree not confirmed within 15 s: ga36-panel2 discarded" $LOGS_DIR/events.log && grep -q " boot OK device tree selected ga36-panel1 (reason: reverted)" $LOGS_DIR/events.log'
+printf '%s\n' "[    1.0] lume-bootsel: before kexec: selected ga36-panel2 (reason: rule)" \
+	"[    1.1] lume-bootsel: confirmed on screen: ga36-panel2 kept" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "dtb: confirmation on the screen becomes an event" 'grep -q " boot OK device tree confirmed on screen: ga36-panel2 kept" $LOGS_DIR/events.log'
+unset -f dmesg
 
 rm -rf "$W"
 echo "falhas: $FAILS"

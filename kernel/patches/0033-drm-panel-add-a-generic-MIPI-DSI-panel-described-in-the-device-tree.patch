@@ -1,0 +1,755 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Mon, 16 Nov 2026 10:00:00 -0300
+Subject: [PATCH] drm/panel: add a generic MIPI-DSI panel described in the
+ device tree (ROCKNIX generic-dsi)
+
+The vendor device trees of the R36S clones (RK3326) describe their panels
+only as a Rockchip init sequence for simple-panel-dsi, a binding the
+mainline kernel does not have. The Lume system converts those trees for
+its kernel (boot-dtb-select D12), and the panel of a converted tree needs
+a driver that takes the sequence, the modes and the delays from the
+device tree.
+
+This is a port of the ROCKNIX panel-generic-dsi driver (GPL-2.0, Danil
+Zagoskin, ROCKNIX), which already runs those clones on mainline kernels,
+with the same compatible (rocknix,generic-dsi) and the same text format
+(panel_description), so the converted trees and the ROCKNIX ones stay
+interchangeable. Changes from the ROCKNIX driver: the panel helpers of
+this kernel (devm_drm_panel_alloc, the core tracks the prepared state),
+modes and commands in arrays, a bad description line fails the probe, no
+firmware file, and an error in the init sequence stops the prepare.
+
+Added for Lume: the display ID (DCS DAh to DCh, one byte each) read once
+after the reset, logged ("panel id: ...") and shown in the panel_id
+attribute of the DSI device, as in the R36S V5 and GA36 panel drivers,
+so the initramfs can learn which device tree fits the panel (D15).
+
+Plus a binding for the compatible and the rocknix vendor prefix.
+
+diff --git a/Documentation/devicetree/bindings/display/panel/rocknix,generic-dsi.yaml b/Documentation/devicetree/bindings/display/panel/rocknix,generic-dsi.yaml
+new file mode 100644
+index 0000000..a0fd123
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/rocknix,generic-dsi.yaml
+@@ -0,0 +1,89 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/rocknix,generic-dsi.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: MIPI-DSI video mode panel described by text (ROCKNIX generic DSI)
++
++maintainers:
++  - Douglas Panhota <douglaspands@gmail.com>
++
++description: |
++  A DSI panel whose link settings, video modes and init sequence are given as
++  text in the device tree, in the format of the ROCKNIX panel-generic-dsi
++  driver. Used for the panels of RK3326 handhelds whose vendor device trees
++  only carry a Rockchip init sequence (simple-panel-dsi), converted for the
++  mainline kernel.
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    const: rocknix,generic-dsi
++
++  reg:
++    maxItems: 1
++
++  panel_description:
++    $ref: /schemas/types.yaml#/definitions/string-array
++    description: |
++      One line per string. "G size=<w>,<h> delays=<prepare>,<reset>,<init>,
++      <enable>,<ready> format=<rgb888|rgb666|rgb666_packed|rgb565> lanes=<n>
++      flags=<MIPI DSI mode flags>" sets the link; each "M clock=<kHz>
++      horizontal=<active>,<front porch>,<sync>,<back porch> vertical=<...>
++      [default=1]" is a video mode; each "I seq=<hex bytes> [wait=<hex ms>]"
++      or "I dcs=<hex> data=<hex bytes> [wait=<hex ms>]" is a DCS write of the
++      init sequence. Text after '#' is a comment.
++    minItems: 2
++    maxItems: 512
++
++  vdd-supply:
++    description: panel power supply
++
++  iovcc-supply:
++    description: I/O power supply
++
++  reset-gpios: true
++
++  enable-gpios: true
++
++  backlight: true
++
++  rotation: true
++
++  port: true
++
++required:
++  - compatible
++  - reg
++  - panel_description
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    dsi {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        panel@0 {
++            compatible = "rocknix,generic-dsi";
++            reg = <0>;
++            vdd-supply = <&vcc_lcd>;
++            iovcc-supply = <&vcc_lcd>;
++            reset-gpios = <&gpio3 16 GPIO_ACTIVE_LOW>;
++            backlight = <&backlight>;
++            panel_description =
++                "G size=153,85 delays=100,100,20,200,20 format=rgb888 lanes=4 flags=0xe03",
++                "M clock=27000 horizontal=640,120,10,120 vertical=480,17,4,13 default=1",
++                "I seq=b9f11287",
++                "I seq=11 wait=fa",
++                "I seq=29 wait=32";
++        };
++    };
++
++...
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index fbf11e5..3c01718 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1361,6 +1361,8 @@ patternProperties:
+     description: RISC-V Foundation
+   "^rockchip,.*":
+     description: Rockchip Electronics Co., Ltd.
++  "^rocknix,.*":
++    description: ROCKNIX, a Linux distribution for handhelds
+   "^rocktech,.*":
+     description: ROCKTECH DISPLAYS LIMITED
+   "^rohm,.*":
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 17bc5a0..3b2cce9 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -145,6 +145,17 @@ config DRM_PANEL_FEIYANG_FY07024DI26A30D
+ 	  Say Y if you want to enable support for panels based on the
+ 	  Feiyang FY07024DI26A30-D MIPI-DSI interface.
+ 
++config DRM_PANEL_GENERIC_DSI
++	tristate "Generic MIPI-DSI panel described in the device tree"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y here for MIPI-DSI video mode panels whose link settings,
++	  modes and init sequence come as text in the device tree
++	  (rocknix,generic-dsi), as in the converted device trees of RK3326
++	  handhelds. Port of the ROCKNIX panel-generic-dsi driver.
++
+ config DRM_PANEL_GA36MB_JD9366
+ 	tristate "GA36-MB JD9366 640x480 MIPI-DSI panels"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 40ab48d..6aacd96 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -18,6 +18,7 @@ obj-$(CONFIG_DRM_PANEL_ELIDA_KD35T133) += panel-elida-kd35t133.o
+ obj-$(CONFIG_DRM_PANEL_FEIXIN_K101_IM2BA02) += panel-feixin-k101-im2ba02.o
+ obj-$(CONFIG_DRM_PANEL_FEIYANG_FY07024DI26A30D) += panel-feiyang-fy07024di26a30d.o
+ obj-$(CONFIG_DRM_PANEL_GA36MB_JD9366) += panel-ga36mb-jd9366.o
++obj-$(CONFIG_DRM_PANEL_GENERIC_DSI) += panel-generic-dsi.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX8279) += panel-himax-hx8279.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83102) += panel-himax-hx83102.o
+ obj-$(CONFIG_DRM_PANEL_HIMAX_HX83112A) += panel-himax-hx83112a.o
+diff --git a/drivers/gpu/drm/panel/panel-generic-dsi.c b/drivers/gpu/drm/panel/panel-generic-dsi.c
+new file mode 100644
+index 0000000..72001aa
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-generic-dsi.c
+@@ -0,0 +1,578 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Generic MIPI-DSI video mode panel described by text in the device tree
++ *
++ * Port of the ROCKNIX panel-generic-dsi driver (Copyright (C) 2024 ROCKNIX, Danil
++ * Zagoskin <z@gosk.in>; based on the Rocktech jh057n00900 driver, Copyright (C) Purism
++ * SPC 2019) to the panel helpers of this kernel, for the Lume system: the device trees of
++ * R36S clones converted from their vendor trees describe the panel with the same
++ * "panel_description" text as ROCKNIX does, so the same compatible is kept.
++ *
++ * Each string of panel_description is one line:
++ *   G size=<w>,<h> delays=<prepare>,<reset>,<init>,<enable>,<ready> format=<rgb888|...>
++ *     lanes=<n> flags=<mipi_dsi mode flags>
++ *   M clock=<kHz> horizontal=<active>,<fp>,<sync>,<bp> vertical=<...> [default=1]
++ *   I seq=<hex bytes> [wait=<ms, hex>]        a DCS write of the bytes
++ *   I dcs=<hex cmd> data=<hex bytes> [wait=<ms, hex>]
++ * Text after '#' is a comment.
++ *
++ * Added for Lume: the display ID (DCS DAh to DCh, one byte each) is read once after the
++ * reset, logged and shown in the panel_id attribute of the DSI device (lowercase hex,
++ * empty when the panel did not answer, "unsupported" when the DSI host cannot do the
++ * read), like the R36S V5 and GA36 panel drivers, for the device tree selection of the
++ * initramfs (boot-dtb-select D15).
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/hex.h>
++#include <linux/kernel.h>
++#include <linux/media-bus-format.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++#include <linux/slab.h>
++
++#include <video/mipi_display.h>
++
++#include <drm/drm_connector.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++#define DRV_NAME "panel-generic-dsi"
++#define SEQ_RAW -1
++
++struct gdsi_mode {
++	unsigned int clock;
++	unsigned int h[4];	/* active, front porch, sync, back porch */
++	unsigned int v[4];
++	bool is_default;
++};
++
++struct gdsi_cmd {
++	int dcs;		/* SEQ_RAW: data is the whole DCS packet */
++	u8 *data;
++	size_t len;
++	unsigned int wait_ms;
++};
++
++struct gdsi {
++	struct device *dev;
++	struct drm_panel panel;
++	struct gpio_desc *enable_gpio;
++	struct gpio_desc *reset_gpio;
++	struct regulator *vdd;
++	struct regulator *iovcc;
++	enum drm_panel_orientation orientation;
++
++	unsigned int delay_prepare, delay_reset, delay_init, delay_enable;
++	unsigned int width_mm, height_mm;
++	struct gdsi_mode *modes;
++	int nmodes;
++	struct gdsi_cmd *cmds;
++	int ncmds;
++
++	/* the display ID (DCS DAh to DCh), shown in sysfs as panel_id */
++	u8 id[3];
++	int id_len;
++	int id_err;
++};
++
++static inline struct gdsi *panel_to_gdsi(struct drm_panel *panel)
++{
++	return container_of(panel, struct gdsi, panel);
++}
++
++/* --- the description ---------------------------------------------------------------- */
++
++static int gdsi_hex(struct device *dev, const char *val, u8 **out, size_t *len)
++{
++	size_t n = strlen(val);
++
++	if (!n || n % 2) {
++		dev_err(dev, "bad hex bytes '%s'\n", val);
++		return -EINVAL;
++	}
++	*len = n / 2;
++	*out = devm_kmalloc(dev, *len, GFP_KERNEL);
++	if (!*out)
++		return -ENOMEM;
++	if (hex2bin(*out, val, *len)) {
++		dev_err(dev, "bad hex bytes '%s'\n", val);
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static int gdsi_globals(struct gdsi *ctx, struct mipi_dsi_device *dsi, char *args)
++{
++	char *param, *val;
++	int ints[6];
++	u32 flags;
++
++	while (*args) {
++		args = next_arg(args, &param, &val);
++		if (!val)
++			continue;
++		if (!strcmp(param, "delays")) {
++			memset(ints, 0, sizeof(ints));
++			get_options(val, ARRAY_SIZE(ints), ints);
++			if (ints[0] < 4)
++				return -EINVAL;
++			ctx->delay_prepare = ints[1];
++			ctx->delay_reset = ints[2];
++			ctx->delay_init = ints[3];
++			ctx->delay_enable = ints[4];
++		} else if (!strcmp(param, "size")) {
++			memset(ints, 0, sizeof(ints));
++			get_options(val, 3, ints);
++			if (ints[0] != 2)
++				return -EINVAL;
++			ctx->width_mm = ints[1];
++			ctx->height_mm = ints[2];
++		} else if (!strcmp(param, "format")) {
++			if (!strcmp(val, "rgb888"))
++				dsi->format = MIPI_DSI_FMT_RGB888;
++			else if (!strcmp(val, "rgb666"))
++				dsi->format = MIPI_DSI_FMT_RGB666;
++			else if (!strcmp(val, "rgb666_packed"))
++				dsi->format = MIPI_DSI_FMT_RGB666_PACKED;
++			else if (!strcmp(val, "rgb565"))
++				dsi->format = MIPI_DSI_FMT_RGB565;
++			else
++				return -EINVAL;
++		} else if (!strcmp(param, "lanes")) {
++			if (kstrtouint(val, 0, &dsi->lanes) || !dsi->lanes || dsi->lanes > 4)
++				return -EINVAL;
++		} else if (!strcmp(param, "flags")) {
++			if (kstrtou32(val, 0, &flags))
++				return -EINVAL;
++			dsi->mode_flags = flags;
++		} else {
++			dev_warn(ctx->dev, "unknown parameter %s\n", param);
++		}
++	}
++	return 0;
++}
++
++static int gdsi_mode(struct gdsi *ctx, char *args, struct gdsi_mode *mode)
++{
++	char *param, *val;
++	int ints[5], i;
++
++	while (*args) {
++		args = next_arg(args, &param, &val);
++		if (!val)
++			continue;
++		if (!strcmp(param, "clock")) {
++			if (kstrtouint(val, 0, &mode->clock))
++				return -EINVAL;
++		} else if (!strcmp(param, "horizontal") || !strcmp(param, "vertical")) {
++			unsigned int *dst = param[0] == 'h' ? mode->h : mode->v;
++
++			memset(ints, 0, sizeof(ints));
++			get_options(val, ARRAY_SIZE(ints), ints);
++			if (ints[0] != 4)
++				return -EINVAL;
++			for (i = 0; i < 4; i++)
++				dst[i] = ints[i + 1];
++		} else if (!strcmp(param, "default")) {
++			mode->is_default = !strcmp(val, "1");
++		} else {
++			dev_warn(ctx->dev, "unknown mode parameter %s\n", param);
++		}
++	}
++	return mode->clock > 5000 && mode->h[0] && mode->v[0] ? 0 : -EINVAL;
++}
++
++static int gdsi_cmd(struct gdsi *ctx, char *args, struct gdsi_cmd *cmd)
++{
++	char *param, *val;
++	unsigned int dcs;
++	int ret;
++
++	cmd->dcs = -2;
++	while (*args) {
++		args = next_arg(args, &param, &val);
++		if (!val)
++			continue;
++		if (!strcmp(param, "seq")) {
++			cmd->dcs = SEQ_RAW;
++			ret = gdsi_hex(ctx->dev, val, &cmd->data, &cmd->len);
++			if (ret)
++				return ret;
++		} else if (!strcmp(param, "dcs")) {
++			if (kstrtouint(val, 16, &dcs) || dcs > 0xff)
++				return -EINVAL;
++			cmd->dcs = dcs;
++		} else if (!strcmp(param, "data")) {
++			ret = gdsi_hex(ctx->dev, val, &cmd->data, &cmd->len);
++			if (ret)
++				return ret;
++		} else if (!strcmp(param, "wait")) {
++			/* hexadecimal, as the ROCKNIX driver reads it */
++			if (kstrtouint(val, 16, &cmd->wait_ms))
++				return -EINVAL;
++		} else {
++			dev_warn(ctx->dev, "unsupported command parameter %s\n", param);
++		}
++	}
++	if (cmd->dcs == SEQ_RAW && !cmd->len)
++		return -EINVAL;
++	return cmd->dcs == -2 ? -EINVAL : 0;
++}
++
++static int gdsi_load(struct gdsi *ctx, struct mipi_dsi_device *dsi)
++{
++	struct device_node *np = ctx->dev->of_node;
++	const char *line;
++	char *buf, *hash;
++	int n, i, ret;
++
++	n = of_property_count_strings(np, "panel_description");
++	if (n < 1) {
++		dev_err(ctx->dev, "no panel_description\n");
++		return -EINVAL;
++	}
++	ctx->modes = devm_kcalloc(ctx->dev, n, sizeof(*ctx->modes), GFP_KERNEL);
++	ctx->cmds = devm_kcalloc(ctx->dev, n, sizeof(*ctx->cmds), GFP_KERNEL);
++	if (!ctx->modes || !ctx->cmds)
++		return -ENOMEM;
++
++	for (i = 0; i < n; i++) {
++		ret = of_property_read_string_index(np, "panel_description", i, &line);
++		if (ret)
++			return ret;
++		buf = kstrdup(line, GFP_KERNEL);
++		if (!buf)
++			return -ENOMEM;
++		hash = strchr(buf, '#');
++		if (hash)
++			*hash = 0;
++		switch (buf[0]) {
++		case 'G':
++			ret = gdsi_globals(ctx, dsi, buf + 1);
++			break;
++		case 'M':
++			ret = gdsi_mode(ctx, buf + 1, &ctx->modes[ctx->nmodes]);
++			if (!ret)
++				ctx->nmodes++;
++			break;
++		case 'I':
++			ret = gdsi_cmd(ctx, buf + 1, &ctx->cmds[ctx->ncmds]);
++			if (!ret)
++				ctx->ncmds++;
++			break;
++		case 0:
++		case ' ':
++			ret = 0;
++			break;
++		default:
++			ret = -EINVAL;
++		}
++		if (ret)
++			dev_err(ctx->dev, "bad panel_description line %d: %s\n", i, line);
++		kfree(buf);
++		if (ret)
++			return ret;
++	}
++	if (!ctx->nmodes) {
++		dev_err(ctx->dev, "panel_description has no mode\n");
++		return -EINVAL;
++	}
++	return 0;
++}
++
++/* --- the display ID ------------------------------------------------------------------ */
++
++/*
++ * Read once, after the reset and before the init sequence, as ID1 to ID3 (DCS DAh to DCh,
++ * one byte each, the same bytes as DCS 04h): some DSI hosts only read one byte at a time.
++ */
++static void gdsi_read_id(struct gdsi *ctx)
++{
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int i, ret = 0;
++
++	if (ctx->id_len || ctx->id_err)
++		return;
++	mipi_dsi_set_maximum_return_packet_size(dsi, 1);
++	for (i = 0; i < sizeof(ctx->id); i++) {
++		ret = mipi_dsi_dcs_read(dsi, 0xda + i, &ctx->id[i], 1);
++		if (ret != 1)
++			break;
++	}
++	if (ret != 1) {
++		ctx->id_err = ret < 0 ? ret : -EIO;
++		dev_info(ctx->dev, "panel id: no answer (%d)\n", ctx->id_err);
++		return;
++	}
++	ctx->id_len = sizeof(ctx->id);
++	dev_info(ctx->dev, "panel id: %*phN\n", ctx->id_len, ctx->id);
++}
++
++static ssize_t panel_id_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct gdsi *ctx = mipi_dsi_get_drvdata(to_mipi_dsi_device(dev));
++
++	if (ctx->id_err == -EINVAL || ctx->id_err == -EOPNOTSUPP)
++		return sysfs_emit(buf, "unsupported\n");
++	return sysfs_emit(buf, "%*phN\n", ctx->id_len, ctx->id);
++}
++static DEVICE_ATTR_RO(panel_id);
++
++static struct attribute *gdsi_attrs[] = {
++	&dev_attr_panel_id.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(gdsi);
++
++/* --- the panel ----------------------------------------------------------------------- */
++
++static int gdsi_init_sequence(struct gdsi *ctx)
++{
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int i, ret;
++
++	for (i = 0; i < ctx->ncmds; i++) {
++		struct gdsi_cmd *cmd = &ctx->cmds[i];
++
++		if (cmd->dcs == SEQ_RAW)
++			ret = mipi_dsi_dcs_write_buffer(dsi, cmd->data, cmd->len);
++		else
++			ret = mipi_dsi_dcs_write(dsi, cmd->dcs, cmd->data, cmd->len);
++		if (ret < 0) {
++			dev_err(ctx->dev, "init command %d failed: %d\n", i, ret);
++			return ret;
++		}
++		if (cmd->wait_ms)
++			msleep(cmd->wait_ms);
++	}
++	return 0;
++}
++
++static int gdsi_prepare(struct drm_panel *panel)
++{
++	struct gdsi *ctx = panel_to_gdsi(panel);
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int ret;
++
++	ret = regulator_enable(ctx->vdd);
++	if (ret < 0) {
++		dev_err(ctx->dev, "failed to enable vdd: %d\n", ret);
++		return ret;
++	}
++	ret = regulator_enable(ctx->iovcc);
++	if (ret < 0) {
++		dev_err(ctx->dev, "failed to enable iovcc: %d\n", ret);
++		goto disable_vdd;
++	}
++
++	gpiod_set_value_cansleep(ctx->enable_gpio, 1);
++	msleep(ctx->delay_prepare);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	msleep(ctx->delay_reset);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	msleep(ctx->delay_init);
++
++	gdsi_read_id(ctx);
++
++	ret = gdsi_init_sequence(ctx);
++	if (ret < 0)
++		goto disable_iovcc;
++	/* in the order of the ROCKNIX driver, proven on these panels */
++	ret = mipi_dsi_dcs_set_display_on(dsi);
++	if (ret < 0) {
++		dev_err(ctx->dev, "failed to set display on: %d\n", ret);
++		goto disable_iovcc;
++	}
++	ret = mipi_dsi_dcs_exit_sleep_mode(dsi);
++	if (ret < 0) {
++		dev_err(ctx->dev, "failed to exit sleep mode: %d\n", ret);
++		goto disable_iovcc;
++	}
++	msleep(ctx->delay_enable);
++	return 0;
++
++disable_iovcc:
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	gpiod_set_value_cansleep(ctx->enable_gpio, 0);
++	regulator_disable(ctx->iovcc);
++disable_vdd:
++	regulator_disable(ctx->vdd);
++	return ret;
++}
++
++static int gdsi_unprepare(struct drm_panel *panel)
++{
++	struct gdsi *ctx = panel_to_gdsi(panel);
++	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
++	int ret;
++
++	/* best effort: a failed write must not stop the power down */
++	ret = mipi_dsi_dcs_set_display_off(dsi);
++	if (ret < 0)
++		dev_err(ctx->dev, "failed to set display off: %d\n", ret);
++	ret = mipi_dsi_dcs_enter_sleep_mode(dsi);
++	if (ret < 0)
++		dev_err(ctx->dev, "failed to enter sleep mode: %d\n", ret);
++
++	gpiod_set_value_cansleep(ctx->enable_gpio, 0);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	regulator_disable(ctx->iovcc);
++	regulator_disable(ctx->vdd);
++	return 0;
++}
++
++static int gdsi_get_modes(struct drm_panel *panel, struct drm_connector *connector)
++{
++	struct gdsi *ctx = panel_to_gdsi(panel);
++	struct drm_display_mode *mode;
++	int i;
++
++	for (i = 0; i < ctx->nmodes; i++) {
++		const struct gdsi_mode *m = &ctx->modes[i];
++
++		mode = drm_mode_create(connector->dev);
++		if (!mode)
++			return -ENOMEM;
++		mode->clock = m->clock;
++		mode->hdisplay = m->h[0];
++		mode->hsync_start = mode->hdisplay + m->h[1];
++		mode->hsync_end = mode->hsync_start + m->h[2];
++		mode->htotal = mode->hsync_end + m->h[3];
++		mode->vdisplay = m->v[0];
++		mode->vsync_start = mode->vdisplay + m->v[1];
++		mode->vsync_end = mode->vsync_start + m->v[2];
++		mode->vtotal = mode->vsync_end + m->v[3];
++		mode->width_mm = ctx->width_mm;
++		mode->height_mm = ctx->height_mm;
++		/* as ROCKNIX: every panel tested works with negative syncs */
++		mode->flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
++		mode->type = DRM_MODE_TYPE_DRIVER;
++		if (m->is_default)
++			mode->type |= DRM_MODE_TYPE_PREFERRED;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++	}
++
++	connector->display_info.width_mm = ctx->width_mm;
++	connector->display_info.height_mm = ctx->height_mm;
++	drm_connector_set_panel_orientation(connector, ctx->orientation);
++	return ctx->nmodes;
++}
++
++static enum drm_panel_orientation gdsi_get_orientation(struct drm_panel *panel)
++{
++	return panel_to_gdsi(panel)->orientation;
++}
++
++static const struct drm_panel_funcs gdsi_funcs = {
++	.prepare = gdsi_prepare,
++	.unprepare = gdsi_unprepare,
++	.get_modes = gdsi_get_modes,
++	.get_orientation = gdsi_get_orientation,
++};
++
++static int gdsi_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct gdsi *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct gdsi, panel, &gdsi_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++	ctx->dev = dev;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	/* the defaults of the ROCKNIX driver; the G line of the description overrides them */
++	dsi->lanes = 1;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
++			  MIPI_DSI_MODE_LPM | MIPI_DSI_MODE_NO_EOT_PACKET |
++			  MIPI_DSI_CLOCK_NON_CONTINUOUS;
++	ctx->delay_prepare = 5;
++	ctx->delay_reset = 1;
++	ctx->delay_init = 25;
++	ctx->delay_enable = 120;
++
++	ret = gdsi_load(ctx, dsi);
++	if (ret)
++		return ret;
++	dev_info(dev, "%d lanes, format %d, flags %#lx, %d modes, %d init commands\n",
++		 dsi->lanes, dsi->format, dsi->mode_flags, ctx->nmodes, ctx->ncmds);
++
++	ctx->enable_gpio = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_LOW);
++	if (IS_ERR(ctx->enable_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->enable_gpio), "cannot get enable gpio\n");
++	ctx->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio), "cannot get reset gpio\n");
++	ctx->vdd = devm_regulator_get(dev, "vdd");
++	if (IS_ERR(ctx->vdd))
++		return dev_err_probe(dev, PTR_ERR(ctx->vdd), "cannot get vdd\n");
++	ctx->iovcc = devm_regulator_get(dev, "iovcc");
++	if (IS_ERR(ctx->iovcc))
++		return dev_err_probe(dev, PTR_ERR(ctx->iovcc), "cannot get iovcc\n");
++
++	ret = of_drm_get_panel_orientation(dev->of_node, &ctx->orientation);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "cannot read the orientation\n");
++
++	ret = drm_panel_of_backlight(&ctx->panel);
++	if (ret)
++		return ret;
++
++	drm_panel_add(&ctx->panel);
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		dev_err(dev, "mipi_dsi_attach failed: %d\n", ret);
++		drm_panel_remove(&ctx->panel);
++		return ret;
++	}
++	return 0;
++}
++
++static void gdsi_shutdown(struct mipi_dsi_device *dsi)
++{
++	struct gdsi *ctx = mipi_dsi_get_drvdata(dsi);
++
++	drm_panel_disable(&ctx->panel);
++	drm_panel_unprepare(&ctx->panel);
++}
++
++static void gdsi_remove(struct mipi_dsi_device *dsi)
++{
++	struct gdsi *ctx = mipi_dsi_get_drvdata(dsi);
++	int ret;
++
++	ret = mipi_dsi_detach(dsi);
++	if (ret < 0)
++		dev_err(&dsi->dev, "failed to detach from DSI host: %d\n", ret);
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id gdsi_of_match[] = {
++	{ .compatible = "rocknix,generic-dsi" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, gdsi_of_match);
++
++static struct mipi_dsi_driver gdsi_driver = {
++	.probe = gdsi_probe,
++	.remove = gdsi_remove,
++	.shutdown = gdsi_shutdown,
++	.driver = {
++		.name = DRV_NAME,
++		.of_match_table = gdsi_of_match,
++		.dev_groups = gdsi_groups,
++	},
++};
++module_mipi_dsi_driver(gdsi_driver);
++
++MODULE_AUTHOR("Danil Zagoskin <z@gosk.in>");
++MODULE_DESCRIPTION("DRM driver for a MIPI-DSI panel described in the device tree");
++MODULE_LICENSE("GPL");

@@ -14,7 +14,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 ### 2. Cache de Ferramentas, Toolchains Sandbox-Safe e Receitas One-Shot
 - **Zero turnos de sondagem**: NÃO rode `which`, `whereis` ou `--version`. Consulte `.ctx/bins.json`.
 - Ferramentas pré-verificadas disponíveis no ambiente:
-  `asdf`, `cargo`, `cat`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sqlite3`, `systemctl`, `tail`, `tree`, `uv`, `wc`
+  `asdf`, `cargo`, `cat`, `cp`, `dnf`, `docker`, `fd`, `git`, `go`, `head`, `hostnamectl`, `ip`, `journalctl`, `jq`, `ls`, `lsattr`, `node`, `npm`, `npx`, `podman`, `pwd`, `pytest`, `python`, `python3`, `rg`, `rpm`, `rustc`, `sha256sum`, `sqlite3`, `sync`, `systemctl`, `tail`, `tree`, `uv`, `wc`
 - **Toolchains**:
 - **Python**: Invoque via `uv run` ou `.venv/bin/ctx` ou `.venv/bin/python` ou `.venv/bin/python3`. Proibido: `python`, `python3`, `/usr/bin/python`, `/usr/bin/python3`, `/usr/local/bin/python`, `/usr/local/bin/python3`. (Python deve ser executado via 'uv run' ou pelo .venv do workspace ('.venv/bin/ctx' / '.venv/bin/python'), nunca pelo python global. Sem uv, o python da máquina serve só para criar o venv: 'python3 -m venv .venv'.)
 - **Nodejs**: Invoque via `asdf exec`. Proibido: `/usr/bin/node`, `/usr/bin/npm`, `/usr/bin/npx`, `/usr/local/bin/node`. (Node.js/npm/npx devem usar a versão gerenciada pelo asdf (~/.asdf/shims ou 'asdf exec').)
@@ -40,6 +40,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 ### 4. Comandos Atômicos (sem encadeamento shell)
 - É **proibido** encadear comandos shell com `&&`, `||`, `;`, `&`, subshells `$()` ou backticks: o guardrail recusa (`deny`).
 - Execute **um comando por chamada**, para que cada um seja avaliado e auditado sozinho.
+- Script para outra máquina ou shell (`ssh host '…'`, `sh -c '…'`) vai inteiro em **aspas simples**: só as regras destrutivas valem dentro dele.
 
 ### 5. Política Container-First e Armazenamento Btrfs
 - **Container-First**: Para utilitários ou bancos de dados temporários (PostgreSQL, Redis, etc.), utilize containers efêmeros rootless (`podman run --rm` ou `docker run --rm`). NUNCA instale pacotes no host sem confirmação explícita.
@@ -49,6 +50,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - **Ler**: ferramenta `Read` (use `offset`/`limit` para trechos indicados pelo `ctx search`). Vários arquivos: várias chamadas `Read` no mesmo turno.
 - **Editar**: `Edit` (substituição exata). **Criar/reescrever**: `Write`.
 - **Não use o shell para isso**: nada de `cat`/`head`/`tail`/`sed -n` para ler, nem `sed -i`, `>`, `>>`, heredoc (`<<EOF`) ou `tee` para escrever. O shell fica para executar programas, testes, git e buscas (`ctx search`, `rg`).
+- O guardrail está em modo `coach`: leitura/escrita de arquivo via shell recebe `deny` com a ferramenta correta.
 
 ### 7. Índice saudável, memória, upstream e receitas
 - **Busca nunca trava**: `.venv/bin/ctx search` não escreve no índice e para em 3 s (`--timeout`); ao estourar devolve o `rg` equivalente pronto — rode-o. Algo lento ou estranho: `.venv/bin/ctx doctor` e, se falhar, `.venv/bin/ctx doctor --fix`.
@@ -67,6 +69,23 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - **Português só no RetroArch**, por escolha do idioma (`user_language`, definido no build com `--lang` ou no menu). As mensagens de tela para o usuário final seguem esse idioma (`ui_lang` em `lib.sh`, com texto em en, pt e es); o resto do sistema não é traduzido.
 - Documentação (`docs/`, `README.md`) e a conversa com o usuário continuam em português.
 - Código novo ou alterado já segue a regra. Scripts antigos com comentários em português são traduzidos quando forem tocados.
+
+## Ambiente Python: o `.venv` do repositório, gerido pelo uv (regra do projeto)
+
+- O `.venv/` é criado e mantido pelo `uv` a partir do `pyproject.toml` e está no
+  `.gitignore`. Python e módulos sempre dele: `uv run ...` ou `.venv/bin/<ferramenta>`.
+- Para instalar ou atualizar dependências use **`uv sync --inexact`**: o `ctx`
+  (agent-harness-hub) mora no mesmo venv sem estar no `pyproject`, e um `uv sync` exato o
+  removeria (e com ele o guardrail). Dependência nova do projeto entra no `pyproject.toml`.
+
+## Arquivos temporários: só dentro do repositório (regra do projeto)
+
+- Todo arquivo temporário (scripts de apoio, saídas intermediárias, rascunhos de patch,
+  saídas de teste manual) vai em `./cache/` (No-COW, fora do git pelo `.gitignore`), por
+  exemplo `./cache/tmp/`. **Nunca** fora do repositório local: nada em `~/.claude/jobs/`,
+  `/tmp` ou outra pasta do usuário, mesmo que o harness sugira.
+- `./cache/` é rascunho; o que vale guardar vai para o lugar certo do projeto (`src/`,
+  `tests/`, `docs/`, `out/`). Não confundir com `./.cache/` (cache do build).
 
 ## Pendências (regra do projeto)
 

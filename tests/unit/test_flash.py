@@ -6,6 +6,7 @@ import pytest
 
 from r36os import bootarea, flash
 from r36os.image import boot_sectors, boot_start, disk_id
+from r36os.targets import IMAGES
 
 BOOT_START = boot_start("console")  # 128 MiB: after the boot area of both consoles
 BOOT_SECTORS = boot_sectors("console")  # 2 GiB
@@ -269,6 +270,76 @@ def test_reader_ids_of_a_non_usb_disk(tmp_path):
     (tmp_path / "block/mmcblk0").mkdir(parents=True)
     (tmp_path / "block/mmcblk0/device").symlink_to(tmp_path / "devices/platform/mmc0")
     assert flash.usb_reader_ids("/dev/mmcblk0", tmp_path) is None
+
+
+def test_card_is_written_and_read_back_with_direct_io():
+    # the write must not fill the page cache (it froze the whole PC through the global
+    # dirty limit), and the read-back must come from the card, not from that cache
+    w = flash.write_cmd("/dev/sdc", 8192)
+    assert "oflag=direct,seek_bytes" in w and "conv=notrunc,fsync" in w
+    assert "iflag=fullblock" in w and "status=none" in w     # whole blocks from the pipe
+    r = flash.read_cmd("/dev/sdc", 8192, 1 << 20)
+    assert "iflag=direct,skip_bytes,count_bytes" in r
+
+
+@pytest.fixture
+def no_sudo(monkeypatch):
+    # the real dd on plain files, without sudo (direct I/O works on files too)
+    for name in ("write_cmd", "read_cmd"):
+        real = getattr(flash, name)
+        monkeypatch.setattr(flash, name, lambda *a, _r=real: _r(*a)[1:])
+
+
+def test_write_and_check_a_region_with_one_progress_total(tmp_path, no_sudo):
+    import hashlib
+    import io
+    import os
+
+    img, card = tmp_path / "console.img", tmp_path / "card"
+    data = os.urandom(9 * 2**20 + 3 * 512)          # not a multiple of the 4 MiB block
+    img.write_bytes(data)
+    card.write_bytes(bytes(len(data)))
+    regions = [(512, 8192 - 512), (8192, len(data) - 8192)]
+    out = io.StringIO()
+    bar = flash.Progress("writing", sum(n for _, n in regions), out=out)
+    sums = [flash._sudo_write(img, str(card), off, n, bar) for off, n in regions]
+    bar.finish()
+    assert card.read_bytes()[512:] == data[512:] and card.read_bytes()[:512] == bytes(512)
+    assert sums == [hashlib.sha256(data[o:o + n]).hexdigest() for o, n in regions]
+    # one total for every region: never past it
+    assert bar.count == bar.total and "100%" in out.getvalue().splitlines()[-1]
+    check = flash.Progress("checking", bar.total, out=io.StringIO())
+    assert [flash._sudo_read(str(card), o, n, check) for o, n in regions] == sums
+    assert check.count == check.total
+
+
+def test_a_failed_dd_stops_the_flash(tmp_path, monkeypatch):
+    img = tmp_path / "console.img"
+    img.write_bytes(bytes(8 * 2**20))
+    monkeypatch.setattr(flash, "write_cmd", lambda device, offset: ["false"])
+    with pytest.raises(flash.FlashError, match="failed"):
+        flash._sudo_write(img, "/dev/null", 0, 8 * 2**20)
+
+
+def test_progress_line():
+    import io
+
+    bar = flash.Progress("writing", 2 * 2**30, out=io.StringIO())
+    bar.count = 2**30
+    line = bar.line(bar.t0 + 100)
+    assert line.startswith("writing      1.00 / 2.00 GiB")
+    assert " 50%" in line and "10.7 MB/s" in line and "1:40 left" in line
+    bar.count = bar.total
+    assert "100%" in bar.line(bar.t0 + 200) and "3:20 total" in bar.line(bar.t0 + 200)
+    small = flash.Progress("checking", 512 * 2**20, out=io.StringIO())
+    assert "/ 512.00 MiB" in small.line(small.t0 + 1)
+
+
+@pytest.mark.parametrize("target", ["console", "vm"])
+def test_regions_are_whole_sectors_for_direct_io(target):
+    # O_DIRECT needs offsets and lengths in whole 512-byte sectors
+    for offset, length in flash.update_regions(IMAGES[target]):
+        assert offset % flash.SECTOR == 0 and length % flash.SECTOR == 0
 
 
 def test_wipe_disk_and_rereadpt(monkeypatch):

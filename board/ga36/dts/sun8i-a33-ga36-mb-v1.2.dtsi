@@ -51,6 +51,26 @@
 		reg = <0x40000000 0x20000000>;
 	};
 
+	/*
+	 * Log of the previous start kept in RAM (pstore/ramoops), to see where a kexec dies
+	 * (boot-dtb-select 1.5). 1 MiB at 0x5e000000: far from the kernel at the start of the
+	 * RAM and below the top, where the vendor U-Boot relocates itself; inside the 512 MiB
+	 * of every report of this board. Not a factory value: if the log does not survive a
+	 * warm reset there, the region moves.
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		ramoops@5e000000 {
+			compatible = "ramoops";
+			reg = <0x5e000000 0x100000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+		};
+	};
+
 	backlight: backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 0 50000 0>;	/* PWM0 em PH0, 20 kHz, não invertido */
@@ -249,6 +269,14 @@
 		interrupt-parent = <&r_intc>;
 		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_LOW>;
 		/*
+		 * N_VBUSEN as the DRIVEVBUS output: the 5 V of the OTG port in the host role
+		 * (usb-device-access D7). The factory sys_config has [usbc0] usb_drv_vbus_gpio =
+		 * port:power4<1><0>, an AXP pin as output, as the A23/A33 tablet reference design
+		 * of mainline does. Without it the axp20x driver never registers reg_drivevbus,
+		 * the USB PHY waits for it forever and no USB comes up (GA36 boot 29).
+		 */
+		x-powers,drive-vbus-en;
+		/*
 		 * Sem system-power-controller: no 6.18 o driver axp20x registra o corte de
 		 * energia no poweroff sempre (exceto na AXP288), e o binding não aceita a
 		 * propriedade. O goodluckOS precisava da antiga
@@ -362,9 +390,17 @@
 	status = "okay";
 };
 
+/*
+ * OTG port role by the ID pin only (usb-device-access D1, measured 2026-11-13): the VBUS of
+ * the OTG port reaches nothing the kernel reads, and the AXP USB input is the DC charging
+ * port, so usb0_vbus_power-supply made a charger look like a PC. Without a VBUS source the
+ * PHY reports VBUS present: ID high (no OTG adapter) is device, ID low is host.
+ * Host role (usb-device-access D7): the PHY turns on the AXP DRIVEVBUS output (5 V on the
+ * port) while ID is low; without it a pendrive never powered up (MUSB stayed b_idle).
+ */
 &usbphy {
 	usb0_id_det-gpios = <&pio 7 8 GPIO_ACTIVE_HIGH>;	/* PH8 */
-	usb0_vbus_power-supply = <&usb_power_supply>;
+	usb0_vbus-supply = <&reg_drivevbus>;
 	status = "okay";
 };
 

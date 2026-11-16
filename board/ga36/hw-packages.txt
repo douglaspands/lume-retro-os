@@ -5,3 +5,11 @@
 
 # Register access for the display freeze recovery (r36os-logd, task 9.8)
 r36os-devmem
+
+# Firmware of the USB Wi-Fi and Bluetooth dongles (usb-device-access D9, D10): Realtek rtw88
+# (RTL8821CU) and rtl8xxxu, Atheros ath9k_htc, Realtek Bluetooth (no MediaTek: 28 MiB).
+# The same list as the R36S; the vm has no dongle.
+linux-firmware-rtw88
+linux-firmware-rtlwifi
+linux-firmware-ath9k_htc
+linux-firmware-rtl_bt

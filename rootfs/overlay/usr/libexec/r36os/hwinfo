@@ -22,10 +22,12 @@ kv date "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 kv boot "$(cat "$R36OS_RUN/logs/boot-n" 2>/dev/null) (boot_id $(val /proc/sys/kernel/random/boot_id))"
 
 sec system
-kv version "$(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME")"
+# the build id is in BOOT/VERSION, not in os-release (SYSTEM stays the same between builds)
+kv version "$(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"), build $(sed -n 's/^build: //p' /boot/VERSION 2>/dev/null)"
 kv board "$(board)"
 kv model "$(dtstr /proc/device-tree/model)"
 kv "dt compatible" "$(dtstr /proc/device-tree/compatible)"
+kv "dt in use" "$(dtb_in_use); state $(dtb_conf_name)$([ -n "$(dtb_serial)" ] || echo ' (no SoC serial number: shared by every device of the SoC)')"
 kv "serial number" "$(dtstr /proc/device-tree/serial-number)"
 for f in machine family soc_id revision serial_number; do
 	[ -r "/sys/devices/soc0/$f" ] && kv "soc $f" "$(val "/sys/devices/soc0/$f")"

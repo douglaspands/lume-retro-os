@@ -1,0 +1,14 @@
+# Keys of the device tree list in the initramfs (boot-dtb-select D7), read by lume-bootsel
+# from /etc/bootsel-keys. <role>=<key>[,<key>...], with names of linux/input-event-codes.h
+# or numbers. select: held at power on, opens the list. pageup/pagedown (optional) jump a
+# screen in the long list of converted device trees.
+#
+# PROVISIONAL until proof 1.2 tells which keys the factory U-Boot of the R36S already reads
+# at power on (pins C0, C2 and C5).
+# All in gpio-keys (built in). A is BTN_EAST in the R36S device tree (the right button).
+select=KEY_VOLUMEDOWN
+up=BTN_DPAD_UP,KEY_VOLUMEUP
+down=BTN_DPAD_DOWN,KEY_VOLUMEDOWN
+ok=BTN_EAST
+pageup=BTN_DPAD_LEFT,BTN_TL
+pagedown=BTN_DPAD_RIGHT,BTN_TR

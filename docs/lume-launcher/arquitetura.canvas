@@ -1,0 +1,190 @@
+{
+	"nodes": [
+		{
+			"id": "boot",
+			"type": "text",
+			"text": "**Boot dArkOS**\nES sobe; launcher aberto pelo menu Ports",
+			"x": -700,
+			"y": -60,
+			"width": 240,
+			"height": 100,
+			"color": "5"
+		},
+		{
+			"id": "launcher",
+			"type": "text",
+			"text": "**Launcher**\nLoop de UI por evento\nLê entrada do gamepad",
+			"x": -380,
+			"y": -80,
+			"width": 260,
+			"height": 140,
+			"color": "6"
+		},
+		{
+			"id": "dock",
+			"type": "text",
+			"text": "**Dock de consoles**\nÍcones quadrados, rotação infinita\nÚltimo item: Configurações\nInclui Favoritos",
+			"x": -20,
+			"y": -280,
+			"width": 260,
+			"height": 140,
+			"color": "4"
+		},
+		{
+			"id": "config",
+			"type": "text",
+			"text": "**Configurações**\nWi-Fi, volume, brilho, bateria",
+			"x": 330,
+			"y": -340,
+			"width": 240,
+			"height": 100,
+			"color": "0"
+		},
+		{
+			"id": "jogos",
+			"type": "text",
+			"text": "**Grade de jogos**\nQuadrados semitransparentes\ncom caixa do jogo",
+			"x": -20,
+			"y": -60,
+			"width": 260,
+			"height": 120,
+			"color": "4"
+		},
+		{
+			"id": "menujogo",
+			"type": "text",
+			"text": "**Menu do jogo**\n1. Iniciar\n2. Iniciar de save state\n3. Favoritar",
+			"x": -20,
+			"y": 140,
+			"width": 260,
+			"height": 140,
+			"color": "4"
+		},
+		{
+			"id": "scanner",
+			"type": "text",
+			"text": "**Scanner de ROMs**\nLê pastas e gamelist.xml\nIndice em cache",
+			"x": -380,
+			"y": 220,
+			"width": 260,
+			"height": 100,
+			"color": "3"
+		},
+		{
+			"id": "estado",
+			"type": "text",
+			"text": "**Estado local**\nfavoritos.json, recentes.json",
+			"x": -380,
+			"y": -300,
+			"width": 260,
+			"height": 100,
+			"color": "3"
+		},
+		{
+			"id": "runner",
+			"type": "text",
+			"text": "**Runner**\nMonta o comando, com ou sem slot de save state",
+			"x": 330,
+			"y": 140,
+			"width": 260,
+			"height": 120,
+			"color": "2"
+		},
+		{
+			"id": "emu",
+			"type": "text",
+			"text": "**Emulador**\nRetroArch / standalone",
+			"x": 680,
+			"y": 150,
+			"width": 220,
+			"height": 100,
+			"color": "1"
+		},
+		{
+			"id": "nota",
+			"type": "file",
+			"file": "design-das-telas.md",
+			"x": -380,
+			"y": 400,
+			"width": 400,
+			"height": 300
+		}
+	],
+	"edges": [
+		{
+			"id": "e1",
+			"fromNode": "boot",
+			"fromSide": "right",
+			"toNode": "launcher",
+			"toSide": "left"
+		},
+		{
+			"id": "e2",
+			"fromNode": "launcher",
+			"fromSide": "right",
+			"toNode": "dock",
+			"toSide": "left"
+		},
+		{
+			"id": "e3",
+			"fromNode": "dock",
+			"fromSide": "bottom",
+			"toNode": "jogos",
+			"toSide": "top",
+			"label": "A num console"
+		},
+		{
+			"id": "e3b",
+			"fromNode": "dock",
+			"fromSide": "right",
+			"toNode": "config",
+			"toSide": "left",
+			"label": "A em Configurações"
+		},
+		{
+			"id": "e4",
+			"fromNode": "jogos",
+			"fromSide": "bottom",
+			"toNode": "menujogo",
+			"toSide": "top",
+			"label": "A num jogo"
+		},
+		{
+			"id": "e5",
+			"fromNode": "menujogo",
+			"fromSide": "right",
+			"toNode": "runner",
+			"toSide": "left",
+			"label": "Iniciar"
+		},
+		{
+			"id": "e6",
+			"fromNode": "runner",
+			"fromSide": "right",
+			"toNode": "emu",
+			"toSide": "left"
+		},
+		{
+			"id": "e7",
+			"fromNode": "emu",
+			"fromSide": "bottom",
+			"toNode": "launcher",
+			"toSide": "bottom",
+			"label": "ao fechar, volta"
+		},
+		{
+			"id": "e8",
+			"fromNode": "scanner",
+			"fromSide": "top",
+			"toNode": "launcher",
+			"toSide": "bottom"
+		},
+		{
+			"id": "e9",
+			"fromNode": "estado",
+			"fromSide": "bottom",
+			"toNode": "launcher",
+			"toSide": "top"
+		}
+	]
+}

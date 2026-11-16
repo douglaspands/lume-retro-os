@@ -9,12 +9,24 @@
 # r36os: build cache (sources, build trees, ccache, distfiles, abuild keys, factory areas,
 # VM disk); created No-COW on Btrfs. `git clean -fdx` deletes it, abuild keys included.
 /.cache/
+# scratch of the agents and of manual checks (scripts, intermediate outputs); No-COW on
+# Btrfs. Temporary files stay inside the repository, never in ~/.claude/jobs or /tmp.
+/cache/
 # rascunhos locais para validação (não versionados)
 /var/
 # diretórios de trabalho do abuild (fontes baixadas e pacote montado)
 /aports/*/src/
 /aports/*/pkg/
 /aports/*/tmp/
+# lume-launcher sources staged for abuild (r36os.lume.stage)
+/aports/*/stage/
+# lume-launcher prototype: generated locally from a private game collection and trademarked
+# logos (docs/lume-launcher/README.md); never versioned
+/docs/lume-launcher/prototipo/catalog.js
+/docs/lume-launcher/prototipo/fs.js
+/docs/lume-launcher/prototipo/assets/
+# lume-launcher Rust workspace: build output (Cargo.lock is versioned)
+/lume/target/
 __pycache__/
 *.pyc
 .pytest_cache/

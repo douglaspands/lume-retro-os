@@ -1,0 +1,8 @@
+Fonts shipped with the lume-launcher (/usr/share/lume/fonts/)
+
+Roboto-Regular.ttf, Roboto-Medium.ttf, Roboto-Bold.ttf
+  Roboto (Classic) 3.005, Copyright 2011 Google Inc. (https://github.com/googlefonts/roboto-classic)
+  Licensed under the Apache License, Version 2.0 (Apache-2.0):
+  https://www.apache.org/licenses/LICENSE-2.0
+  Unmodified copies of the files of the Alpine package font-roboto. The launcher's prototype
+  (docs/lume-launcher/prototipo) is drawn with Roboto, and the launcher follows it.

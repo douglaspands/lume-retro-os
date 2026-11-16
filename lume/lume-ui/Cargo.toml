@@ -1,0 +1,25 @@
+[package]
+name = "lume-ui"
+description = "The lume-launcher interface (lume-launcher D3, D11)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["sdl"]
+# the SDL2 backend (KMSDRM + GLES on the consoles); without it only the fake backend exists
+sdl = ["dep:sdl2"]
+
+[dependencies]
+lume-core.workspace = true
+lume-index = { path = "../lume-index" }
+serde.workspace = true
+toml.workspace = true
+libc.workspace = true
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+sdl2 = { version = "0.37", optional = true, default-features = false, features = ["unsafe_textures"] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

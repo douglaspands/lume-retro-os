@@ -1,0 +1,8 @@
+# LÖVE 11.5 from Alpine (lume-launcher D5): a .love file of roms/love/. SDL2 turns SIGTERM
+# into a quit event, so the game gets a chance to save before cgroup.kill.
+[runner]
+id = "love"
+kind = "native"
+exec = ["/usr/bin/love", "{rom}"]
+quit = "sigterm"
+timeout = 3

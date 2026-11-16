@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lume-launcher · protótipo</title>
+  <link rel="stylesheet" href="base.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- catálogo real, gerado por: node tools/build-catalog.js <pasta-das-roms> (sem ele, usa dados de demonstração) -->
+  <script src="catalog.js"></script>
+  <script src="fs.js"></script>
+
+  <!-- módulos (a ordem importa: cada um registra em window.Lume) -->
+  <script src="src/i18n.js"></script>
+  <script src="src/data.js"></script>
+  <script src="src/files.js"></script>
+  <script src="src/system.js"></script>
+  <script src="src/themes.js"></script>
+
+  <!-- temas: um arquivo por tema, só dados. Para adicionar um, crie temas/<id>.js e liste aqui.
+       O primeiro da lista é o padrão. material-claro precisa vir depois de material-escuro (extends). -->
+  <script src="temas/material-escuro.js"></script>
+  <script src="temas/material-claro.js"></script>
+
+  <script src="src/engine.js"></script>
+</body>
+</html>

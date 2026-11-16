@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Fri, 13 Nov 2026 14:00:00 -0300
+Subject: [PATCH] dt-bindings: add the Lume device tree selection node
+
+Lume Retro OS keeps several device trees per SoC on the boot partition and its
+initramfs chooses one of them (boot-dtb-select). Each device tree says who it is
+and how to recognise its hardware in a "lume-select" node at the root. Add the
+"lume" vendor prefix and the schema of that node, so dt-validate checks it
+instead of rejecting its properties.
+
+diff --git a/Documentation/devicetree/bindings/misc/lume-select.yaml b/Documentation/devicetree/bindings/misc/lume-select.yaml
+new file mode 100644
+index 0000000..708e727
+--- /dev/null
++++ b/Documentation/devicetree/bindings/misc/lume-select.yaml
+@@ -0,0 +1,103 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/misc/lume-select.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Lume Retro OS device tree selection
++
++maintainers:
++  - Douglas Panhota <douglaspands@gmail.com>
++
++description: |
++  A board device tree of Lume Retro OS carries this node at the root so that the
++  initramfs can choose, among the device trees of one SoC, the one that describes the
++  hardware it runs on. The bootloader always loads the default device tree; when another
++  one is chosen (by its rules, by the user or by a file on the boot partition), the
++  initramfs restarts the same kernel with it through kexec.
++
++  A rule names its controller by the MMIO address of the controller node, not by a
++  phandle: the rules of every candidate are read while the kernel runs with the default
++  device tree, where the phandles of the candidate point to nothing. All the rules of a
++  candidate must match; a candidate without rules is only chosen by hand.
++
++select:
++  properties:
++    $nodename:
++      const: lume-select
++  required:
++    - $nodename
++
++properties:
++  $nodename:
++    const: lume-select
++
++  lume,id:
++    $ref: /schemas/types.yaml#/definitions/string
++    description: Name of this device tree, unique among the device trees of the SoC.
++
++  lume,priority:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Among the candidates whose rules all match, the highest one wins.
++
++  lume,default:
++    type: boolean
++    description: The device tree the bootloader loads; exactly one per SoC.
++
++  lume,adc:
++    $ref: /schemas/types.yaml#/definitions/uint32-matrix
++    description: Raw value of an IIO ADC channel within a range.
++    items:
++      items:
++        - description: MMIO address of the ADC controller
++        - description: channel
++        - description: minimum raw value
++        - description: maximum raw value
++
++  lume,gpio:
++    $ref: /schemas/types.yaml#/definitions/uint32-matrix
++    description:
++      Level of a GPIO line that the kernel already has as an input. A line set as an
++      output, or held by a driver, does not match.
++    items:
++      items:
++        - description: MMIO address of the GPIO controller
++        - description: line offset in the controller
++        - description: level, 0 or 1
++          maximum: 1
++
++  lume,i2c-present:
++    $ref: /schemas/types.yaml#/definitions/uint32-matrix
++    description:
++      A device answers at an address of an I2C bus (a one byte read at that address only,
++      never a scan of the bus).
++    items:
++      items:
++        - description: MMIO address of the I2C controller
++        - description: 7-bit device address
++          maximum: 0x7f
++
++  lume,panel-id:
++    $ref: /schemas/types.yaml#/definitions/uint8-array
++    minItems: 1
++    maxItems: 16
++    description:
++      Display ID the panel answers (DCS 04h), as its driver reads it and shows it in the
++      panel_id attribute of the DSI device. Matches when a panel answered with these bytes.
++
++required:
++  - lume,id
++  - lume,priority
++
++additionalProperties: false
++
++examples:
++  - |
++    lume-select {
++        lume,id = "ga36-panel2";
++        lume,priority = <10>;
++        lume,adc = <0x01c22800 0 16 19>;
++        lume,gpio = <0x01c20800 37 1>;
++        lume,i2c-present = <0x01c2ac00 0x34>;
++        lume,panel-id = [fe 52 02];
++    };
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index a9cf85f..78ae2ad 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -943,6 +943,8 @@ patternProperties:
+     description: LSI Corp. (LSI Logic)
+   "^luckfox,.*":
+     description: Shenzhen Luckfox Technology Co., Ltd.
++  "^lume,.*":
++    description: Lume Retro OS (operating system for handheld game consoles)
+   "^lunzn,.*":
+     description: Shenzhen Lunzn Technology Co., Ltd.
+   "^luxul,.*":

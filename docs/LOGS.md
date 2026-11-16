@@ -23,7 +23,8 @@ ROMS/logs/
   hw/boot-<n>.txt         retrato do hardware de cada boot
   metrics/boot-<n>.csv    uma amostra a cada 5 s durante o uso
   trace/boot-<n>.log      rastreio do RetroArch: estado do processo, kernel e congelamentos
-  frontend/boot-<n>.log   log do RetroArch (também o log mostrado quando ele falha)
+  frontend/boot-<n>.log   log do frontend: lume-run, lume-ui e o RetroArch aberto por eles
+                          (também o log mostrado quando ele falha)
   .boot                   contador de boots (não apague só ele)
   .clean                  marcador de desligamento limpo
 ```
@@ -46,6 +47,10 @@ lado, sem um sobrescrever o outro. Para saber de qual console é cada boot:
 
 A arquitetura também diferencia: o campo `kernel` do `hw/boot-<n>.txt` traz a versão e
 a máquina (`armv7l` no GA36, `aarch64` no R36S).
+
+No `frontend/boot-<n>.log`, cada início do `lume-ui` grava o driver de vídeo e o renderer
+do SDL, por exemplo `lume-ui: video KMSDRM, renderer opengles2, 640x480`. Um renderer
+`software` indica que a GPU não foi usada.
 
 **Sem a partição de jogos** (por exemplo, quando a partição 2 não é exFAT), os logs
 ficam só na RAM, e o log de boot vai para `BOOT/logs/boot-<n>.log` (os 10 mais recentes),
@@ -104,7 +109,8 @@ Uma linha por evento:
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
 | `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
-| `game` | aberto (core e conteúdo); fechado (core, conteúdo e duração em segundos); lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
+| `game` | com o lume-launcher (frontend padrão), gravadas pelo `lume-run`, sem nome nem caminho do jogo: início (`OK <sistema> <runner> <core> start`, ou `menu` para o menu do RetroArch sem jogo) e fim (`<sistema> <runner> <core> exit=<código ou sigN> end=<normal, quit-combo, killed ou session> secs=<duração>`; `OK` com saída 0 ou fim por Fn+Start, `FAIL` nos outros casos; `-` no lugar do core de um runner nativo). Com o RetroArch como frontend: aberto (core e conteúdo) e fechado (core, conteúdo e duração), pelo `logd`. Nos dois: lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
+| `index` | fim de um scan das listas de jogos do launcher (`lume-index`): `scan systems=<n> games=<n> added=<n> failed=<n> ms=<n>` e a contagem por sistema com jogos (`nes=40 snes=12`), nunca um nome |
 | `audio` | o dispositivo de som parou de consumir e o jogo segue sem som (`FAIL`, linha `[ALSA] Playback stalled` do RetroArch, patch 0003); o som voltou (`OK`) |
 | `roms` | partição de jogos criada ou verificada (`fsck`) |
 | `kernel` | mensagens de erro do kernel no boot (quantidade e as 3 primeiras) |
@@ -112,6 +118,7 @@ Uma linha por evento:
 | `battery` | abaixo de 10% (`FAIL`) |
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
+| `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
 ## `metrics/boot-<n>.csv`
 
@@ -131,11 +138,17 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `bat_mv` | tensão da bateria em mV |
 | `bat_ma` | corrente da bateria em mA |
 | `bat_status` | `Charging`, `Discharging`, `Full`… |
-| `frontend` | `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
-| `core` | core do jogo em execução (vazio fora de jogo) |
-| `content` | nome do jogo em execução (vazio fora de jogo) |
+| `frontend` | `launcher` (a interface do lume-launcher na tela), `menu`, `game`, `paused`, `no_answer` (RetroArch sem resposta), `other` (outro frontend) ou `stopped` |
+| `core` | no RetroArch, o sistema que o core informa no `GET_STATUS` (`nes` com o fceumm, não o nome do core; o core exato está no evento `game` do `events.log`); vazio fora de jogo; num runner nativo do launcher, o nome do runner (`love`, `sh`) |
+| `content` | nome do jogo em execução (vazio fora de jogo); sempre vazio com o lume-launcher |
 | `fps` | quadros por segundo do jogo desde a amostra anterior: diferença do contador de quadros do `GET_STATUS` (patch 0004 do RetroArch) dividida pelo tempo. Vazio no menu, na pausa, na primeira amostra de um jogo e quando o contador recomeça |
 | `fps_nominal` | FPS nominal do core (linha `Geometry: ... FPS:` do log do RetroArch), para comparar com `fps`; vazio fora de jogo |
+| `lume_ui_rss_kb` | memória residente da interface do launcher (`lume-ui`) em KiB; vazio quando ela não está rodando (durante um jogo) |
+| `lume_ui_cpu_pct` | CPU do `lume-ui` em % de um núcleo desde a amostra anterior; vazio na primeira amostra |
+| `lume_run_rss_kb` | memória residente do supervisor (`lume-run`) em KiB |
+| `lume_run_cpu_pct` | CPU do `lume-run` em % de um núcleo |
+| `input_rss_kb` | memória residente do daemon de entrada (`r36os-input`) em KiB |
+| `input_cpu_pct` | CPU do `r36os-input` em % de um núcleo |
 
 Na VM não há cpufreq, zonas térmicas nem bateria, e essas colunas não aparecem.
 
@@ -165,6 +178,25 @@ Além disso:
 
 - `k <mensagem>`: mensagens novas do kernel surgidas depois do início do `logd` (erros do
   driver de vídeo, de áudio ou do cartão aparecem aqui, com a hora do kernel).
+- `usb: <estado>`: a porta OTG vista pelo kernel, uma linha por amostra (change
+  `usb-device-access`, D1). Serve para saber como cada console distingue um PC, um
+  carregador e um adaptador OTG. Cada campo só aparece quando o console o tem; sem nenhum
+  (a VM), a linha é `usb: none`:
+
+  ```
+  10:46:08 usb: extcon=1c19400.phy:USB=1,USB-HOST=0 musb=b_peripheral udc=musb-hdrc.1.auto:configured vbus=axp20x-usb:1 host_devs=0
+  ```
+
+  | Campo | Conteúdo |
+  |---|---|
+  | `extcon` | o PHY da porta (`/sys/class/extcon/*`, só os que têm cabos USB): `USB=1` é VBUS visto pelo PHY, `USB-HOST=1` é o pino ID em nível baixo (adaptador OTG) |
+  | `musb` | modo do controlador MUSB (GA36): `b_idle`, `b_peripheral`, `a_host`… |
+  | `role` | papel de um `usb-role-switch` (`none`, `host`, `device`) |
+  | `udc` | lado gadget do controlador (`/sys/class/udc/*/state`), com `_` no lugar de espaço: `not_attached`, `configured`… |
+  | `vbus` | `online` de cada fonte de energia do tipo USB (a entrada de carga do PMIC) |
+  | `host_devs` | dispositivos USB atrás das portas host (sem contar os hubs raiz nem as interfaces) |
+
+  Quando o estado muda, o `events.log` ganha `usb OK otg: <estado>`.
 - **Instantâneo** (`=== snapshot of retroarch pid ...` até `=== end of snapshot`): gravado
   quando o RetroArch fica 3 amostras seguidas (15 s) vivo e sem responder ao `GET_STATUS`,
   e de novo a cada 6 amostras, no máximo 6 por boot. Traz o `status` do processo, cada
@@ -210,6 +242,105 @@ bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em la�
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
+## Entrada (`r36os-input`) no `boot/boot-<n>.log`
+
+O daemon de entrada grava no log do kernel (e por isso no `boot/boot-<n>.log` e nas linhas
+`k` do `trace/`) uma linha ao subir e uma por problema:
+
+```
+r36os-input: "GA36-MB Gamepad" from 2 of 2 source(s), socket /run/r36os/input.sock, volume DAC
+r36os-input: no input device named "1c21800.lradc" (optional)
+r36os-input: source device "gpio-keys" gone
+```
+
+`from 1 of 2` com uma origem `(optional)` faltando quer dizer que aquele dispositivo (os
+botões de volume, ou os analógicos do R36S) não foi achado pelo nome do perfil: o controle
+funciona sem ele. Uma origem obrigatória faltando faz o serviço tentar de novo
+(`supervise-daemon`, até 5 vezes).
+
+## Escolha do device tree no `boot/boot-<n>.log`
+
+O `lume-bootsel` do initramfs escolhe o DTB entre os de `BOOT/dtbs/<soc>/` (ver
+`docs/BRINGUP-GA36.md` e `docs/BRINGUP-R36S.md`) e registra cada passo no log do kernel,
+com o prefixo `lume-bootsel:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `soc <soc> (<compatible>), running device tree <id>` | SoC e DTB com que o bootloader iniciou o kernel |
+| `candidate <id> (<arquivo>) priority <p>, <n> rule(s)\|no rules[, default]` | DTB da pasta aceito como candidato |
+| `ignored <arquivo>: <motivo>` | DTB recusado: inválido, de outro SoC, sem o nó `lume-select` ou com `lume,id` repetido |
+| `vendor device tree <id> loaded on demand` | um DTB convertido de `dtbs/<soc>/vendor/` (D17) foi nomeado pelo `force`, pela lista, pela escolha salva, pelo aprendido ou pelo estado e lido agora; segue a linha `candidate <id> (vendor/<id>.dtb) ...`. Num boot normal a pasta não é lida |
+| `probe adc\|gpio\|i2c <endereço> ...: <leitura> (rule ...) match\|no match` | leitura feita por uma regra |
+| `signature: panel id <hex> (<dispositivo DSI>)` | assinatura do aparelho: o ID que o painel respondeu ao driver (D15) |
+| `no signature: the panel did not answer its driver` / `no signature: no panel driver shows panel_id` | painel mudo com o DTB em uso (dispara a busca) / kernel sem a leitura do ID (nada é testado sozinho) |
+| `panel id of <dispositivo>: unsupported` | o host DSI não faz a leitura do ID: nada se conclui sobre o painel, e a busca não roda |
+| `panel id <hex> (<dispositivo>): the panel answered, but the ID is blank: no signature` | o painel respondeu (o DTB serve), mas o ID é `000000` ou `ffffff` (nunca gravado, como no JD9366 do GA36): nada é aprendido por ele |
+| `panel <dispositivo>: no driver bound, the panel did not answer its probe` | o driver do painel recusou o probe (o `jd9366` sem resposta), depois de esperar 2 s por um probe adiado: conta como painel mudo |
+| `probe panel id <regra>: <lido> match\|no match` | regra `lume,panel-id` |
+| `learned before: <id> for panel:<hex>` / `learned: <id> for panel:<hex>` / `forgotten: ...` | o que já foi aprendido para essa assinatura / aprendizado novo / um DTB descartado sai do aprendido |
+| `search: <id> does not work (...); discarded on this device` / `search: <id> works, the panel answered` / `search: no device tree left; ...` | busca sozinha (D15): DTB descartado, achado, ou candidatos esgotados |
+| `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
+| `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
+| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC |
+| `no SoC serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
+| `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada (nome inválido) |
+| `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
+| `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
+| `list shown (<n> candidate(s)[, <m> converted])`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção; `converted`: quantos DTBs de `vendor/` ela mostrou |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
+| `keeping the running device tree, no kexec` | boot segue sem troca |
+| `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
+| `switching to <id> by the boot image (...) and a reboot` / `boot image with <id> written at sector <n> of <disco> (... read back)` | troca no GA36 (D16): a imagem de boot do setor 172032 é regravada com o DTB escolhido, conferida, e o console reinicia |
+| `device tree from the boot image: <id> (reason: <motivo>)` | no GA36, o início depois desse reinício (o DTB em uso é o `pending`): segue como o segundo início do kexec |
+| `rebooting into the boot image with <id>` e `before reboot: <linha>` | o início que regrava a imagem guarda as suas linhas em `ROMS/system/etc/dtb-<soc>-before-reboot.log` (ele reinicia antes de qualquer log chegar ao cartão); o início seguinte as repete com esse prefixo e apaga o arquivo |
+| `kexec: <linha>` | o que o `kexec -l` imprimiu (antes só ia para a tela) |
+| `kexec -l failed (status <n>); details follow`, `iomem: <linha>` | a carga falhou: segue a saída do `kexec -d` e a RAM do `/proc/iomem` |
+| `watchdog armed: 60 s ...` / `watchdog stopped` / `no /dev/watchdog: ...` | watchdog armado antes da troca para um DTB novo e parado no início seguinte |
+| `before kexec: <linha>` e `device tree from kexec: <id> (reason: <motivo>)` | no segundo início, as linhas do primeiro (que se perderiam com o kexec) e a origem do DTB; depois de uma volta, as do primeiro vêm com o prefixo duas vezes |
+| `question shown: keep <id>? (15 s)` | pergunta na tela do primeiro boot com um DTB novo |
+| `confirmed on screen: <id> kept` | o usuário apertou A: o DTB fica confirmado neste aparelho |
+| `not confirmed within 15 s: <id> discarded on this device, going back to <id>` | sem resposta: o DTB vai para `bad` e o kernel volta (`reverted`) |
+| `no question on the screen (...): <id> stays pending until the frontend starts` | sem tecla de confirmar: o `r36os-logd` confirma quando o frontend sobe |
+| `back from a device tree that was not confirmed: no question, no switch` | terceiro início, depois da volta |
+| `kexec -e failed: <id> is no longer pending` | o `kexec -e` falhou e o boot segue com o DTB em uso |
+| `no device tree` | sem device tree (a VM): nada a escolher |
+
+O estado fica em `ROMS/system/etc/dtb-<soc>-<serial>.conf` (`manual=`, `good=`,
+`pending=`, `bad=`), um arquivo por aparelho, identificado pelo número de série do SoC
+(`/sys/devices/soc0/serial_number`); sem ele, `dtb-<soc>.conf`, um por SoC. Um DTB que não
+é o padrão e ainda não foi confirmado no aparelho fica `pending` e é confirmado na tela; se
+a pergunta não pôde aparecer, o `r36os-logd` o confirma quando o frontend sobe (`good=` e
+sem `pending=`). Um DTB que continua `pending` no boot seguinte não foi confirmado e é
+descartado (`fallback`). No `events.log`, a escolha vira `boot OK device tree selected …`,
+a confirmação na tela `boot OK device tree confirmed on screen: …`, a do frontend
+`boot OK device tree <id> confirmed: the frontend started (no question on the screen)`, e o
+fallback, a falta de resposta e os erros do `lume-bootsel` viram `boot FAIL device tree …`.
+O `hw/boot-<n>.txt` traz o DTB em uso e o arquivo de estado no campo `dt in use`.
+
+O aprendido (D15) fica em `ROMS/system/etc/dtb-<soc>-learned.conf`, uma linha
+`panel:<hex>=<id>` por assinatura, comum a todos os aparelhos do SoC que usam o cartão: vale
+para qualquer aparelho cujo painel responda o mesmo ID.
+
+## Módulos do kernel no `boot/boot-<n>.log`
+
+Nos consoles, os módulos do kernel ficam fora do `SYSTEM`, num squashfs por console
+(`BOOT/ga36/modules`, `BOOT/r36s/modules`). O initramfs o monta em `/lib/modules` antes do
+`switch_root`, só se a pasta de versão da imagem for igual à do kernel em execução
+(`uname -r`), e registra uma destas linhas com o prefixo `lume:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `modules: <file> (<release>)` | imagem montada em `/lib/modules`, com a versão do kernel |
+| `ERROR: BOOT has no <file>; starting without kernel modules` | o arquivo não está na `BOOT`, nem o `<file>.old` |
+| `ERROR: BOOT has no <file>; using <file>.old from the previous build` | um `push` foi cortado entre os dois `mv` da troca (change `push-boot-swap`): monta o `.old`, que ainda passa pela conferência de versão abaixo. A mesma linha vale para o `SYSTEM` (`<console>/SYSTEM`); sem ele nem o `.old`, o boot vai para o modo de resgate |
+| `ERROR: failed to mount <file>; starting without kernel modules` | o arquivo existe mas não montou (imagem corrompida) |
+| `ERROR: <file> holds modules for <found>, the running kernel is <release>; starting without kernel modules` | a versão da imagem é outra (por exemplo, um `push` interrompido entre o kernel e os módulos); `<found>` lista as pastas da imagem, ou `no kernel` se ela está vazia |
+| `ERROR: failed to move <file> to /lib/modules; starting without kernel modules` | a imagem montou mas não foi para a raiz nova |
+
+Sem módulos o console sobe e abre o frontend (os drivers de boot estão embutidos no kernel),
+mas fica sem `zram`, USB host e dongles. Cada linha `ERROR` vira `boot FAIL …` no
+`events.log`. Na VM não há linha: os módulos dela ficam no `SYSTEM`.
+
 ## Diagnóstico de hardware no `boot/boot-<n>.log`
 
 Alguns drivers gravam no log do kernel o que leram do próprio hardware. Elas aparecem no
@@ -232,8 +363,9 @@ Como ler cada linha: `docs/BRINGUP-R36S.md`, seção 5. Reunir essas leituras nu
 Mapa completo do hardware, gerado uma vez por boot pelo `hwinfo`, depois que o frontend
 sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Seções:
 
-- `== system`: versão, placa, modelo e `compatible` do device tree, número de série, SoC,
-  kernel e linha de comando.
+- `== system`: versão, placa, modelo e `compatible` do device tree, o DTB em uso
+  (`dt in use: <id> (<motivo>)`, com `after kexec` quando houve troca), número de série,
+  SoC, kernel e linha de comando.
 - `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
   entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
   decodificador de vídeo, áudio, DMA, botões, gamepad, cartão, RTC, watchdog, sensor

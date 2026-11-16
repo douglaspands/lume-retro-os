@@ -44,9 +44,26 @@ def test_kernel_target_is_arm64():
     "CONFIG_MMC_DW_ROCKCHIP", "CONFIG_SQUASHFS_ZSTD", "CONFIG_OVERLAY_FS", "CONFIG_EXFAT_FS",
     "CONFIG_TMPFS_XATTR", "CONFIG_ZSMALLOC", "CONFIG_ZRAM", "CONFIG_ZRAM_BACKEND_LZ4",
     "CONFIG_ZRAM_DEF_COMP_LZ4",
+    # DTB selection (boot-dtb-select D2/D7): kexec and the keys read in the initramfs
+    "CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_GPIO",
+    # USB gadget on the OTG port (usb-device-access D1/D2): configfs with MTP and NCM on
+    # the DWC2 in dual-role, with the role switch
+    "CONFIG_USB_DWC2_DUAL_ROLE", "CONFIG_USB_ROLE_SWITCH", "CONFIG_USB_CONFIGFS",
+    "CONFIG_USB_CONFIGFS_F_FS", "CONFIG_USB_CONFIGFS_NCM",
 ])
 def test_fragment_builds_in(option):
     assert _options(FRAGMENT).get(option) == "y", option  # built in, not a module
+
+
+def test_fragment_has_the_host_role_and_the_usb_radios():
+    # usb-device-access D8-D10 (P-38, P-15): the same block as the GA36
+    from tests.unit.test_ga36_kernel_config import HOST_BUILTIN, HOST_MODULES
+
+    opts = _options(FRAGMENT)
+    for o in HOST_BUILTIN:
+        assert opts.get(o) == "y", o
+    for o in HOST_MODULES:
+        assert opts.get(o) == "m", o
 
 
 def test_kernel_cmdline_and_boot_options():
@@ -57,6 +74,8 @@ def test_kernel_cmdline_and_boot_options():
     # debug serial and the panel; tty1 last becomes /dev/console
     assert cmdline.index(f"console={tty},{baud}") < cmdline.index("console=tty1")
     assert "quiet" not in cmdline
+    # the initramfs log (lume-bootsel) is not rate limited
+    assert "printk.devkmsg=on" in cmdline.split()
     opts = _options(FRAGMENT)
     assert opts["CONFIG_CMDLINE_FORCE"] == "y"
     assert opts["CONFIG_INITRAMFS_SOURCE"] == '"/initramfs/initramfs.cpio"'
@@ -72,6 +91,8 @@ def test_built_config():
     opts = _options(BUILT.read_text())
     for want, value in _options(FRAGMENT).items():
         assert opts.get(want) == value, want
+    for off in re.findall(r"^# (CONFIG_\w+) is not set$", FRAGMENT, re.M):
+        assert off not in opts, off               # CONFIG_LOGO: no Tux on the boot screen
     kdir = BUILT.parent
     assert (kdir / "Image").stat().st_size > 1_000_000
     assert "warning:" not in (kdir / "build-warnings.log").read_text()
