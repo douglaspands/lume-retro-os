@@ -35,7 +35,7 @@ A mesma nos dois consoles (`docs/BRINGUP-R36S.md` tem a mesma tabela):
 | `VERSION` | build gravado no cartão |
 | `boot.ini` | lido pelo U-Boot do R36S (o GA36 não lê) |
 | `rg351mp-kernel.dtb`, `rg351p-kernel.dtb` | de fábrica, exigidos pelo U-Boot do R36S |
-| `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
+| `logo.bmp` | logo do boot lido pelo U-Boot do R36S (o de fábrica dele), BMP 640x480 de 24 bits; o GA36 mostra o mesmo arquivo da FAT interna e não lê este |
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
 | `dtbs/rk3326/vendor/` | DTBs de clones do R36S convertidos no PC (`<lume,id>.dtb`, cerca de 170), lidos só quando nomeados (README, "Clones do R36S") |
@@ -48,9 +48,13 @@ fora da `BOOT`; as imagens dos dois painéis ficam na pasta do build no PC
 (`out/images/console/<build>/ga36-android-boot-panel{1,2}.img`, com o SHA256 no
 `SHA256SUMS`).
 
-**Logo:** hoje o GA36 mostra o `bootlogo.bmp` da área de fábrica. Passar a usar o
-`BOOT/logo.bmp` (o mesmo logo nos dois) é a tarefa 2.2 de `boot-dtb-select`, que depende da
-prova 1.4.
+**Logo:** o GA36 mostra o `bootlogo.bmp` da FAT interna da área de fábrica (setor 73728),
+que já é o mesmo arquivo do `BOOT/logo.bmp` do R36S (SHA256 `01a2178e…`, conferido pelo
+`test_ga36_factory_logo_is_the_boot_logo`): os dois consoles mostram o mesmo logo e o build não
+grava nada na área de fábrica. **Trocar o `BOOT/logo.bmp` pelo PC não muda o logo do GA36:** o
+U-Boot de fábrica lê arquivos da `BOOT`, mas o `sunxi_bmp_display` não desenha um BMP dela a
+partir do `bootcmd` (prova 1.4 de `boot-dtb-select`). Isso fica para o bootloader próprio (P-43,
+item 5).
 
 ### 3.1 Trocar o painel
 

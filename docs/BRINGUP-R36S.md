@@ -85,8 +85,9 @@ A `BOOT` tem só o que os consoles leem; as imagens de boot dos painéis do GA36
 do build no PC (`docs/BRINGUP-GA36.md`, seção 3).
 
 **Trocar o logo:** pelo PC, substituir `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits.
-No R36S vale no boot seguinte. (No GA36, o logo da `BOOT` depende da tarefa 2.2 de
-`boot-dtb-select`; até lá ele mostra o logo da área de fábrica.)
+No R36S vale no boot seguinte. O GA36 continua com o logo da área de fábrica dele, que é o
+mesmo arquivo do `logo.bmp` de fábrica do R36S: o U-Boot do GA36 não desenha um BMP da `BOOT`
+(prova 1.4 de `boot-dtb-select`; trocar nos dois fica para o bootloader próprio, P-43).
 
 ### 3.1 Escolher o device tree (DTB)
 
