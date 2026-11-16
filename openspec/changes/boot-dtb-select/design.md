@@ -707,7 +707,11 @@ relação à alimentação física.
   `.cpu_kill`, e o kernel recusa o kexec calado; o patch `0027` acrescenta `.cpu_die` e
   `.cpu_kill` (tarefa 3.6). Se ainda assim falhar no aparelho, vale o plano abaixo. Prova 1.5 antes do código; se falhar, o GA36 fica com a troca pelo
   `force` lido pelo U-Boot (`env import -t` de um arquivo da `BOOT`, se a prova 1.4 der
-  certo) ou pela imagem de boot gravada com `dd`, que continua valendo.
+  certo) ou pela imagem de boot gravada com `dd`, que continua valendo. **Resultado (prova 1.5,
+  2026-11-15):** mesmo com o `0027`, o segundo kernel do GA36 morre antes de registrar o
+  `ramoops` (o primeiro termina em `Bye!`); o caminho escolhido foi o D16: o `lume-bootsel`
+  regrava a imagem de boot do setor 172032 com o DTB escolhido e reinicia, provado nos boots 84 a
+  86 (busca) e no `force` com a volta sozinha. O kexec fica só no R36S.
 - [Drivers que não reiniciam limpos depois do kexec (DSI, painel, PMIC, MMC)] → a prova 1.5
   sobe até o frontend depois de um kexec e confere tela, som e cartão.
 - [Um DTB errado pode programar tensões erradas] → só candidatos do mesmo SoC, só DTBs do

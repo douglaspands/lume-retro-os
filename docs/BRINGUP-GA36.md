@@ -81,6 +81,15 @@ sozinha testa o outro painel.
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
   `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
 
+**Lista e `force` provados (2026-11-16, build `20261116-161851`):** com o Vol- segurado ao
+ligar a lista abre (boots 129 a 131; o patch `0034` lê o LRADC já com a tecla segurada), a
+escolha vale no boot seguinte e "Automatic" a apaga. Com `force` = `ga36-panel2` num GA36 de
+painel 1 (boot 132): o primeiro início gravou a imagem do painel 2 no setor 172032 e reiniciou;
+com o DTB do painel 2 a tela ficou preta com riscos (a sequência do painel 2 num painel 1), a
+pergunta não pôde ser vista e, em 15 s, o aparelho regravou o painel 1 e reiniciou sozinho; o
+início seguinte registrou `force ignored: ga36-panel2 was discarded on this device (bad)` e
+seguiu no painel 1. Confirmar o painel 2 com A só se prova num GA36 com o painel 2.
+
 **À mão, sem o `lume-bootsel`** (por exemplo, se o sistema não chega ao initramfs): gravar
 a imagem de boot do painel 2, da pasta do build gravado no cartão, no setor 172032, pelo PC:
 
