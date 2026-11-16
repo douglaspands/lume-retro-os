@@ -70,7 +70,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     monkeypatch.setattr(build.version, "current", lambda: _V)
     calls = []
 
-    def fake_layer(target, v, language, rebuild_packages=False):
+    def fake_layer(target, v, language, rebuild_packages=False, timer=None):
         calls.append((target.name, v.build_id))
         out = tmp_path / target.name
         out.mkdir(exist_ok=True)
