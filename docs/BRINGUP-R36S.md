@@ -126,6 +126,26 @@ diferença é o kexec. O boot 93, sem ninguém na frente, mostrou a volta sozinh
 (`not confirmed within 15 s`, `reverted`). Ao tirar o `force` e o aprendido, o boot 95
 voltou ao `r36s-v5` (`auto`).
 
+**Regra do ID do painel, provada (2026-11-16, build `20261116-101936`, `lume-bootsel` r13,
+boots 98 e 99):** com o aprendido do boot anterior, o boot 98 saiu `learned` (o aprendido vem
+antes das regras), mas já com `rules of r36s-v5: match`. Com o `dtb-rk3326-learned.conf`
+apagado e o estado vazio, o boot 99 registrou `selected r36s-v5 (reason: rule)` e `keeping
+the running device tree, no kexec`; a regra não grava nada no aprendido.
+
+**Alimentação de outra placa, `darkosre-r36s-r35s-v11-2022-08-18` (D18, 2026-11-16, mesmo
+build, boots 100 a 104):** com o `force`, o kexec subiu o V11 com imagem e a pergunta na tela,
+mas o **A** deste aparelho não responde: o V11 lê os botões em `gpio1`/`gpio2` (A em
+`gpio1 PA2`) e o R36S V5 os tem em `gpio3`. Os boots 100 e 101 voltaram sozinhos ao
+`r36s-v5` em 15 s (`reverted`). Com `good=` do V11 gravado à mão no estado, o boot 103 ficou
+no V11 (frontend em 23,4 s desde o kernel) e o `regulator_summary` bateu com a origem em todos
+os reguladores do RK817: `vcc_lcd` (LDO8) a 2,8 V contra 1,8 V no nativo, `vccio_sd` (LDO5)
+a 1,8 V contra 3,3 V, `vcc_sd` (LDO6) a 3,0 V (faixa 1,8–3,0 V), `vcc3v3_pmu` a 3,3 V contra
+3,0 V, `vdd_logic` até 1,15 V, LDO7 `vcc_backlight` ligado e `boost` a 5,0 V. Tela no menu e
+cartão montado com o I/O a 1,8 V. Sem som: o V11 não declara GPIO de amplificador, então o
+`gpio3 PC4` deste aparelho fica desligado (o `Playback Mux` estava em `SPK`); a detecção do
+fone também vem invertida (`ACTIVE_LOW`). São diferenças da placa, não da alimentação. O
+`force` e o `good=` saíram e o boot 104 voltou ao `r36s-v5` (`rule`).
+
 ## 4. Primeiro boot
 
 - **Sinais de vida, em ordem:** o logo do fabricante (U-Boot de fábrica), depois as
