@@ -11,9 +11,10 @@ O que **não** entra aqui:
   (`openspec/changes/<change>/tasks.md`), que é a fonte de verdade.
 - Tarefas já planejadas: continuam no `tasks.md`.
 
-Sem change ativa desde 2026-11-11: a `alpine-retroarch-distro` (o sistema base no GA36 e
-na VM) foi arquivada em `openspec/changes/archive/2026-11-11-alpine-retroarch-distro/`.
-As prioridades da próxima change saem desta lista.
+Change ativa: `boot-dtb-select` (o mesmo cartão escolhe o device tree de cada aparelho e
+de cada clone), no branch `feature/boot-dtb-select`; as já concluídas estão em
+`openspec/changes/archive/`. As prioridades da próxima change saem desta lista, um tema
+por vez.
 
 Como usar:
 
@@ -21,7 +22,8 @@ Como usar:
 - **Estado:** `aberta`, `bloqueada` ou `ideia` (ainda sem decisão de fazer).
 - Ao virar change, anotar o nome dela no item; ao concluir, mover para "Concluídas".
 - Pendência nova encontrada em qualquer conversa entra aqui **só se** exigir change
-  própria, com ID novo, estado e evidência. Caso contrário, vira tarefa no `tasks.md`.
+  própria, com ID novo, estado e evidência, na tabela do seu tema (e no índice). Caso
+  contrário, vira tarefa no `tasks.md`.
 
 Atualizado em 2026-11-16. **Organizado por tema** (pedido do usuário): ao corrigir, pegar o tema inteiro numa change. Dentro de cada tema, o que está decidido ou em andamento vem antes das ideias.
 
