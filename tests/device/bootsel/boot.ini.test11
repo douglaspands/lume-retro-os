@@ -1,0 +1,15 @@
+odroidgoa-uboot-config
+
+# Lume Retro OS: TEST of boot-dtb-select 1.1 (if/test -e in the factory U-Boot). With
+# BOOT/dtbs/bootsel-test present, U-Boot loads the copy in dtbs/test/ (lume,id
+# r36s-v5-uboot); without it, or if this U-Boot has no if/test -e, the default DTB.
+
+setenv loadaddr "0x02000000"
+setenv dtb_loadaddr "0x01f00000"
+setenv lume_dtb "dtbs/rk3326/rk3326-r36s-v5.dtb"
+if test -e mmc 1:1 dtbs/bootsel-test; then setenv lume_dtb "dtbs/test/rk3326-r36s-v5-uboot.dtb"; fi
+
+load mmc 1:1 ${loadaddr} r36s/Image
+load mmc 1:1 ${dtb_loadaddr} ${lume_dtb}
+
+booti ${loadaddr} - ${dtb_loadaddr}
