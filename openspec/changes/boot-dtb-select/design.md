@@ -309,6 +309,10 @@ watchdog atravessar o kexec (prova 1.6).
 
 ### D12. DTBs do dArkOS e do dArkOSRE convertidos no boot
 
+> **Revisto pelo D17 (2026-11-16):** a conversão saiu do boot e foi para o PC (Python, na
+> importação), com o resultado compilado e validado no build. O que segue vale como
+> levantamento dos DTBs e das regras de conversão; o "onde" e o "quando" estão no D17.
+
 **Contexto (2026-11-13):** o dArkOS compila o kernel de `christianhaitian/linux`, branch
 `rg351` (4.4 da Rockchip, `rg351p_tweaked_defconfig`), e o dArkOSRE distribui 43 DTBs de
 placas (R36S oficiais, clones e "soysauce") em `files/BOOT/dtb/<variante>/<placa>/`, todos
@@ -413,7 +417,20 @@ do ST7703 (provado no aparelho).
 **Alternativa:** um driver nosso (`lume,dsi-panel`), que leria o formato binário da
 Rockchip direto do nó: descartado porque o do ROCKNIX já está provado nesses clones.
 
+**Feito (2026-11-16): patch 0033** (`panel-generic-dsi.c`, `CONFIG_DRM_PANEL_GENERIC_DSI=y`
+no R36S, binding `rocknix,generic-dsi.yaml` e o prefixo `rocknix`). Porte limpo para o 6.18
+(`devm_drm_panel_alloc`, modos e comandos em vetores, linha inválida da descrição falha o
+probe, erro na sequência para o `prepare`, sem arquivo de firmware) com o formato e a
+semântica do ROCKNIX, inclusive o `wait` em hexadecimal. Lê o ID do painel (DAh–DCh, 1
+byte cada) depois do reset e o mostra em `panel_id`, como os patches 0031 e 0032: o D15
+vale também para os convertidos.
+
 ### D14. Detecção pela assinatura medida
+
+> **Revisto pelo D15 e pelo D17 (2026-11-16):** a tabela de assinaturas à parte não foi
+> feita. Um DTB convertido escolhido na lista e confirmado na tela é aprendido para o ID do
+> painel (D15) e passa a ser escolhido sozinho, carregado de `vendor/` pelo nome; uma
+> regra `lume,panel-id` medida pode ir para o DTS da placa pelo conversor.
 
 O nome da placa nos DTBs do (d)ArkOS é só um rótulo (`model`), sem nada que o hardware
 confirme. A escolha automática de um DTB convertido usa uma **tabela de assinaturas** do
@@ -491,6 +508,68 @@ anexado e ATAGs) ele sobe, mas não retoma a tela e o cartão e trava. O R36S se
   desligar e ligar; no boot seguinte o `pending` não confirmado volta ao anterior. Os DTBs
   do GA36 diferem no painel, então o kernel sempre sobe e a USB continua disponível.
 
+### D17. DTBs de fábrica e do (d)ArkOS convertidos no PC, carregados sob demanda
+
+Decisão do usuário (2026-11-16, "pode seguir com a absorção dos DTBs"), revisando o D12:
+
+- **Onde converte:** `r36os dtb-import NOME=PASTA...` (`src/r36os/vendor_dtb.py`) lê os
+  DTBs das coleções (`.cache/upstream/dArkOSRE-R36`, `arkos4clone`, `EE-Clones-DTB`) e
+  escreve um DTS por placa em `board/r36s/dts-vendor/<lume,id>.dts`, mais o
+  `SOURCES.tsv` (cada arquivo lido: `converted`, `refused` com o motivo, ou `same` quando
+  repete outro). Os DTS ficam no git: são fonte nossa, revisável, e o build não depende das
+  coleções nem da rede (projeto autônomo).
+- **O DTS convertido** faz `#include "rk3326-r36s-v5.dts"` e sobrescreve só o que muda
+  entre as placas: painel (`rocknix,generic-dsi`, D13), pinos de reset/enable/stbyb e
+  alimentação do painel, luz de fundo (PWM, período, níveis), botões (`gpio-keys`), teclas
+  de volume (GPIO ou `adc-keys`), analógicos (mux de 4 canais ou ADC direto, ou nenhum),
+  amplificador e detecção do fone, bateria (capacidade e tabela de tensão), LEDs e a
+  interrupção do PMIC. O `rockchip,lane-rate` e os tempos da PHY do R36S V5 saem (cada
+  painel tem o seu clock). `lume,id` = nome do arquivo, prioridade 0, sem `lume,default`,
+  sem regras.
+- **Build:** `build_dtbs` compila `dts-vendor/` com a árvore do kernel e roda um único
+  `dt-validate` sobre os nativos e os convertidos; um erro para o build. Os DTBs vão para
+  `BOOT/dtbs/rk3326/vendor/`; o teste da imagem confere que cada um tem o nome do seu
+  `lume,id` e não é padrão.
+- **No boot (velocidade, D1):** o `lume-bootsel` não lê `vendor/` num boot normal. Um DTB
+  de lá só é carregado quando algo o nomeia: `force`, a lista (que lista os nomes da pasta
+  sem abrir os arquivos), a escolha salva, o aprendido (D15) ou o estado (`good`,
+  `pending`). A busca do D15 continua só com os nativos e os já carregados: tentar ~170
+  DTBs por kexec não cabe num boot.
+- **Lista longa:** rola (18 linhas na tela, "... N more above/below"), com as teclas
+  opcionais `pageup`/`pagedown` do `bootsel-keys` (no R36S: esquerda/L1 e direita/R1).
+- **Analógicos:** com os pinos do mux iguais aos do R36S V5, ficam os eixos medidos do
+  nativo; nos outros, a semântica do `rocknix-singleadc-joypad` do ROCKNIX (canal `m` do
+  `amux-channel-mapping` = estado `3, 1, 2, 0` do `gpio-mux`, inversões do DTB de origem),
+  **não medida** (anotado no DTS de cada placa). O ArkOS e o dArkOS ignoram o
+  `amux-channel-mapping` e usam níveis brutos; nenhuma das duas semânticas reproduz a
+  medida do V5, então a de outras placas só se confirma nelas.
+- **Ganho do alto-falante:** o `spk-volume` do codec de origem nunca é copiado (o codec
+  mainline não tem a propriedade; o volume seguro é o do nativo e do patch 0024); o valor
+  ignorado vai para a nota do DTS e o `SOURCES.tsv`.
+- **Resultado da primeira importação (2026-11-16):** 285 arquivos, **168 placas
+  convertidas** (44 do dArkOSRE, 124 do arkos4clone), 50 repetidas, 67 recusadas: joypad
+  `play_joystick` (44, os DTBs de fábrica "EE" do EE-Clones-DTB, kernel de fábrica
+  diferente), mux com mais de um canal de ADC (8), `odroidgo3-hid-joypad` (6, RG351),
+  `micro,gamepad` (5), PMIC RK809 (2), sem joypad (1), sem painel DSI (1). As placas EE
+  recusadas aparecem convertidas pelas versões do arkos4clone.
+- **DTB de fábrica do R36S V5 convertido** (`out/r36s-factory`, fora do git): os 19
+  botões e códigos, o mux, o amplificador, a detecção do fone, a interrupção do PMIC, a
+  luz de fundo, a bateria e os LEDs batem com o `rk3326-r36s-v5` nativo (teste unitário);
+  o painel muda de driver (ST7703 → genérico).
+- **Licenças:** a lógica vem do `rocknix_dtbo.py` (MIT) e do driver do ROCKNIX (GPL-2.0),
+  com crédito no código. Dos DTBs só saem parâmetros de hardware (pinos, timings,
+  sequências de inicialização) para DTS nossos (`GPL-2.0+ OR MIT`), cada um com a origem e
+  o SHA-256; o arkos4clone é MIT; o dArkOSRE e o EE-Clones-DTB não têm arquivo de licença
+  (os DTBs vêm de árvores de dispositivo de kernels GPL-2.0 dos fabricantes). Crédito às
+  três coleções no README.
+- **Perde-se:** um DTB do (d)ArkOS copiado pelo usuário direto para o cartão não é
+  convertido no aparelho (sem `lume-select`, é ignorado com o motivo no log); precisa de
+  `r36os dtb-import` e de um build. É o preço de não converter no boot.
+
+**Alternativas:** conversão no boot em C (D12 original): lenta (ler e converter dezenas de
+DTBs a cada boot), sem `dt-validate`, e muito código no initramfs; DTBs gerados só no
+build, sem DTS no git: o build dependeria das coleções e da rede.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos
@@ -532,8 +611,11 @@ anexado e ATAGs) ele sobe, mas não retoma a tela e o cartão e trava. O R36S se
   sem garantia".
 - [Painéis de 720x720 e timings acima do que o RetroArch espera] → o conversor leva o
   `native-mode`; a configuração de vídeo por resolução fica no P-33.
-- [Tempo de conversão no boot] → só quando um DTB do (d)ArkOS está na pasta; os nativos não
-  são convertidos.
+- [Tempo de conversão no boot] → não existe mais (D17): a conversão é no PC e o boot só lê
+  `vendor/` quando um DTB de lá é nomeado.
+- [Eixos dos analógicos trocados ou invertidos numa placa convertida] → semântica do
+  ROCKNIX, não medida (D17); o remapeamento do RetroArch resolve, e a placa medida pode
+  ganhar a correção no conversor.
 
 ## Migration Plan
 

@@ -269,6 +269,7 @@ com o prefixo `lume-bootsel:`:
 | `soc <soc> (<compatible>), running device tree <id>` | SoC e DTB com que o bootloader iniciou o kernel |
 | `candidate <id> (<arquivo>) priority <p>, <n> rule(s)\|no rules[, default]` | DTB da pasta aceito como candidato |
 | `ignored <arquivo>: <motivo>` | DTB recusado: inválido, de outro SoC, sem o nó `lume-select` ou com `lume,id` repetido |
+| `vendor device tree <id> loaded on demand` | um DTB convertido de `dtbs/<soc>/vendor/` (D17) foi nomeado pelo `force`, pela lista, pela escolha salva, pelo aprendido ou pelo estado e lido agora; segue a linha `candidate <id> (vendor/<id>.dtb) ...`. Num boot normal a pasta não é lida |
 | `probe adc\|gpio\|i2c <endereço> ...: <leitura> (rule ...) match\|no match` | leitura feita por uma regra |
 | `signature: panel id <hex> (<dispositivo DSI>)` | assinatura do aparelho: o ID que o painel respondeu ao driver (D15) |
 | `no signature: the panel did not answer its driver` / `no signature: no panel driver shows panel_id` | painel mudo com o DTB em uso (dispara a busca) / kernel sem a leitura do ID (nada é testado sozinho) |
@@ -285,7 +286,7 @@ com o prefixo `lume-bootsel:`:
 | `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada (nome inválido) |
 | `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
 | `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
-| `list shown ...`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção |
+| `list shown (<n> candidate(s)[, <m> converted])`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção; `converted`: quantos DTBs de `vendor/` ela mostrou |
 | `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
 | `keeping the running device tree, no kexec` | boot segue sem troca |
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |

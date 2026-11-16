@@ -28,6 +28,17 @@ no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome intern
 
 Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em Alpine.
 
+**Ambiente Python (`.venv/`).** O orquestrador e os testes rodam no venv do repositório,
+criado e mantido pelo `uv` a partir do `pyproject.toml` (fora do git pelo `.gitignore`):
+
+```sh
+uv sync                 # cria o .venv (Python 3.14) e instala o r36os e o pytest
+uv run r36os --help     # ou .venv/bin/r36os
+uv run pytest           # testes unitários (tests/unit)
+```
+
+Nada usa o Python global da máquina.
+
 **Cache do build (`.cache/`).** Fica na raiz do projeto, ignorado pelo git, e guarda o que
 o build baixa e compila entre uma execução e outra: fontes e árvores de build do kernel e do
 U-Boot (`src/`, `kbuild/`, `ubuild/`), `ccache/`, `distfiles/`, as chaves de assinatura do
@@ -241,6 +252,82 @@ uv run r36os push --build 20261114-100000  # um build específico
   assinatura. Use outro leitor; um cartão afetado se recupera com `fsck.exfat` ou
   gravando de novo com `--full`.
 
+### Clones do R36S: device trees convertidos
+
+Além do R36S V5, a `BOOT` traz em `dtbs/rk3326/vendor/` cerca de 170 device trees de
+clones e parentes do R36S (RK3326), convertidos dos DTBs do dArkOSRE e do arkos4clone para
+o nosso kernel (`board/r36s/dts-vendor/`, gerados por `r36os dtb-import`; a origem de cada
+um e os recusados, com o motivo, ficam no `SOURCES.tsv`). Num boot normal eles não são
+lidos. Para usar um:
+
+- **pela lista:** ligar segurando Vol-, rolar até o nome (esquerda/L1 e direita/R1 pulam uma
+  página) e confirmar com A;
+- **pelo PC:** escrever o nome (o do arquivo, sem `.dtb`) em `BOOT/dtbs/force`.
+
+No primeiro boot com um DTB novo a tela pergunta se ele serve: A em 15 s mantém; sem
+resposta (tela preta), o console volta sozinho ao anterior e descarta esse DTB naquele
+aparelho. Confirmado, ele é lembrado para o painel do aparelho e escolhido sozinho nos boots
+seguintes. São **compatíveis por conversão, sem garantia**: só o R36S V5 foi provado; os
+analógicos de outras placas seguem a semântica do ROCKNIX, sem medição, e podem precisar
+de remapeamento no RetroArch. O volume do alto-falante é sempre o seguro do R36S V5.
+
+**Fora do alcance:** aparelhos com eMMC (o RK3326 inicia pelo eMMC antes do cartão, P-43);
+as placas A33/A23 da família do GA36 sem DTB de fábrica (P-16); aparelhos de outro SoC
+(RK3128, MediaTek MT6572, HCSEMI E3100: GB350, R36SX, R36HD e parecidos); e as famílias que
+o conversor ainda recusa (DTBs de fábrica "EE" com `play_joystick`, RG351 com joypad HID,
+PMIC RK809 e outras, P-75).
+
+### Converter os DTBs (o do seu aparelho ou as coleções)
+
+A conversão é automática e roda no PC: `r36os dtb-import` lê os DTBs (do kernel 4.4 ou
+5.10 da Rockchip, como os do ArkOS, dArkOS e dos cartões de fábrica), gera um device tree
+nosso por placa em `board/r36s/dts-vendor/` e anota cada arquivo lido no
+`board/r36s/dts-vendor/SOURCES.tsv`: `converted` (com o nome da placa), `refused` (com o
+motivo) ou `same` (igual a outro já convertido). O DTB original não é alterado.
+
+**1. Baixar as coleções** (uma vez; ficam em `.cache/upstream/`, fora do git). O comando
+exige as três, para que a pasta gerada seja a mesma em qualquer máquina:
+
+```sh
+git clone https://github.com/southoz/dArkOSRE-R36.git .cache/upstream/dArkOSRE-R36
+git -C .cache/upstream/dArkOSRE-R36 checkout 3f372c85aa53a26b265c3dc0c2661ec0fae5faf0
+git clone https://github.com/lcdyk0517/arkos4clone.git .cache/upstream/arkos4clone
+git -C .cache/upstream/arkos4clone checkout c570364df5baf417edb7eed6be01bf0bc48a7755
+git clone https://github.com/Vi-K36/EE-Clones-DTB.git .cache/upstream/EE-Clones-DTB
+git -C .cache/upstream/EE-Clones-DTB checkout 73fb2cf539fde87c32c35304c90e594cf3039cd7
+```
+
+**2. (Opcional) O DTB de fábrica do seu aparelho.** Copie da partição `BOOT` do cartão
+original o `.dtb` do kernel (por exemplo `rk3326-r35s-linux.dtb`,
+`rk3326-evb-lp3-v12-linux.dtb` ou `rf3536k3ka.dtb`; não os `rg351*-uboot.dtb`) para uma
+pasta, e passe-a com um nome curto. A cópia do cartão do R36S em `out/r36s-factory/` entra
+sozinha quando existe.
+
+**3. Converter:**
+
+```sh
+uv run r36os dtb-import                      # as coleções (e out/r36s-factory, se houver)
+uv run r36os dtb-import meu=~/meu-console    # as coleções mais a pasta do seu aparelho
+```
+
+Cada execução refaz a pasta inteira a partir das fontes que recebeu, então o DTB do seu
+aparelho aparece como mudança local no git e some se o comando rodar de novo sem ele. O
+comando mostra quantos foram `converted`, `refused` e `same`. Procure o seu arquivo no
+`SOURCES.tsv`: a segunda coluna é o nome da placa convertida (por exemplo `meu-r35s`); se
+foi recusado, a última coluna diz o motivo.
+
+**4. Gerar e gravar o cartão** com os DTBs novos: `uv run r36os build console` (o build
+compila cada DTS e o confere no `dt-validate`; um erro para o build) e depois
+`uv run r36os flash console <dispositivo> --update` ou `uv run r36os push`.
+
+**5. No console:** escreva o nome da placa em `BOOT/dtbs/force` (ou escolha-a na lista com
+Vol- segurado ao ligar) e confirme com A quando a tela perguntar. Sem resposta em 15 s, o
+console volta sozinho ao DTB anterior.
+
+Ao mudar o conversor (`src/r36os/vendor_dtb.py`), rode `uv run r36os dtb-import` de novo e
+inclua no commit a pasta `board/r36s/dts-vendor/` regenerada; o teste
+`tests/unit/test_vendor_dtb.py` acusa quando ela ficou desatualizada.
+
 ### Números desta versão
 
 Medidos em 2026-11-11 (GA36: imagem `20261111-131212` e os boots anteriores no aparelho;
@@ -302,7 +389,17 @@ repositório, com o crédito no lugar:
 - **[Imagem custom para o clone do R36S (r/R36SBrasil)](https://www.reddit.com/r/R36SBrasil/comments/1xr9zfp/lan%C3%A7amento_imagem_custom_para_clone_do_r36s_placa/)**:
   tópico da comunidade usado como referência para configurar o GA36.
 - **[dArkOSRE-R36](https://github.com/southoz/dArkOSRE-R36)**: os dados do hardware do R36S
-  (Apêndice A do design da change `alpine-retroarch-distro`), base do device tree do R36S.
+  (Apêndice A do design da change `alpine-retroarch-distro`), base do device tree do R36S, e
+  os DTBs das placas R36S, clones e "soysauce" convertidos em `board/r36s/dts-vendor/`.
+- **[arkos4clone](https://github.com/lcdyk0517/arkos4clone)** (MIT, lcdyk) e
+  **[EE-Clones-DTB](https://github.com/Vi-K36/EE-Clones-DTB)** (DTBs de fábrica reunidos pela
+  comunidade): os
+  DTBs dos clones convertidos em `board/r36s/dts-vendor/`; de cada um saem só os parâmetros
+  de hardware (pinos, timings, sequência do painel), e cada DTS cita a origem e o SHA-256.
+- **[ROCKNIX](https://github.com/ROCKNIX/distribution)**: o driver `panel-generic-dsi`
+  (GPL-2.0, Danil Zagoskin; port em `kernel/patches/0033`), a lógica de conversão do
+  `rocknix_dtbo.py` (`stolen/overlay_server`, MIT) portada para `src/r36os/vendor_dtb.py`, e
+  o mapeamento dos analógicos do `rocknix-singleadc-joypad` (GPL-2.0).
 - **Cartão de fábrica do R36S** (um ArkOS para o "R36S V5"): a cadeia de boot do aparelho
   (`idbloader` e `trust.img` da Rockchip e o U-Boot da linha Hardkernel, que lê o
   `boot.ini`) e o device tree de fábrica, de onde vieram a sequência do painel e os valores
