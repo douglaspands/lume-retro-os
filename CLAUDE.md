@@ -70,6 +70,23 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - Documentação (`docs/`, `README.md`) e a conversa com o usuário continuam em português.
 - Código novo ou alterado já segue a regra. Scripts antigos com comentários em português são traduzidos quando forem tocados.
 
+## Ambiente Python: o `.venv` do repositório, gerido pelo uv (regra do projeto)
+
+- O `.venv/` é criado e mantido pelo `uv` a partir do `pyproject.toml` e está no
+  `.gitignore`. Python e módulos sempre dele: `uv run ...` ou `.venv/bin/<ferramenta>`.
+- Para instalar ou atualizar dependências use **`uv sync --inexact`**: o `ctx`
+  (agent-harness-hub) mora no mesmo venv sem estar no `pyproject`, e um `uv sync` exato o
+  removeria (e com ele o guardrail). Dependência nova do projeto entra no `pyproject.toml`.
+
+## Arquivos temporários: só dentro do repositório (regra do projeto)
+
+- Todo arquivo temporário (scripts de apoio, saídas intermediárias, rascunhos de patch,
+  saídas de teste manual) vai em `./cache/` (No-COW, fora do git pelo `.gitignore`), por
+  exemplo `./cache/tmp/`. **Nunca** fora do repositório local: nada em `~/.claude/jobs/`,
+  `/tmp` ou outra pasta do usuário, mesmo que o harness sugira.
+- `./cache/` é rascunho; o que vale guardar vai para o lugar certo do projeto (`src/`,
+  `tests/`, `docs/`, `out/`). Não confundir com `./.cache/` (cache do build).
+
 ## Pendências (regra do projeto)
 
 - `docs/PENDENCIAS.md` lista **só o que exige uma change própria** (design novo, capacidade nova, refatoração grande ou fora do escopo da change ativa). Ao ser perguntado sobre pendências, ou antes de propor uma change, consultar esse arquivo.

@@ -18,3 +18,5 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
+# the repository root, so tests import each other (from tests.unit.x import ...)
+pythonpath = ["."]

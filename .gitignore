@@ -9,6 +9,9 @@
 # r36os: build cache (sources, build trees, ccache, distfiles, abuild keys, factory areas,
 # VM disk); created No-COW on Btrfs. `git clean -fdx` deletes it, abuild keys included.
 /.cache/
+# scratch of the agents and of manual checks (scripts, intermediate outputs); No-COW on
+# Btrfs. Temporary files stay inside the repository, never in ~/.claude/jobs or /tmp.
+/cache/
 # rascunhos locais para validação (não versionados)
 /var/
 # diretórios de trabalho do abuild (fontes baixadas e pacote montado)
