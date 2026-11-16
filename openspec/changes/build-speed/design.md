@@ -106,6 +106,23 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 - O mesmo vale para kernel, módulos e DTBs: um patch que só toca um driver do GA36 recompila
   incrementalmente os dois kernels, mas o `lume-kernel` do aarch64 sai com o mesmo conteúdo e não
   muda de versão.
+- **Formatos (tarefa 4.0, `src/r36os/manifests.py`):**
+  - `.lume-content`, no controle do `.apk`: uma linha `lume-content 1 <sha256>` (com `\n`).
+  - Hash de conteúdo: SHA256 da listagem, uma linha por item, ordenada:
+    `f <modo> <uid>:<gid> <sha256 dos dados> <caminho>`, `l <modo> <uid>:<gid> <sha256 do
+    alvo> <caminho>`, `d <modo> <uid>:<gid> - <caminho>` (modo em 4 dígitos octais) e
+    `m <chave> <valor>` para cada campo do `.PKGINFO`, menos os que mudam a cada build
+    (`builddate`, `commit`, `datahash`, `size`, `packager`) e com o `pkgver` sem o `-rN`.
+    `content_entries(pkgdir)` lê a árvore do `pkgdir` (dono `0:0` por padrão).
+  - Hash de entradas: SHA256 das linhas ordenadas `<rótulo> <sha256>` de cada entrada
+    (`inputs_hash`); quais entradas entram é decisão do build do fragmento (6.1). No
+    `.PKGINFO`, `commit = <40 primeiros dígitos>` (`commit_of_inputs`), no formato de um
+    commit do git, que o `apk` espera nesse campo; o índice guarda os 64.
+  - `out/repo/<arch>/hashes.json`: `{"format": 1, "arch": "<arch>", "packages": {"<nome>":
+    {"version": "<pkgver>-rN", "inputs": "<sha256>", "content": "<sha256>", "file":
+    "<nome>-<pkgver>-rN.apk"}}}`, pacotes por nome, gravado por rename. Ausente = índice
+    vazio (primeiro build); JSON truncado, chave a mais ou a menos, hash que não tem 64
+    dígitos hexadecimais ou `file` que não bate com nome e versão → erro.
 
 ### D4. Data fixa do kernel e `VERSION` fora da comparação
 
@@ -200,6 +217,44 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 - **Cores fora do caminho do boot:** os slots `core-*` não entram no overlay. Um serviço
   (`lume-cores`, no runlevel `default`, depois do `frontend`) os monta em `/run/lume/cores/<nome>/`;
   o runner acha o core lá e espera o mount se o jogo abrir antes.
+- **Formato do `SLOTS` (tarefa 4.0):** texto por linhas, campos separados por um espaço, sem
+  JSON, para o `awk` do busybox. Leitores iguais em `src/r36os/manifests.py` (`read_slots`,
+  `write_slots`) e `initramfs/lib/slots.sh`:
+
+  ```
+  lume-slots 1
+  build 20261116-214233
+  console ga36
+  slot base slots/base-<sha12> <sha256> <bytes> -
+  pkg base musl 1.2.5-r10
+  slot runtime slots/runtime-<sha12> <sha256> <bytes> base=<sha256>
+  slot lume slots/lume-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
+  pkg lume lume-core 1.0-r3
+  slot modules slots/modules-<sha12> <sha256> <bytes> -
+  slot core-snes9x slots/core-snes9x-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
+  end 5 2
+  ```
+
+  - Cabeçalho fixo: `lume-slots <formato>` (hoje 1), `build <id>`, `console <nome>` (o leitor
+    recusa o manifesto de outro console).
+  - `slot <nome> <arquivo> <sha256> <bytes> <de baixo>`: o arquivo é relativo a
+    `<console>/` e é sempre `slots/<nome>-<12 primeiros dígitos do sha256>`; `<de baixo>` é `-`
+    ou `<slot>=<sha256>,...`, os slots contra os quais este foi montado, que têm de estar
+    acima dele no arquivo e com o mesmo sha256 (conjunto coerente).
+  - Ordem fixa: `base`, `runtime`, `lume`, `modules` (os quatro obrigatórios) e os `core-<nome>`
+    por nome. A ordem do overlay é a do arquivo: `base` embaixo, `lume` em cima.
+  - `pkg <slot> <pacote> <versão>`: os pacotes (fragmentos e do Alpine) de cada slot, logo
+    depois da linha dele; o log do boot mostra as versões por eles.
+  - `end <linhas slot> <linhas pkg>` fecha o arquivo. Sem ele, com contagens diferentes, sem
+    `\n` no fim, com linha desconhecida ou campo fora do formato, o manifesto é inválido.
+  - No boot, o sha256 dos slots não é lido (custaria a leitura inteira; o `push` confere antes
+    da troca), só a presença de cada arquivo citado. `slots_pick <boot> <console>` devolve
+    `<console>/SLOTS` ou, com uma linha `lume: ERROR: <console>/SLOTS <motivo>; using
+    <console>/SLOTS.old from the previous build`, o `SLOTS.old`; falha quando nenhum serve, e
+    então o init monta o `<console>/SYSTEM` antigo (sem linha de log no cartão antigo, que não
+    tem nenhum dos dois). `slots_list <boot> <manifesto> overlay|modules|cores|all` lista
+    `<nome> <caminho na BOOT> <sha12>` na ordem de montagem; `slots_lowerdir` monta o
+    `lowerdir` (de cima para baixo); `slots_packages` e `slots_build` dão o que vai ao log.
 - Limites: a soma dos slots de um console no máximo 448 MiB; a `BOOT` com ao menos 64 MiB livres,
   contando o conjunto anterior (spec `system-image`).
 - Alternativa: três camadas fixas e `.old` por arquivo (desenho anterior). Rejeitada: a troca
@@ -218,6 +273,14 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   partir dos objetos.
 - A imagem é comprimida com várias threads (limite do D8). O `r36os clean` apaga objetos que
   nenhum build guardado cita.
+- **Formatos (tarefa 4.0, `src/r36os/manifests.py`):** a `boot-files.sha256` continua com as
+  linhas do `sha256sum` (`<sha256>  <caminho na BOOT>`, dois espaços, `\n` no fim), lida hoje
+  por `image.read_boot_list` e pelo `push`: caminhos ordenados e o `VERSION` por último e
+  obrigatório (sem ele no fim, a lista está truncada). Caminho absoluto, com `..`, repetido,
+  ou linha no modo binário (` *`) → erro. Cada arquivo da lista é
+  `out/images/objects/<sha256>` (nome = sha256 do conteúdo, 64 dígitos hexadecimais);
+  `store_object` copia por um `.tmp` e rename e não regrava um objeto que já existe;
+  `missing_objects` diz quais faltam.
 
 ### D11. Política de reinício
 
