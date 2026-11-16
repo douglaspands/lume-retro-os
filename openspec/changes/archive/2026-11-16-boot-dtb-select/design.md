@@ -195,6 +195,18 @@ em uso a cada boot, e agora o `good=` só nasce de uma confirmação.
 aviso no log. O SID existe pelo nvmem (`CONFIG_NVMEM_SUNXI_SID=y`); usá-lo como número de
 série é uma decisão em aberto.
 
+**Número de série do bootloader (2026-11-16, decisão do usuário):** o RK3326 também não tem
+`soc0`, mas o U-Boot de fábrica do R36S grava `/serial-number` na raiz do DTB (do OTP;
+`c3d9b8674f4b94f6`, igual nos boots 108 e 110). A fonte passa a ser, nesta ordem:
+`/sys/devices/soc0/serial_number`, depois `/proc/device-tree/serial-number`, com a mesma
+limpeza (só letras e dígitos, zeros contam como ausente). Como o kexec troca o DTB inteiro,
+o `prepare()` copia o `/serial-number` do DTB em uso para o preparado, ao lado do `/memory`;
+sem isso o segundo início acharia outro arquivo de estado. O `r36os-logd` (`dtb_serial` em
+`lib.sh`) segue a mesma ordem. O log diz a origem (`SoC` ou `bootloader`). No GA36, depende
+do que o U-Boot 2017 da Allwinner grava (prova 1.7); o SID pelo nvmem continua em aberto.
+O estado antigo `dtb-rk3326.conf` não é migrado: o aparelho recomeça pelas regras e pelo
+aprendido (que é por SoC e não muda).
+
 ### D7. Tecla e menu
 
 A tecla de seleção e as de navegação são por console, num arquivo do board
@@ -203,7 +215,40 @@ lista, as teclas de volume para navegar e uma tecla de ação para confirmar; a 
 sai das provas 1.2 e 1.3 (o U-Boot do GA36 já desvia o boot por faixas do LRADC, e uma
 tecla de volume pode cair nelas). O estado da tecla é lido uma vez, por `EVIOCGKEY`, assim
 que o dispositivo de entrada aparece (espera de no máximo 1 s), então o usuário só precisa
-segurá-la ao ligar. O menu é texto no `tty1` (fbcon), com o automático marcado `(auto)`, o
+segurá-la ao ligar.
+
+**R36S, prova 1.2 (2026-11-16, build `20261116-135455`):** ligando com cada tecla segurada,
+o U-Boot de fábrica seguiu o boot normal em todas, e o kernel viu a tecla:
+
+| Tecla | Código no kernel | U-Boot de fábrica | Boot |
+|---|---|---|---|
+| Vol- | `KEY_VOLUMEDOWN` (`volume-keys`, `gpio3 PC5`) | nada | 106, 111, 113, 114 |
+| Vol+ | `KEY_VOLUMEUP` (`volume-keys`, `gpio3 PC6`) | nada | 116 |
+| Start | `BTN_TRIGGER_HAPPY2` (F2, `gpio3 PA6`) | nada | 117 |
+| Select | `BTN_TRIGGER_HAPPY1` (F1) | nada | 118 |
+| A | `BTN_EAST` (`gpio3 PB6`) | nada | 119 |
+
+Vol- fica como tecla da lista no R36S.
+
+**GA36, prova 1.3 (2026-11-16, build `20261116-151606`, boots 122 a 126):** a tabela
+`softw411` não tem partição `recovery` (só `bootloader`, `env`, `boot`, `rootfs`, `storage`).
+As teclas de volume estão no canal 0 do LRADC (Vol+ 200 mV, Vol- 400 mV; ~32 mV por passo):
+
+| Tecla | LRADC | U-Boot de fábrica | Boot |
+|---|---|---|---|
+| Vol- | ~0xC (entre as faixas) | nada | 122 |
+| Vol+ | ~0x6 (faixa de fastboot 0x2–0x8) | **sai do boot**: modo USB da Allwinner `1f3a:efe8`, sem tela, até desligar | 123 |
+| Start, Select, A | (microcontrolador do controle) | nada | 124 a 126 |
+
+Vol- fica como tecla da lista também no GA36; Vol+ nunca pode ser a tecla de seleção. A
+lista não abriu no boot 122: o `sun4i-lradc-keys` só informa a tecla na transição de solta para
+apertada, e o Vol- segurado desde antes de ligar nunca a faz (habilitar a interrupção "already
+hold" não mudou nada, boot 128). O patch `0034` lê o LRADC no `open` do dispositivo (que o
+handler `kbd` faz em 0,18 s), 30 ms depois de ligar a conversão, e informa a tecla segurada; a
+lista abriu no boot 129 (tarefa 6.3). As teclas de volume são um teclado para o kernel, e o
+eco do `tty1` repetia o Vol- segurado na tela; o `init` desliga o eco (tarefa 6.7).
+
+O menu é texto no `tty1` (fbcon), com o automático marcado `(auto)`, o
 último bom `(ok)` e a escolha forçada `(forced)`. Os drivers das teclas já são embutidos
 (`KEYBOARD_GPIO` no R36S, `KEYBOARD_SUN4I_LRADC` no `sunxi_defconfig` do GA36), o que a
 tarefa 3.1 confere.
@@ -241,6 +286,19 @@ feita antes dessas edições, como já é feito para o boot0.
 desenha), fica só a cópia na FAT interna: o logo continua o mesmo nos dois, e o cenário
 "Logo trocado pelo PC" do spec passa a valer só para o R36S (o spec é ajustado nesta
 change).
+
+**Prova 1.4 (2026-11-16, GA36, build `20261116-161851`):** o env de fábrica é simples (CRC32 +
+variáveis, 128 KiB no setor 139264, sem cópia redundante). Com um env de teste (CRC
+recalculado, o original guardado no PC e no cartão) cujo `bootcmd` anotava o resultado de cada
+passo e fazia `saveenv` antes do boot normal: o hush tem `if`; `fatload mmc 0:1` lê a `BOOT`;
+`env import -t` funciona; `sunxi_bmp_info` reconhece o BMP; mas `sunxi_bmp_display <addr>`
+falha, mesmo 2 s depois e com um BMP no mesmo formato do de fábrica (deslocamento 54,
+640x480, 24 bits). Cada passo ficou numa variável chamada por `run` e separada por `;`: o hush
+desse U-Boot expande `${...}` da linha inteira antes de rodar. O env original voltou (SHA256
+conferido). **Resultado:** vale o caminho acima, e melhor: o `bootlogo.bmp` de fábrica do GA36
+já é o mesmo arquivo do `BOOT/logo.bmp` do R36S (SHA256 `01a2178e…`), então o logo único não
+exige gravar nada na área de fábrica; o build só confere isso
+(`test_ga36_factory_logo_is_the_boot_logo`).
 
 ### D10. Confirmação na tela do DTB novo
 
@@ -384,6 +442,40 @@ usuário):**
   (aviso na página do handhelds.wiki). O conversor não copia o ganho do amplificador do DTB
   de origem: usa o valor seguro da base, e um DTB que peça outro registra isso no log.
 
+**Avaliação da segunda base (tarefa 7.2, 2026-11-16).** A coleção EE-Clones-DTB tem 55
+arquivos e nenhum convertido: 44 recusados por `play_joystick`, 5 por `micro,gamepad`, 1
+sem painel DSI (G30) e 5 repetidos. As mesmas famílias aparecem convertidas pelas versões do
+arkos4clone (K36, K36S, HG36, MyMini, R36 Max/Pro/Ultra, R36T, RX6H, T16 Max, U8,
+XF35H/XF40H, XGB36) e as placas G80C/G80CA/G80D pelo dArkOSRE; ficam sem versão convertida
+ANS11, ANS13, D28S, G30, L35, Project X Pro, R39 Max e RX6S. **O que não basta é a base, não
+o controle:** um levantamento dos DTBs de origem (medição com `r36os.fdt` sobre o
+`SOURCES.tsv`) comparou os reguladores do RK817 e os domínios de I/O de cada um com o DTB de
+fábrica do R36S V5, que é o que todo convertido herda do nativo (o conversor não lê nem um
+nem outro). Só o `factory-r35s` é igual; dos 169 convertidos, 153 diferem nos domínios de
+I/O e 15 só nos reguladores. Duas famílias:
+
+- **Layout "EE"** (os DTBs de fábrica EE "Stock", o `darkosre-r36s`, as G80, os
+  `clone-type1/2` do arkos4clone e a maior parte das outras placas, cerca de 100 dos
+  convertidos): `vccio3` e `vccio6` em 1,8 V, `vccio4`/`vccio5` no DCDC4 a 3,0 V, `vccio1` no
+  LDO7 (1,8–3,3 V), LDO8 a 3,3 V (segundo slot ou câmera), LDO9 a 1,5 V. É o layout do
+  `rk3326-gameconsole-eeclone.dts` do ROCKNIX. Na nossa base, `vccio3`–`vccio6` ficam no
+  DCDC4 a 3,3 V e `vccio1` junto do `vccio_sd` (LDO5, que desce a 1,8 V com cartão UHS). Numa
+  placa EE isso põe o seletor de tensão do SoC (GRF) em 3,3 V em bancos alimentados a 1,8 V,
+  e, com cartão UHS, em 1,8 V num banco alimentado a 3,3 V pelo LDO7; e o DCDC4 fica 10%
+  acima do projeto da placa. O kernel só recusa acima de 3,6 V; não foi medido no aparelho
+  se isso só desliga pinos ou também estressa os pads.
+- **Layout "RG351/origin"** (o `origin` e o `a10mini` do arkos4clone, os R36S V12/V20/R35S
+  do dArkOSRE e parecidos, cerca de 45): `pmuio` a 3,3 V (nossa base: 3,0 V), LDO8 a 2,8 V no
+  painel (nossa base: 1,8 V, painel sub-alimentado), LDO5 fixo em 1,8 V. Atenção: o
+  `darkosre-r36s-r35s-v11` é a mesma placa do nosso `factory-r35s` e declara valores
+  diferentes do DTB de fábrica dela; os DTBs de SO (dArkOS, arkos4clone) nem sempre retratam
+  o hardware, e os de fábrica (EE "Stock", `out/r36s-factory`) valem mais.
+
+**Conclusão:** a diferença das duas famílias é de alimentação (tensões dos reguladores e
+qual regulador alimenta cada banco), não de base; o P-77 entrou nesta change como o D18,
+que copia a alimentação da origem sobre a base de hoje. O controle `play_joystick` é um
+passo à parte (P-75).
+
 **Fora do alcance do DTB** (registrado em `docs/PENDENCIAS.md`): aparelhos com eMMC, que o
 RK3326 tenta iniciar antes do cartão (o ROCKNIX precisou de um U-Boot próprio para o K36
 com eMMC), e outra memória: P-43. As placas A33/A23 da família do GA36 (GA36-MB V1.0 e
@@ -522,8 +614,8 @@ Decisão do usuário (2026-11-16, "pode seguir com a absorção dos DTBs"), revi
   entre as placas: painel (`rocknix,generic-dsi`, D13), pinos de reset/enable/stbyb e
   alimentação do painel, luz de fundo (PWM, período, níveis), botões (`gpio-keys`), teclas
   de volume (GPIO ou `adc-keys`), analógicos (mux de 4 canais ou ADC direto, ou nenhum),
-  amplificador e detecção do fone, bateria (capacidade e tabela de tensão), LEDs e a
-  interrupção do PMIC. O `rockchip,lane-rate` e os tempos da PHY do R36S V5 saem (cada
+  amplificador e detecção do fone, bateria (capacidade e tabela de tensão), LEDs, a
+  interrupção do PMIC e, desde o D18, a alimentação (reguladores do RK817 e domínios de I/O). O `rockchip,lane-rate` e os tempos da PHY do R36S V5 saem (cada
   painel tem o seu clock). `lume,id` = nome do arquivo, prioridade 0, sem `lume,default`,
   sem regras.
 - **Build:** `build_dtbs` compila `dts-vendor/` com a árvore do kernel e roda um único
@@ -570,6 +662,57 @@ Decisão do usuário (2026-11-16, "pode seguir com a absorção dos DTBs"), revi
 DTBs a cada boot), sem `dt-validate`, e muito código no initramfs; DTBs gerados só no
 build, sem DTS no git: o build dependeria das coleções e da rede.
 
+### D18. Alimentação da origem nos convertidos (P-77)
+
+Decisão do usuário (2026-11-16, trazendo o P-77 para esta change), depois da avaliação da
+tarefa 7.2 (D12): até aqui o DTS convertido herdava do R36S V5 as tensões do RK817 e o mapa
+dos domínios de I/O, e só o `factory-r35s` tem na origem a mesma alimentação. O conversor
+passa a levá-la da origem:
+
+- **Reguladores:** para cada regulador do RK817 que a origem declara (`DCDC_REG*`,
+  `LDO_REG*`, `BOOST`, `SWITCH_REG*`), o DTS convertido leva a faixa de tensão
+  (`regulator-min/max-microvolt`) e o `regulator-always-on`/`regulator-boot-on` da origem,
+  sobre o nó do mesmo nome da base (referência pelo caminho, `&{/.../regulators/LDO_REG8}`).
+  São os valores com que aquele sistema (de fábrica, dArkOS ou arkos4clone) já roda naquele
+  hardware.
+- **Sempre ligado, só somado (implementação, 2026-11-16):** o `regulator-always-on` e o
+  `regulator-boot-on` da origem são acrescentados aos da base, nunca retirados. Um regulador
+  que a base deixa ligado pode alimentar, na placa de origem, algo que o DTS convertido não
+  liga a ele (no `darkosre-r36s-r35s-v11-2022-08-18` o LDO7 é o `vcc_backlight`, consumido
+  pelo `backlight-supply` do painel do kernel 4.4), e o kernel desliga 30 s depois do boot o
+  regulador sem consumidor e sem `always-on`. A tensão, o `regulator-name` e o
+  `regulator-state-mem` vêm da origem. Com isso o `factory-r35s` fica com a alimentação do
+  nativo (o `boot-on` do LDO6, que só o nativo tem, continua).
+- **Regulador que a origem não declara:** fica sem tensão definida no DTS (o kernel mantém a
+  que o bootloader deixou) e ligado, para não cortar algo de ligação desconhecida. Nós do
+  RK809 que alguns DTBs de origem listam (`DCDC_REG5`, `SWITCH_REG1/2`) não existem no
+  driver mainline do RK817: ficam de fora, anotados no `SOURCES.tsv`.
+- **Domínios de I/O:** o mapa da origem (`vccio1`–`vccio6`, `vccio-oscgpi`, `pmuio1`,
+  `pmuio2`) é refeito no `&io_domains`/`&pmu_io_domains` da base, cada domínio apontando o
+  regulador do RK817 do mesmo nome de nó. Domínio que a origem não declara sai da base
+  (`/delete-property/`), e o driver deixa o seletor como o bootloader o pôs.
+- **Recusa com motivo** (`SOURCES.tsv`): PMIC sem nó `regulators`; domínio de I/O que aponta
+  para um regulador fora do PMIC; tensão de um domínio acima de 3,6 V (o limite do driver).
+- **Referência independente:** a família "EE" (D12) é conferida contra o
+  `rk3326-gameconsole-eeclone.dts` do ROCKNIX (GPL-2.0+ OR MIT, `.cache/upstream/rocknix`),
+  que descreve a mesma alimentação para o kernel mainline. **Resultado (2026-11-16, tarefa
+  10.3):** nos 55 DTBs do EE-Clones-DTB e no `arkos4clone-k36`, cada domínio aponta o mesmo
+  regulador que no ROCKNIX (10 DTBs não declaram o `vccio6`, que no convertido fica sem
+  alimentação declarada) e os reguladores dos domínios (DCDC4 3,0 V, LDO2 1,8 V, LDO4 3,0 V,
+  LDO5 e LDO7 1,8–3,3 V) têm as mesmas tensões. Diferem, fora dos domínios: o BOOST (4,7 ou
+  5,0 V de mínimo; ROCKNIX 4,9 V), o mínimo do DCDC2 (0,95 V; ROCKNIX 0,85 V), o LDO6
+  (`vmmc` do cartão, 3,3 V fixo; ROCKNIX 1,8–3,3 V), o LDO8 (3,3 V; ROCKNIX 3,0 V) e o LDO9
+  do G30 (3,3 V; ROCKNIX 1,5 V). O convertido segue a origem.
+- **O que fica da base:** o resto da placa EE que não é alimentação crítica (USB host por
+  GPIO, eMMC, segundo slot) continua o do R36S V5; aparelhos com eMMC já estão fora do
+  alcance (P-43).
+
+**Alternativas:** uma segunda base a partir do DTS do ROCKNIX, escolhida pelos domínios de
+I/O da origem (o texto original do P-77): exigiria manter outro DTS inteiro e não resolveria
+a família "RG351/origin" (painel a 2,8 V no LDO8), que tem a base do R36S; manter a
+alimentação do R36S V5 com um aviso: deixa ~150 convertidos com seletor de tensão trocado em
+relação à alimentação física.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos
@@ -577,12 +720,20 @@ build, sem DTS no git: o build dependeria das coleções e da rede.
   `.cpu_kill`, e o kernel recusa o kexec calado; o patch `0027` acrescenta `.cpu_die` e
   `.cpu_kill` (tarefa 3.6). Se ainda assim falhar no aparelho, vale o plano abaixo. Prova 1.5 antes do código; se falhar, o GA36 fica com a troca pelo
   `force` lido pelo U-Boot (`env import -t` de um arquivo da `BOOT`, se a prova 1.4 der
-  certo) ou pela imagem de boot gravada com `dd`, que continua valendo.
+  certo) ou pela imagem de boot gravada com `dd`, que continua valendo. **Resultado (prova 1.5,
+  2026-11-15):** mesmo com o `0027`, o segundo kernel do GA36 morre antes de registrar o
+  `ramoops` (o primeiro termina em `Bye!`); o caminho escolhido foi o D16: o `lume-bootsel`
+  regrava a imagem de boot do setor 172032 com o DTB escolhido e reinicia, provado nos boots 84 a
+  86 (busca) e no `force` com a volta sozinha. O kexec fica só no R36S.
 - [Drivers que não reiniciam limpos depois do kexec (DSI, painel, PMIC, MMC)] → a prova 1.5
   sobe até o frontend depois de um kexec e confere tela, som e cartão.
 - [Um DTB errado pode programar tensões erradas] → só candidatos do mesmo SoC, só DTBs do
   build na imagem; um DTB copiado pelo usuário é responsabilidade dele, e o log diz qual foi
-  usado.
+  usado. Nos convertidos, a alimentação é a da origem (D18), nunca a de outra placa.
+- [Um DTB de SO declara outra alimentação que o de fábrica da mesma placa (o
+  `darkosre-r36s-r35s-v11` e o `factory-r35s`, D12)] → vale o que aquele SO já roda na
+  placa; a confirmação na tela e a volta automática continuam como saída, e a prova 10.4
+  usa justamente esse caso no R36S.
 - [Desligar antes da confirmação marca um DTB bom como ruim] → o motivo vai para o log, e a
   lista limpa o `bad`; é preferível a ficar preso num DTB que trava.
 - [Confirmar às cegas: apertar A com a tela preta] → a mensagem só aparece uma vez por DTB

@@ -66,6 +66,10 @@ na lista.
   próprio aparelho (o do cartão original, ou o do repositório EE-Clones-DTB) entram pela
   mesma conversão, cuja lógica é portada do `rocknix_dtbo.py` do ROCKNIX (MIT, com
   crédito). O conversor usa um volume seguro no amplificador, nunca o do DTB de origem.
+- **Alimentação dos convertidos** (P-77, trazido em 2026-11-16 pelo usuário): as tensões dos
+  reguladores do PMIC e o mapa dos domínios de I/O de cada convertido vêm do DTB de origem,
+  e não mais do R36S V5 (só o DTB de fábrica dele tinha a mesma alimentação na origem). Um
+  DTB cuja alimentação o conversor não sabe mapear é recusado com o motivo.
 - **Driver de painel DSI genérico**: o `panel-generic-dsi` do ROCKNIX (GPL-2.0, com
   crédito), já usado com kernel mainline nesses clones, como patch de kernel, com a
   sequência e os modos do painel lidos do próprio DTB.
@@ -122,7 +126,8 @@ continuam no P-33; o mapa completo do hardware (P-40).
   (copiados para `.cache/upstream/`, fora do git; os testes são pulados sem eles) convertem
   ou são recusados com motivo, o resultado passa
   no `dt-validate` do kernel mainline, e o DTB de fábrica do R36S convertido bate com o nosso
-  `rk3326-r36s-v5` no que importa.
+  `rk3326-r36s-v5` no que importa; cada convertido mantém a alimentação (reguladores e
+  domínios de I/O) do seu DTB de origem.
 - **Kernel**: patch numerado com o painel `rocknix,generic-dsi` do ROCKNIX e um binding
   nosso para ele.
 - **Usuário**: cartões precisam de `flash console --update` para receber o layout novo; a

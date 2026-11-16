@@ -4,7 +4,8 @@ boot-dtb-select D12 (revised 2026-11-16): the conversion runs on the PC, at impo
 not at boot. `extract()` reads a vendor RK3326 DTB (the Rockchip BSP kernel 4.4 or 5.10
 bindings) and keeps only what differs between the R36S-like boards: the panel (init
 sequence, timings, delays, pins), the backlight, the buttons, the sticks, the speaker
-amplifier and the headphone detection, the battery, the LEDs and the PMIC interrupt.
+amplifier and the headphone detection, the battery, the LEDs, the PMIC interrupt and the
+supply (D18: the RK817 regulators and the IO domain map).
 `to_dts()` writes that board as a small DTS that includes the native R36S V5 tree
 (`rk3326-r36s-v5.dts`) and overrides those nodes; the build compiles it with the kernel
 tree and checks it with dt-validate like any native DTS.
@@ -45,6 +46,16 @@ ABS_NAMES = {ABS_X: "ABS_X", ABS_Y: "ABS_Y", ABS_RX: "ABS_RX", ABS_RY: "ABS_RY"}
 DSI_FORMATS = ["rgb888", "rgb666", "rgb666_packed", "rgb565"]
 DSI_BPP = [24, 18, 18, 16]
 PX30_MAX_LANE_MBPS = 1000
+
+# the RK817 regulators of the mainline driver (rk808-regulator.c, rk817_reg), which are the
+# nodes of the native tree; some vendor trees also list RK809 ones (DCDC_REG5, SWITCH_REG*)
+RK817_REGULATORS = (tuple(f"DCDC_REG{i}" for i in range(1, 5))
+                    + tuple(f"LDO_REG{i}" for i in range(1, 10)) + ("BOOST", "OTG_SWITCH"))
+# the PX30 IO domains of the mainline io-domain driver (soc_data_px30, soc_data_px30_pmu)
+IO_DOMAINS = ("vccio1", "vccio2", "vccio3", "vccio4", "vccio5", "vccio6", "vccio-oscgpi")
+PMU_IO_DOMAINS = ("pmuio1", "pmuio2")
+IO_DOMAIN_MAX_UV = 3600000   # MAX_VOLTAGE_3_3 of the io-domain driver
+NATIVE_REGULATORS = "/i2c@ff180000/pmic@20/regulators"   # the RK817 of the native tree
 
 
 def vendor_lane_mbps(clock_khz: int, fmt: int, lanes: int) -> int:
@@ -94,6 +105,26 @@ class Axis:
 
 
 @dataclass
+class Regulator:
+    name: str | None
+    min_uv: int | None
+    max_uv: int | None
+    always_on: bool
+    boot_on: bool
+    suspend: dict | None   # regulator-state-mem: {"on": True/False/None, "uv": int | None}
+
+
+@dataclass
+class Power:
+    """The supply layout of the source board (D18): its RK817 regulators and which of them
+    feeds each IO domain of the SoC."""
+    regulators: dict[str, Regulator]
+    io_domains: dict[str, str]        # vccio1 -> LDO_REG5
+    pmu_io_domains: dict[str, str]    # pmuio1 -> LDO_REG4
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Board:
     model: str
     panel: list[str]
@@ -115,6 +146,7 @@ class Board:
     battery: dict | None = None
     leds: list[tuple[str, Pin]] = field(default_factory=list)
     pmic_irq: Pin | None = None
+    power: Power | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -451,6 +483,59 @@ def _leds(t: Tree, b: Board) -> None:
                 b.leds.append((color, t.pin(led.cells("gpios"), f"{path}/{name}")))
 
 
+def _first(node: fdt.Node, name: str) -> int | None:
+    v = node.cells(name)
+    return v[0] if v else None
+
+
+def power(t: Tree) -> Power:
+    """The RK817 regulators and the IO domain map of the source (D18), or Refused."""
+    pmic_path, pmic = _pmic(t)
+    regs = pmic.children.get("regulators")
+    if regs is None or not regs.children:
+        raise Refused("PMIC: no regulators node")
+    p = Power({}, {}, {})
+    for name, r in regs.children.items():
+        if name not in RK817_REGULATORS:
+            p.notes.append(f"power: source regulator {name} is not an RK817 one, ignored")
+            continue
+        mem = r.children.get("regulator-state-mem")
+        suspend = None
+        if mem is not None:
+            on = (True if "regulator-on-in-suspend" in mem.props
+                  else False if "regulator-off-in-suspend" in mem.props else None)
+            suspend = {"on": on, "uv": _first(mem, "regulator-suspend-microvolt")}
+        p.regulators[name] = Regulator(
+            r.string("regulator-name"), _first(r, "regulator-min-microvolt"),
+            _first(r, "regulator-max-microvolt"), "regulator-always-on" in r.props,
+            "regulator-boot-on" in r.props, suspend)
+    missing = [n for n in RK817_REGULATORS if n not in p.regulators]
+    if missing:
+        p.notes.append(f"power: {', '.join(missing)} not declared by the source: "
+                       "no voltage set, left on")
+    for compat, known, out in (
+            ("rockchip,px30-io-voltage-domain", IO_DOMAINS, p.io_domains),
+            ("rockchip,px30-pmu-io-voltage-domain", PMU_IO_DOMAINS, p.pmu_io_domains)):
+        for _, node in t.find(compat):
+            for prop in sorted(node.props):
+                if not prop.endswith("-supply"):
+                    continue
+                domain = prop.removesuffix("-supply")
+                if domain not in known:
+                    raise Refused(f"io domain {domain}: unknown to the PX30 driver")
+                path, _ = t.node(node.cells(prop)[0])
+                parent, _, reg = path.rpartition("/")
+                if parent != f"{pmic_path}/regulators":
+                    raise Refused(f"io domain {domain}: supply {path} is outside the PMIC")
+                if reg not in p.regulators:
+                    raise Refused(f"io domain {domain}: supply {reg} is not an RK817 regulator")
+                uv = p.regulators[reg].max_uv
+                if uv is not None and uv > IO_DOMAIN_MAX_UV:
+                    raise Refused(f"io domain {domain}: {reg} up to {uv} uV, above 3.6 V")
+                out[domain] = reg
+    return p
+
+
 def extract(data: bytes) -> Board:
     """The board a vendor RK3326 DTB describes, or Refused with the reason."""
     try:
@@ -461,6 +546,8 @@ def extract(data: bytes) -> Board:
         raise Refused(f"not an RK3326 tree ({t.root.strings('compatible')})")
     _, pmic = _pmic(t)
     b = Board(model=t.root.string("model") or "", panel=[], reset=Pin(0, 0))
+    b.power = power(t)
+    b.notes += b.power.notes
     _panel(t, b)
     _backlight(t, b)
     pads = t.find("odroidgo3-joypad")
@@ -628,6 +715,56 @@ def _pinlist(pins: list[str], indent: str) -> str:
     return (",\n" + indent).join(pins)
 
 
+def _power_dts(p: Power) -> list[str]:
+    """The supply of the source over the native RK817 and IO domains (D18).
+
+    Voltages, names and the suspend state come from the source. The always-on and boot-on
+    flags are added, never removed: a regulator the native keeps on may feed something of
+    the source board that the converted tree does not attach (the vendor panel's
+    backlight-supply, for one), and the kernel would switch it off as unused. A regulator
+    the source does not declare loses its voltage (the kernel keeps what the bootloader
+    set) and stays on."""
+    L = ["&rk817 {", "\tregulators {"]
+    for name in RK817_REGULATORS:
+        r = p.regulators.get(name)
+        L.append(f"\t\t{name} {{")
+        if r is None:
+            L += ["\t\t\t/delete-property/ regulator-min-microvolt;",
+                  "\t\t\t/delete-property/ regulator-max-microvolt;",
+                  "\t\t\t/delete-node/ regulator-state-mem;", "\t\t};"]
+            continue
+        L += [f"\t\t\t{flag};" for flag, on in (("regulator-always-on", r.always_on),
+                                                 ("regulator-boot-on", r.boot_on)) if on]
+        for prop, uv in (("regulator-min-microvolt", r.min_uv),
+                         ("regulator-max-microvolt", r.max_uv)):
+            L.append(f"\t\t\t{prop} = <{uv}>;" if uv is not None
+                     else f"\t\t\t/delete-property/ {prop};")
+        if r.name:
+            L.append(f'\t\t\tregulator-name = "{_q(r.name)}";')
+        if r.suspend is None:
+            L.append("\t\t\t/delete-node/ regulator-state-mem;")
+        else:
+            on, uv = r.suspend["on"], r.suspend["uv"]
+            L += ["", "\t\t\tregulator-state-mem {"]
+            L.append("\t\t\t\tregulator-on-in-suspend;" if on is True
+                     else "\t\t\t\t/delete-property/ regulator-on-in-suspend;")
+            L.append("\t\t\t\tregulator-off-in-suspend;" if on is False
+                     else "\t\t\t\t/delete-property/ regulator-off-in-suspend;")
+            L.append(f"\t\t\t\tregulator-suspend-microvolt = <{uv}>;" if uv is not None
+                     else "\t\t\t\t/delete-property/ regulator-suspend-microvolt;")
+            L.append("\t\t\t};")
+        L.append("\t\t};")
+    L += ["\t};", "};", ""]
+    for label, known, domains in (("io_domains", IO_DOMAINS, p.io_domains),
+                                  ("pmu_io_domains", PMU_IO_DOMAINS, p.pmu_io_domains)):
+        L.append(f"&{label} {{")
+        for d in known:
+            L.append(f"\t{d}-supply = <&{{{NATIVE_REGULATORS}/{domains[d]}}}>;" if d in domains
+                     else f"\t/delete-property/ {d}-supply;")
+        L += ["};", ""]
+    return L
+
+
 def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
     """The Lume DTS of a converted board (includes the native R36S V5 tree)."""
     L: list[str] = [
@@ -642,7 +779,9 @@ def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
     L += [" */", "", '#include "rk3326-r36s-v5.dts"', "", "/ {",
           f'\tmodel = "{_q(b.model or lume_id)} (converted)";', "",
           "\tlume-select {", f'\t\tlume,id = "{lume_id}";', "\t\tlume,priority = <0>;",
-          "\t\t/delete-property/ lume,default;", "\t};", ""]
+          "\t\t/delete-property/ lume,default;",
+          # the panel ID measured on the R36S V5 is not this board's (D15)
+          "\t\t/delete-property/ lume,panel-id;", "\t};", ""]
     hogs: dict[int, list[str]] = {}
 
     def hog(name: str, pin: Pin, high: bool) -> None:
@@ -786,6 +925,9 @@ def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
         p = b.pmic_irq
         L += ["&rk817 {", f"\tinterrupt-parent = <&gpio{p.bank}>;",
               f"\tinterrupts = <{p.macro} IRQ_TYPE_LEVEL_LOW>;", "};", ""]
+
+    if b.power:
+        L += _power_dts(b.power)
 
     # the hogs of the native board go; ours come in
     for bank, name in ((0, "joystick-mux-en-hog"), (1, "lcd-enable-hog"), (3, "lcd-stbyb-hog")):

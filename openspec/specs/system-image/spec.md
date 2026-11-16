@@ -32,11 +32,15 @@ A imagem gravada MUST ter tabela MBR com uma única partição: `BOOT`, FAT32, r
 - **THEN** ela é MBR, tem só a partição 1, FAT32 com rótulo `BOOT`, de 1 GiB começando no setor 32768 na `vm` e de 2 GiB começando no setor 262144 na `console`, e a assinatura de disco da `console` é `4c554d32`
 
 ### Requirement: Conteúdo da partição BOOT
-A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema da imagem. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). Na imagem `console`, MUST conter uma pasta por console: `ga36/` com o `SYSTEM`, os DTBs em `dtbs/` e as imagens de boot dos dois painéis em `android-boot/`; `r36s/` com o `SYSTEM`, o kernel e o DTB; e, na raiz, o `boot.ini` lido pelo U-Boot do R36S, os dois DTBs do RG351 de fábrica (`rg351mp-kernel.dtb` e `rg351p-kernel.dtb`) que esse U-Boot exige para iniciar, e o `logo.bmp`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
+A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema da imagem. Na VM, MUST conter também o kernel, o initramfs e a configuração de boot no formato extlinux (`extlinux/extlinux.conf`). Na imagem `console`, MUST conter só o que os consoles leem: uma pasta por console, `ga36/` com o `SYSTEM` e o kernel como arquivo, e `r36s/` com o `SYSTEM` e o kernel; uma pasta de DTBs por SoC, `dtbs/a33/` e `dtbs/rk3326/` (ver `dtb-selection`), onde o arquivo opcional `dtbs/force` é lido se existir; e, na raiz, o `boot.ini` lido pelo U-Boot do R36S, os dois DTBs do RG351 de fábrica (`rg351mp-kernel.dtb` e `rg351p-kernel.dtb`) que esse U-Boot exige para iniciar, e o `logo.bmp` dos dois consoles. As imagens de boot dos dois painéis do GA36 (gravadas no setor 172032 com `dd`) MUST NOT ficar na `BOOT`: elas MUST ser arquivadas com o build, ao lado da imagem do cartão, com o SHA256 no `SHA256SUMS`. Os logs não ficam na `BOOT` (ver `boot-runtime`).
 
 #### Scenario: Arquivos presentes na BOOT
 - **WHEN** a partição `BOOT` de uma imagem gerada é listada
-- **THEN** existe `VERSION`, sem pasta `logs/`; na `vm` também `SYSTEM`, o kernel, o `initramfs` e `extlinux/extlinux.conf`; na `console` também `boot.ini`, `rg351mp-kernel.dtb`, `rg351p-kernel.dtb`, `logo.bmp`, `ga36/SYSTEM`, `ga36/dtbs/`, `ga36/android-boot/` com as imagens dos painéis 1 e 2, `r36s/SYSTEM`, o kernel e o DTB do R36S
+- **THEN** existe `VERSION`, sem pasta `logs/`; na `vm` também `SYSTEM`, o kernel, o `initramfs` e `extlinux/extlinux.conf`; na `console` também `boot.ini`, `rg351mp-kernel.dtb`, `rg351p-kernel.dtb`, `logo.bmp`, `ga36/SYSTEM`, o kernel do GA36, `r36s/SYSTEM`, o kernel do R36S, `dtbs/a33/` com os DTBs dos dois painéis do GA36 e `dtbs/rk3326/` com o DTB do R36S V5, sem `dtbs/force` e sem `ga36/android-boot/`
+
+#### Scenario: Imagens de boot dos painéis arquivadas
+- **WHEN** a imagem `console` é gerada
+- **THEN** a pasta do build em `out/images/console/<build>/` tem `ga36-android-boot-panel1.img` e `ga36-android-boot-panel2.img`, com o SHA256 de cada uma no `SHA256SUMS`
 
 ### Requirement: Sistema como arquivo squashfs
 O sistema de arquivos raiz de cada sistema MUST ser entregue como um único arquivo squashfs chamado `SYSTEM` dentro da `BOOT`. Na `vm`, ele MUST ter no máximo 768 MiB. Na `console`, cada `SYSTEM` MUST ter no máximo 448 MiB, e a soma de todos os arquivos da `BOOT` MUST deixar ao menos 64 MiB livres.
@@ -46,7 +50,7 @@ O sistema de arquivos raiz de cada sistema MUST ser entregue como um único arqu
 - **THEN** cada `SYSTEM` é um squashfs válido dentro do seu limite, a `BOOT` da `console` tem ao menos 64 MiB livres, e o build falha se algum limite for ultrapassado
 
 ### Requirement: Bootloader na área reservada
-Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`R36OS_GA36_FACTORY`) e a do R36S (`R36OS_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19 e pendência nova do R36S).
+Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`R36OS_GA36_FACTORY`) e a do R36S (`R36OS_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na área do GA36, o build MUST NOT alterar a FAT interna nem o env do U-Boot de fábrica. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19, P-34 e P-43).
 
 #### Scenario: Bootloader do GA36
 - **WHEN** a imagem `console` é gerada
@@ -182,3 +186,14 @@ Na imagem `console`, os módulos do kernel de cada console MUST ficar num arquiv
 #### Scenario: Limite da BOOT com os arquivos de módulos
 - **WHEN** a imagem `console` é gerada
 - **THEN** a conta dos 64 MiB livres da `BOOT` inclui os dois arquivos de módulos, e o build falha se o limite for ultrapassado
+
+### Requirement: Logo de boot único
+Os dois consoles MUST mostrar no boot o mesmo logo, o `BOOT/logo.bmp`, que é o logo de fábrica do R36S, conferido por SHA256. No GA36, o `bootlogo.bmp` da FAT interna da área de fábrica MUST ser o mesmo arquivo (o firmware de fábrica dos dois traz a mesma imagem), e o build MUST conferir isso; o U-Boot de fábrica do GA36 não desenha um BMP da `BOOT`, então trocar o `BOOT/logo.bmp` pelo PC troca só o logo do R36S.
+
+#### Scenario: Mesmo logo nos dois
+- **WHEN** um cartão recém-gravado com a imagem `console` é ligado no GA36 e no R36S
+- **THEN** os dois mostram o logo de fábrica do R36S, e o `bootlogo.bmp` da FAT interna do GA36 é idêntico ao `BOOT/logo.bmp`
+
+#### Scenario: Logo trocado pelo PC
+- **WHEN** o usuário troca o `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits e liga os dois consoles
+- **THEN** o R36S mostra o logo novo e o GA36 continua com o logo da FAT interna

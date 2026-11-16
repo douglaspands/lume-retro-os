@@ -4,6 +4,7 @@
  * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/r36s/R36S-Y02 2024-12-18/rk3326-r36s-linux.dtb
  * SHA-256: 63d1ed40c6fb686d53b4c284c1d86a418d5297bf45e5d5fb0f080e633fbbd1b6
+ * Note: power: LDO_REG9 not declared by the source: no voltage set, left on
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured
  * Note: speaker gain: source spk-volume 3 ignored, the native safe value is used
  */
@@ -17,6 +18,7 @@
 		lume,id = "darkosre-r36s-r36s-y02-2024-12-18";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;
@@ -291,6 +293,195 @@
 &rk817 {
 	interrupt-parent = <&gpio0>;
 	interrupts = <RK_PB2 IRQ_TYPE_LEVEL_LOW>;
+};
+
+&rk817 {
+	regulators {
+		DCDC_REG1 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <950000>;
+			regulator-max-microvolt = <1150000>;
+			regulator-name = "vdd_logic";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <950000>;
+			};
+		};
+		DCDC_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <950000>;
+			regulator-max-microvolt = <1350000>;
+			regulator-name = "vdd_arm";
+
+			regulator-state-mem {
+				/delete-property/ regulator-on-in-suspend;
+				regulator-off-in-suspend;
+				regulator-suspend-microvolt = <950000>;
+			};
+		};
+		DCDC_REG3 {
+			regulator-always-on;
+			regulator-boot-on;
+			/delete-property/ regulator-min-microvolt;
+			/delete-property/ regulator-max-microvolt;
+			regulator-name = "vcc_ddr";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				/delete-property/ regulator-suspend-microvolt;
+			};
+		};
+		DCDC_REG4 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-name = "vcc_3v3";
+
+			regulator-state-mem {
+				/delete-property/ regulator-on-in-suspend;
+				regulator-off-in-suspend;
+				regulator-suspend-microvolt = <3300000>;
+			};
+		};
+		LDO_REG1 {
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
+			regulator-name = "vcc_1v0";
+
+			regulator-state-mem {
+				/delete-property/ regulator-on-in-suspend;
+				regulator-off-in-suspend;
+				regulator-suspend-microvolt = <1000000>;
+			};
+		};
+		LDO_REG2 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-name = "vcc1v8_soc";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <1800000>;
+			};
+		};
+		LDO_REG3 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
+			regulator-name = "vcc1v0_soc";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <1000000>;
+			};
+		};
+		LDO_REG4 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-name = "vcc3v3_pmu";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <3300000>;
+			};
+		};
+		LDO_REG5 {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-name = "vccio_sd";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <1800000>;
+			};
+		};
+		LDO_REG6 {
+			regulator-boot-on;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <3000000>;
+			regulator-name = "vcc_sd";
+
+			regulator-state-mem {
+				regulator-on-in-suspend;
+				/delete-property/ regulator-off-in-suspend;
+				regulator-suspend-microvolt = <3000000>;
+			};
+		};
+		LDO_REG7 {
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-name = "vcc_backlight";
+
+			regulator-state-mem {
+				/delete-property/ regulator-on-in-suspend;
+				regulator-off-in-suspend;
+				regulator-suspend-microvolt = <3300000>;
+			};
+		};
+		LDO_REG8 {
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			regulator-name = "vcc_lcd";
+
+			regulator-state-mem {
+				/delete-property/ regulator-on-in-suspend;
+				regulator-off-in-suspend;
+				regulator-suspend-microvolt = <2800000>;
+			};
+		};
+		LDO_REG9 {
+			/delete-property/ regulator-min-microvolt;
+			/delete-property/ regulator-max-microvolt;
+			/delete-node/ regulator-state-mem;
+		};
+		BOOST {
+			regulator-always-on;
+			regulator-boot-on;
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5400000>;
+			regulator-name = "boost";
+			/delete-node/ regulator-state-mem;
+		};
+		OTG_SWITCH {
+			regulator-boot-on;
+			/delete-property/ regulator-min-microvolt;
+			/delete-property/ regulator-max-microvolt;
+			regulator-name = "otg_switch";
+			/delete-node/ regulator-state-mem;
+		};
+	};
+};
+
+&io_domains {
+	vccio1-supply = <&{/i2c@ff180000/pmic@20/regulators/LDO_REG5}>;
+	vccio2-supply = <&{/i2c@ff180000/pmic@20/regulators/LDO_REG5}>;
+	vccio3-supply = <&{/i2c@ff180000/pmic@20/regulators/DCDC_REG4}>;
+	vccio4-supply = <&{/i2c@ff180000/pmic@20/regulators/DCDC_REG4}>;
+	vccio5-supply = <&{/i2c@ff180000/pmic@20/regulators/DCDC_REG4}>;
+	vccio6-supply = <&{/i2c@ff180000/pmic@20/regulators/DCDC_REG4}>;
+	/delete-property/ vccio-oscgpi-supply;
+};
+
+&pmu_io_domains {
+	pmuio1-supply = <&{/i2c@ff180000/pmic@20/regulators/LDO_REG4}>;
+	pmuio2-supply = <&{/i2c@ff180000/pmic@20/regulators/LDO_REG4}>;
 };
 
 &gpio0 {

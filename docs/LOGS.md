@@ -281,13 +281,14 @@ com o prefixo `lume-bootsel:`:
 | `search: <id> does not work (...); discarded on this device` / `search: <id> works, the panel answered` / `search: no device tree left; ...` | busca sozinha (D15): DTB descartado, achado, ou candidatos esgotados |
 | `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
 | `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
-| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC |
-| `no SoC serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
+| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC (`/sys/devices/soc0`) |
+| `device: bootloader serial number <serial>, choice in dtb-<soc>-<serial>.conf` | sem `soc0`, o número que o bootloader grava no DTB (`/serial-number`; o U-Boot de fábrica do R36S) |
+| `no serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
 | `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada (nome inválido) |
 | `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
 | `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
 | `list shown (<n> candidate(s)[, <m> converted])`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção; `converted`: quantos DTBs de `vendor/` ela mostrou |
-| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`rule`: as regras de um DTB bateram, inclusive as do padrão, como o ID do painel do R36S V5; `learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
 | `keeping the running device tree, no kexec` | boot segue sem troca |
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
 | `switching to <id> by the boot image (...) and a reboot` / `boot image with <id> written at sector <n> of <disco> (... read back)` | troca no GA36 (D16): a imagem de boot do setor 172032 é regravada com o DTB escolhido, conferida, e o console reinicia |
@@ -307,7 +308,8 @@ com o prefixo `lume-bootsel:`:
 
 O estado fica em `ROMS/system/etc/dtb-<soc>-<serial>.conf` (`manual=`, `good=`,
 `pending=`, `bad=`), um arquivo por aparelho, identificado pelo número de série do SoC
-(`/sys/devices/soc0/serial_number`); sem ele, `dtb-<soc>.conf`, um por SoC. Um DTB que não
+(`/sys/devices/soc0/serial_number`) ou, sem ele, pelo `/serial-number` que o bootloader grava
+no DTB (levado adiante no kexec); sem nenhum dos dois, `dtb-<soc>.conf`, um por SoC. Um DTB que não
 é o padrão e ainda não foi confirmado no aparelho fica `pending` e é confirmado na tela; se
 a pergunta não pôde aparecer, o `r36os-logd` o confirma quando o frontend sobe (`good=` e
 sem `pending=`). Um DTB que continua `pending` no boot seguinte não foi confirmado e é

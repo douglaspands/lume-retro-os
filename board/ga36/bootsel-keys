@@ -2,8 +2,12 @@
 # from /etc/bootsel-keys. <role>=<key>[,<key>...], with names of linux/input-event-codes.h
 # or numbers. select: held at power on, opens the list.
 #
-# PROVISIONAL until proof 1.3 tells which keys the factory U-Boot of the GA36 already uses
-# at power on (its LRADC ranges divert the boot to recovery or fastboot).
+# Proof 1.3 (2026-11-16, boots 122 to 126): Vol- (LRADC ~0xC) falls between the U-Boot
+# ranges and boots normally, so it opens the list as on the R36S; Vol+ held at power on
+# (~0x6, the fastboot range 0x2-0x8) takes the factory U-Boot to the Allwinner USB mode
+# (1f3a:efe8, no screen) and must never be the select key; Start, Select and A (the gamepad
+# MCU) are not seen by the U-Boot. A held Vol- needs kernel/patches/0034 (LRADC "already
+# hold").
 # Volume keys: LRADC (built in, ready early); D-pad and A: the gamepad MCU (BTN_SOUTH is
 # BTN_A, the A button of the GA36 driver).
 select=KEY_VOLUMEDOWN

@@ -192,6 +192,10 @@ class Root:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(value)
 
+    def dt_serial(self, value):
+        """The /serial-number a bootloader writes into the device tree (R36S U-Boot)."""
+        (self.path / "proc/device-tree/serial-number").write_bytes(fdt.s(value))
+
     def after_kexec(self, ident, reason, watchdog=False):
         """The second (or third) start: the kernel runs with the tree prepared before."""
         dt = self.path / "proc/device-tree"
@@ -819,8 +823,45 @@ def test_without_serial_the_choice_is_per_soc_with_a_warning(tools, root, value)
         root.serial(value)
     root.state(manual="ga36-panel2")
     rc, out, err = run(tools, root)
-    assert "no SoC serial number: the choice in dtb-a33.conf applies to every a33 device" in err
+    assert "no serial number: the choice in dtb-a33.conf applies to every a33 device" in err
     assert decision(out)["selected"] == "ga36-panel2"
+
+
+def test_bootloader_serial_names_the_state_without_soc0(tools, root):
+    """R36S (proof 1.7): no soc0, but the factory U-Boot writes /serial-number."""
+    root.ga36_panels()
+    root.dt_serial("c3d9b8674f4b94f6")
+    root.state(device="c3d9b8674f4b94f6", manual="ga36-panel2", good="ga36-panel2")
+    rc, out, err = run(tools, root)
+    assert ("device: bootloader serial number c3d9b8674f4b94f6, "
+            "choice in dtb-a33-c3d9b8674f4b94f6.conf") in err
+    assert decision(out)["reason"] == "manual"
+
+
+def test_soc_serial_wins_over_the_bootloader_one(tools, root):
+    root.ga36_panels()
+    root.serial("aaaa\n")
+    root.dt_serial("bbbb")
+    rc, out, err = run(tools, root)
+    assert "device: SoC serial number aaaa, choice in dtb-a33-aaaa.conf" in err
+
+
+def test_prepared_tree_carries_the_bootloader_serial(tools, root):
+    """After the kexec the second kernel names the same state file."""
+    root.ga36_panels()
+    root.dt_serial("c3d9b8674f4b94f6")
+    root.force("ga36-panel2")
+    run(tools, root)
+    dtb = fdt.parse((root.path / "tmp/lume-bootsel.dtb").read_bytes())
+    assert dtb.string("serial-number") == "c3d9b8674f4b94f6"
+
+
+def test_prepared_tree_without_a_bootloader_serial_has_none(tools, root):
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    run(tools, root)
+    dtb = fdt.parse((root.path / "tmp/lume-bootsel.dtb").read_bytes())
+    assert "serial-number" not in dtb.props
 
 
 def test_serial_keeps_only_letters_and_digits(tools, root):
@@ -951,6 +992,37 @@ def test_panel_id_rule_picks_its_device_tree(tools, root):
     assert "probe panel id aabbcc: aabbcc match" in err
     assert decision(out) == {"selected": "ga36-panel2", "reason": "rule", "kexec": "yes",
                              "dtb": str(root.path / "tmp/lume-bootsel.dtb")}
+
+
+def test_panel_id_rule_of_the_running_tree_needs_no_switch(tools, root):
+    # the R36S V5 since task 8.4: the default tree carries the ID its panel answers
+    root.dtb("sun8i-a33-ga36-mb-v1.2-panel1.dtb",
+             _cand("ga36-panel1", default=True, panel_id="fe5202"))
+    root.dtb("sun8i-a33-ga36-mb-v1.2-panel2.dtb", _cand("ga36-panel2"))
+    root.panel("fe5202")
+    rc, out, err = run(tools, root)
+    assert "probe panel id fe5202: fe5202 match" in err
+    assert decision(out) == {"selected": "ga36-panel1", "reason": "rule", "kexec": "no"}
+
+
+@pytest.mark.parametrize("silent_first", [True, False])
+def test_panel_id_with_two_dsi_devices(tools, root, silent_first):
+    # one DSI host without an answering panel does not hide the one that answered
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("" if silent_first else "aabbcc", dev="1c40000.dsi.0")
+    root.panel("aabbcc" if silent_first else "", dev="1c50000.dsi.0")
+    rc, out, err = run(tools, root)
+    assert "signature: panel id aabbcc" in err
+    assert "the panel did not answer its driver" not in err
+    assert decision(out)["selected"] == "ga36-panel2" and decision(out)["reason"] == "rule"
+
+
+def test_panel_id_rule_without_an_answer_does_not_match(tools, root):
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("unsupported")
+    rc, out, err = run(tools, root)
+    assert "probe panel id aabbcc: unknown no match" in err
+    assert decision(out)["reason"] == "default"
 
 
 def test_answering_panel_keeps_and_learns_the_running_tree(tools, root):

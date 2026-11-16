@@ -3,9 +3,11 @@
 # or numbers. select: held at power on, opens the list. pageup/pagedown (optional) jump a
 # screen in the long list of converted device trees.
 #
-# PROVISIONAL until proof 1.2 tells which keys the factory U-Boot of the R36S already reads
-# at power on (pins C0, C2 and C5).
-# All in gpio-keys (built in). A is BTN_EAST in the R36S device tree (the right button).
+# Proof 1.2 (2026-11-16, boots 106 and 116 to 119): the factory U-Boot of the R36S does
+# nothing with Vol-, Vol+, Start, Select or A held at power on, so Vol- is free for the list.
+# Hold it until the list shows: the kernel reads it at about 3.5 s.
+# All built in (volume-keys, gpio-keys). A is BTN_EAST in the R36S device tree (the right
+# button).
 select=KEY_VOLUMEDOWN
 up=BTN_DPAD_UP,KEY_VOLUMEUP
 down=BTN_DPAD_DOWN,KEY_VOLUMEDOWN

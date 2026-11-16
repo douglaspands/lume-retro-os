@@ -240,8 +240,10 @@ uv run r36os push --build 20261114-100000  # um build específico
 - **Restaurar a configuração de fábrica:** apagar a pasta `ROMS/system/`.
 - **Logs** (sempre em inglês): `ROMS/logs/`. Formato em [docs/LOGS.md](docs/LOGS.md).
 - **GA36, painel:** há duas variantes de tela; a imagem usa a 1 (a do firmware de fábrica).
-  A imagem de boot da 2 fica na pasta do build, `out/images/console/<build>/ga36-android-boot-panel2.img`
-  (gravá-la no setor 172032 troca o painel; ver `docs/BRINGUP-GA36.md`).
+  Para a 2, escreva `ga36-panel2` em `BOOT/dtbs/force` (ver "Escolha do device tree"
+  abaixo). A imagem de boot de cada painel também fica na pasta do build
+  (`out/images/console/<build>/ga36-android-boot-panel{1,2}.img`), para gravar à mão no
+  setor 172032 se preciso (ver `docs/BRINGUP-GA36.md`).
 - **Trocar de console:** basta passar o cartão de um aparelho para o outro. Os saves
   (`.srm`) passam entre eles; os *save states* podem não passar, porque o GA36 é armv7 e o
   R36S é aarch64.
@@ -252,13 +254,67 @@ uv run r36os push --build 20261114-100000  # um build específico
   assinatura. Use outro leitor; um cartão afetado se recupera com `fsck.exfat` ou
   gravando de novo com `--full`.
 
+### Escolha do device tree
+
+O device tree (DTB) diz ao kernel como é o hardware do aparelho: painel, botões, som,
+bateria. A `BOOT` traz os de cada SoC em `dtbs/a33/` (GA36: `ga36-panel1`, o padrão, e
+`ga36-panel2`) e `dtbs/rk3326/` (R36S: `r36s-v5`, o padrão, mais os convertidos de
+`vendor/`, ver abaixo). O bootloader de fábrica sempre inicia com o padrão; logo no começo
+do boot o sistema confere se ele serve e, se outro foi escolhido, troca: no R36S o kernel
+reinicia com o outro DTB (kexec, poucos segundos a mais), no GA36 a imagem de boot é
+regravada com ele e o console reinicia uma vez.
+
+**Sozinho (o normal):** nada a fazer. O sistema lê o ID que o painel responde e:
+
+- usa o DTB cuja regra bate com esse ID (o R36S V5 é reconhecido assim);
+- usa o que já aprendeu antes para esse ID;
+- se o painel respondeu ao DTB em uso, fica com ele e o aprende;
+- se o painel não respondeu (tela preta), testa os outros DTBs do SoC, um por boot, e
+  aprende o primeiro com que o painel responde.
+
+**Pelo PC, `BOOT/dtbs/force`:** um arquivo de texto com o nome de um DTB (o `lume,id`,
+igual ao nome do arquivo de um convertido, sem `.dtb`), por exemplo `ga36-panel2`. Use
+quando a tela fica preta e você sabe qual é a placa, ou para testar um convertido. Ele vale
+enquanto o arquivo existir; apague-o para voltar à escolha automática. Um nome inválido é
+ignorado e registrado no log.
+
+**Pela lista:** ligue segurando **Vol-**. A tela mostra os DTBs do SoC, os convertidos e
+"Automatic", com as marcas `(auto)` (o que seria escolhido sozinho), `(ok)` (já confirmado
+neste aparelho) e `(forced)`. Cima/baixo (ou Vol+/Vol-) move, A escolhe; no R36S,
+esquerda/L1 e direita/R1 pulam uma página. A escolha fica guardada e vale nos boots
+seguintes; "Automatic" apaga a escolha guardada. Sem nenhuma tecla em 60 s, o boot segue
+com a escolha automática. (As teclas ainda são provisórias: falta conferir quais o
+bootloader de fábrica de cada console usa ao ligar.)
+
+**Confirmação na tela:** no primeiro boot com um DTB que ainda não foi confirmado naquele
+aparelho, a tela pergunta "If you can read this, press A to keep it." com uma contagem de
+15 s. A mantém o DTB e o aprende para o painel; sem resposta (tela preta ou ninguém na
+frente), o console volta sozinho ao DTB anterior e descarta esse naquele aparelho. Se o
+kernel novo travar antes da pergunta, desligue e ligue o console: o boot seguinte descarta
+esse DTB e volta ao último que funcionou (o reinício sozinho pelo watchdog ainda está em
+prova).
+
+**Guardado por aparelho:** a escolha e os descartados ficam em
+`ROMS/system/etc/dtb-<soc>-<serial>.conf`, um arquivo por aparelho (pelo número de série do
+SoC ou, no R36S, pelo que o U-Boot de fábrica grava no device tree), de modo que o cartão levado a outro console do mesmo modelo não leva a escolha do
+primeiro. O aprendido por ID do painel fica em `ROMS/system/etc/dtb-<soc>-learned.conf`.
+Para recomeçar do zero, apague esses arquivos pelo PC; para usar de novo um DTB descartado
+com o `force`, tire o nome dele da linha `bad=` do arquivo do aparelho.
+
+**No log:** `ROMS/logs/boot/boot-<n>.log`, linhas `lume-bootsel:`; a linha
+`selected <id> (reason: ...)` diz qual DTB foi usado e por quê (`default`, `rule`,
+`learned`, `auto`, `search`, `manual`, `forced`, `fallback`, `reverted`). No
+`ROMS/logs/events.log`, `boot OK device tree selected …`. Detalhes em
+[docs/LOGS.md](docs/LOGS.md).
+
 ### Clones do R36S: device trees convertidos
 
 Além do R36S V5, a `BOOT` traz em `dtbs/rk3326/vendor/` cerca de 170 device trees de
 clones e parentes do R36S (RK3326), convertidos dos DTBs do dArkOSRE e do arkos4clone para
 o nosso kernel (`board/r36s/dts-vendor/`, gerados por `r36os dtb-import`; a origem de cada
 um e os recusados, com o motivo, ficam no `SOURCES.tsv`). Num boot normal eles não são
-lidos. Para usar um:
+lidos, e a busca sozinha (tela preta) não os testa: seriam um reinício por placa. Para usar
+um:
 
 - **pela lista:** ligar segurando Vol-, rolar até o nome (esquerda/L1 e direita/R1 pulam uma
   página) e confirmar com A;
@@ -270,6 +326,12 @@ aparelho. Confirmado, ele é lembrado para o painel do aparelho e escolhido sozi
 seguintes. São **compatíveis por conversão, sem garantia**: só o R36S V5 foi provado; os
 analógicos de outras placas seguem a semântica do ROCKNIX, sem medição, e podem precisar
 de remapeamento no RetroArch. O volume do alto-falante é sempre o seguro do R36S V5.
+**A alimentação vem da origem:** as tensões dos reguladores do PMIC (RK817) e qual
+regulador alimenta cada banco de pinos do SoC são copiadas do DTB de origem, como aquele
+sistema já roda naquela placa; um regulador que a origem não declara fica com a tensão que
+o bootloader deixou, e nenhum regulador que o R36S V5 mantém ligado é desligado. Para a
+família "EE", essa alimentação foi conferida com o device tree do ROCKNIX para essas
+placas. No aparelho, só o DTB de fábrica do R36S V5 convertido foi provado até aqui.
 
 **Fora do alcance:** aparelhos com eMMC (o RK3326 inicia pelo eMMC antes do cartão, P-43);
 as placas A33/A23 da família do GA36 sem DTB de fábrica (P-16); aparelhos de outro SoC

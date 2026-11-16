@@ -32,7 +32,7 @@ O importador MUST converter só um DTB cujo `compatible` seja do RK3326 e que te
 - **THEN** ele é recusado e o motivo diz o nó
 
 ### Requirement: Conversão do hardware essencial
-O DTS convertido MUST descrever para o kernel mainline, a partir dos dados do DTB de origem, a tela (sequência de inicialização, timings, atrasos e pinos do painel), a luz de fundo, os botões e os analógicos, o som (amplificador e detecção do fone), a bateria (capacidade e tabela de tensão) e os LEDs, sobre o DTB nativo do R36S V5. O DTB de origem MUST NOT ser alterado.
+O DTS convertido MUST descrever para o kernel mainline, a partir dos dados do DTB de origem, a tela (sequência de inicialização, timings, atrasos e pinos do painel), a luz de fundo, os botões e os analógicos, o som (amplificador e detecção do fone), a bateria (capacidade e tabela de tensão), os LEDs e a alimentação (reguladores do PMIC e domínios de I/O, ver "Alimentação da origem"), sobre o DTB nativo do R36S V5. O DTB de origem MUST NOT ser alterado.
 
 #### Scenario: DTB de fábrica do R36S convertido
 - **WHEN** o DTB de fábrica do R36S V5 é convertido
@@ -45,6 +45,28 @@ O DTS convertido MUST descrever para o kernel mainline, a partir dos dados do DT
 #### Scenario: Funcionamento no aparelho
 - **WHEN** o R36S V5 sobe com o seu DTB de fábrica convertido
 - **THEN** a tela, a luz de fundo, os botões, os analógicos, o som, a bateria e os LEDs funcionam como com o DTB nativo
+
+### Requirement: Alimentação da origem
+O DTS convertido MUST levar, para cada regulador do PMIC que o DTB de origem declara, a faixa de tensão e o estado sempre ligado da origem, e MUST refazer o mapa dos domínios de I/O do SoC (`vccio*`, `pmuio*`) apontando os mesmos reguladores que a origem aponta. Um regulador que a origem não declara MUST ficar sem tensão definida no DTS convertido.
+
+#### Scenario: Placa com outra alimentação
+- **WHEN** o DTB de origem declara o DCDC4 a 3,0 V e os domínios `vccio3` e `vccio6` no regulador de 1,8 V
+- **THEN** o DTS convertido programa o DCDC4 a 3,0 V e liga `vccio3` e `vccio6` ao regulador de 1,8 V, como a origem
+
+#### Scenario: DTB de fábrica do R36S V5
+- **WHEN** o DTB de fábrica do R36S V5 é convertido
+- **THEN** os reguladores e os domínios de I/O do resultado são iguais aos do DTB nativo
+
+#### Scenario: Regulador ausente na origem
+- **WHEN** o DTB de origem não declara um regulador que o DTB nativo declara
+- **THEN** o DTS convertido não define tensão para ele
+
+### Requirement: Recusa por alimentação desconhecida
+O importador MUST recusar, com o motivo no `SOURCES.tsv`, um DTB de origem sem os reguladores do PMIC, com um domínio de I/O alimentado por um regulador fora do PMIC ou com um domínio de I/O acima de 3,6 V.
+
+#### Scenario: Domínio fora do PMIC
+- **WHEN** um domínio de I/O do DTB de origem é alimentado por um regulador fora do PMIC
+- **THEN** o DTB é recusado e o motivo diz o domínio
 
 ### Requirement: Volume seguro do alto-falante
 O DTS convertido MUST NOT copiar o ganho do alto-falante do DTB de origem (`spk-volume`): vale o volume seguro do DTB nativo e do codec. Quando o de origem pede um valor, o DTS e o `SOURCES.tsv` MUST registrar o valor ignorado.

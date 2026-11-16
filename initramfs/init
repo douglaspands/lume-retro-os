@@ -12,6 +12,10 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 # The cpio has no /dev/console: tie the output to the console only now.
 exec 0</dev/console 1>/dev/console 2>&1
+# No echo on the screen console: the volume keys are a keyboard to the kernel, and the
+# key held at power on for the device tree list repeated its characters on tty1
+# (boot-dtb-select 6.7). The emergency shell turns it back on.
+stty -F /dev/tty1 -echo 2>/dev/null
 
 . /lib/storage.sh
 
@@ -26,6 +30,7 @@ done
 rescue() {
 	log "ERROR: $*"
 	log "opening emergency shell on console"
+	stty -F /dev/tty1 echo 2>/dev/null
 	exec setsid cttyhack sh
 }
 

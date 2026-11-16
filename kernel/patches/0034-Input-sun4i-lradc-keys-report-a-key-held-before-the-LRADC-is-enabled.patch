@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Mon, 16 Nov 2026 21:00:00 -0300
+Subject: [PATCH] Input: sun4i-lradc-keys - report a key held before the LRADC
+ is enabled
+
+The LRADC raises key down only on the transition from released to
+pressed. A key that is already held when the device is opened (held at
+power on, as the GA36 does with Vol- to open the device tree list of
+the initramfs; the console keyboard handler opens the LRADC at 0.18 s)
+never makes that transition, so the key reads as released until it is
+let go and pressed again (GA36 boot 122, boot-dtb-select task 6.3).
+Enabling the "already hold" interrupt did not change it (boot 128).
+
+On open, wait for the first conversions (30 ms; the first one comes
+after 2 samples of 4 ms), read channel 0 and, when the voltage is
+within two LRADC steps of a key, report that key as pressed, with the
+keycode cached as the key down path does. Its release comes through
+the usual key up interrupt.
+
+diff --git a/drivers/input/keyboard/sun4i-lradc-keys.c b/drivers/input/keyboard/sun4i-lradc-keys.c
+--- a/drivers/input/keyboard/sun4i-lradc-keys.c
++++ b/drivers/input/keyboard/sun4i-lradc-keys.c
+@@ -15,6 +15,7 @@
+  */
+
+ #include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/err.h>
+ #include <linux/init.h>
+ #include <linux/input.h>
+@@ -145,6 +146,28 @@ static irqreturn_t sun4i_lradc_irq(int irq, void *dev_id)
+ 	return IRQ_HANDLED;
+ }
+
++/* The key that channel 0 reads now, if the voltage is within two LRADC steps of one */
++static void sun4i_lradc_report_held(struct sun4i_lradc_data *lradc)
++{
++	u32 i, val, keycode = 0;
++	int voltage, diff, closest = INT_MAX;
++
++	val = readl(lradc->base + LRADC_DATA0) & 0x3f;
++	voltage = val * lradc->vref / 63;
++	for (i = 0; i < lradc->chan0_map_count; i++) {
++		diff = abs((int)lradc->chan0_map[i].voltage - voltage);
++		if (diff < closest) {
++			closest = diff;
++			keycode = lradc->chan0_map[i].keycode;
++		}
++	}
++	if (!keycode || closest > (int)(2 * lradc->vref / 63) || lradc->chan0_keycode)
++		return;
++	lradc->chan0_keycode = keycode;
++	input_report_key(lradc->input, keycode, 1);
++	input_sync(lradc->input);
++}
++
+ static int sun4i_lradc_open(struct input_dev *dev)
+ {
+ 	struct sun4i_lradc_data *lradc = input_get_drvdata(dev);
+@@ -174,6 +197,13 @@ static int sun4i_lradc_open(struct input_dev *dev)
+
+ 	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ, lradc->base + LRADC_INTC);
+
++	/*
++	 * A key held when the LRADC starts (Vol- held at power on) never makes the key
++	 * down transition: read the first conversions and report it as pressed.
++	 */
++	msleep(30);
++	sun4i_lradc_report_held(lradc);
++
+ 	return 0;
+
+ err_assert_reset:

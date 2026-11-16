@@ -42,11 +42,22 @@ def test_ids_and_defaults_of_today():
     assert nodes["rk3326-r36s-v5"] == {"id": "r36s-v5", "priority": 0, "default": True}
 
 
-def test_no_rules_until_a_signature_is_measured():
+def _body(p) -> str:
+    return re.search(r"\n\tlume-select \{(.*?)\n\t\};", p.read_text(), re.S).group(1)
+
+
+def test_no_probe_rules_until_a_signature_is_measured():
     for board in DTS:
         for p in DTS[board]:
-            body = re.search(r"\n\tlume-select \{(.*?)\n\t\};", p.read_text(), re.S).group(1)
-            assert not re.search(r"lume,(adc|gpio|i2c-present)\s*=", body), p.name
+            assert not re.search(r"lume,(adc|gpio|i2c-present)\s*=", _body(p)), p.name
+
+
+def test_panel_id_rules_are_the_measured_ones():
+    # task 8.4 (D15): the R36S V5 panel answers fe5202; the GA36 JD9366 answers 000000
+    # (ID never programmed), which is no signature, so both GA36 panels have no rule
+    rules = {p.stem: re.search(r"lume,panel-id = \[([0-9a-f ]+)\];", _body(p))
+             for b in DTS for p in DTS[b]}
+    assert {k: m.group(1) for k, m in rules.items() if m} == {"rk3326-r36s-v5": "fe 52 02"}
 
 
 def test_binding_patch_documents_the_node():
@@ -54,7 +65,7 @@ def test_binding_patch_documents_the_node():
              / "0026-dt-bindings-add-the-Lume-device-tree-selection-node.patch").read_text()
     assert '+  "^lume,.*":' in patch
     for prop in ("lume,id", "lume,priority", "lume,default", "lume,adc", "lume,gpio",
-                 "lume,i2c-present"):
+                 "lume,i2c-present", "lume,panel-id"):
         assert f"+  {prop}:" in patch, prop
 
 
