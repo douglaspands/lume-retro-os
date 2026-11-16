@@ -413,11 +413,10 @@ I/O e 15 só nos reguladores. Duas famílias:
   diferentes do DTB de fábrica dela; os DTBs de SO (dArkOS, arkos4clone) nem sempre retratam
   o hardware, e os de fábrica (EE "Stock", `out/r36s-factory`) valem mais.
 
-**Conclusão:** o layout "EE" exige uma segunda base (a do ROCKNIX, GPL-2.0+ OR MIT),
-escolhida pelo conversor pelos domínios de I/O da origem, e o "RG351/origin" ao menos os
-reguladores da origem; o controle `play_joystick` é um passo à parte (P-75). Vira pendência
-própria (P-77): muda a base de cerca de 150 convertidos e precisa de prova num aparelho de
-cada família.
+**Conclusão:** a diferença das duas famílias é de alimentação (tensões dos reguladores e
+qual regulador alimenta cada banco), não de base; o P-77 entrou nesta change como o D18,
+que copia a alimentação da origem sobre a base de hoje. O controle `play_joystick` é um
+passo à parte (P-75).
 
 **Fora do alcance do DTB** (registrado em `docs/PENDENCIAS.md`): aparelhos com eMMC, que o
 RK3326 tenta iniciar antes do cartão (o ROCKNIX precisou de um U-Boot próprio para o K36
@@ -557,8 +556,8 @@ Decisão do usuário (2026-11-16, "pode seguir com a absorção dos DTBs"), revi
   entre as placas: painel (`rocknix,generic-dsi`, D13), pinos de reset/enable/stbyb e
   alimentação do painel, luz de fundo (PWM, período, níveis), botões (`gpio-keys`), teclas
   de volume (GPIO ou `adc-keys`), analógicos (mux de 4 canais ou ADC direto, ou nenhum),
-  amplificador e detecção do fone, bateria (capacidade e tabela de tensão), LEDs e a
-  interrupção do PMIC. O `rockchip,lane-rate` e os tempos da PHY do R36S V5 saem (cada
+  amplificador e detecção do fone, bateria (capacidade e tabela de tensão), LEDs, a
+  interrupção do PMIC e, desde o D18, a alimentação (reguladores do RK817 e domínios de I/O). O `rockchip,lane-rate` e os tempos da PHY do R36S V5 saem (cada
   painel tem o seu clock). `lume,id` = nome do arquivo, prioridade 0, sem `lume,default`,
   sem regras.
 - **Build:** `build_dtbs` compila `dts-vendor/` com a árvore do kernel e roda um único
@@ -605,6 +604,40 @@ Decisão do usuário (2026-11-16, "pode seguir com a absorção dos DTBs"), revi
 DTBs a cada boot), sem `dt-validate`, e muito código no initramfs; DTBs gerados só no
 build, sem DTS no git: o build dependeria das coleções e da rede.
 
+### D18. Alimentação da origem nos convertidos (P-77)
+
+Decisão do usuário (2026-11-16, trazendo o P-77 para esta change), depois da avaliação da
+tarefa 7.2 (D12): até aqui o DTS convertido herdava do R36S V5 as tensões do RK817 e o mapa
+dos domínios de I/O, e só o `factory-r35s` tem na origem a mesma alimentação. O conversor
+passa a levá-la da origem:
+
+- **Reguladores:** para cada regulador do RK817 que a origem declara (`DCDC_REG*`,
+  `LDO_REG*`, `BOOST`, `SWITCH_REG*`), o DTS convertido leva a faixa de tensão
+  (`regulator-min/max-microvolt`) e o `regulator-always-on`/`regulator-boot-on` da origem,
+  sobre o nó do mesmo nome da base (referência pelo caminho, `&{/.../regulators/LDO_REG8}`).
+  São os valores com que aquele sistema (de fábrica, dArkOS ou arkos4clone) já roda naquele
+  hardware.
+- **Regulador que a origem não declara:** fica sem tensão definida no DTS (o kernel mantém a
+  que o bootloader deixou) e ligado, para não cortar algo de ligação desconhecida.
+- **Domínios de I/O:** o mapa da origem (`vccio1`–`vccio6`, `vccio-oscgpi`, `pmuio1`,
+  `pmuio2`) é refeito no `&io_domains`/`&pmu_io_domains` da base, cada domínio apontando o
+  regulador do RK817 do mesmo nome de nó. Domínio que a origem não declara sai da base
+  (`/delete-property/`), e o driver deixa o seletor como o bootloader o pôs.
+- **Recusa com motivo** (`SOURCES.tsv`): PMIC sem nó `regulators`; domínio de I/O que aponta
+  para um regulador fora do PMIC; tensão de um domínio acima de 3,6 V (o limite do driver).
+- **Referência independente:** a família "EE" (D12) é conferida contra o
+  `rk3326-gameconsole-eeclone.dts` do ROCKNIX (GPL-2.0+ OR MIT, `.cache/upstream/rocknix`),
+  que descreve a mesma alimentação para o kernel mainline.
+- **O que fica da base:** o resto da placa EE que não é alimentação crítica (USB host por
+  GPIO, eMMC, segundo slot) continua o do R36S V5; aparelhos com eMMC já estão fora do
+  alcance (P-43).
+
+**Alternativas:** uma segunda base a partir do DTS do ROCKNIX, escolhida pelos domínios de
+I/O da origem (o texto original do P-77): exigiria manter outro DTS inteiro e não resolveria
+a família "RG351/origin" (painel a 2,8 V no LDO8), que tem a base do R36S; manter a
+alimentação do R36S V5 com um aviso: deixa ~150 convertidos com seletor de tensão trocado em
+relação à alimentação física.
+
 ## Risks / Trade-offs
 
 - [kexec no armv7 com SMP: o A33 mainline pode não conseguir desligar os núcleos
@@ -617,7 +650,11 @@ build, sem DTS no git: o build dependeria das coleções e da rede.
   sobe até o frontend depois de um kexec e confere tela, som e cartão.
 - [Um DTB errado pode programar tensões erradas] → só candidatos do mesmo SoC, só DTBs do
   build na imagem; um DTB copiado pelo usuário é responsabilidade dele, e o log diz qual foi
-  usado.
+  usado. Nos convertidos, a alimentação é a da origem (D18), nunca a de outra placa.
+- [Um DTB de SO declara outra alimentação que o de fábrica da mesma placa (o
+  `darkosre-r36s-r35s-v11` e o `factory-r35s`, D12)] → vale o que aquele SO já roda na
+  placa; a confirmação na tela e a volta automática continuam como saída, e a prova 10.4
+  usa justamente esse caso no R36S.
 - [Desligar antes da confirmação marca um DTB bom como ruim] → o motivo vai para o log, e a
   lista limpa o `bad`; é preferível a ficar preso num DTB que trava.
 - [Confirmar às cegas: apertar A com a tela preta] → a mensagem só aparece uma vez por DTB
