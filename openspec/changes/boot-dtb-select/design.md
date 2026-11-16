@@ -287,6 +287,19 @@ desenha), fica só a cópia na FAT interna: o logo continua o mesmo nos dois, e 
 "Logo trocado pelo PC" do spec passa a valer só para o R36S (o spec é ajustado nesta
 change).
 
+**Prova 1.4 (2026-11-16, GA36, build `20261116-161851`):** o env de fábrica é simples (CRC32 +
+variáveis, 128 KiB no setor 139264, sem cópia redundante). Com um env de teste (CRC
+recalculado, o original guardado no PC e no cartão) cujo `bootcmd` anotava o resultado de cada
+passo e fazia `saveenv` antes do boot normal: o hush tem `if`; `fatload mmc 0:1` lê a `BOOT`;
+`env import -t` funciona; `sunxi_bmp_info` reconhece o BMP; mas `sunxi_bmp_display <addr>`
+falha, mesmo 2 s depois e com um BMP no mesmo formato do de fábrica (deslocamento 54,
+640x480, 24 bits). Cada passo ficou numa variável chamada por `run` e separada por `;`: o hush
+desse U-Boot expande `${...}` da linha inteira antes de rodar. O env original voltou (SHA256
+conferido). **Resultado:** vale o caminho acima, e melhor: o `bootlogo.bmp` de fábrica do GA36
+já é o mesmo arquivo do `BOOT/logo.bmp` do R36S (SHA256 `01a2178e…`), então o logo único não
+exige gravar nada na área de fábrica; o build só confere isso
+(`test_ga36_factory_logo_is_the_boot_logo`).
+
 ### D10. Confirmação na tela do DTB novo
 
 Chegar ao frontend não prova que o DTB serve: com o painel errado, o kernel e o RetroArch

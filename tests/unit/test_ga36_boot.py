@@ -16,6 +16,24 @@ FRAGMENT = (BOARD / "kernel.config").read_text()
 AUTOCONFIG = REPO_ROOT / "rootfs/overlay/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg"
 
 
+def test_ga36_factory_logo_is_the_boot_logo():
+    """boot-dtb-select 2.2 / D9: one boot logo on both consoles. The factory U-Boot of the
+    GA36 draws bootlogo.bmp from its internal FAT (sector 73728) and cannot draw a BMP of
+    BOOT (proof 1.4: sunxi_bmp_display fails from bootcmd), so the logo stays the factory
+    one; it is the same file as BOOT/logo.bmp of the R36S, checked here."""
+    from r36os import r36s_vendor
+    from r36os.paths import cache_dir
+
+    area = cache_dir() / "vendor" / "ga36-factory-128M.bin"
+    if not area.exists():
+        pytest.skip("GA36 factory area not in the cache")
+    fat = area.read_bytes()[73728 * 512:139264 * 512]
+    start = fat.find(b"BM" + struct.pack("<I", 921654))
+    assert start >= 0, "no 640x480 24-bit BMP in the bootloader FAT"
+    logo = fat[start:start + 921654]
+    assert hashlib.sha256(logo).hexdigest() == dict(r36s_vendor.BOOT_FILES)["logo.bmp"]
+
+
 def test_android_boot_image_matches_mkbootimg_layout():
     kernel = b"Z" * 5000
     img = bootimg.make(kernel)

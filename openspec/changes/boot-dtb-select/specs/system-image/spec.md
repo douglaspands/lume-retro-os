@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Logo de boot único
-Os dois consoles MUST mostrar no boot o mesmo logo, o `BOOT/logo.bmp`, que é o logo de fábrica do R36S, conferido por SHA256. No GA36, o build MUST gravar o mesmo arquivo como `bootlogo.bmp` na FAT interna da área de fábrica, e o U-Boot de fábrica MUST carregar o logo da `BOOT`, de modo que trocar o `BOOT/logo.bmp` pelo PC troque o logo dos dois consoles.
+Os dois consoles MUST mostrar no boot o mesmo logo, o `BOOT/logo.bmp`, que é o logo de fábrica do R36S, conferido por SHA256. No GA36, o `bootlogo.bmp` da FAT interna da área de fábrica MUST ser o mesmo arquivo (o firmware de fábrica dos dois traz a mesma imagem), e o build MUST conferir isso; o U-Boot de fábrica do GA36 não desenha um BMP da `BOOT`, então trocar o `BOOT/logo.bmp` pelo PC troca só o logo do R36S.
 
 #### Scenario: Mesmo logo nos dois
 - **WHEN** um cartão recém-gravado com a imagem `console` é ligado no GA36 e no R36S
@@ -11,7 +11,7 @@ Os dois consoles MUST mostrar no boot o mesmo logo, o `BOOT/logo.bmp`, que é o 
 
 #### Scenario: Logo trocado pelo PC
 - **WHEN** o usuário troca o `BOOT/logo.bmp` por outro BMP de 640x480 e 24 bits e liga os dois consoles
-- **THEN** o R36S mostra o logo novo e o GA36 também o mostra depois do primeiro quadro, que ainda vem da FAT interna
+- **THEN** o R36S mostra o logo novo e o GA36 continua com o logo da FAT interna
 
 ## MODIFIED Requirements
 
@@ -27,15 +27,11 @@ A partição `BOOT` MUST conter o `VERSION` do build e um `SYSTEM` por sistema d
 - **THEN** a pasta do build em `out/images/console/<build>/` tem `ga36-android-boot-panel1.img` e `ga36-android-boot-panel2.img`, com o SHA256 de cada uma no `SHA256SUMS`
 
 ### Requirement: Bootloader na área reservada
-Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`R36OS_GA36_FACTORY`) e a do R36S (`R36OS_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na área do GA36, o build MUST trocar o `bootlogo.bmp` da FAT interna pelo logo da `BOOT` e editar o env do U-Boot de fábrica (com o CRC recalculado) para carregar o logo da `BOOT`, sem alterar nenhum binário. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19, P-34 e P-43).
+Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`R36OS_GA36_FACTORY`) e a do R36S (`R36OS_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na área do GA36, o build MUST NOT alterar a FAT interna nem o env do U-Boot de fábrica. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19, P-34 e P-43).
 
 #### Scenario: Bootloader do GA36
 - **WHEN** a imagem `console` é gerada
-- **THEN** a área de 8 KiB até a `BOOT` é igual à área de fábrica do GA36, exceto o boot0 encolhido (setores 16 a 63), a cadeia do R36S nos setores que ela ocupa no cartão original do R36S, o `bootlogo.bmp` da FAT interna, o env do U-Boot e a imagem de boot no setor 172032; e a tabela MBR do setor 0 é a nossa
-
-#### Scenario: Env do GA36 válido
-- **WHEN** o env do U-Boot do GA36 é lido da imagem gerada
-- **THEN** o CRC confere, as variáveis de fábrica continuam iguais exceto o `bootcmd`, e o `bootcmd` carrega o `logo.bmp` da `BOOT` antes do boot normal
+- **THEN** a área de 8 KiB até a `BOOT` é igual à área de fábrica do GA36, exceto o boot0 encolhido (setores 16 a 63), a cadeia do R36S nos setores que ela ocupa no cartão original do R36S e a imagem de boot no setor 172032; e a tabela MBR do setor 0 é a nossa
 
 #### Scenario: Bootloader da VM
 - **WHEN** a imagem `vm` sobe no QEMU com firmware BIOS
