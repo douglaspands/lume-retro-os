@@ -2,101 +2,117 @@
 
 ## Why
 
-O `r36os build console` refaz quase tudo a cada execução, mesmo quando só um arquivo mudou, e
-ocupa todos os núcleos do PC em prioridade normal: na change `boot-dtb-select` (2026-11-16) cada
-ajuste de um driver custou um build longo, a máquina ficou lenta durante ele e a CPU chegou a
-90 °C. As próximas changes (governor do processador e cenários do frontend) dependem de muitas
-iterações no aparelho, então o ciclo editar → build → `push` precisa ficar curto e frio antes
-delas.
+O ciclo editar → build → aparelho está lento demais para as próximas changes (governor e
+cenários do frontend), que dependem de muitas iterações nos dois consoles. Hoje qualquer
+mudança, mesmo num script, refaz a imagem inteira; um patch de driver recompila os dois kernels
+do zero; o `lume-launcher` leva 8 min no armv7 sob qemu (P-61) e os cores levam horas (P-36);
+o build ocupa todos os núcleos em prioridade normal (CPU a 90 °C na `boot-dtb-select`); o
+`r36os push` descompacta 644 MiB a cada envio, manda o `SYSTEM` inteiro por uma mudança pequena
+e reinicia sem conferir se o boot deu certo; e os helpers de teste no aparelho são reescritos a
+cada sessão.
 
-O que o código faz hoje (`src/r36os/kernel.py`, `build.py`, `rootfs.py`):
-
-- A árvore do kernel e as pastas de build levam no nome o hash de **todos** os patches
-  (`.cache/src/linux-6.18.62-<hash>`, `.cache/kbuild/<console>-<hash>`). Mudar um patch apaga a
-  árvore, extrai de novo o tarball (2 GB), reaplica os 34 patches e recompila **os dois** kernels
-  numa pasta vazia: o `ccache` evita parte da compilação, mas cada arquivo ainda passa pelo
-  pré-processador. Um patch que só toca um driver do GA36 recompila o kernel do R36S também.
-- As gerações antigas não são apagadas: 4 de cada console somavam 13 GB em `.cache/kbuild`.
-- O `make -j$(nproc)`, o `abuild` e o `mksquashfs` rodam com prioridade normal e todos os núcleos.
-- Cada build reinstala os ~163 pacotes do rootfs de cada console (`apk add` na arquitetura do
-  console) e refaz o `SYSTEM` com `mksquashfs` zstd nível 19, mesmo sem nenhum pacote novo; e
-  recompila e valida os ~170 DTBs (`dt-mk-schema` + `dt-validate`) mesmo sem mudança nos DTS.
+Pedido do usuário (2026-11-16): "builds mais rápidos (pontuais, somente do necessário) e
+atualizações mais rápidas (pontuais, somente o necessário) — drivers, apps, cores, tudo que der
+para fragmentar". A esteira (fragmentar) e a entrega (atualizar) ficam na mesma change, porque um
+fragmento só está provado quando chega ao console e funciona.
 
 ## What Changes
 
-- **Kernel incremental:** uma árvore só do kernel por versão, guardada com o histórico do git
-  (base intocada + um commit por patch), e uma pasta de build fixa por console. Quando os patches
-  mudam, só os arquivos que mudaram de conteúdo ganham data nova, e o `make` recompila só esses e o
-  que depende deles. O kernel de um console só recompila quando os patches ou o fragmento dele
-  mudam o que ele compila.
-- **Tudo o que é compilado vira pacote `.apk`** (pedido do usuário, 2026-11-16): o kernel e os
-  módulos de cada console, os DTBs (nativos e convertidos) e o que hoje é montado fora do `apk`
-  passam a ser pacotes versionados no repositório local (`out/repo/<arch>/`), como os `aports/`
-  já são. A versão do pacote vem das entradas dele, então o build reaproveita um pacote que já
-  existe com as mesmas entradas em vez de recompilar, e a imagem tira os arquivos dos pacotes.
-  Os pacotes também servem para instalar ou atualizar uma parte só, num console ou noutra
-  máquina, sem refazer a imagem.
-- **Versão automática dos pacotes locais**, inclusive o `lume-launcher`: a versão sobe sozinha
-  quando o pacote muda, e o log do console mostra a versão de cada pacote do projeto.
-- **Atualização pontual** (pedido do usuário, 2026-11-16: "atualizar pontualmente pedaços"): o
-  `SYSTEM` de cada console vira camadas squashfs montadas umas sobre as outras (base do Alpine,
-  RetroArch com os cores, e o projeto: `lume-launcher`, scripts e serviços), como os módulos do
-  kernel já são um arquivo à parte; o `r36os push` deixa de descompactar a imagem inteira (hoje
-  644 MiB a cada push) e manda só os arquivos que mudaram, a partir do que o build registrou. Uma
-  mudança no launcher passa a ir ao console como uma camada de poucos MB. Instalar pacote com o
-  `apk` dentro do console continua fora (exigiria uma camada gravável persistente no boot; fica
-  com a atualização A/B, P-14).
-- **Etapas puladas quando as entradas não mudaram:** o rootfs e o `SYSTEM` de cada console, os
-  DTBs com a validação, o initramfs e a imagem de módulos são refeitos só quando o hash do que
-  entra neles muda; o build diz em uma linha o que pulou.
-- **Build gentil com o PC:** todos os containers do build e do `r36os pkg` rodam em prioridade
-  baixa (`nice` e `ionice`), com um número de tarefas paralelas limitado por padrão e ajustável
-  (opção e variável de ambiente), para a máquina continuar usável e mais fria.
-- **Cache sem gerações velhas:** o build apaga as árvores e pastas de build que não correspondem
-  mais à versão em uso; o `repo-clean` e a documentação do cache refletem isso.
-- **Medição:** o tempo de cada etapa aparece no fim do build, e a change registra o antes e o
-  depois (build completo, build sem mudança, mudança num driver) com a temperatura máxima da CPU.
-- Continua igual: o mesmo conteúdo gera os mesmos arquivos (o `r36os push` segue pulando o que
-  não mudou), e o build continua falhando em opção do fragmento que não pega e em warning nos
-  nossos drivers.
+- **Fragmentos:** tudo o que o projeto entrega passa a ser um pacote `.apk` com versão própria
+  no repositório local. Os binários (kernel, módulos, DTBs, `lume-launcher`, RetroArch, cores e
+  ferramentas) saem **por arquitetura** (`armv7`, `aarch64`), com o mesmo nome nos dois
+  repositórios. O que não é binário (scripts, serviços, configuração, temas, i18n, shaders,
+  autoconfig) sai **noarch**, montado uma vez no x86 e publicado nos dois. O `rootfs/overlay/`
+  é dividido em fragmentos por funcionalidade.
+- **Versão pelo conteúdo:** o hash das entradas decide se um fragmento compila; o hash do
+  conteúdo decide se a versão sobe. Ninguém sobe `pkgrel` à mão, inclusive no `lume-launcher`.
+- **Build pontual:** `r36os build <fragmento>` compila só aquele fragmento (e o que depende dele)
+  e remonta só os slots afetados, sem gerar a imagem do cartão; `r36os build console` continua
+  gerando a imagem para o `flash`. Cada etapa é pulada quando as entradas não mudaram.
+- **Kernel incremental:** uma árvore do kernel com histórico git e uma pasta de build fixa por
+  arquitetura; um patch recompila só os arquivos que mudaram. A data do kernel passa a ser fixa,
+  para um kernel sem mudança sair igual byte a byte.
+- **Compilação sem emulação onde mais pesa:** o `lume-launcher` (P-61) e os cores (P-36) deixam
+  de compilar sob qemu ou passam a reaproveitar o que já foi compilado.
+- **Build gentil com o PC:** prioridade baixa (`nice`, `ionice`) e limite de tarefas ajustável
+  (`--jobs`, `R36OS_JOBS`; padrão metade dos núcleos).
+- **Proteção de calor** (pedido do usuário, 2026-11-16): o build lê a temperatura da CPU (sensor
+  do processador, `k10temp`, não as entradas auxiliares da placa-mãe, que marcam 90–97 °C com o PC
+  parado) e a do NVMe durante todo o build, pausa os containers acima de um limite e retoma
+  abaixo de outro, aborta se a temperatura subir mesmo pausado, e mostra no fim o máximo e o tempo
+  pausado.
+- **Perfil de desenvolvimento:** no build pontual, os slots usam compressão rápida; o `build
+  console` de liberação continua com zstd 19.
+- **As duas arquiteturas em paralelo:** com o limite de tarefas dividido entre elas e sob a
+  proteção de calor.
+- **Slots no cartão** (**BREAKING** no layout da `BOOT` do console): o sistema de cada console
+  deixa de ser um único `SYSTEM` e passa a ser um conjunto de slots squashfs (base do Alpine,
+  runtime com o RetroArch, o projeto, os módulos, um por core), descritos num manifesto trocado
+  de uma vez. O initramfs monta os slots do boot; os cores são montados depois do frontend, fora
+  do caminho crítico do boot. Cartões antigos continuam iniciando e são migrados pelo `push` ou
+  pelo `flash --update`.
+- **Atualização pontual:** o `push` manda só os slots e arquivos que mudaram, lidos do arquivo
+  do build (endereçado por conteúdo), sem descompactar imagem; reiniciar é o padrão (atômico).
+  Sem reinício: os cores (trocados com o console ligado) e o `push --hot <fragmento>`, que
+  instala na camada gravável em RAM e reinicia só os serviços do fragmento, para iterar.
+- **Teste no aparelho como ferramenta do projeto:** o `push` espera o console voltar e confere o
+  boot e as versões no log; `r36os dev` (esperar, comando, tela, botões, conferência) substitui
+  os helpers refeitos a cada sessão; `r36os dev watch <fragmento>` faz build pontual e
+  `push --hot` a cada arquivo salvo; `r36os dev shot --compare` confere a tela com capturas de
+  referência do launcher.
+- **Os dois consoles no PC ao mesmo tempo** (**BREAKING** no endereço do R36S): cada console
+  ganha a própria sub-rede USB, para `push` e `dev check` rodarem nos dois em paralelo.
+- **Boot mais curto para o ciclo de teste** (ganhos rápidos do P-58): OpenRC em paralelo e os
+  serviços que o jogo não usa (Bluetooth, NetworkManager, playlists do RetroArch, índice do
+  launcher) depois do frontend. O resto do P-58 continua numa change própria.
+- **Validação no aparelho no lugar da VM** (decisão do usuário, 2026-11-16, "para reduzir
+  tempo"): nesta change o build e o teste da imagem `vm` (x86) saem do ciclo; a liberação de um
+  build de console passa a exigir a conferência no GA36 e no R36S. Os testes de unidade (Python,
+  Rust e shell), que levam segundos, continuam.
+- **Medição:** tempo por etapa no fim do build; antes e depois para build, push, boot e
+  temperatura.
 
-**Fora do escopo:** compilar os pacotes ARM em cross em vez de emulados (P-36, change própria já
-decidida) e o cache do `cargo` do `lume-launcher` (P-61); esta change só lhes dá a prioridade
-baixa e o limite de tarefas.
+**Fora do escopo:** instalar pacotes com o `apk` dentro do console (camada persistente; vai com a
+atualização A/B, P-14); acelerar o boot em si (P-58); userland armv7 nos dois consoles (avaliar
+na change do governor); voltar a VM ao ciclo (pendência nova).
 
 ## Capabilities
 
 ### New Capabilities
-- `build-performance`: tempo e carga do build no PC — recompilação incremental do kernel,
-  etapas puladas quando as entradas não mudam, prioridade e limite de tarefas dos containers e a
-  medição de tempo por etapa.
-- `build-packages`: o que o projeto compila (kernel, módulos, DTBs, ferramentas do initramfs)
-  sai como pacote `.apk` versionado pelas entradas, reaproveitado entre builds e instalável sem
-  refazer a imagem.
-
-- `system-update`: atualização do console pelo cabo só com os pedaços que mudaram (camadas e
-  arquivos da `BOOT`), sem descompactar a imagem, e as versões de cada pedaço no log do console.
+- `build-performance`: tempo e carga do build no PC — kernel incremental, etapas puladas por
+  hash de entradas, prioridade e limite de tarefas, compilação sem emulação e tempo por etapa.
+- `build-packages`: tudo o que o projeto entrega sai como fragmento `.apk` (por arquitetura ou
+  noarch), versionado pelo conteúdo e compilado sozinho.
+- `system-update`: slots do sistema no cartão, manifesto do conjunto, push pontual, troca de
+  cores e push em RAM sem reinício, versões no log.
+- `device-testing`: o teste no aparelho pelo cabo como ferramenta do projeto — esperar o boot,
+  conferir o log e as versões, comandos, captura de tela, botões e auto-teste.
 
 ### Modified Capabilities
-- `build-cache`: o cache passa a não guardar gerações antigas das árvores e pastas de build do
-  kernel.
-- `system-image`: o sistema de cada console deixa de ser um único `SYSTEM` e passa a ser
-  dividido em camadas squashfs.
+- `build-cache`: o cache passa a não guardar gerações antigas do kernel.
+- `system-image`: o sistema de cada console passa a ser um conjunto de slots com manifesto.
+- `vm-validation`: a liberação de um build de console passa a depender da conferência nos
+  aparelhos, não do teste da VM.
+- `usb-otg`: o endereço da rede USB passa a ser por console, não igual nos dois.
+- `boot-runtime`: os serviços que o jogo não usa sobem depois do frontend, com o OpenRC em
+  paralelo.
 
 ## Impact
 
-- Código: `src/r36os/kernel.py` (árvore e build), `src/r36os/build.py` (etapas e medição),
-  `src/r36os/rootfs.py`, `src/r36os/initramfs.py`, `src/r36os/container.py` (prioridade e
-  tarefas), `src/r36os/cli.py` (opção de tarefas), a skill `repo-clean`.
-- Testes: unidade do build (hashes de entrada, árvore incremental, argumentos do podman) e um
-  teste de reprodutibilidade (dois builds sem mudança dão os mesmos arquivos da `BOOT`).
-- Documentação: `docs/` do build e do cache, `README.md` (como ajustar as tarefas),
-  `docs/PENDENCIAS.md` (tema 11).
-- Novos pacotes no repositório local (`out/repo/aarch64/`, `out/repo/armv7/`), assinados com a
-  mesma chave dos `aports/`.
-- Cartão: a `BOOT` de cada console ganha as camadas novas ao lado do `SYSTEM` (o initramfs
-  monta todas); o resto dos arquivos fica nos mesmos lugares, agora vindos de pacotes. Um cartão
-  antigo é atualizado pelo `push` ou pelo `flash --update`.
-- `initramfs/init` e `initramfs/lib/storage.sh` (montagem das camadas, com o `.old` de cada uma),
-  `src/r36os/push.py` (comparação sem descompactar), `src/r36os/image.py` e `rootfs.py`
-  (camadas).
+- Código: `src/r36os/` (`kernel.py`, `build.py`, `rootfs.py`, `image.py`, `packages.py`,
+  `container.py`, `push.py`, `archive.py`, `flash.py`, `cli.py`) e um módulo novo para
+  `r36os dev`; `initramfs/init` e `initramfs/lib/storage.sh` (slots e manifesto); serviço novo
+  que monta os cores; `game-runners` passa a achar o core no slot montado; módulo novo de
+  proteção de calor; endereço USB do R36S (`lume-usb`, `r36os-usb`) e a ordem dos serviços do
+  OpenRC (`rc.conf`, dependências dos `init.d`).
+- Conflito possível com a change ativa `r36s-usb-proof` (prova da USB do R36S): a troca de
+  endereço entra depois das provas dela, ou elas são refeitas com o endereço novo.
+- Repositório: `rootfs/overlay/` vira aports noarch em `aports/lume-*`; novos pacotes
+  `lume-kernel`, `lume-modules`, `lume-dtbs` em `out/repo/<arch>/`.
+- Cartão: a `BOOT` de cada console ganha `<console>/SLOTS` e `<console>/slots/`; o `push` e o
+  `flash --update` migram cartões antigos.
+- Testes: unidade (hashes, versão pelo conteúdo, separação em slots, manifesto, push, argumentos
+  do podman) e provas nos dois consoles; o `test-vm` sai do ciclo desta change.
+- Documentação: `README.md`, `docs/LOGS.md`, `docs/BRINGUP-GA36.md`, `docs/BRINGUP-R36S.md`, guia
+  novo `docs/BUILD.md` (esteira, fragmentos, push, `r36os dev`), skill `repo-clean`,
+  `docs/PENDENCIAS.md` (temas 1 e 11).

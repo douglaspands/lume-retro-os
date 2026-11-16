@@ -1,47 +1,205 @@
 # Tasks
 
-## 1. Medição de partida
+Verificação desta change: testes de unidade (Python, Rust e shell, segundos) e o aparelho (GA36 e
+R36S). A imagem `vm` não é construída nem testada (D13). Cada fase termina com os dois consoles
+iniciando e o `r36os dev check` verde, a partir da fase 4.
 
-- [ ] 1.1 Medir o build atual antes de qualquer mudança: (a) `build console` com cache frio, (b) repetido sem mudança, (c) depois de mudar um patch de driver, (d) depois de subir um pacote do rootfs; para cada um o tempo total e a temperatura máxima da CPU (lida do `hwmon` do host durante o build). Verificação: tabela "antes" no design (D5).
+## Grafo de execução
 
-## 2. Prioridade e número de tarefas (D4)
+Regras do projeto em `openspec/config.yaml` (`rules.tasks`, `operations.apply`).
 
-- [ ] 2.1 `container.py`: todo script roda como `nice -n 19 ionice -c 3`; `R36OS_JOBS` e `--jobs` em `build`, `pkg` e `test-vm`, padrão metade dos núcleos, levados ao `make -j`, ao `JOBS` do `abuild` e ao `-processors` do `mksquashfs`; o build mostra tarefas e prioridade no começo. Verificação: testes de unidade dos argumentos do podman e do script; durante um build, `ps -o ni,cmd` mostra `19` nos compiladores.
-- [ ] 2.2 Documentar `--jobs`/`R36OS_JOBS` no `README.md` e no guia do build. Verificação: o comando documentado roda como escrito.
+**Recursos exclusivos:** `CPU` (um build pesado por vez, sob a proteção de calor da 1.1),
+`ARCH:armv7` e `ARCH:aarch64` (um `r36os pkg` por arquitetura), `GA36`, `R36S`, `USUARIO` (ação
+física ou olho humano), `MERGE` (um merge por vez em `feature/build-speed`, seguido de
+`pytest tests/unit` e das suítes de shell).
 
-## 3. Kernel incremental (D1)
+**Executores:** `AG` = subagente em `out/worktrees/<nó>` (código e teste de unidade, testes com
+`PYTHONPATH=src` e o `.venv` principal); `PR` = sessão principal (merge, build, aparelho);
+`AG+PR` = código no AG, prova na PR, na janela de aparelho indicada.
 
-- [ ] 3.1 `kernel.source_tree()`: árvore `.cache/src/linux-<versão>/` com git (commit `upstream` do tarball e um commit por patch); série nova aplicada a partir de `upstream`, e só os arquivos de conteúdo diferente ganham data nova; `GIT_CEILING_DIRECTORIES` mantido. Verificação: teste de unidade com uma árvore pequena (mudar um patch muda o mtime só do arquivo dele).
-- [ ] 3.2 `build_kernel()`: pasta fixa `.cache/kbuild/<console>/`, sem hash; as verificações do fragmento e dos warnings dos nossos drivers continuam. Verificação: patch num driver do GA36 recompila esse arquivo e o link (log do `make`), o kernel do R36S não recompila e sai igual byte a byte.
-- [ ] 3.3 Limpeza das gerações antigas (`linux-<versão>-*`, `kbuild/<console>-*`) com o espaço liberado numa linha; `repo-clean` e `docs/` do cache atualizados com o layout novo. Verificação: depois do primeiro build, `.cache/` tem uma árvore e uma pasta de build por console; spec `build-cache`.
-- [ ] 3.4 Equivalência: o `Image`/`zImage` de um build incremental é igual ao de um build limpo com as mesmas entradas. Verificação: teste de integração (`r36os build --clean` contra incremental, mesmo SHA256).
+**Ordem de merge que importa:** a 1.1 é mesclada antes de tudo, e a 1.2 (linha de base) roda
+logo depois, antes de qualquer outro merge, para medir o código de hoje.
 
-## 4. Pacotes do que é compilado (D3, D3b)
+**Modelo** (só da parte AG; a parte PR usa o modelo da sessão principal, `—`): `opus` onde um
+erro deixa o console sem boot, corrompe o build ou deixa passar uma versão errada (initramfs,
+slots, push, kernel, hashes e versões, compilação cruzada, proteção de calor) ou onde a task é
+uma prova com caminho incerto; `sonnet` para código bem especificado com teste de unidade claro,
+documentação e mudanças mecânicas conferidas por manifesto; `haiku` só para buscas largas de
+apoio, nunca para um nó.
 
-- [ ] 4.1 Provar a montagem no x86 de um pacote para armv7 e aarch64 (`abuild` com `CARCH`, ou `apk mkpkg`, ou o escritor próprio de `.apk` v2) e que o `apk` da arquitetura do console o aceita e o indexa com a chave do projeto. Verificação: `apk add --root` num container da arquitetura instala o pacote de teste sem `--allow-untrusted`; decisão anotada no D3.
-- [ ] 4.2 Pacotes `lume-kernel-<console>`, `lume-dtbs-<soc>` e `lume-initramfs-<console>` com o hash de entradas no campo `commit`; o build reaproveita o pacote com o mesmo hash e só compila quando não acha. Verificação: testes de unidade (hash igual → reaproveita; entrada mudou → `pkgrel` seguinte) e um build sem mudança que não chama o compilador.
-- [ ] 4.3 `image.py` tira a `BOOT` desses pacotes; `VERSION` com a versão de cada um; `hwinfo` registra no log de boot as versões dos pacotes do projeto. Verificação: `tests/integration/test_image_console.py` com a mesma listagem e os mesmos SHA256 da `BOOT` de antes; `docs/LOGS.md` com o campo novo.
-- [ ] 4.4 Versão automática dos `aports/` (inclusive `lume-launcher`): hash de entradas por `aport` comparado com o `commit` do pacote mais novo; diferente → compila com o `pkgrel` seguinte, sem editar o `APKBUILD`. Verificação: teste de unidade; mudar um arquivo do `lume-launcher` gera versão maior, e sem mudança nada é compilado; documentado no guia de pacotes.
+| Nó | Depende de | Recursos | Executor | Modelo | Onda | Janela |
+|---|---|---|---|---|---|---|
+| 1.1 | — | — | AG | opus | 0 | |
+| 1.2 | 1.1 | CPU, GA36, R36S, USUARIO | PR | — | 1 | J1 |
+| 2.1 | 1.1 | CPU (prova) | AG+PR | sonnet | 1 | |
+| 2.2 | — | CPU (prova) | AG+PR | sonnet | 0 | |
+| 2.3 | — | — | AG | sonnet | 0 | |
+| 2.4 | 2.1, 2.2, 2.3 | — | AG | sonnet | 2 | |
+| 3.1 | — | GA36, R36S | AG+PR | sonnet | 0 | J1 |
+| 3.2 | 3.1 | GA36, R36S | AG+PR | sonnet | 1 | J1 |
+| 3.3 | 3.1 | GA36, R36S | AG+PR | opus | 1 | J1 |
+| 3.4 | 3.1, provas da `r36s-usb-proof` | GA36, R36S, USUARIO | AG+PR | opus | 7 | J4 |
+| 3.5 | 3.1 | GA36, R36S | AG+PR | sonnet | 1 | J1 |
+| 3.6 | 3.1, 3.2, 3.3, 3.5 | — | AG | sonnet | 2 | |
+| 4.0 | — | — | AG | opus | 0 | |
+| 4.1 | — | CPU (leve) | AG+PR | opus | 1 | |
+| 4.2 | 4.1 | CPU | AG+PR | sonnet | 2 | |
+| 4.3 | 3.3, 4.0 | — | AG | opus | 2 | J2 |
+| 4.4 | 4.0, 4.2 | CPU | AG+PR | opus | 3 | |
+| 4.5 | 4.0 | — | AG | opus | 2 | J2 |
+| 4.6 | 4.3, 4.4, 4.5 | GA36, R36S | AG+PR | opus | 4 | J2 |
+| 4.7 | 4.2–4.6, 3.2, 3.3 | CPU, GA36, R36S | PR | — | 5 | J2 |
+| 5.1 | 3.1, 4.2 | GA36 | AG+PR | opus | 3 | J2 |
+| 5.2 | 4.4, 4.5, 4.6 | GA36, R36S, USUARIO | AG+PR | opus | 6 | J3 |
+| 5.3 | 5.1, 6.2 | GA36 | AG+PR | sonnet | 5 | J3 |
+| 5.4 | 5.1, 5.2, 5.3 | — | AG | sonnet | 6 | |
+| 6.1 | 4.1 | — | AG | opus | 2 | |
+| 6.2 | 6.1, 4.4 | CPU (leve) | AG+PR | opus | 4 | |
+| 6.3 | 2.3 | CPU (prova) | AG+PR | sonnet | 1 | |
+| 6.4 | — | CPU (prova) | AG+PR | sonnet | 0 | |
+| 6.5 | 4.4 | CPU (leve) | AG+PR | sonnet | 4 | |
+| 6.6 | 2.1, 2.2, 6.3 | CPU | AG+PR | sonnet | 2 | |
+| 7.1 | — | — | AG | opus | 0 | |
+| 7.2 | 7.1 | CPU | AG+PR | opus | 1 | |
+| 7.3 | 7.2, 6.1, 4.4 | CPU, R36S | AG+PR | opus | 4 | J3 |
+| 7.4 | 7.2, 6.4 | CPU | PR | — | 2 | |
+| 7.5 | 7.2 | — | AG | sonnet | 2 | |
+| 8.1 | 4.7 | CPU, GA36, R36S | AG+PR | sonnet | 6 | J3 |
+| 8.2 | 8.1, 6.1 | GA36, R36S | AG+PR | sonnet | 6 | J3 |
+| 9.1 | — | CPU, ARCH:armv7 | AG+PR | opus | 1 | |
+| 9.2 | 9.1 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S | AG+PR | opus | 2 | J3 |
+| 9.3 | — | CPU, ARCH:armv7, GA36 | AG+PR | opus | 1 | J3 |
+| 9.4 | 9.3, 6.1 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S | AG+PR | opus | 4 | J3 |
+| 10.1 | — | GA36, R36S | AG+PR | opus | 0 | J2 |
+| 10.2 | 10.1 | — | AG | sonnet | 7 | |
+| 11.1 | todos | CPU, GA36, R36S, USUARIO | PR | — | 7 | J4 |
+| 11.2 | todos | CPU, GA36, R36S, USUARIO | PR | — | 7 | J4 |
 
-## 5. Etapas puladas por hash de entradas (D2)
+**Modelos aprovados pelo usuário em 2026-11-16** (com a troca da 10.1 para `opus`). Antes de
+cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
-- [ ] 5.1 Hash de entradas e `<saída>.inputs` para rootfs e `SYSTEM`, DTBs com validação, initramfs e imagem de módulos; a etapa é pulada quando bate, com uma linha dizendo isso; `r36os build --clean` força tudo. Verificação: teste de unidade que muda cada entrada e confere que a etapa roda de novo; dois builds seguidos sem mudança dão `BOOT` e `SYSTEM` iguais byte a byte.
-- [ ] 5.2 Tempo por etapa no fim do build (inclusive `skipped` e em caso de erro). Verificação: teste de unidade do resumo e a saída de um build real.
+**Trilhas e caminho crítico:**
 
-## 6. Atualização pontual (D6)
+```
+ A  PC        1.1 --> 2.1 --+--> 2.4          2.2, 2.3 --+--> 6.3 --> 6.6
+                            |                            |
+ B  kernel    7.1 --> 7.2 --+--> 7.4, 7.5     6.4 -------+
+                            \--------------------------------> 7.3 (com 6.1, 4.4)
+ C  aparelho  3.1 --+--> 3.2, 3.5 --> 3.6                      3.4 (apos r36s-usb-proof)
+                    \--> 3.3 ---------\
+ D  slots     4.0 --+--> 4.5 ----------+--> 4.6 --> 4.7 --> 8.1 --> 8.2
+                    \--> 4.3 <---------/     ^
+              4.1 --> 4.2 --> 4.4 -----------+--> 5.2 ; 6.2 --> 5.3 ; 6.5
+                       \--> 5.1 ;  4.1 --> 6.1 --> 6.2, 7.3, 9.4
+ E  compilar  9.1 --> 9.2          9.3 --> 9.4
+ F  boot      10.1 --> 10.2
 
-- [ ] 6.1 `r36os push` sem descompactar a imagem: lê os arquivos das saídas do build pela lista da `BOOT` com SHA256, manda só os diferentes e mostra bytes enviados e tempo; sem diferença, não envia nem reinicia. Verificação: testes de `tests/unit/test_push.py` (nada mudou, um arquivo mudou) e um `push` real sem a linha `unpacking`.
-- [ ] 6.2 Camadas `<console>/lume`, `<console>/retroarch` e `<console>/SYSTEM` montadas a partir do rootfs completo pela lista de arquivos de cada grupo de pacotes, cada uma com hash de entradas; limites de tamanho somados. Verificação: teste de unidade da separação (todo arquivo do rootfs está em exatamente uma camada) e um build em que só o `lume-launcher` muda e só a camada `lume` muda de SHA256.
-- [ ] 6.3 `initramfs`: monta as camadas como `lowerdir` do overlay, com o `.old` de cada uma no corte de energia, e registra cada camada com a versão no log de boot; spec `system-image` (cenários das camadas) e `docs/LOGS.md`. Verificação: `tests/initramfs/test_storage.sh` e o `test-vm` verde; no aparelho, o log lista as camadas.
-- [ ] 6.4 Atualização de cartões antigos (um só `SYSTEM`) pelo `push` e pelo `flash --update`, sem deixar o arquivo antigo ocupando espaço. Verificação: teste do `push` com a `BOOT` antiga e conferência da `BOOT` depois.
-- [ ] 6.5 Medir o ciclo de uma mudança no `lume-launcher`: do build ao console reiniciado, contra o de hoje. Verificação: tempos anotados no D6.
+ caminho critico: 4.1 --> 4.2 --> 4.4 --> 4.6 --> 4.7 --> 8.1 --> 8.2 --> 11.x
+                  (e 3.1 --> 3.3 --> 4.3 --> 4.6, em paralelo)
+```
 
-## 7. Verificação integrada
+**Ondas** (nós de uma onda sem recurso em comum rodam em paralelo; os que disputam `CPU` ou
+`ARCH` entram numa fila única, marcados com `*`):
 
-- [ ] 7.1 Repetir as quatro medições da 1.1 e anotar o "depois" no design, com a meta do design (patch num driver em menos de 1 minuto por console; build sem mudança em segundos) e a temperatura máxima. Verificação: tabela antes/depois no D5.
-- [ ] 7.2 `r36os build vm`, `r36os test-vm` e `r36os build console` verdes, e nos dois consoles um `push` depois de uma mudança num driver e outro depois de uma mudança no `lume-launcher` mandam só o que mudou e o console sobe normal. Verificação: saídas dos comandos, a lista `sent:` dos pushes e o log de boot.
+```
+ onda 0  1.1  2.2  2.3  3.1  4.0  6.4  7.1  10.1                (so codigo: 8 nos AG)
+ onda 1  1.2* (logo apos o merge da 1.1)  2.1  3.2  3.3  3.5  4.1*  6.3  7.2*  9.1*  9.3*
+ onda 2  2.4  3.6  4.2*  4.3  4.5  6.1  6.6*  7.4*  7.5  9.2*
+ onda 3  4.4*  5.1
+ onda 4  4.6  6.2*  6.5*  7.3*  9.4*
+ onda 5  4.7*  5.3
+ onda 6  5.2  5.4  8.1*  8.2
+ onda 7  3.4  10.2  11.1*  11.2*
+```
+
+**Janelas de aparelho** (o usuário liga os consoles e faz as ações físicas uma vez por janela):
+
+| Janela | Provas | Quando | O que o usuário faz |
+|---|---|---|---|
+| J1 | 1.2, 3.1, 3.2, 3.3, 3.5 | fim da onda 1 | liga o GA36 e o R36S no cabo (um de cada vez até a 3.4), confere as telas |
+| J2 | 4.3, 4.5, 4.6, 4.7, 5.1, 10.1 | fim da onda 5 | push de cartão antigo e novo nos dois, olha o boot |
+| J3 | 5.2, 5.3, 7.3, 8.1, 8.2, 9.2, 9.3, 9.4 | fim da onda 6 | abre um jogo por core nos dois, troca de core com jogo aberto |
+| J4 | 3.4, 11.1, 11.2 | onda 7 | liga os dois consoles ao mesmo tempo, corte de energia no meio de um push |
+
+## 1. Proteção de calor e medição de partida (D15, D14)
+
+- [ ] 1.1 Módulo de proteção de calor: acha o hwmon do processador pelo nome (`k10temp` Tctl, `zenpower`, `coretemp` Package) e o do NVMe, nunca entradas auxiliares da placa-mãe; `R36OS_TEMP_SENSOR` e `R36OS_TEMP_MAX` (padrão 85 °C); amostra a cada 2 s; `podman pause` acima do limite e `unpause` 10 °C abaixo; aborta acima de 92 °C pausado por 60 s; diz no começo qual sensor e qual leitura usa. Verificação: testes de unidade com uma árvore `hwmon` falsa (inclusive um `nct6798` com `AUXTIN` a 97 °C, que tem de ser ignorado) e um relógio falso; um build real mostra o sensor `k10temp` e a leitura.
+- [ ] 1.2 Medir antes de qualquer outra mudança, já com o módulo 1.1 só registrando (sem pausar): build completo com cache frio, repetido sem mudança, depois de um patch de driver, depois de mudar um script do `rootfs/overlay`, depois de uma linha do `lume-ui`; para cada um o tempo total e a temperatura máxima da CPU e do NVMe; o `push` do caso do launcher (descompactar, enviar, reiniciar) e o `boot OK completed` no GA36 e no R36S. Verificação: coluna "Antes" da tabela "Medições" do design.
+
+## 2. PC gentil (D8, D15)
+
+- [ ] 2.1 Ligar a pausa da proteção de calor em todo container do build e do `pkg`, com a temperatura máxima e o tempo pausado no resumo; documentar no `docs/BUILD.md` os limites, as variáveis e o ajuste manual opcional (boost ou EPP, com root) para quem quiser o PC mais frio. Verificação: teste de unidade do resumo; um build real com `R36OS_TEMP_MAX` baixo de propósito pausa e retoma, com as linhas na saída.
+- [ ] 2.2 `container.py`: o `podman` roda sob `nice -n 19 ionice -c 3`; `--jobs`/`R36OS_JOBS` em `build`, `pkg` e `push`, padrão metade dos núcleos, levado ao `make -j`, ao `JOBS` do `abuild`, ao `-processors` do `mksquashfs` e às threads do zstd; o build diz tarefas e prioridade no começo. Verificação: testes de unidade dos argumentos; durante um build, `ps -o ni,cmd` mostra `19` nos compiladores.
+- [ ] 2.3 Tempo por etapa no fim do build, com `skipped` e também em erro. Verificação: teste de unidade do resumo e a saída de um build real.
+- [ ] 2.4 Documentar `--jobs`/`R36OS_JOBS` e o resumo no `README.md` e no `docs/BUILD.md` (novo). Verificação: o comando documentado roda como escrito.
+
+## 3. Teste no aparelho como ferramenta (D12)
+
+- [ ] 3.1 `r36os dev wait | sh | shot | keys | log`, com as opções de ssh do cabo, botões por `input_event` (pad virtual e combinações no pad do kernel) e os eventos lidos de `/proc/bus/input/devices` em cada console. Verificação: testes de unidade da montagem dos comandos e dos eventos; no GA36 e no R36S, `shot` traz a tela e `keys` move o foco do launcher.
+- [ ] 3.2 Modo de aparelho do `selftest` (sem os casos só da VM) e `r36os dev check`, que o roda e devolve passou ou falhou com a lista. Verificação: teste do shell do `selftest`; `dev check` verde nos dois consoles com o build atual e vermelho com um serviço parado de propósito.
+- [ ] 3.3 O `push` espera o console voltar e confere `boot OK completed` e o `VERSION` novo no log, com tempos de envio e de boot; `--no-wait` pula. Verificação: testes de `tests/unit/test_push.py` (volta certo, não volta, versão errada); um `push` real nos dois consoles termina com `ok`.
+- [ ] 3.4 Sub-rede USB por console (D18): R36S em `10.55.1.0/24` (`10.55.1.1`), GA36 como está; `--console` e descoberta pelo único que responde em `push`, `dev` e `flash`; com os dois ligados e sem `--console`, `dev check` e `dev wait` rodam nos dois em paralelo. Fazer depois das provas de USB da change `r36s-usb-proof` (ou refazê-las). Verificação: testes de unidade da escolha do console; os dois ligados ao PC ao mesmo tempo, `r36os dev check` mostra o resultado de cada um; spec `usb-otg`.
+- [ ] 3.5 `r36os dev shot --compare <tela>` e `--update`, com as referências em `tests/device/shots/<console>/` e as sequências de botões de cada tela, num cartão de demonstração com nomes inventados (D19). Verificação: teste de unidade da comparação (igual, diferente com a imagem da diferença em `./cache/`); referências das telas principais do launcher gravadas nos dois consoles.
+- [ ] 3.6 Documentar `r36os dev`, a conferência do `push`, os endereços e as capturas no `docs/BUILD.md`, no `docs/LOGS.md` e nos guias de bring-up. Verificação: os comandos documentados rodam como escritos.
+
+## 4. Esqueleto ponta a ponta: um fragmento noarch em slot (D1, D2, D9, D10)
+
+- [ ] 4.0 Congelar as interfaces compartilhadas antes dos consumidores: formato do `SLOTS` (nome, arquivo, sha256, versões dos fragmentos, sha dos slots de baixo), da `boot-files.sha256` com os objetos, do `.lume-content` e do `out/repo/<arch>/hashes.json`, num módulo Python com leitura e escrita, e o leitor do `SLOTS` em shell para o initramfs. Verificação: testes de unidade de ida e volta (Python) e de leitura (shell, busybox), com os casos de manifesto ausente, truncado e citando arquivo que falta; formato documentado no D9 e no D10.
+- [ ] 4.1 Provar no x86 um pacote noarch (`abuild` no `builder` x86_64) publicado igual em `out/repo/armv7/` e `out/repo/aarch64/`, aceito pelo `apk` de cada arquitetura sem `--allow-untrusted`, e a checagem de ELF. Verificação: `apk add --root` num container de cada arquitetura instala o pacote de teste; teste de unidade da checagem de ELF.
+- [ ] 4.2 Primeiro fragmento: `aports/lume-core` noarch com os arquivos do `rootfs/overlay/` que o D2 lista para ele (os outros continuam no overlay por enquanto); `rootfs/packages.txt` o inclui. Verificação: manifesto do rootfs com os mesmos arquivos e SHA256 de antes nos dois consoles.
+- [ ] 4.3 Arquivo do build por conteúdo (`out/images/objects/`, `boot-files.sha256` por build) e `push` lendo dele sem descompactar; `VERSION` fora da comparação e enviado só com outro arquivo; `flash` monta a imagem dos objetos quando não há `.img.zst`; compressão da imagem com threads. Verificação: testes de `test_push.py` (nada mudou, um arquivo mudou, build antigo arquivado); um `push` real sem a linha `unpacking`.
+- [ ] 4.4 Slots e manifesto no build: `rootfs/slots.toml`, separação do rootfs por dono no banco do `apk` (sem dono e banco do `apk` no `lume`), slots `base`, `runtime`, `lume` e `modules` com nome pelo conteúdo, `SLOTS` com sha256, versões e os sha dos slots de baixo, limites somados. Verificação: teste de unidade de que todo arquivo está em exatamente um slot; dois builds sem mudança dão os mesmos slots.
+- [ ] 4.5 Initramfs: lê `SLOTS` (ou `SLOTS.old`), monta `lume`, `runtime` e `base` como `lowerdir` e o `modules`; sem `SLOTS`, o `SYSTEM` antigo; registra cada slot e versão no log de boot. Verificação: `tests/initramfs/test_storage.sh` (manifesto bom, ausente, citando arquivo que falta, cartão antigo); spec `system-image`; `docs/LOGS.md`.
+- [ ] 4.6 `push` dos slots: copia os slots novos, confere, troca `SLOTS.new` → `SLOTS` com o antigo em `SLOTS.old`, apaga os slots que nenhum dos dois cita; migra o cartão antigo (o `SYSTEM` some no push seguinte); `flash --update` grava o layout novo; `check_room` conta o conjunto anterior. Verificação: testes de `test_push.py`; no GA36 e no R36S, push de cartão antigo, push seguinte e `dev check` verde.
+- [ ] 4.7 Prova ponta a ponta: mudar um script de `lume-core`, `r36os build lume-core`, `push`, e o console volta com o slot `lume` novo e a versão nova do `lume-core` no log, nos dois consoles. Verificação: saída do `push` com `ok` e tempos anotados no design.
+
+## 5. Push em RAM e cores sem reinício (D11)
+
+- [ ] 5.1 `r36os push --hot <fragmento>`: extrai os arquivos na camada em RAM, reinicia os serviços do fragmento (`init.d` dele ou `_lume_restart`), linha `push hot` no `events.log`; recusa kernel, módulos e base. Verificação: testes de `test_push.py`; no GA36, `--hot lume-core` com um script mudado e o serviço reiniciado; depois do reboot, o arquivo do cartão volta.
+- [ ] 5.2 Slots `core-<nome>` fora do overlay: serviço `lume-cores` depois do `frontend` monta em `/run/lume/cores/<nome>/`; o runner acha o core lá e espera se ainda não montou; o push troca um core sem reinício (remonta, ou no fim do jogo se em uso). Verificação: teste do runner com o core ausente e depois presente; no aparelho, jogo aberto logo após o boot, e troca de um core com e sem jogo aberto; `boot OK completed` sem piora.
+- [ ] 5.3 `r36os dev watch <fragmento>` (D19): inotify nos arquivos de entrada, 1 s de calma, build pontual e `push --hot`, uma linha por ciclo; recusa fragmentos sem `--hot`. Verificação: teste de unidade do agrupamento das mudanças; no GA36, salvar um script do `lume-core` e ver o serviço reiniciado em segundos.
+- [ ] 5.4 Documentar `--hot`, `dev watch`, a política de reinício e os cores no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
+
+## 6. Esteira: versão pelo conteúdo e etapas puladas (D3, D4, D6)
+
+- [ ] 6.1 Hash de entradas e de conteúdo por fragmento (`.PKGINFO`, `.lume-content`, `out/repo/<arch>/hashes.json`): entradas iguais → não compila; conteúdo igual → não publica; diferente → `pkgrel` seguinte, sem editar o `APKBUILD`. Verificação: testes de unidade (cada caso), e mudar um arquivo do `lume-launcher` gera versão maior enquanto um build sem mudança não compila nada.
+- [ ] 6.2 `r36os build <fragmento>... [--console]`: compila só os pedidos e os que dependem deles, remonta só os slots afetados e grava um conjunto novo sem imagem. Verificação: teste de unidade do plano (fragmento → slots); `r36os build lume-core` real termina em segundos.
+- [ ] 6.3 `<saída>.inputs` e etapa pulada para DTBs (só os patches que tocam device tree ou bindings), initramfs, rootfs e slots, com uma linha por etapa; `--clean` força tudo. Verificação: teste que muda cada entrada e confere que a etapa roda; build repetido sem mudança não chama compilador nem `mksquashfs`.
+- [ ] 6.4 Data fixa do kernel (`KBUILD_BUILD_TIMESTAMP` da versão do kernel). Verificação: commitar um patch que só toca o armv7 não muda o `Image` do aarch64.
+- [ ] 6.5 Compressão rápida no build pontual (zstd 3) e máxima no `build console` (zstd 19), com o nível no hash do slot e o 19 de reserva quando o slot rápido estoura o limite (D16). Verificação: teste de unidade (o slot rápido não é reaproveitado no build completo); tempo de remontar o slot `lume` nos dois níveis anotado no design.
+- [ ] 6.6 As duas arquiteturas em paralelo no `build console`, cada uma com metade das tarefas, prefixo na saída e resumo separado; o que é comum feito uma vez antes (D17). Verificação: teste de unidade da divisão de tarefas; um `build console` real com `ps` mostrando as duas esteiras e o total de tarefas dentro do limite, sob a proteção de calor.
+
+## 7. Kernel incremental e fragmentos do kernel (D5, D2, D3)
+
+- [ ] 7.1 `kernel.source_tree()`: árvore `.cache/src/linux-<versão>/` com git, série nova montada num índice temporário e aplicada com `read-tree -m -u`, só os arquivos de conteúdo diferente com data nova; `GIT_CEILING_DIRECTORIES` mantido. Verificação: teste de unidade com uma árvore pequena (mudar um patch muda o mtime só do arquivo dele).
+- [ ] 7.2 `build_kernel()` por arquitetura em `.cache/kbuild/<arch>/`, com as verificações do fragmento e dos warnings. Verificação: patch num driver do GA36 recompila esse arquivo e o link (log do `make`); o kernel aarch64 sai igual byte a byte.
+- [ ] 7.3 Pacotes `lume-kernel`, `lume-modules` e `lume-dtbs` por arquitetura, com versão pelo conteúdo; a `BOOT` e o slot `modules` saem deles. Verificação: testes de unidade; um patch de driver do GA36 muda só os pacotes do armv7, e o `push` ao R36S não envia nada.
+- [ ] 7.4 Equivalência: o `Image`/`zImage` incremental é igual ao de um build limpo com as mesmas entradas. Verificação: `r36os build --clean` contra incremental, mesmo SHA256.
+- [ ] 7.5 Limpeza das gerações antigas com o espaço liberado numa linha; `repo-clean` e `docs/BUILD.md` com o layout novo. Verificação: depois do primeiro build, `.cache/` tem uma árvore e uma pasta de build por arquitetura; spec `build-cache`.
+
+## 8. Fragmentar o resto (D2)
+
+- [ ] 8.1 Dividir o restante do `rootfs/overlay/` nos aports noarch do D2 (`lume-usb`, `lume-net`, `lume-audio`, `lume-saves`, `lume-diag`, `lume-power`, `lume-games`, `lume-launcher-data`, `lume-retroarch-cfg`, `lume-shaders`), com `depends` e serviços de reinício; o `rootfs/overlay/` fica só com o que for da imagem. Verificação: manifesto do rootfs com os mesmos arquivos e SHA256 de antes; `dev check` verde nos dois consoles.
+- [ ] 8.2 Versões dos fragmentos `lume-*`/`r36os-*` no `hw/boot-<n>.txt` (pelo `hwinfo`) e na conferência do `push`. Verificação: `docs/LOGS.md` com o campo; o `push` confere a versão do fragmento enviado.
+
+## 9. Compilação sem emulação (D7)
+
+- [ ] 9.1 `lume-launcher`, passo 1: `target/` do cargo em `.cache/cargo/<arch>`, sem vazar entre arquiteturas. Verificação: uma linha do `lume-ui` mudada → build armv7 medido contra os 8 min de antes.
+- [ ] 9.2 `lume-launcher`, passo 2: cross no x86 com a sysroot da arquitetura (`apk --root --arch --no-scripts`) e o Rust 1.96; o `abuild` só empacota. Verificação: build armv7 e aarch64 perto de 1 minuto; o launcher abre nos dois consoles e o `cargo test` passa.
+- [ ] 9.3 Prova do P-36 com um core pequeno (`libretro-snes9x2005-plus`): `distcc` para compiladores x86 com o gcc do Alpine 3.24 (caminho a) e, se não servir, cross completo do `abuild` (caminho b). Verificação: mesmo conteúdo do pacote (ou diferença explicada) e o core roda um jogo no GA36; decisão anotada no D7.
+- [ ] 9.4 Aplicar o caminho escolhido ao RetroArch e aos outros cores. Verificação: cada core abre um jogo do seu sistema nos dois consoles; tempo de recompilação de todos antes e depois.
+
+## 10. Boot mais curto para o ciclo de teste (D20)
+
+- [ ] 10.1 `rc_parallel="YES"` e os serviços que o jogo não usa (Bluetooth, NetworkManager, playlists do RetroArch, `lume-index`, o retrato de hardware do `hwinfo`) depois do `frontend`; a rede USB e o resumo de hardware da tela continuam antes. Verificação: `selftest` em modo aparelho verde; no GA36 e no R36S, o log do boot mostra a ordem nova e o `boot OK completed` antes e depois anotado no design; jogo aberto logo após o boot funciona; spec `boot-runtime`.
+- [ ] 10.2 Atualizar o P-58 em `docs/PENDENCIAS.md` com o que entrou aqui e o tempo novo. Verificação: o item cita esta change e os números.
+
+## 11. Verificação integrada
+
+- [ ] 11.1 Repetir as medições da 1.2 e preencher a coluna "Depois", conferindo as metas do design (driver < 1 min por arquitetura, launcher ~1 min, script e build sem mudança em segundos), a temperatura máxima da CPU e do NVMe e o tempo pausado pela proteção de calor. Verificação: tabela preenchida no design.
+- [ ] 11.2 Nos dois consoles, ligados ao mesmo tempo: `push` depois de um patch de driver, de uma mudança no launcher, de um core e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; `r36os dev check` verde; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
 
 ## Workflow follow-up
 
-- Fazer depois do archive da `boot-dtb-select`, no mesmo bloco da change do governor e dos cenários do frontend (decisão do usuário, 2026-11-16).
-- Anotar o P-36 e o P-61 em `docs/PENDENCIAS.md` com o que esta change resolveu, e anotar no P-14 (tema 1) a instalação de pacotes com o `apk` dentro do console (camada persistente), que ficou fora.
+- Fazer depois do archive da `boot-dtb-select` (feito), no mesmo bloco da change do governor e dos cenários do frontend (decisão do usuário, 2026-11-16).
+- `docs/PENDENCIAS.md`: anotar no P-36 e no P-61 o que esta change resolveu; no P-14 (tema 1) a instalação com o `apk` dentro do console, que ficou fora; pendência nova no tema 11 para voltar a construir e testar a imagem `vm` (saiu do ciclo nesta change, D13); pendência nova no tema 6 para avaliar o userland armv7 nos dois consoles (desempenho por core).

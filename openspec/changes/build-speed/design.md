@@ -4,168 +4,391 @@
 
 Ver `proposal.md` (Why). O estado que molda o desenho:
 
-- `src/r36os/kernel.py`: `source_tree()` cria `.cache/src/linux-<versão>-<hash dos patches>` a
-  partir do tarball e aplica os patches com `git apply` (com `GIT_CEILING_DIRECTORIES`, porque o
-  cache fica dentro do repositório); `build_kernel()` usa `.cache/kbuild/<console>-<hash>` e
-  `ccache` em `.cache/ccache/kernel-<console>`, dentro do container `cross` (x86_64). O kernel
-  embute o initramfs (`CONFIG_INITRAMFS_SOURCE`) e a data do build vem do último commit das
-  entradas (`build_stamp`), para o mesmo conteúdo dar o mesmo `Image`.
-- `src/r36os/build.py`: por camada, pacotes locais que faltam (`abuild` num container da
-  arquitetura do console, sob qemu), initramfs, kernel e DTBs, rootfs (`apk add --root` no
-  container da arquitetura) e `SYSTEM` (`mksquashfs` zstd 19 no x86). Nada é pulado por conteúdo,
-  só os pacotes locais por nome e versão.
-- `src/r36os/container.py`: todo container é `podman run --rm` sem limite de CPU nem prioridade.
-- `r36os push` já compara os arquivos da `BOOT` por SHA256 e manda só os que mudaram; a imagem
-  sai igual para as mesmas entradas, e isso tem de continuar.
-- Os pacotes locais (`aports/`) vão para `out/repo/<arch>/`, assinados com a chave de
-  `.cache/abuild/`.
+- `src/r36os/kernel.py`: `source_tree()` extrai o tarball para `.cache/src/linux-<versão>-<hash
+  de todos os patches>` e aplica a série com `git apply` (com `GIT_CEILING_DIRECTORIES`);
+  `build_kernel()` usa `.cache/kbuild/<console>-<hash>` e `ccache`, no container `cross`. A data
+  do kernel (`build_stamp`) é a do último commit em `kernel/patches/`, comum aos dois consoles. O
+  kernel embute o initramfs.
+- `src/r36os/build.py`: por console, os pacotes locais que faltam (por nome, sem olhar conteúdo),
+  initramfs, kernel, DTBs com `dt-validate`, rootfs (`apk add --root`) e `SYSTEM` (`mksquashfs`
+  zstd 19). Nada é pulado por conteúdo.
+- `src/r36os/archive.py`: comprime a imagem inteira do cartão (zstd 10, uma thread) a cada build.
+- `src/r36os/push.py`: compara a `boot-files.sha256` com o cartão (bom), mas para ler os arquivos
+  descompacta a imagem inteira; o `VERSION` (com o `build_id` da hora) sempre difere; termina no
+  `reboot` sem esperar.
+- `initramfs/init`: monta `<console>/SYSTEM` (ou `.old`) como `lowerdir` único, overlay com
+  tmpfs; `<console>/modules` à parte.
+- `aports/`: 19 pacotes, todos compilados num container da arquitetura sob qemu (o
+  `lume-launcher` armv7 leva 8 min; P-61); o `rootfs/overlay/` (scripts, serviços, configuração,
+  temas, shaders) é copiado por fora do `apk`.
+- O cartão tem `BOOT` (FAT32) e `ROMS`; não há partição Linux gravável, então tudo o que é
+  trocado no cartão é arquivo da `BOOT`.
+- O boot leva 24–34 s até o frontend (P-58): um reboot pesa no ciclo de teste.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Um patch num driver recompila um arquivo e o link, em menos de 1 minuto por console.
-- Um build sem mudança termina em poucos segundos (só confere hashes e monta a imagem).
-- O PC fica usável e mais frio durante qualquer build.
+- Mudança num script ou tema: build em segundos, no console em segundos (`push --hot`).
+- Patch num driver: menos de 1 minuto de compilação por arquitetura afetada.
+- Mudança no `lume-launcher`: perto de 1 minuto de build por arquitetura.
+- Build sem mudança: segundos. Push sem mudança: não envia nem reinicia.
+- PC usável e mais frio durante qualquer build.
+- Um comando dá o resultado de um teste no aparelho (passou/falhou), sem helper avulso.
 
 **Non-Goals:**
-- Compilar os `aports/` em cross em vez de emulados (P-36).
-- Cache do `cargo` do `lume-launcher` (P-61).
-- Instalar pacotes com o `apk` dentro do console (o `SYSTEM` é somente leitura e a `BOOT` é FAT;
-  a instalação pelo cabo continua sendo o `r36os push`).
+- `apk add` dentro do console (P-14), boot mais rápido (P-58), userland armv7 único.
+- Manter a imagem `vm` construída e testada nesta change (decisão do usuário; volta por
+  pendência própria).
 
 ## Decisions
 
-### D1. Uma árvore do kernel com o histórico do git
+### D1. Fragmento = pacote `.apk`; slot = unidade no cartão
 
-A árvore fica em `.cache/src/linux-<versão>/` (sem hash), como um repositório git próprio: um
-commit com o tarball intocado (tag `upstream`) e, por cima, um commit por patch (`git am` ou
-`git apply` + commit). Quando os patches mudam, o build faz `git checkout upstream`, aplica a
-série nova num branch novo e compara com o anterior: o git só regrava os arquivos que mudaram de
-conteúdo, então só eles ganham data nova. A pasta de build vira `.cache/kbuild/<console>/` (fixa),
-e o `make` incremental recompila o que depende desses arquivos.
+Dois níveis com granularidades diferentes:
 
-- Alternativa: manter o hash no nome e confiar no `ccache`. Rejeitada: é o que existe hoje, e
-  cada arquivo ainda passa pelo pré-processador.
-- Alternativa: reverter (`patch -R`) a série antiga e aplicar a nova. Rejeitada: toca todos os
-  arquivos de todos os patches, mesmo os que não mudaram.
-- A árvore continua com `GIT_CEILING_DIRECTORIES` para o git não achar o repositório do projeto.
+```
+ fragmento (.apk)  fino: compila, versiona e se instala sozinho     custo: segundos no PC
+ slot (squashfs)   grosso: o que vai ao cartão e é montado          custo: um mount
+```
 
-### D2. Hash de entradas por etapa
+Um slot é montado a partir dos arquivos instalados de um grupo de fragmentos. Assim o número de
+fragmentos pode crescer sem aumentar o número de mounts no boot.
 
-Cada etapa calcula um hash do que entra nela e grava ao lado da saída (`<saída>.inputs`):
+- Alternativa: um squashfs por fragmento. Rejeitada: dezenas de mounts no caminho do boot.
+- Alternativa: só slots, sem pacote. Rejeitada: não dá versão por parte nem build pontual.
 
-| Etapa | Entradas |
+### D2. Fragmentos por arquitetura e noarch
+
+- **Regra:** o que contém ELF é por arquitetura; o resto é `arch="noarch"`. O build falha se um
+  fragmento noarch tiver ELF.
+- **Nomes iguais nas duas arquiteturas**, sem nome de console (`lume-kernel`, não
+  `lume-kernel-r36s`): o `apk` já separa por repositório e pelo campo `arch`. O kernel de uma
+  arquitetura serve a todo console dela (rumo da `boot-dtb-select`); o fragmento do kernel passa a
+  ser da arquitetura (`board/<board>/kernel.config` vira o fragmento da arquitetura enquanto houver
+  um console por arquitetura).
+- **Noarch montado no x86:** `abuild` no container `builder` x86_64, sem qemu; o mesmo arquivo
+  `.apk` é copiado para `out/repo/armv7/` e `out/repo/aarch64/` (e `x86_64/`) e cada índice é
+  refeito.
+- **Corte inicial do `rootfs/overlay/`** (cada um vira `aports/<nome>/`, com os arquivos dentro):
+
+| Fragmento | Conteúdo hoje |
 |---|---|
-| kernel de um console | versão do tarball, conteúdo dos patches, fragmento, script de build, hash do initramfs |
-| DTBs de um SoC | os `.dts`/`.dtsi` do board e de `dts-vendor/`, os patches (bindings), o script |
-| initramfs | os arquivos do `initramfs/`, os pacotes que ele usa (nome e versão), o board |
-| rootfs e `SYSTEM` | lista de pacotes, `APKINDEX` do repositório local e do espelho do Alpine, overlay, idioma, script |
-| imagem de módulos | o `modules.tar` do kernel |
+| `lume-core` | `lib.sh`, `logs.sh`, `logd`, `rc-tee`, `session`, `bootlog`, `frontend`, `frontends/`, `os-release`, `issue`, `motd`, `hostname`, `conf.d/` |
+| `lume-usb` | `usb-gadget`, `usb-storage`, `r36os-usb`, regras udev de USB |
+| `lume-net` | `ssh-wifi`, `hostshare`, NetworkManager, dbus do Bluetooth |
+| `lume-audio` | `mixer`, `jack`, `audiotest` |
+| `lume-saves` | `savesync`, `persist` e os eventos |
+| `lume-diag` | `selftest`, `hwinfo`, `hwsummary` |
+| `lume-power` | `zram`, `sysctl.d`, regra do backlight |
+| `lume-games` | `playlists`, `lume-index`, `systems.json`, `runners.d` |
+| `lume-launcher-data` | `share/lume/` (i18n, temas, modelo de tema) e as fontes |
+| `lume-retroarch-cfg` | `share/r36os/retroarch-*.cfg`, `factory`, `share/libretro/autoconfig` |
+| `lume-shaders` | `share/libretro/shaders` |
 
-Se o hash gravado bate com o atual e a saída existe, a etapa é pulada. O kernel ainda passa
-pelo `make` quando a etapa roda, e o `make` incremental decide o resto.
+  Regra de corte: o que sempre muda junto fica junto. Dependências pelo `depends` do `APKBUILD`
+  (quase todos dependem de `lume-core`). O `rootfs/packages.txt` passa a listar os fragmentos.
 
-### D3. Pacotes `.apk` montados no x86, versionados pelas entradas
+### D3. Versão pelo conteúdo, compilação pelo hash de entradas
 
-O resultado de cada etapa compilada vira um pacote no repositório local da arquitetura do
-console:
+```
+ hash de entradas (APKBUILD, arquivos, código do repositório que ele empacota,
+                   script de build, versões das dependências de build)
+     igual ao do pacote mais novo? --> nao compila
+ hash do conteudo (lista de arquivos com modo e SHA256, metadados do pacote)
+     igual ao do pacote mais novo? --> nao publica versao nova (descarta o build)
+     diferente                     --> publica com o pkgrel seguinte
+```
 
-| Pacote | Conteúdo |
-|---|---|
-| `lume-kernel-<console>` | `Image`/`zImage`, `config`, `release` e o arquivo de módulos (`<console>/modules`) |
-| `lume-dtbs-<soc>` | os DTBs nativos e `vendor/` do SoC |
-| `lume-initramfs-<console>` | o `initramfs.cpio` que o kernel embute (para conferência e reuso) |
+- Os dois hashes vão no `.PKGINFO` (campo `commit` com o de entradas; um arquivo
+  `.lume-content` no controle com o de conteúdo) e num índice local `out/repo/<arch>/hashes.json`
+  para consulta rápida.
+- O `pkgrel` do `APKBUILD` vira o mínimo; ninguém o sobe à mão.
+- O mesmo vale para kernel, módulos e DTBs: um patch que só toca um driver do GA36 recompila
+  incrementalmente os dois kernels, mas o `lume-kernel` do aarch64 sai com o mesmo conteúdo e não
+  muda de versão.
 
-- **Versão:** `pkgver` = versão do componente (kernel `6.18.62`; DTBs e initramfs a versão do
-  projeto) e `pkgrel` crescente; o hash de entradas do D2 vai no campo `commit` do `.PKGINFO`.
-  O build procura no repositório um pacote com o mesmo hash: se acha, extrai dele em vez de
-  compilar; se não, compila e publica com o `pkgrel` seguinte.
-- **Montagem sem emulação:** o pacote só empacota arquivos já prontos, então é montado no
-  container x86 (`abuild` com `CARCH` do console, sem `strip` nem rastreio de dependências, ou o
-  `apk mkpkg` do apk-tools 3). A primeira tarefa prova qual dos dois gera um pacote que o `apk`
-  da arquitetura do console aceita; o reserva é escrever o `.apk` v2 direto (tar.gz de controle e
-  de dados, assinatura RSA com a chave do projeto).
-- **Imagem:** `image.py` passa a tirar a `BOOT` desses pacotes (extração), e o `r36os push`
-  continua mandando só o que mudou; o `VERSION` da `BOOT` ganha a versão de cada pacote, e o
-  `hwinfo` a registra no log do boot.
-- Alternativa: só o hash de entradas, sem pacote. Dá o mesmo ganho de tempo, mas não serve entre
-  worktrees nem máquinas e não registra versão no console (pedido do usuário de 2026-11-16).
+### D4. Data fixa do kernel e `VERSION` fora da comparação
 
-### D3b. Versão automática dos `aports/`
+- `KBUILD_BUILD_TIMESTAMP` passa a ser fixo (data de lançamento da versão do kernel). Com a data do
+  último commit, um patch do GA36 mudava a string de versão do kernel do R36S.
+- O `VERSION` da `BOOT` não entra na comparação do `push` nem nos testes de "igual byte a byte";
+  ele é enviado só quando outro arquivo é enviado.
 
-O `r36os pkg` calcula o hash de entradas de cada `aport` (o `APKBUILD`, os arquivos dele e o código
-que ele empacota de dentro do repositório, como `lume-launcher/`) e o compara com o campo
-`commit` do pacote mais novo no repositório: igual, nada a fazer; diferente, compila com o
-`pkgrel` seguinte (sem editar o `APKBUILD` no git; o `pkgrel` do arquivo vira o mínimo). O
-`hwinfo` grava no log de boot a versão de cada pacote `lume-*`/`r36os-*` instalado.
+### D5. Kernel incremental com git, sem regravar arquivos
 
-Instalar um pacote com o `apk` **dentro do console** fica fora: o `SYSTEM` é somente leitura e a
-camada gravável é RAM, então exigiria uma camada de pacotes persistente aplicada no boot (vai
-com a atualização A/B, P-14). A atualização pontual vem das camadas do D6.
+- Árvore em `.cache/src/linux-<versão>/`, repositório git próprio: commit do tarball intocado
+  (tag `upstream`).
+- A série nova é montada **fora da árvore de trabalho**: índice temporário (`GIT_INDEX_FILE`) a
+  partir de `upstream`, `git apply --cached` de cada patch, `write-tree` e `commit-tree`. Depois,
+  `git read-tree -m -u <commit antigo> <commit novo>` troca só os arquivos de conteúdo diferente,
+  e só eles ganham data nova. Um `git checkout upstream` antes da série nova regravaria todos os
+  arquivos tocados por algum patch.
+- Pasta de build fixa `.cache/kbuild/<arch>/`; o `make` incremental recompila o que depende dos
+  arquivos novos. O `ccache` continua.
+- `GIT_CEILING_DIRECTORIES` mantido.
+- O primeiro uso importa a árvore (2 GB) no git uma vez.
 
-### D6. `SYSTEM` em camadas e `push` pontual
+### D6. Etapas puladas e build pontual
 
-Pedido do usuário (2026-11-16): atualizar pedaços, com o build e a atualização rápidos.
+- Cada etapa grava `<saída>.inputs` com o hash de entradas; igual e com saída presente → pulada,
+  numa linha. `r36os build --clean` força tudo.
+- Entradas dos DTBs: os `.dts`/`.dtsi` e só os patches que tocam
+  `Documentation/devicetree/`, `include/dt-bindings/` ou `arch/*/boot/dts/` (lidos das linhas
+  `diff --git` de cada patch). Um patch de driver não revalida os ~170 DTBs.
+- Rootfs: a lista de fragmentos e pacotes, os `APKINDEX` (local e do espelho do Alpine), o
+  idioma e o script.
+- `r36os build <fragmento>... [--console ga36|r36s]` compila os fragmentos pedidos, remonta só os
+  slots que os contêm e grava um conjunto novo no arquivo do build (D10), sem imagem `.img`.
+  `r36os build console` faz tudo e gera a imagem.
 
-- **Camadas por console** na `BOOT`, cada uma um squashfs zstd, montadas no initramfs como
-  `lowerdir` do overlay (de cima para baixo):
-  1. `<console>/lume`: pacotes do projeto (`lume-*`, `r36os-*`) e o `rootfs/overlay/`;
-  2. `<console>/retroarch`: RetroArch, cores e shaders;
-  3. `<console>/SYSTEM`: o resto (base do Alpine e bibliotecas).
+### D7. Compilação sem emulação
 
-  Cada camada é montada a partir dos mesmos pacotes de hoje: o rootfs completo continua sendo
-  montado por `apk add --root`, e a separação é por lista de arquivos de cada grupo de pacotes
-  (do banco do `apk` instalado), então nenhuma dependência muda. Cada camada tem o próprio hash
-  de entradas (D2) e o próprio `.old` no `push` (como o `SYSTEM` e os módulos já têm). Montar
-  duas camadas a mais custa milissegundos no boot.
-- Alternativa: camada de pacotes persistente no cartão aplicada no boot. Rejeitada aqui: custa
-  tempo em todo boot e trata falha de instalação, o que é o problema do A/B (P-14).
-- Alternativa: delta binário do `SYSTEM` (rsync de blocos). Rejeitada: o squashfs comprimido
-  muda quase inteiro com qualquer alteração, e o console teria de reconstruir o arquivo.
-- **`push` sem descompactar:** o build já grava a lista da `BOOT` com os SHA256
-  (`image.BOOT_LIST`); o `push` lê os arquivos das saídas do build (`out/<console>/...`) por essa
-  lista, compara com o cartão e manda só os diferentes. A imagem `.zst` continua para o `flash`.
-  O resumo do `push` mostra bytes enviados e tempo.
+- **`lume-launcher` (P-61):** primeiro passo, o `target/` do cargo num volume
+  `.cache/cargo/<arch>` (recompila só as crates do lume, ainda sob qemu). Segundo passo, cross no
+  x86: `cargo build --target armv7-unknown-linux-musleabihf` / `aarch64-unknown-linux-musl`, com
+  a sysroot da arquitetura instalada por `apk --root --arch <arch> --no-scripts` (sem emulação) e o
+  mesmo Rust do Alpine (1.96). O `abuild` só empacota o binário. Verificação: o binário roda no
+  aparelho e os testes do `lume-ui` passam.
+- **Cores e RetroArch (P-36):** uma prova decide o caminho entre (a) `distcc` com compiladores
+  x86 que geram código musl da arquitetura, com o mesmo gcc do Alpine 3.24, mantendo o `abuild` no
+  container da arquitetura, e (b) cross completo do `abuild` (`CBUILD`/`CHOST`). Começa por (a),
+  que muda menos o pipeline. Critério: o mesmo `manifest`, e os cores rodam iguais no aparelho.
+  Com o D3, um core só recompila quando muda.
+- Alternativa: deixar tudo sob qemu. Rejeitada: o hash evita recompilar, mas quando o fragmento
+  muda, a espera continua de minutos a horas.
 
-### D4. Prioridade e número de tarefas
+### D8. Prioridade e número de tarefas
 
-- Todo container roda o script como `nice -n 19 ionice -c 3 sh -euc …` (o `nice` vale para o
-  escalonador do host mesmo dentro do container rootless; o `ionice` do busybox ou do util-linux).
-- `R36OS_JOBS` ou `--jobs N` (em `build`, `pkg` e `test-vm`) define as tarefas; o padrão é metade
-  dos núcleos (mínimo 1). Vira `-j` do `make`, `JOBS` do `abuild` e `-processors` do `mksquashfs`.
-- O build mostra no começo as tarefas e a prioridade.
-- Alternativa: `podman --cpus`. Limita por cota de tempo, mas não dá preferência ao usuário; e no
-  rootless depende da delegação do controlador de CPU. Fica como reserva se o `nice` não bastar.
+- O `podman` roda sob `nice -n 19 ionice -c 3`: a prioridade passa para conmon e o container,
+  sem exigir `ionice` em cada imagem.
+- `--jobs N` / `R36OS_JOBS` em `build`, `pkg` e `push`; padrão metade dos núcleos (mínimo 1).
+  Vira `-j` do `make`, `JOBS` do `abuild`, `-processors` do `mksquashfs`, threads do zstd e as
+  tarefas do `distcc`.
+- O `nice` deixa a máquina responsiva; o calor só cai com menos tarefas. A medição separa os dois.
+- Reserva: `systemd-run --user --scope -p CPUQuota=…` se o limite de tarefas não bastar.
 
-### D5. Limpeza e medição
+### D9. Slots e manifesto no cartão
 
-- Ao criar a árvore e as pastas de build do D1, o build apaga `linux-<versão>-*` e
-  `kbuild/<console>-*` antigos e diz quanto liberou; o `repo-clean` passa a conhecer o layout novo.
-- Cada etapa mede o próprio tempo, e o fim do build imprime a tabela (etapa, tempo ou `skipped`,
-  total), inclusive quando falha.
-- Medição da change: build completo (cache frio), build sem mudança, patch num driver e mudança
-  só no rootfs, com o tempo total e a temperatura máxima da CPU (lida do `hwmon` do host durante o
-  build), antes e depois. Os números ficam no design.
+```
+ BOOT/<console>/
+   Image | zImage            (nome fixo: o U-Boot de fabrica le)
+   SLOTS                      manifesto do conjunto: nome, arquivo, sha256, versoes dos fragmentos
+   SLOTS.old                  o conjunto anterior
+   slots/base-<sha12>         base do Alpine (bibliotecas, busybox, OpenRC)
+   slots/runtime-<sha12>      RetroArch, mesa/drivers de video, SDL
+   slots/lume-<sha12>         fragmentos do projeto + banco do apk + saidas de triggers
+   slots/modules-<sha12>      modulos do kernel
+   slots/core-<nome>-<sha12>  um por core
+ BOOT/dtbs/<soc>/...          (como hoje)
+```
+
+- **Nomes pelo conteúdo:** um slot novo nunca tem o nome de um slot em uso. O `push` copia os
+  slots novos, confere, e troca o conjunto com um único rename (`SLOTS.new` → `SLOTS`, o antigo vira
+  `SLOTS.old`). Corte de energia antes do rename: conjunto antigo inteiro; depois: conjunto novo
+  inteiro. Os slots não citados por `SLOTS` nem por `SLOTS.old` são apagados no push seguinte.
+- **Boot:** o initramfs lê `SLOTS` (ou `SLOTS.old` se o primeiro falta ou cita um arquivo
+  ausente) e monta `lume`, `runtime` e `base` como `lowerdir` (de cima para baixo) e o `modules`
+  como hoje. Sem `SLOTS`, monta o `<console>/SYSTEM` antigo (cartão antigo continua iniciando).
+- **Separação:** o rootfs completo continua sendo montado por `apk add --root`, e cada arquivo vai
+  para o slot do pacote dono (pelo banco do `apk`); arquivos sem dono ou de vários grupos
+  (`/lib/apk/db`, `/etc/apk/world`, saídas de triggers como cache de fontes e mime) vão para o
+  `lume`, o slot de cima, para que uma mudança num grupo não mude a base. Teste: todo arquivo do
+  rootfs está em exatamente um slot. O mapa grupo → pacotes fica em `rootfs/slots.toml`.
+- **Coerência:** cada slot grava o sha dos slots de baixo contra os quais foi montado; o
+  manifesto só é gerado com um conjunto coerente, e o push nunca manda um slot sem o resto do
+  conjunto que ele exige.
+- **Cores fora do caminho do boot:** os slots `core-*` não entram no overlay. Um serviço
+  (`lume-cores`, no runlevel `default`, depois do `frontend`) os monta em `/run/lume/cores/<nome>/`;
+  o runner acha o core lá e espera o mount se o jogo abrir antes.
+- Limites: a soma dos slots de um console no máximo 448 MiB; a `BOOT` com ao menos 64 MiB livres,
+  contando o conjunto anterior (spec `system-image`).
+- Alternativa: três camadas fixas e `.old` por arquivo (desenho anterior). Rejeitada: a troca
+  por arquivo deixa conjuntos mistos depois de um corte de energia.
+
+### D10. Arquivo do build por conteúdo; push sem descompactar
+
+```
+ out/images/objects/<sha256>              cada arquivo da BOOT, uma vez
+ out/images/console/<build>/boot-files.sha256
+ out/images/console/<build>/console-<build>.img.zst   so no build console
+```
+
+- Todo build (inteiro ou pontual) grava os objetos e a lista. O `push` lê os objetos de qualquer
+  build arquivado, sem descompactar. O `flash` usa o `.img.zst` se houver, ou monta a imagem a
+  partir dos objetos.
+- A imagem é comprimida com várias threads (limite do D8). O `r36os clean` apaga objetos que
+  nenhum build guardado cita.
+
+### D11. Política de reinício
+
+- **Padrão: reiniciar.** Slots do boot e kernel só trocam com o sistema parado; a troca do
+  conjunto é atômica e cada atualização prova o boot.
+- **Sem reinício:** (1) slots de core — o push troca o arquivo e pede ao `lume-cores` para
+  remontar; com o core em uso, a troca acontece quando o jogo fecha; (2) `push --hot <fragmento>` —
+  extrai os arquivos do `.apk` na camada gravável em RAM e reinicia os serviços do fragmento (os
+  `init.d` que ele traz, ou os listados no `APKBUILD` em `_lume_restart`); some no reboot e deixa
+  uma linha `push hot <fragmento> <versão>` no `events.log`. Kernel, módulos e `base` não aceitam
+  `--hot`.
+- Alternativa: slot do projeto fora do overlay (`/opt/lume` com links fixos) para trocar sem
+  reboot. Rejeitada: acopla a base a cada caminho do projeto; o `--hot` cobre a iteração.
+
+### D12. `r36os dev` e push que confere
+
+- Ao fim do `push` (sem `--no-wait`): espera o console sumir e voltar pelo cabo, lê o log do boot
+  novo e confere `boot OK completed`, os slots do `SLOTS` montados e as versões dos fragmentos
+  enviados; imprime `ok` ou o que divergiu, com os tempos (envio, boot).
+- `r36os dev wait | sh <cmd> | shot <arquivo> | keys <seq> | log | check`: os helpers do `dev.py`
+  da change `lume-launcher` (opções de ssh sem chave conhecida, botões por `input_event` no pad
+  virtual, combinações no pad do kernel, `r36os-shot`), com os números de evento lidos de
+  `/proc/bus/input/devices` em cada console. `check` roda o `selftest` no modo do aparelho e devolve
+  passou ou falhou.
+- O `selftest` ganha um modo de aparelho (sem os casos só da VM), que o `dev check` aciona.
+
+### D13. Validação no aparelho no lugar da VM
+
+- O build e o teste da imagem `vm` saem do ciclo desta change; o código do alvo `vm` fica, sem
+  slots (continua com um `SYSTEM`), e pode quebrar sem aviso: pendência nova para voltar a
+  construí-la e testá-la.
+- A liberação de um build de console passa a exigir `r36os dev check` verde no GA36 e no R36S
+  (spec `vm-validation`, modificada).
+
+### D14. Medição e limpeza
+
+- Tempo por etapa no fim de todo build (inclusive `skipped` e em erro).
+- Antes e depois: build completo (cache frio), sem mudança, patch num driver, mudança num
+  script, mudança no `lume-launcher`; push e boot depois de cada um; temperatura máxima da CPU
+  (`hwmon` do host, amostrada durante o build). Tabela neste design.
+- As gerações antigas de `linux-<versão>-*` e `kbuild/<console>-*` são apagadas com o espaço numa
+  linha; o `repo-clean` conhece o layout novo.
+
+### D15. Proteção de calor do PC
+
+Medido no PC do usuário (2026-11-16, parado): AMD Ryzen 7 5700G, 16 threads, `amd_pstate`
+ativo, boost ligado, EPP `balance_performance`; `k10temp` Tctl 37 °C; NVMe 28 °C (crítico 89,85
+°C); no `nct6798`, `AUXTIN0` 90 °C e `AUXTIN3` 97 °C **com o PC parado**: entradas auxiliares sem
+sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjmax).
+
+- **Sensor:** o hwmon do processador (`k10temp` Tctl, `zenpower`, ou `coretemp` Package em Intel),
+  achado pelo nome; nunca as entradas auxiliares de chips da placa-mãe. `R36OS_TEMP_SENSOR`
+  escolhe outro. Também o NVMe (`nvme` Composite), pelo volume de escrita do build.
+- **Amostragem:** uma thread do `r36os` lê a cada 2 s durante todo o build e todo container.
+- **Ação (histerese):** CPU ≥ `R36OS_TEMP_MAX` (padrão 85 °C) ou NVMe ≥ máximo dele − 5 °C →
+  `podman pause` dos containers do build, com uma linha na saída; retoma com CPU ≤ máximo − 10 °C.
+  Se a CPU passar de 92 °C mesmo pausado por 60 s (refrigeração com problema), o build aborta com
+  a mensagem do que foi lido.
+- **Resumo:** temperatura máxima da CPU e do NVMe, tempo acima do limite e tempo pausado, no
+  resumo por etapa (D14).
+- **Ordem das defesas:** (1) limite de tarefas (D8) reduz o calor; (2) a pausa evita o pico;
+  (3) `CPUQuota` pelo `systemd-run --user` fica de reserva. Desligar o boost ou mudar o EPP durante o
+  build esfria muito o Ryzen, mas exige root: fica documentado como ajuste manual opcional, nunca
+  feito pelo `r36os`.
+- Alternativa: diminuir o `-j` em tempo real. Rejeitada: o `make` e o `abuild` não mudam o `-j`
+  no meio da execução; a pausa do container funciona com qualquer ferramenta.
+
+### D16. Perfil de desenvolvimento na compressão
+
+- `r36os build <fragmento>` monta os slots com zstd nível 3 (`-Xcompression-level 3`); o `build
+  console` usa o 19 como hoje. O nível entra no hash de entradas do slot, então um slot de
+  desenvolvimento nunca é confundido com o de liberação.
+- O slot de desenvolvimento fica maior (a conta dos 448 MiB vale para os dois; se estourar, o
+  build pontual usa o nível 19 nesse slot e avisa).
+
+### D17. As duas arquiteturas em paralelo
+
+- O `build console` roda as esteiras do armv7 e do aarch64 ao mesmo tempo, cada uma com metade do
+  limite de tarefas (o total continua o do D8), sob a mesma proteção de calor.
+- A saída de cada uma ganha prefixo (`[armv7]`, `[aarch64]`); o resumo por etapa separa as duas.
+- O que é comum (árvore do kernel, fragmentos noarch) é feito uma vez antes de dividir.
+
+### D18. Um endereço USB por console
+
+- Hoje os dois consoles usam `10.55.0.1`; com os dois ligados ao PC, as duas interfaces têm a
+  mesma sub-rede e só um responde. Cada tipo de console passa a ter a sua sub-rede: GA36 continua
+  em `10.55.0.0/24` (`10.55.0.1`), R36S passa para `10.55.1.0/24` (`10.55.1.1`).
+- `r36os push`, `r36os dev` e o `flash` acham o console por `--console ga36|r36s`, ou pelo único
+  que responder; com os dois ligados e sem `--console`, os comandos de teste rodam nos dois em
+  paralelo e mostram o resultado de cada um.
+- Dois aparelhos do mesmo tipo ainda colidem; fica anotado como limite.
+- A change ativa `r36s-usb-proof` prova a USB do R36S com o endereço atual: a troca entra depois
+  das provas dela, ou elas são refeitas.
+
+### D19. `r36os dev watch` e capturas de referência
+
+- `r36os dev watch <fragmento>` observa os arquivos de entrada do fragmento (inotify no PC); a
+  cada mudança, espera 1 s sem novas mudanças, faz o build pontual e o `push --hot`, e mostra o
+  resultado numa linha. Só fragmentos que aceitam `--hot`.
+- `r36os dev shot --compare <tela>` captura a tela e compara com `tests/device/shots/<console>/<tela>.png`
+  (diferença por pixel acima de um limiar marca falha e grava a imagem de diferença em `./cache/`);
+  `--update` grava a captura como referência nova. As telas são alcançadas por sequências de botões
+  descritas junto da referência. Sem jogos de teste nas capturas (privacidade dos ROMs de teste):
+  cartão de demonstração com nomes inventados.
+
+### D20. Ganhos rápidos do boot (parte do P-58)
+
+- `rc_parallel="YES"` no OpenRC.
+- Depois do `frontend` (runlevel `default` com `after frontend`, ou um runlevel novo disparado por
+  ele): Bluetooth, NetworkManager, playlists do RetroArch, `lume-index` e o resumo de hardware do
+  `hwinfo` (o resumo da tela antes do frontend continua, spec `boot-runtime`). O `r36os-usb` continua
+  antes: o `push` e o `dev` dependem dele.
+- Medido no aparelho: `boot OK completed` antes e depois, nos dois consoles; nenhum jogo abre
+  antes de o que ele usa estar pronto.
+- O resto do P-58 (kernel, initramfs, launcher) continua numa change própria.
 
 ## Risks / Trade-offs
 
-- [Make incremental errado depois de mudar o `.config`] → o fragmento entra no hash; quando a
-  configuração muda, o `make olddefconfig` regenera o `auto.conf` e o kbuild recompila o que
-  depende das opções; um teste compara o `Image` incremental com o de um build limpo (mesmo
-  conteúdo, mesmo arquivo).
-- [Hash de entradas incompleto deixa passar uma mudança] → cada etapa lista as entradas num lugar
-  só (D2), e um teste muda cada entrada e confere que a etapa roda de novo; `r36os build --clean`
-  força tudo.
-- [Pacote montado no x86 recusado pelo `apk` do console] → a primeira tarefa prova a montagem
-  com o `apk` da arquitetura alvo; há o reserva do D3.
-- [Menos tarefas deixam o build completo mais lento] → o padrão só vale sem opção; com o kernel
-  incremental e as etapas puladas, o build comum faz muito menos trabalho.
-- [`ionice` sem efeito em certos agendadores de disco] → a prioridade de CPU já resolve o uso do
-  PC; o `ionice` é complemento.
+- [Make incremental errado depois de mudar o `.config`] → o fragmento entra no hash, o
+  `olddefconfig` regenera o `auto.conf`; teste compara o `Image` incremental com o de um build
+  limpo.
+- [Hash de entradas incompleto deixa passar uma mudança] → entradas listadas num lugar só por
+  etapa; teste que muda cada entrada; `--clean`.
+- [Pacote noarch ou montado no x86 recusado pelo `apk` da arquitetura] → é a primeira prova da
+  fase do esqueleto (tasks 3.x).
+- [Arquivos sem dono mudam a base a cada build] → vão para o `lume`; teste de separação.
+- [Mounts a mais no boot] → três no overlay (antes um) e os cores depois do frontend; medido no
+  aparelho, com o tempo do `boot OK completed` antes e depois.
+- [Conjunto misto depois de corte de energia] → manifesto único com rename, `SLOTS.old` e slots
+  com nome pelo conteúdo; teste de `storage.sh` com o manifesto faltando ou citando arquivo ausente.
+- [`--hot` deixa o console num estado que não é de nenhum build] → só na RAM, some no reboot, e o
+  `events.log` registra.
+- [Cross do Rust ou dos cores gera código diferente] → mesmo Rust e mesmo gcc do Alpine; o
+  binário passa nos testes e roda no aparelho; o caminho emulado continua como reserva.
+- [Sem a VM, uma regressão só aparece no aparelho] → `r36os dev check` nos dois consoles a cada
+  fase; o `selftest` em modo aparelho cobre os serviços.
+- [Change grande] → fases com o sistema funcionando ao fim de cada uma; o esqueleto ponta a ponta
+  vem cedo.
+- [Sensor errado faz a proteção de calor pausar sempre ou nunca] → só o hwmon do processador; o
+  build diz no começo qual sensor e qual leitura está usando, e falha se não achar nenhum (sem
+  `R36OS_TEMP_SENSOR`).
+- [Pausa no meio de uma etapa com tempo limite] → nenhum passo do build usa tempo limite de
+  relógio; o tempo pausado aparece no resumo.
+- [Duas esteiras em paralelo esquentam mais] → o total de tarefas não muda e a proteção de calor
+  vale para as duas.
+- [Endereço novo do R36S quebra receitas e documentação] → `--console` e a descoberta pelo único
+  que responde; guias de bring-up e `docs/LOGS.md` atualizados na mesma task.
+- [Serviços depois do frontend atrasam algo que o usuário usa logo] → só o que o jogo não usa;
+  o launcher mostra Wi-Fi e Bluetooth como "iniciando" até ficarem prontos.
 
 ## Migration Plan
 
-1. O primeiro build depois da mudança cria a árvore com git e as pastas fixas, apaga as antigas e
-   compila tudo uma vez (cache frio).
-2. Os pacotes novos entram no repositório local ao lado dos `aports/`; nada muda no cartão.
-3. Reversão: voltar o commit; o build antigo recria as pastas com hash a partir do tarball.
+1. O primeiro build cria a árvore git do kernel e as pastas fixas e apaga as antigas.
+2. O `rootfs/overlay/` vira aports noarch; a imagem gerada continua com os mesmos arquivos nos
+   mesmos caminhos (conferido pelo manifesto).
+3. O cartão: o initramfs novo aceita os dois layouts; o primeiro `push` ou `flash --update` grava
+   `SLOTS` e `slots/`, e o `SYSTEM` antigo é apagado no push seguinte.
+4. Reversão: um cartão com `SLOTS` não inicia com o initramfs antigo; voltar exige `flash
+   --update` com uma imagem antiga (a `ROMS` fica intacta).
+
+## Medições
+
+| Caso | Antes | Depois |
+|---|---|---|
+| build completo (cache frio) | | |
+| build sem mudança | | |
+| patch num driver | | |
+| mudança num script | | |
+| mudança no `lume-launcher` | | |
+| push + boot (launcher) | | |
+| `boot OK completed` (GA36 / R36S) | | |
+| temperatura máxima da CPU (`k10temp` Tctl) | | |
+| temperatura máxima do NVMe | | |
+| tempo pausado pela proteção de calor | | |

@@ -2,54 +2,58 @@
 
 ## Purpose
 
-Fazer de tudo o que o projeto compila um pacote `.apk` versionado pelas próprias entradas, para
-o build reaproveitar o que já existe e para instalar ou atualizar uma parte sem refazer a imagem.
+Fazer de tudo o que o projeto entrega um fragmento: um pacote `.apk` por arquitetura ou noarch,
+versionado pelo próprio conteúdo, compilado sozinho e instalável sem refazer a imagem.
 
 ## ADDED Requirements
 
-### Requirement: O que é compilado sai como pacote
-O kernel e os módulos de cada console, os DTBs de cada SoC (nativos e convertidos) e as
-ferramentas do initramfs MUST sair como pacotes `.apk` no repositório local do projeto, assinados
-com a chave dos pacotes locais, e a imagem MUST tirar esses arquivos dos pacotes.
+### Requirement: Tudo o que o projeto entrega é um fragmento
+O kernel, os módulos, os DTBs, os pacotes de `aports/` e os arquivos que hoje vêm de
+`rootfs/overlay/` MUST sair como pacotes `.apk` no repositório local de cada arquitetura,
+assinados com a chave dos pacotes locais, e o sistema do console MUST ser montado só a partir de
+pacotes.
 
 #### Scenario: Pacotes depois de um build
 - **WHEN** `r36os build console` termina
-- **THEN** `out/repo/aarch64/` e `out/repo/armv7/` têm o pacote do kernel e dos módulos do console, o dos DTBs do SoC e o das ferramentas do initramfs, e o índice do repositório os lista
+- **THEN** `out/repo/armv7/` e `out/repo/aarch64/` têm `lume-kernel`, `lume-modules`, `lume-dtbs` e os fragmentos do projeto, e os índices os listam
 
 #### Scenario: Mesmo conteúdo no cartão
-- **WHEN** a imagem é gerada a partir dos pacotes
-- **THEN** a `BOOT` e o `SYSTEM` têm os mesmos arquivos, nos mesmos caminhos, que a imagem gerada antes desta mudança
+- **WHEN** a imagem é gerada a partir dos fragmentos
+- **THEN** o sistema montado de cada console tem os mesmos arquivos, nos mesmos caminhos e com o mesmo conteúdo, que a imagem gerada antes desta mudança, exceto os metadados do `apk`
 
-### Requirement: Versão do pacote pelas entradas
-A versão de cada pacote compilado MUST mudar quando, e só quando, mudam as entradas dele (código-fonte
-fixado, patches, configuração e scripts de build), e o build MUST reaproveitar o pacote já existente
-com as mesmas entradas em vez de recompilar.
+### Requirement: Binário por arquitetura, resto noarch
+Um fragmento com binário ELF MUST ser publicado por arquitetura, com o mesmo nome nas duas; um
+fragmento sem ELF MUST ser noarch, montado uma vez e publicado igual em todas as arquiteturas. O
+build MUST falhar se um fragmento noarch contiver ELF.
+
+#### Scenario: Script do projeto
+- **WHEN** um fragmento noarch (por exemplo `lume-usb`) é montado
+- **THEN** o mesmo arquivo `.apk`, com o mesmo SHA256, está em `out/repo/armv7/` e em `out/repo/aarch64/`, e foi montado sem emulação
+
+#### Scenario: ELF num fragmento noarch
+- **WHEN** um fragmento noarch passa a conter um executável ELF
+- **THEN** o build falha nomeando o fragmento e o arquivo
+
+### Requirement: Versão pelo conteúdo
+A versão de um fragmento MUST subir quando, e só quando, o conteúdo do pacote muda, sem edição
+manual do `pkgrel`; o build MUST reaproveitar o pacote existente quando as entradas não mudaram,
+sem compilar.
 
 #### Scenario: Entradas sem mudança
-- **WHEN** o build roda e o pacote do kernel do R36S com as entradas atuais já está no repositório
-- **THEN** o build usa esse pacote e não recompila o kernel do R36S
+- **WHEN** o build roda e as entradas do `lume-launcher` não mudaram
+- **THEN** o build não compila o `lume-launcher` e a versão continua a mesma
 
-#### Scenario: Entrada mudou
-- **WHEN** o fragmento de kernel do GA36 muda
-- **THEN** o pacote do kernel do GA36 ganha versão nova e o do R36S fica o mesmo
+#### Scenario: Entradas mudaram, conteúdo igual
+- **WHEN** um patch que só afeta o kernel armv7 muda
+- **THEN** o `lume-kernel` do aarch64 é recompilado incrementalmente, sai com o mesmo conteúdo e mantém a versão
 
-### Requirement: Versão automática dos pacotes locais
-Os pacotes de `aports/` (inclusive o `lume-launcher`) MUST ganhar versão nova quando as entradas
-deles mudam, sem subir o `pkgrel` à mão, e o log de boot do console MUST registrar a versão de
-cada pacote do projeto instalado.
-
-#### Scenario: Mudança no lume-launcher
+#### Scenario: Mudança no launcher
 - **WHEN** o código do `lume-launcher` muda e o build roda
-- **THEN** o pacote sai com versão maior que a anterior, sem edição do `APKBUILD`, e o `hw/boot-<n>.txt` do console mostra essa versão depois do `push`
+- **THEN** o pacote sai com versão maior que a anterior, sem edição do `APKBUILD`
 
-#### Scenario: Sem mudança
-- **WHEN** nenhuma entrada do `lume-launcher` muda
-- **THEN** o build reaproveita o pacote existente e a versão continua a mesma
+### Requirement: Versões dos fragmentos no console
+O log de boot do console MUST registrar a versão de cada fragmento do projeto instalado.
 
-### Requirement: Instalação de uma parte sem refazer a imagem
-Um pacote compilado MUST poder ser instalado num console pelo cabo USB, ou extraído noutra
-máquina, sem gerar a imagem inteira, e o console MUST registrar no log a versão instalada.
-
-#### Scenario: Atualizar só o kernel de um console
-- **WHEN** só o kernel do GA36 mudou e o usuário atualiza o console pelo cabo
-- **THEN** só os arquivos do pacote do kernel do GA36 mudam no cartão, e o log do boot seguinte mostra a versão do pacote
+#### Scenario: Depois de um push
+- **WHEN** o console inicia depois de um `push` que trocou um fragmento
+- **THEN** o `hw/boot-<n>.txt` mostra a versão nova desse fragmento e as mesmas versões de antes nos outros
