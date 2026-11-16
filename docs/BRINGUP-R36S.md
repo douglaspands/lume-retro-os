@@ -163,7 +163,17 @@ rule)` por kexec, sem pergunta. Sem a cópia, o boot 110 voltou ao `r36s-v5` (`r
 
 **Número de série:** não há `/sys/devices/soc0` no RK3326, então o estado é por SoC
 (`dtb-rk3326.conf`). O U-Boot de fábrica grava `/serial-number` no DTB (`c3d9b8674f4b94f6`
-neste aparelho, igual nos boots 108 e 110), que se perde no kexec.
+neste aparelho, igual nos boots 108 e 110). Desde o `lume-bootsel` r14 (build
+`20261116-135455`) ele nomeia o estado (`dtb-rk3326-c3d9b8674f4b94f6.conf`) e passa ao DTB
+do kexec, então os dois inícios acham o mesmo arquivo (`device: bootloader serial number
+...`, boots 112 a 114).
+
+**Lista, aprendizado e *Automatic* (mesmo build, boots 113 e 114):** o `init` desliga o eco do
+`tty1`, e o Vol- segurado não enche mais a tela. Boot 113: lista → `factory-r35s`, kexec,
+pergunta confirmada com A, `learned: factory-r35s for panel:fe5202`. Boot 114: lista →
+*Automatic*, `saved choice cleared` e `selected factory-r35s (reason: learned)`, por kexec e
+sem pergunta. O aprendido e o estado foram apagados depois, e o aparelho voltou ao `r36s-v5`
+(`rule`).
 
 ## 4. Primeiro boot
 
