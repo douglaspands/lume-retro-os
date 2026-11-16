@@ -1,6 +1,8 @@
 #!/sbin/openrc-run
-# Sessão do frontend (D10): sobe direto no tty1, sem login. O frontend é escolhido
-# em /etc/conf.d/frontend. O laço de reinício fica no r36os-session (sem supervise-daemon).
+# Frontend session (D10): starts straight on tty1, with no login. The frontend is chosen in
+# /etc/conf.d/frontend. The restart loop lives in r36os-session (no supervise-daemon).
+# Nothing a game does not use is waited for: playlists, lume-index, NetworkManager and
+# Bluetooth start after this service (build-speed D20).
 
 description="Frontend session (${FRONTEND:-retroarch})"
 command=/usr/libexec/r36os/session
@@ -10,5 +12,5 @@ pidfile=/run/frontend.pid
 depend() {
 	need localmount r36os-persist
 	use seatd alsa udev
-	after udev-settle r36os-hwsummary r36os-playlists r36os-savesync
+	after udev-settle r36os-hwsummary r36os-savesync
 }

@@ -41,6 +41,12 @@ sed -i -e 's/^#*rc_logger=.*/rc_logger="YES"/' /etc/rc.conf
 # game user and the launcher puts each game in its own cgroup (lume-launcher D9)
 sed -i -e 's/^#*rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf
 grep -qx 'rc_cgroup_mode="unified"' /etc/rc.conf || echo 'rc_cgroup_mode="unified"' >> /etc/rc.conf
+# Services start in parallel (build-speed D20): the order comes only from the depend() of
+# each service. The ones no game uses (NetworkManager, Bluetooth, RetroArch playlists,
+# lume-index) are "after frontend", so the frontend does not wait for them; the hardware
+# snapshot of hwinfo is taken by r36os-logd once the frontend is up.
+sed -i -e 's/^#*rc_parallel=.*/rc_parallel="YES"/' /etc/rc.conf
+grep -qx 'rc_parallel="YES"' /etc/rc.conf || echo 'rc_parallel="YES"' >> /etc/rc.conf
 
 add() { rc-update add "$1" "$2" >/dev/null; }
 # cgroups mounts the cgroup v2 of rc_cgroup_mode above: without it in a runlevel nothing mounts
@@ -49,12 +55,17 @@ add() { rc-update add "$1" "$2" >/dev/null; }
 # sysfs pulled in later cgroups found no /sys/fs/cgroup, did nothing and still said started.
 for s in sysfs devfs dmesg cgroups udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done
-# dbus and networkmanager: Wi-Fi by USB dongle (usb-device-access D9); the frontend does not
-# wait for them (no dependency). bluetooth only on the consoles, below (the vm kernel has no
-# Bluetooth, so bluetoothd would crash there).
+# Before the frontend: what a game or the cable uses (audio, input, saves, the USB network
+# for push/dev) and the hardware summary on the screen.
 for s in seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb r36os-savesync r36os-hostshare \
-	r36os-playlists lume-index r36os-input r36os-hwsummary frontend r36os-selftest dbus \
-	networkmanager r36os-ssh-wifi; do
+	r36os-input r36os-hwsummary frontend r36os-selftest; do
+	add "$s" default
+done
+# After the frontend (build-speed D20, "after frontend" in their depend() or conf.d): the
+# game lists and Wi-Fi by USB dongle (usb-device-access D9). dbus has no order (NetworkManager
+# needs it). bluetooth only on the consoles, below (the vm kernel has no Bluetooth, so
+# bluetoothd would crash there).
+for s in r36os-playlists lume-index dbus networkmanager r36os-ssh-wifi; do
 	add "$s" default
 done
 # Board services that live in the common overlay

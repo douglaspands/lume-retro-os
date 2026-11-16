@@ -1,12 +1,13 @@
 #!/sbin/openrc-run
-# Listas de jogos do RetroArch geradas de roms/ e do catálogo, a cada boot.
+# RetroArch game playlists, generated from roms/ and the catalog on every boot.
+# After the frontend (build-speed D20): the lume-launcher does not read them; RetroArch, the
+# reserve frontend, reads a playlist file when its menu opens it.
 
 description="Game playlists"
 
 depend() {
 	need localmount
-	after r36os-persist
-	before frontend
+	after r36os-persist frontend
 }
 
 start() {

@@ -5,6 +5,7 @@
 # and reloads when this scan bumps cache/index/GEN. lume-index holds a flock on
 # cache/lock, so a restart (usb-gadget, when the PC lets go of the card) never runs two
 # scans at once. Its summary line (games per system, no names) goes to the syslog.
+# After the frontend (build-speed D20): the scan does not compete with the launcher start.
 
 description="Launcher game lists"
 command=/usr/bin/lume-index
@@ -16,8 +17,7 @@ error_logger="logger -t lume-index"
 
 depend() {
 	need localmount
-	after r36os-persist
-	before frontend
+	after r36os-persist frontend
 }
 
 start() {

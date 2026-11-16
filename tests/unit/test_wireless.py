@@ -49,12 +49,15 @@ def test_bluez_answers_the_frontend_user():
 
 
 def test_services_start_without_holding_the_frontend():
-    line = re.search(r'^for s in seatd .*?; do', CONFIGURE, re.S | re.M).group(0)
+    # in the list of services after the frontend (build-speed D20, tests/unit/test_boot_order.py)
+    line = re.search(r'^for s in r36os-playlists .*?; do', CONFIGURE, re.S | re.M).group(0)
     for service in ("dbus", "networkmanager"):
         assert re.search(rf"\b{service}\b", line), service
     # bluetooth on the consoles only: the vm kernel (linux-virt) has no Bluetooth, and
     # bluetoothd crashed there (test-vm, 2026-11-13)
     assert not re.search(r"\bbluetooth\b", line)
+    early = re.search(r'^for s in seatd .*?; do', CONFIGURE, re.S | re.M).group(0)
+    assert not re.search(r"\b(dbus|networkmanager|bluetooth)\b", early)
     assert re.search(r"^ga36\|r36s\) add bluetooth default ;;$", CONFIGURE, re.M)
     deps = (OVERLAY / "etc/init.d/frontend").read_text()
     assert not re.search(r"\b(net|networkmanager|bluetooth|dbus)\b",
