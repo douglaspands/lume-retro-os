@@ -353,6 +353,11 @@ base_url = "https://raw.githubusercontent.com/christianhaitian/linux/{version}/{
 [upstream.rocknix]
 base_url = "https://raw.githubusercontent.com/ROCKNIX/distribution/{version}/{path}"
 
+# ROCKNIX joypad drivers (singleadc/multiadc, the amux-channel-mapping of the clone DTBs).
+# version = commit pinned by ROCKNIX (ac1be0fa0c4e1f7feb9a900fc428d7ac6014029c).
+[upstream.rocknix-joypad]
+base_url = "https://raw.githubusercontent.com/ROCKNIX/rocknix-joypad/{version}/{path}"
+
 # uMTP-Responder (umtprd, the MTP side of the USB gadget). version = release tag (umtprd-1.6.8).
 [upstream.umtprd]
 base_url = "https://raw.githubusercontent.com/viveris/uMTP-Responder/{version}/{path}"

@@ -68,6 +68,14 @@ def _parser() -> argparse.ArgumentParser:
     t = sub.add_parser("test-vm", help="automated acceptance test of the vm image")
     t.add_argument("--keep", action="store_true", help="keep the VM disk after the test")
 
+    d = sub.add_parser("dtb-import", help="convert vendor RK3326 device trees into "
+                                          "board/r36s/dts-vendor/ (boot-dtb-select D12)")
+    d.add_argument("sources", nargs="*", metavar="NAME=DIR",
+                   help="a collection name and the folder of its DTBs, e.g. "
+                        "mydevice=/path/to/dtbs; added to the default collections of "
+                        "r36os.vendor_dtb.default_sources() (the three public ones are "
+                        "required, out/r36s-factory is used when it exists)")
+
     c = sub.add_parser("clean", help="free the space of build leftovers (dry run by default)")
     c.add_argument("--yes", action="store_true", help="remove (without it, only list)")
     c.add_argument("--keep", type=int, default=3, metavar="N",
@@ -122,6 +130,28 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.selftest import test_vm
 
             return test_vm(keep=args.keep)
+        if args.command == "dtb-import":
+            from r36os.paths import REPO_ROOT
+            from r36os.vendor_dtb import default_sources, import_collections
+
+            sources = default_sources()
+            for name, folder in list(sources.items()):
+                if name == "factory" and not folder.is_dir():
+                    del sources[name]     # the factory card copy is optional
+                elif not folder.is_dir():
+                    print(f"error: {name}: {folder} is missing (see README, "
+                          "\"Converter os DTBs\")", file=sys.stderr)
+                    return 2
+            for item in args.sources:
+                name, sep, folder = item.partition("=")
+                if not sep or not Path(folder).is_dir():
+                    print(f"error: {item}: expected NAME=DIR", file=sys.stderr)
+                    return 2
+                sources[name] = Path(folder)
+            rows = import_collections(sources, REPO_ROOT / "board/r36s/dts-vendor")
+            for status in ("converted", "refused", "same"):
+                print(f"{status}: {sum(r['status'] == status for r in rows)}")
+            return 0
         if args.command == "clean":
             from r36os.clean import main_clean
 
