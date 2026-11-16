@@ -104,7 +104,9 @@ ao driver), a busca sozinha testa os outros DTBs da pasta, um por boot.
   arquivo volta ao automático. Um nome que não existe é ignorado (motivo no log).
 - **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
   **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-rk3326-<serial>.conf` (um
-  por aparelho; `dtb-rk3326.conf` sem número de série) e "Automatic" apaga a escolha. (Teclas provisórias até a prova 1.2 de `boot-dtb-select`.)
+  por aparelho; `dtb-rk3326.conf` sem número de série) e "Automatic" apaga a escolha. O
+  U-Boot de fábrica não faz nada com Vol-, Vol+, Start, Select ou A segurados ao ligar
+  (prova 1.2 de `boot-dtb-select`, boots 116 a 119): o Vol- é livre para a lista.
 - **DTB novo:** copiar o `.dtb` (com o nó `lume-select`) para `BOOT/dtbs/rk3326/` basta
   para ele entrar na lista.
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o

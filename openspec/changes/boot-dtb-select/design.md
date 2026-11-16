@@ -215,7 +215,23 @@ lista, as teclas de volume para navegar e uma tecla de ação para confirmar; a 
 sai das provas 1.2 e 1.3 (o U-Boot do GA36 já desvia o boot por faixas do LRADC, e uma
 tecla de volume pode cair nelas). O estado da tecla é lido uma vez, por `EVIOCGKEY`, assim
 que o dispositivo de entrada aparece (espera de no máximo 1 s), então o usuário só precisa
-segurá-la ao ligar. O menu é texto no `tty1` (fbcon), com o automático marcado `(auto)`, o
+segurá-la ao ligar.
+
+**R36S, prova 1.2 (2026-11-16, build `20261116-135455`):** ligando com cada tecla segurada,
+o U-Boot de fábrica seguiu o boot normal em todas, e o kernel viu a tecla:
+
+| Tecla | Código no kernel | U-Boot de fábrica | Boot |
+|---|---|---|---|
+| Vol- | `KEY_VOLUMEDOWN` (`volume-keys`, `gpio3 PC5`) | nada | 106, 111, 113, 114 |
+| Vol+ | `KEY_VOLUMEUP` (`volume-keys`, `gpio3 PC6`) | nada | 116 |
+| Start | `BTN_TRIGGER_HAPPY2` (F2, `gpio3 PA6`) | nada | 117 |
+| Select | `BTN_TRIGGER_HAPPY1` (F1) | nada | 118 |
+| A | `BTN_EAST` (`gpio3 PB6`) | nada | 119 |
+
+Vol- fica como tecla da lista no R36S. As teclas de volume são um teclado para o kernel, e o
+eco do `tty1` repetia o Vol- segurado na tela; o `init` desliga o eco (tarefa 6.7).
+
+O menu é texto no `tty1` (fbcon), com o automático marcado `(auto)`, o
 último bom `(ok)` e a escolha forçada `(forced)`. Os drivers das teclas já são embutidos
 (`KEYBOARD_GPIO` no R36S, `KEYBOARD_SUN4I_LRADC` no `sunxi_defconfig` do GA36), o que a
 tarefa 3.1 confere.
