@@ -46,6 +46,23 @@ def _parser() -> argparse.ArgumentParser:
                    help="console build from out/images/console/ (default: latest)")
     u.add_argument("--yes", action="store_true", help="do not ask for confirmation")
 
+    dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
+                                    "keys, log)")
+    dv.add_argument("--host", metavar="ADDR", help="console address (default: the USB cable's)")
+    ds = dv.add_subparsers(dest="dev_command", required=True, metavar="<action>")
+    w = ds.add_parser("wait", help="wait until the console answers over the cable")
+    w.add_argument("--timeout", type=float, default=120, metavar="SECONDS")
+    sh = ds.add_parser("sh", help="run a command on the console as root (exit code passed)")
+    sh.add_argument("cmd", nargs=argparse.REMAINDER, help="the command")
+    st = ds.add_parser("shot", help="save a PNG of the console screen")
+    st.add_argument("file", type=Path)
+    ky = ds.add_parser("keys", help="press buttons, e.g. 'a,down*3,start+select,wait:500,"
+                                    "fn+start' (see r36os.dev for the syntax)")
+    ky.add_argument("sequence")
+    ky.add_argument("--hold", type=int, default=80, metavar="MS", help="press length")
+    ky.add_argument("--gap", type=int, default=120, metavar="MS", help="pause after a press")
+    ds.add_parser("log", help="print the boot log of the current boot")
+
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
 
@@ -148,6 +165,10 @@ def _main(args: argparse.Namespace) -> int:
             from r36os.push import main_push
 
             return main_push(args.build, args.yes)
+        if args.command == "dev":
+            from r36os.dev import main_dev
+
+            return main_dev(args)
         if args.command == "eject":
             from r36os.flash import main_eject
 
