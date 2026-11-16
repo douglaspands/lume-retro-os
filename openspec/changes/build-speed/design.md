@@ -382,13 +382,21 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 
 | Caso | Antes | Depois |
 |---|---|---|
-| build completo (cache frio) | | |
-| build sem mudança | | |
-| patch num driver | | |
-| mudança num script | | |
-| mudança no `lume-launcher` | | |
-| push + boot (launcher) | | |
-| `boot OK completed` (GA36 / R36S) | | |
-| temperatura máxima da CPU (`k10temp` Tctl) | | |
-| temperatura máxima do NVMe | | |
-| tempo pausado pela proteção de calor | | |
+| build completo (cache frio) | 31 min 34 s (`-j16`) | |
+| build sem mudança | 12 min 04 s | |
+| patch num driver | 13 min 45 s | |
+| mudança num script | 12 min 47 s | |
+| mudança no `lume-launcher` | 8 min 24 s (só o pacote armv7) | |
+| push + boot (launcher) | GA36: push 4 min 07 s (descompacta 644 MiB, manda `SYSTEM`, `zImage`, o `Image` do R36S e `VERSION`) + boot 33,6 s; sem mudança: 35 s, sem reinício | |
+| `boot OK completed` (GA36 / R36S) | 34,2 s e 33,6 s / 24,4 s | |
+| temperatura máxima da CPU (`k10temp` Tctl) | 95,4 °C (cache frio, 1074 s acima de 85 °C); 75–82 °C nos outros | |
+| temperatura máxima do NVMe | 37,9 °C | |
+| tempo pausado pela proteção de calor | 0 s (só registrando) | |
+
+Medido em 2026-11-16 (1.2), com o código de antes desta change e a proteção de calor só
+registrando. "Cache frio" = sem `.cache/src`, `.cache/kbuild` e `.cache/ccache` (renomeadas para
+`*.antes-1.2`), com os pacotes de `out/repo` reaproveitados; esse caso rodou com o `-j$(nproc)`
+de hoje (16) e esquentou até o Tjmax do 5700G, então os outros rodaram com `-j8` (troca
+temporária, desfeita) e com a CPU esfriada a ~50 °C antes de cada um. Patch de driver = um
+comentário num arquivo só do GA36 (`ga36mb-gamepad.c`); script = um comentário no `session`;
+launcher = um comentário no `lume-ui` e `r36os pkg ga36 lume-launcher`. Logs em `cache/measure/`.
