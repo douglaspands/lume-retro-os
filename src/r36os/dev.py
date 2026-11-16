@@ -109,10 +109,14 @@ def wait_for_console(host: str, timeout: float, interval: float = 2.0,
 
 def boot_log_command() -> str:
     """Remote command that prints the log of the current boot: the RAM copy, else the one
-    on the card (ROMS/logs/boot/boot-<n>.log, docs/LOGS.md), else the kernel buffer."""
-    return ("n=$(cat /run/r36os/logs/boot-n 2>/dev/null); "
+    on the card (ROMS/logs/boot/boot-<n>.log, docs/LOGS.md), else the kernel buffer; then
+    the events of that boot from events.log (`boot OK completed: ...` is only there)."""
+    return ("n=$(cat /run/r36os/logs/boot-n 2>/dev/null); shown=; "
             'for f in "/run/r36os/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
-            '[ -n "$n" ] && [ -f "$f" ] && exec cat "$f"; done; dmesg')
+            'if [ -n "$n" ] && [ -f "$f" ]; then cat "$f"; shown=1; break; fi; done; '
+            '[ -n "$shown" ] || dmesg; '
+            'echo; echo "== events (boot $n)"; '
+            "awk -v n=\"$n\" '$2 == n' /storage/logs/events.log 2>/dev/null")
 
 
 # --- input devices ---------------------------------------------------------------------
@@ -264,6 +268,7 @@ def cmd_sh(host: str, command: list[str]) -> int:
 def cmd_shot(host: str, out: Path) -> int:
     remote = "/tmp/r36os-shot.png"
     run_capture(host, f"r36os-shot {remote}")
+    out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as f:
         r = subprocess.run(ssh_argv(host, f"cat {remote}; rm -f {remote}"),
                            stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.PIPE)

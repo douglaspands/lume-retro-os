@@ -130,3 +130,30 @@ def test_wait_for_console_times_out_and_succeeds():
 def test_boot_log_command_reads_current_boot():
     cmd = dev.boot_log_command()
     assert "boot-n" in cmd and "boot/boot-$n.log" in cmd and "dmesg" in cmd
+    # boot OK completed is only in events.log, so the events of this boot follow the log
+    assert "/storage/logs/events.log" in cmd and "$2 == n" in cmd
+
+
+def test_boot_log_command_runs_in_busybox_sh(tmp_path):
+    import shutil
+    import subprocess
+
+    sh = shutil.which("sh")
+    if sh is None:
+        import pytest
+        pytest.skip("no sh")
+    # same command against a fake tree: the paths are rewritten under tmp_path
+    run = tmp_path / "run/r36os/logs"
+    (run / "boot").mkdir(parents=True)
+    (run / "boot-n").write_text("7\n")
+    (run / "boot/boot-7.log").write_text("== boot 7\n")
+    logs = tmp_path / "storage/logs"
+    logs.mkdir(parents=True)
+    (logs / "events.log").write_text(
+        "t1 6 boot OK completed: frontend in 30s from kernel\n"
+        "t2 7 boot OK completed: frontend in 33s from kernel\n")
+    cmd = (dev.boot_log_command().replace("/run/", f"{tmp_path}/run/")
+           .replace("/storage/", f"{tmp_path}/storage/"))
+    out = subprocess.run([sh, "-c", cmd], capture_output=True, text=True).stdout
+    assert out.startswith("== boot 7\n")
+    assert "frontend in 33s" in out and "frontend in 30s" not in out
