@@ -2,7 +2,8 @@
 
 The official tarball is downloaded once into the cache and checked against its sha256.
 The tree used by the build is an extracted copy with the patches from `kernel/patches/`
-applied in order; it is rebuilt when the list or the contents of the patches change.
+applied in order; when the patches change, only the files whose content differs are
+rewritten (git, see source_tree).
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -54,36 +56,137 @@ def tarball() -> Path:
     return dest
 
 
-def source_tree() -> Path:
-    """Kernel tree with the patches applied (rebuilt when the patches change)."""
-    import subprocess
+# Commit of the patch series checked out in the work tree (build-speed D5)
+APPLIED_REF = "refs/r36os/applied"
+UPSTREAM_TAG = "upstream"
+# Fixed identity and date: the same series always gives the same commit
+_GIT_IDENTITY = {
+    "GIT_AUTHOR_NAME": "r36os", "GIT_AUTHOR_EMAIL": "r36os@localhost",
+    "GIT_COMMITTER_NAME": "r36os", "GIT_COMMITTER_EMAIL": "r36os@localhost",
+    "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000",
+    "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
+}
 
-    base = ensure_dir(cache_dir() / "src")
-    tree = base / f"linux-{KERNEL_VERSION}-{patches_digest()}"
-    stamp = tree / ".r36os-ready"
-    if stamp.exists():
-        return tree
-    shutil.rmtree(tree, ignore_errors=True)
-    for old in base.glob(f"linux-{KERNEL_VERSION}-*"):
-        shutil.rmtree(old, ignore_errors=True)
+
+class PatchError(RuntimeError):
+    """A kernel patch does not apply on the pristine tree plus the patches before it."""
+
+
+def _git_env(base: Path, git_dir: Path, tree: Path, **extra: str) -> dict[str, str]:
+    # The cache lives inside the project repository (.cache/): git must never pick up the
+    # project repository (from a subdirectory, `git apply` silently skips every path outside
+    # it). The ceiling plus an explicit GIT_DIR/GIT_WORK_TREE rule out any discovery, and
+    # the user's and the system's configuration (signing, hooks, autocrlf) are left out.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(_GIT_IDENTITY, GIT_CEILING_DIRECTORIES=str(base), GIT_DIR=str(git_dir),
+               GIT_WORK_TREE=str(tree), GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    env.update(extra)
+    return env
+
+
+def _git(env: dict[str, str], *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    r = subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "gc.auto=0", *args],
+                       cwd=env["GIT_WORK_TREE"], env=env, capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr.strip()}")
+    return r
+
+
+def _import_upstream(base: Path, git_dir: Path, tree: Path) -> None:
+    """Extract the pristine tarball into `tree` and commit it in `git_dir` (tag upstream).
+
+    Done in a scratch folder and moved into place at the end, so a tree whose repository
+    has the `upstream` tag is always complete.
+    """
+    for p in (tree, git_dir):
+        shutil.rmtree(p, ignore_errors=True)
     tmp = base / f"linux-{KERNEL_VERSION}.extract"
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"extracting linux-{KERNEL_VERSION}", flush=True)
     with tarfile.open(tarball()) as t:
         t.extractall(tmp, filter="data")
-    (tmp / f"linux-{KERNEL_VERSION}").rename(tree)
+    work, gd = tmp / f"linux-{KERNEL_VERSION}", tmp / "git"
+    env = _git_env(base, gd, work)
+    print(f"importing linux-{KERNEL_VERSION} into git (once)", flush=True)
+    _git(env, "init", "-q")
+    # -f: the tarball holds files that the kernel's own .gitignore files match
+    _git(env, "add", "-A", "-f", ".")
+    tree_id = _git(env, "write-tree").stdout.strip()
+    commit = _git(env, "commit-tree", tree_id, "-m", f"linux-{KERNEL_VERSION}").stdout.strip()
+    _git(env, "tag", UPSTREAM_TAG, commit)
+    _git(env, "update-ref", APPLIED_REF, commit)
+    _git(env, "update-ref", "--no-deref", "HEAD", commit)
+    gd.rename(git_dir)
+    work.rename(tree)
     tmp.rmdir()
-    # The cache lives inside the project repository (.cache/): run from a subdirectory of a
-    # repository, `git apply` silently skips every path outside that subdirectory, so the
-    # tree came out unpatched. The ceiling stops git from finding the project repository,
-    # and the patch then applies relative to the tree, as with `patch -p1`.
-    import os
-    env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(base))
-    for p in patches():
-        print(f"applying {p.name}", flush=True)
-        subprocess.run(["git", "apply", "--whitespace=nowarn", str(p)], cwd=tree, check=True,
-                       env=env)
-    stamp.write_text(patches_digest() + "\n")
+
+
+def _series_commit(env: dict[str, str], git_dir: Path) -> str:
+    """Commit of upstream plus every patch, built in a scratch index (work tree untouched)."""
+    index = git_dir / "r36os-series.index"
+    index.unlink(missing_ok=True)
+    ienv = dict(env, GIT_INDEX_FILE=str(index))
+    try:
+        _git(ienv, "read-tree", UPSTREAM_TAG)
+        for p in patches():
+            print(f"applying {p.name}", flush=True)
+            r = _git(ienv, "apply", "--cached", "--whitespace=nowarn", str(p), check=False)
+            if r.returncode != 0:
+                raise PatchError(f"kernel patch {p.name} does not apply: {r.stderr.strip()}")
+        tree_id = _git(ienv, "write-tree").stdout.strip()
+        return _git(ienv, "commit-tree", tree_id, "-p", UPSTREAM_TAG,
+                    "-m", f"r36os patches {patches_digest()}").stdout.strip()
+    finally:
+        index.unlink(missing_ok=True)
+
+
+def _work_tree_matches(env: dict[str, str], commit: str) -> bool:
+    """Index and work tree equal to `commit` (untracked files do not count)."""
+    _git(env, "update-index", "-q", "--refresh", check=False)
+    return (_git(env, "diff-index", "--quiet", "--cached", commit, "--", check=False)
+            .returncode == 0
+            and _git(env, "diff-index", "--quiet", commit, "--", check=False).returncode == 0)
+
+
+def source_tree() -> Path:
+    """Kernel tree `<cache>/src/linux-<version>/` with the patches applied (build-speed D5).
+
+    The pristine tarball is committed once in a repository of its own (tag `upstream`),
+    kept beside the tree in `linux-<version>.git` so that nothing inside the tree mounted
+    in the build container is a git repository (with CONFIG_LOCALVERSION_AUTO the kernel
+    release would get a `-g<hash>` suffix). Each run builds the series commit outside the
+    work tree and moves the tree to it with `git read-tree -m -u`: only the files whose
+    content differs are rewritten, so only they get a new mtime and make recompiles only
+    what depends on them. A bad patch raises PatchError naming it and leaves the tree as
+    it was.
+    """
+    base = ensure_dir(cache_dir() / "src")
+    tree = base / f"linux-{KERNEL_VERSION}"
+    git_dir = base / f"linux-{KERNEL_VERSION}.git"
+    env = _git_env(base, git_dir, tree)
+    if not (tree.is_dir() and git_dir.is_dir()
+            and _git(env, "rev-parse", "-q", "--verify", f"{UPSTREAM_TAG}^{{commit}}",
+                     check=False).returncode == 0):
+        _import_upstream(base, git_dir, tree)
+
+    new = _series_commit(env, git_dir)
+    r = _git(env, "rev-parse", "-q", "--verify", f"{APPLIED_REF}^{{commit}}", check=False)
+    old = r.stdout.strip() if r.returncode == 0 else ""
+    if not old or not _work_tree_matches(env, old):
+        # aborted run or hand edits: back to the recorded series, rewriting only what differs
+        target = old or UPSTREAM_TAG
+        print(f"kernel tree does not match {target}: resetting it", flush=True)
+        _git(env, "reset", "-q", "--hard", target)
+        old = _git(env, "rev-parse", f"{target}^{{commit}}").stdout.strip()
+    if old == new:
+        return tree
+    # Recorded first: if read-tree is interrupted, the next run sees a tree that does not
+    # match the new commit and resets it there.
+    _git(env, "update-ref", APPLIED_REF, new)
+    _git(env, "update-ref", "--no-deref", "HEAD", new)
+    if _git(env, "read-tree", "-m", "-u", old, new, check=False).returncode != 0:
+        # e.g. an untracked file in the way of a file the new series adds
+        _git(env, "reset", "-q", "--hard", new)
     return tree
 
 
