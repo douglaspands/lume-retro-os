@@ -326,10 +326,12 @@ aparelho. Confirmado, ele é lembrado para o painel do aparelho e escolhido sozi
 seguintes. São **compatíveis por conversão, sem garantia**: só o R36S V5 foi provado; os
 analógicos de outras placas seguem a semântica do ROCKNIX, sem medição, e podem precisar
 de remapeamento no RetroArch. O volume do alto-falante é sempre o seguro do R36S V5.
-**A alimentação também é a do R36S V5:** as tensões do PMIC e dos bancos de pinos não são
-convertidas, e na maioria das placas a origem declara outras (o painel pode ficar sem
-imagem ou com pinos sem resposta). Até isso ser resolvido (P-77), use um convertido só
-para testar, com a confirmação na tela como saída.
+**A alimentação vem da origem:** as tensões dos reguladores do PMIC (RK817) e qual
+regulador alimenta cada banco de pinos do SoC são copiadas do DTB de origem, como aquele
+sistema já roda naquela placa; um regulador que a origem não declara fica com a tensão que
+o bootloader deixou, e nenhum regulador que o R36S V5 mantém ligado é desligado. Para a
+família "EE", essa alimentação foi conferida com o device tree do ROCKNIX para essas
+placas. No aparelho, só o DTB de fábrica do R36S V5 convertido foi provado até aqui.
 
 **Fora do alcance:** aparelhos com eMMC (o RK3326 inicia pelo eMMC antes do cartão, P-43);
 as placas A33/A23 da família do GA36 sem DTB de fábrica (P-16); aparelhos de outro SoC

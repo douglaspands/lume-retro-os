@@ -617,8 +617,18 @@ passa a levá-la da origem:
   sobre o nó do mesmo nome da base (referência pelo caminho, `&{/.../regulators/LDO_REG8}`).
   São os valores com que aquele sistema (de fábrica, dArkOS ou arkos4clone) já roda naquele
   hardware.
+- **Sempre ligado, só somado (implementação, 2026-11-16):** o `regulator-always-on` e o
+  `regulator-boot-on` da origem são acrescentados aos da base, nunca retirados. Um regulador
+  que a base deixa ligado pode alimentar, na placa de origem, algo que o DTS convertido não
+  liga a ele (no `darkosre-r36s-r35s-v11-2022-08-18` o LDO7 é o `vcc_backlight`, consumido
+  pelo `backlight-supply` do painel do kernel 4.4), e o kernel desliga 30 s depois do boot o
+  regulador sem consumidor e sem `always-on`. A tensão, o `regulator-name` e o
+  `regulator-state-mem` vêm da origem. Com isso o `factory-r35s` fica com a alimentação do
+  nativo (o `boot-on` do LDO6, que só o nativo tem, continua).
 - **Regulador que a origem não declara:** fica sem tensão definida no DTS (o kernel mantém a
-  que o bootloader deixou) e ligado, para não cortar algo de ligação desconhecida.
+  que o bootloader deixou) e ligado, para não cortar algo de ligação desconhecida. Nós do
+  RK809 que alguns DTBs de origem listam (`DCDC_REG5`, `SWITCH_REG1/2`) não existem no
+  driver mainline do RK817: ficam de fora, anotados no `SOURCES.tsv`.
 - **Domínios de I/O:** o mapa da origem (`vccio1`–`vccio6`, `vccio-oscgpi`, `pmuio1`,
   `pmuio2`) é refeito no `&io_domains`/`&pmu_io_domains` da base, cada domínio apontando o
   regulador do RK817 do mesmo nome de nó. Domínio que a origem não declara sai da base
@@ -627,7 +637,14 @@ passa a levá-la da origem:
   para um regulador fora do PMIC; tensão de um domínio acima de 3,6 V (o limite do driver).
 - **Referência independente:** a família "EE" (D12) é conferida contra o
   `rk3326-gameconsole-eeclone.dts` do ROCKNIX (GPL-2.0+ OR MIT, `.cache/upstream/rocknix`),
-  que descreve a mesma alimentação para o kernel mainline.
+  que descreve a mesma alimentação para o kernel mainline. **Resultado (2026-11-16, tarefa
+  10.3):** nos 55 DTBs do EE-Clones-DTB e no `arkos4clone-k36`, cada domínio aponta o mesmo
+  regulador que no ROCKNIX (10 DTBs não declaram o `vccio6`, que no convertido fica sem
+  alimentação declarada) e os reguladores dos domínios (DCDC4 3,0 V, LDO2 1,8 V, LDO4 3,0 V,
+  LDO5 e LDO7 1,8–3,3 V) têm as mesmas tensões. Diferem, fora dos domínios: o BOOST (4,7 ou
+  5,0 V de mínimo; ROCKNIX 4,9 V), o mínimo do DCDC2 (0,95 V; ROCKNIX 0,85 V), o LDO6
+  (`vmmc` do cartão, 3,3 V fixo; ROCKNIX 1,8–3,3 V), o LDO8 (3,3 V; ROCKNIX 3,0 V) e o LDO9
+  do G30 (3,3 V; ROCKNIX 1,5 V). O convertido segue a origem.
 - **O que fica da base:** o resto da placa EE que não é alimentação crítica (USB host por
   GPIO, eMMC, segundo slot) continua o do R36S V5; aparelhos com eMMC já estão fora do
   alcance (P-43).
