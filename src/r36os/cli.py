@@ -84,8 +84,36 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _heat_guarded(fn):
+    """Runs a build step under the heat guard and prints its summary, even on error.
+
+    Log-only for now (build-speed 1.2 measures the baseline with it); build-speed 2.1
+    turns pausing on.
+    """
+    from r36os.heat import guard_from_env
+
+    guard = guard_from_env(log_only=True).start()
+    try:
+        return fn()
+    finally:
+        for line in guard.stop().lines():
+            print(line, flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    try:
+        return _main(args)
+    except Exception as e:
+        from r36os.heat import HeatError
+
+        if isinstance(e, HeatError):
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        raise
+
+
+def _main(args: argparse.Namespace) -> int:
     try:
         if args.command == "build":
             if args.all == bool(args.target):
@@ -95,11 +123,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.all:
                 from r36os.release import build_all
 
-                return build_all(language=args.lang)
+                return _heat_guarded(lambda: build_all(language=args.lang))
             image = get_image(args.target)
             from r36os.build import build_image_target
 
-            build_image_target(image, language=args.lang)
+            _heat_guarded(lambda: build_image_target(image, language=args.lang))
             return 0
         if args.command == "flash":
             from r36os.flash import main_flash
@@ -118,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             target = get_target(args.target)
             from r36os.packages import build_packages
 
-            build_packages(target, args.names, checksum=args.checksum)
+            _heat_guarded(lambda: build_packages(target, args.names, checksum=args.checksum))
             return 0
         if args.command == "vm":
             from r36os.vm import run_vm

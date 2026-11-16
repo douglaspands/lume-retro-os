@@ -234,3 +234,41 @@ def test_thread_samples_and_stops(hwmon: Path) -> None:
         pass
     assert g.summary.samples >= 1
     assert out.getvalue().startswith("heat guard: CPU 37.0 C")
+
+
+def test_cli_build_runs_under_log_only_guard_and_prints_summary_on_error(
+        hwmon: Path, monkeypatch, capsys) -> None:
+    from r36os import build, cli
+
+    made = {}
+    real = heat.guard_from_env
+
+    def fake_guard(log_only: bool = False, **kw):
+        made["log_only"] = log_only
+        return real(root=hwmon, env={}, log_only=log_only, interval=0.01,
+                    runner=Runner(), containers=lambda: [], out=io.StringIO())
+
+    def failing_build(image, language="en"):
+        raise RuntimeError("build broke")
+
+    monkeypatch.setattr(heat, "guard_from_env", fake_guard)
+    monkeypatch.setattr(build, "build_image_target", failing_build)
+    with pytest.raises(RuntimeError, match="build broke"):
+        cli.main(["build", "console"])
+    assert made["log_only"] is True
+    assert "max CPU 37.0 C" in capsys.readouterr().out
+
+
+def test_cli_build_without_cpu_sensor_fails_before_building(monkeypatch, capsys) -> None:
+    from r36os import build, cli
+
+    def no_sensor(**kw):
+        raise heat.SensorNotFound("no processor temperature sensor; set R36OS_TEMP_SENSOR")
+
+    def must_not_run(image, language="en"):
+        raise AssertionError("the build started")
+
+    monkeypatch.setattr(heat, "guard_from_env", no_sensor)
+    monkeypatch.setattr(build, "build_image_target", must_not_run)
+    assert cli.main(["build", "console"]) == 2
+    assert "R36OS_TEMP_SENSOR" in capsys.readouterr().err
