@@ -58,10 +58,10 @@
 #define EXIT_KEXEC 10
 #define EXIT_REBOOT 11
 #define MAX_CAND 32
-#define MAX_ROWS 8
+#define MAX_ROWS 18 /* rows of the list on the screen; longer lists scroll */
 #define ID_LEN 64
 #define PANEL_ID_MAX 16 /* bytes of a display ID (D15) */
-#define LIST_LEN 512
+#define LIST_LEN 2048 /* comma lists of ids (bad): room for the long vendor ids */
 #define MENU_IDLE_MS 60000
 #define KEY_WAIT_MS 1000
 #define CONFIRM_S 15
@@ -299,7 +299,8 @@ static int hex_prop(const void *fdt, int node, const char *name, char *out, size
 	return 1;
 }
 
-static struct cand *find_cand(const char *name)
+/* a candidate already loaded, by lume,id, file or file without .dtb */
+static struct cand *find_loaded(const char *name)
 {
 	int i;
 	size_t n;
@@ -323,74 +324,139 @@ static int dtb_filter(const struct dirent *d)
 	return n > 4 && !strcmp(d->d_name + n - 4, ".dtb");
 }
 
+/*
+ * One device tree of dtbs/<soc>/ as a candidate (name: its path in that folder); NULL when
+ * it is ignored, with the reason in the log
+ */
+static struct cand *add_candidate(const char *name)
+{
+	struct cand *c = &cands[ncand], *added = NULL;
+	const char *id, *compat = NULL;
+	char *blob;
+	size_t size;
+	int node, len;
+
+	blob = read_file(rp("%s/dtbs/%s/%s", opt_boot, soc, name), &size);
+	if (blob && size >= sizeof(struct fdt_header) && !fdt_check_header(blob) &&
+	    fdt_totalsize(blob) <= size)
+		compat = fdt_getprop(blob, 0, "compatible", &len);
+	if (!blob || size < sizeof(struct fdt_header) || fdt_check_header(blob) ||
+	    fdt_totalsize(blob) > size) {
+		lg("ignored %s: not a valid device tree", name);
+		free(blob);
+	} else if (!compat || fdt_stringlist_contains(compat, len, soc_compat) != 1) {
+		lg("ignored %s: not compatible with %s", name, soc_compat);
+		free(blob);
+	} else if ((node = fdt_path_offset(blob, "/lume-select")) < 0 ||
+		   !(id = fdt_getprop(blob, node, "lume,id", &len)) || len < 2 ||
+		   strnlen(id, len) >= ID_LEN) {
+		lg("ignored %s: no lume-select node with lume,id", name);
+		free(blob);
+	} else if (find_loaded(id)) {
+		lg("ignored %s: lume,id %s repeated", name, id);
+		free(blob);
+	} else if (ncand == MAX_CAND) {
+		lg("ignored %s: more than %d candidates", name, MAX_CAND);
+		free(blob);
+	} else {
+		const fdt32_t *prio = fdt_getprop(blob, node, "lume,priority", &len);
+
+		memset(c, 0, sizeof(*c));
+		copy_str(c->file, sizeof(c->file), name);
+		copy_str(c->id, sizeof(c->id), id);
+		c->priority = prio && len == 4 ? fdt32_to_cpu(*prio) : 0;
+		c->is_default = fdt_getprop(blob, node, "lume,default", NULL) != NULL;
+		c->adc = cells(blob, node, "lume,adc", 4, &c->nadc);
+		c->gpio = cells(blob, node, "lume,gpio", 3, &c->ngpio);
+		c->i2c = cells(blob, node, "lume,i2c-present", 2, &c->ni2c);
+		c->npanel = hex_prop(blob, node, "lume,panel-id", c->panel_id,
+				     sizeof(c->panel_id));
+		c->has_rules = c->nadc + c->ngpio + c->ni2c + c->npanel > 0;
+		c->blob = blob;
+		c->size = size;
+		ncand++;
+		added = c;
+		if (c->has_rules)
+			lg("candidate %s (%s) priority %u, %d rule(s)%s", c->id, name,
+			   c->priority, c->nadc + c->ngpio + c->ni2c + c->npanel,
+			   c->is_default ? ", default" : "");
+		else
+			lg("candidate %s (%s) priority %u, no rules%s", c->id, name,
+			   c->priority, c->is_default ? ", default" : "");
+	}
+	return added;
+}
+
 static void load_candidates(void)
 {
-	const char *dir = rp("%s/dtbs/%s", opt_boot, soc);
 	struct dirent **list;
-	int n, i, node, len;
+	int n, i;
 
-	n = scandir(dir, &list, dtb_filter, alphasort);
+	n = scandir(rp("%s/dtbs/%s", opt_boot, soc), &list, dtb_filter, alphasort);
 	if (n < 0) {
 		lg("no folder dtbs/%s on BOOT", soc);
 		return;
 	}
 	for (i = 0; i < n; i++) {
-		struct cand *c = &cands[ncand];
-		const char *name = list[i]->d_name;
-		const char *id, *compat = NULL;
-		char *blob;
-		size_t size;
-
-		blob = read_file(rp("%s/dtbs/%s/%s", opt_boot, soc, name), &size);
-		if (blob && size >= sizeof(struct fdt_header) && !fdt_check_header(blob) &&
-		    fdt_totalsize(blob) <= size)
-			compat = fdt_getprop(blob, 0, "compatible", &len);
-		if (!blob || size < sizeof(struct fdt_header) || fdt_check_header(blob) ||
-		    fdt_totalsize(blob) > size) {
-			lg("ignored %s: not a valid device tree", name);
-			free(blob);
-		} else if (!compat || fdt_stringlist_contains(compat, len, soc_compat) != 1) {
-			lg("ignored %s: not compatible with %s", name, soc_compat);
-			free(blob);
-		} else if ((node = fdt_path_offset(blob, "/lume-select")) < 0 ||
-			   !(id = fdt_getprop(blob, node, "lume,id", &len)) || len < 2 ||
-			   strnlen(id, len) >= ID_LEN) {
-			lg("ignored %s: no lume-select node with lume,id", name);
-			free(blob);
-		} else if (find_cand(id)) {
-			lg("ignored %s: lume,id %s repeated", name, id);
-			free(blob);
-		} else if (ncand == MAX_CAND) {
-			lg("ignored %s: more than %d candidates", name, MAX_CAND);
-			free(blob);
-		} else {
-			const fdt32_t *prio = fdt_getprop(blob, node, "lume,priority", &len);
-
-			memset(c, 0, sizeof(*c));
-			copy_str(c->file, sizeof(c->file), name);
-			copy_str(c->id, sizeof(c->id), id);
-			c->priority = prio && len == 4 ? fdt32_to_cpu(*prio) : 0;
-			c->is_default = fdt_getprop(blob, node, "lume,default", NULL) != NULL;
-			c->adc = cells(blob, node, "lume,adc", 4, &c->nadc);
-			c->gpio = cells(blob, node, "lume,gpio", 3, &c->ngpio);
-			c->i2c = cells(blob, node, "lume,i2c-present", 2, &c->ni2c);
-			c->npanel = hex_prop(blob, node, "lume,panel-id", c->panel_id,
-					     sizeof(c->panel_id));
-			c->has_rules = c->nadc + c->ngpio + c->ni2c + c->npanel > 0;
-			c->blob = blob;
-			c->size = size;
-			ncand++;
-			if (c->has_rules)
-				lg("candidate %s (%s) priority %u, %d rule(s)%s", c->id, name,
-				   c->priority, c->nadc + c->ngpio + c->ni2c + c->npanel,
-				   c->is_default ? ", default" : "");
-			else
-				lg("candidate %s (%s) priority %u, no rules%s", c->id, name,
-				   c->priority, c->is_default ? ", default" : "");
-		}
+		add_candidate(list[i]->d_name);
 		free(list[i]);
 	}
 	free(list);
+}
+
+/*
+ * The device trees converted from vendor trees (D12) live in dtbs/<soc>/vendor/, one file
+ * per board named after its lume,id. There are many, so a normal boot does not read them:
+ * one is loaded only when something names it (force, list, saved choice, learned, state).
+ */
+static struct cand *load_vendor(const char *name)
+{
+	char stem[NAME_MAX + 1], file[NAME_MAX + 1];
+	size_t n;
+
+	copy_str(stem, sizeof(stem), name);
+	n = strlen(stem);
+	if (n > 4 && !strcmp(stem + n - 4, ".dtb"))
+		stem[n - 4] = 0;
+	if (!*stem || strchr(stem, '/') || stem[0] == '.' || strlen(stem) >= ID_LEN ||
+	    access(rp("%s/dtbs/%s/vendor/%s.dtb", opt_boot, soc, stem), R_OK))
+		return NULL;
+	lg("vendor device tree %s loaded on demand", stem);
+	snprintf(file, sizeof(file), "vendor/%s.dtb", stem);
+	return add_candidate(file);
+}
+
+/* a candidate by lume,id or file name, loading a converted one from vendor/ if needed */
+static struct cand *find_cand(const char *name)
+{
+	struct cand *c = find_loaded(name);
+
+	return c ? c : load_vendor(name);
+}
+
+/* the file names (without .dtb) of dtbs/<soc>/vendor/, for the list; their count */
+static int vendor_names(char ***out)
+{
+	struct dirent **list;
+	char **names;
+	int n, i, k = 0;
+
+	*out = NULL;
+	n = scandir(rp("%s/dtbs/%s/vendor", opt_boot, soc), &list, dtb_filter, alphasort);
+	if (n <= 0)
+		return 0;
+	names = calloc(n, sizeof(*names));
+	for (i = 0; i < n; i++) {
+		size_t len = strlen(list[i]->d_name);
+
+		list[i]->d_name[len - 4] = 0;
+		if (names && len - 4 < ID_LEN && !find_loaded(list[i]->d_name))
+			names[k++] = strdup(list[i]->d_name);
+		free(list[i]);
+	}
+	free(list);
+	*out = names;
+	return k;
 }
 
 static struct cand *default_cand(void)
@@ -999,8 +1065,8 @@ static void replay_reboot_log(void)
 
 /* --- keys and menu (D7) ---------------------------------------------------------------- */
 
-enum { K_SELECT, K_UP, K_DOWN, K_OK, K_ROLES };
-static const char *role_names[K_ROLES] = { "select", "up", "down", "ok" };
+enum { K_SELECT, K_UP, K_DOWN, K_OK, K_PGUP, K_PGDN, K_ROLES };
+static const char *role_names[K_ROLES] = { "select", "up", "down", "ok", "pageup", "pagedown" };
 static int keys[K_ROLES][8], nkeys[K_ROLES];
 
 static const struct { const char *name; int code; } key_names[] = {
@@ -1163,19 +1229,35 @@ static int selection_key_held(void)
 	}
 }
 
-static void draw(FILE *tty, int cur, struct cand *autoc, struct cand *forced)
+/*
+ * The list: the loaded candidates, then the converted device trees of vendor/ (names
+ * only, nv of them), then Automatic; total = ncand + nv + 1 rows, MAX_ROWS on screen
+ */
+static void draw(FILE *tty, int cur, struct cand *autoc, struct cand *forced, char **vnames,
+		 int nv)
 {
-	int i;
+	int i, total = ncand + nv + 1, top;
 
 	fprintf(tty, "\033[2J\033[H");
 	fprintf(tty, "Lume Retro OS - device tree (%s)\n\n", soc);
 	if (forced)
 		fprintf(tty, "BOOT/dtbs/force selects %s: it is used while the file exists.\n"
 			     "A choice here is saved for when the file is deleted.\n\n", forced->id);
-	for (i = 0; i <= ncand; i++) {
+	top = cur - MAX_ROWS / 2;
+	if (top > total - MAX_ROWS)
+		top = total - MAX_ROWS;
+	if (top < 0)
+		top = 0;
+	if (top > 0)
+		fprintf(tty, "   ... %d more above\n", top);
+	for (i = top; i < total && i < top + MAX_ROWS; i++) {
 		fprintf(tty, " %s ", i == cur ? ">" : " ");
-		if (i == ncand) {
+		if (i == total - 1) {
 			fprintf(tty, "Automatic\n");
+			continue;
+		}
+		if (i >= ncand) {
+			fprintf(tty, "%s (converted)\n", vnames[i - ncand]);
 			continue;
 		}
 		fprintf(tty, "%s", cands[i].id);
@@ -1187,17 +1269,24 @@ static void draw(FILE *tty, int cur, struct cand *autoc, struct cand *forced)
 			fprintf(tty, " (forced)");
 		fprintf(tty, "\n");
 	}
-	fprintf(tty, "\nUp/Down: move   Confirm: choose\n");
+	if (i < total)
+		fprintf(tty, "   ... %d more below\n", total - i);
+	fprintf(tty, "\nUp/Down: move   %sConfirm: choose\n",
+		nkeys[K_PGUP] || nkeys[K_PGDN] ? "Page keys: jump   " : "");
 	fflush(tty);
 }
 
-/* index of the chosen candidate, ncand for Automatic, -1 when nothing was chosen */
+/*
+ * index of the chosen candidate (a converted one is loaded first), ncand for Automatic,
+ * -1 when nothing was chosen
+ */
 static int menu(struct cand *autoc, struct cand *forced)
 {
 	struct pollfd fds[16];
 	struct dirent **list;
 	FILE *tty;
-	int n, i, nfd = 0, cur = ncand, open_fds;
+	char **vnames;
+	int nv, total, n, i, nfd = 0, cur, open_fds, pick = -1;
 	long idle;
 
 	tty = fopen(rp("/dev/tty1"), "a");
@@ -1205,6 +1294,9 @@ static int menu(struct cand *autoc, struct cand *forced)
 		lg("list: cannot open tty1: %s", strerror(errno));
 		return -1;
 	}
+	nv = vendor_names(&vnames);
+	total = ncand + nv + 1;
+	cur = total - 1;
 	for (i = 0; i < ncand; i++)
 		if (!strcmp(cands[i].id, st.manual))
 			cur = i;
@@ -1212,7 +1304,7 @@ static int menu(struct cand *autoc, struct cand *forced)
 	for (i = 0; i < n; i++) {
 		const char *path = rp("/dev/input/%s", list[i]->d_name);
 
-		if (nfd < 16 && has_any(path, K_UP, K_OK)) {
+		if (nfd < 16 && has_any(path, K_UP, K_PGDN)) {
 			fds[nfd].fd = open(path, O_RDONLY | O_CLOEXEC);
 			fds[nfd].events = POLLIN;
 			if (fds[nfd].fd >= 0)
@@ -1222,8 +1314,11 @@ static int menu(struct cand *autoc, struct cand *forced)
 	}
 	if (n >= 0)
 		free(list);
-	lg("list shown (%d candidate(s))", ncand);
-	draw(tty, cur, autoc, forced);
+	if (nv)
+		lg("list shown (%d candidate(s), %d converted)", ncand, nv);
+	else
+		lg("list shown (%d candidate(s))", ncand);
+	draw(tty, cur, autoc, forced, vnames, nv);
 	open_fds = nfd;
 	idle = now_ms() + MENU_IDLE_MS;
 	while (open_fds > 0 && now_ms() < idle) {
@@ -1249,27 +1344,46 @@ static int menu(struct cand *autoc, struct cand *forced)
 			idle = now_ms() + MENU_IDLE_MS;
 			role = role_of(ev.code);
 			if (role == K_UP)
-				cur = cur > 0 ? cur - 1 : ncand;
+				cur = cur > 0 ? cur - 1 : total - 1;
 			else if (role == K_DOWN)
-				cur = cur < ncand ? cur + 1 : 0;
+				cur = cur < total - 1 ? cur + 1 : 0;
+			else if (role == K_PGUP)
+				cur = cur >= MAX_ROWS ? cur - MAX_ROWS : 0;
+			else if (role == K_PGDN)
+				cur = cur + MAX_ROWS < total ? cur + MAX_ROWS : total - 1;
 			else if (role == K_OK) {
-				for (i = 0; i < nfd; i++)
-					if (fds[i].fd >= 0)
-						close(fds[i].fd);
-				fprintf(tty, "\nSelected: %s\n", cur == ncand ? "Automatic" : cands[cur].id);
-				fclose(tty);
-				return cur;
+				pick = cur;
+				open_fds = 0;
+				break;
 			}
-			draw(tty, cur, autoc, forced);
+			draw(tty, cur, autoc, forced, vnames, nv);
 		}
 	}
 	for (i = 0; i < nfd; i++)
 		if (fds[i].fd >= 0)
 			close(fds[i].fd);
-	fprintf(tty, "\nNothing chosen: booting with the automatic choice.\n");
+	if (pick < 0) {
+		fprintf(tty, "\nNothing chosen: booting with the automatic choice.\n");
+		lg("list closed without a choice");
+	} else if (pick == total - 1) {
+		fprintf(tty, "\nSelected: Automatic\n");
+		pick = ncand;
+	} else if (pick >= ncand) {
+		/* a converted device tree: loaded now, it becomes a candidate like the others */
+		const char *name = vnames[pick - ncand];
+		struct cand *c;
+
+		fprintf(tty, "\nSelected: %s\n", name);
+		c = load_vendor(name);
+		pick = c ? (int)(c - cands) : -1;
+	} else {
+		fprintf(tty, "\nSelected: %s\n", cands[pick].id);
+	}
 	fclose(tty);
-	lg("list closed without a choice");
-	return -1;
+	for (i = 0; i < nv; i++)
+		free(vnames[i]);
+	free(vnames);
+	return pick;
 }
 
 /* --- watchdog (D11) ------------------------------------------------------------------- */

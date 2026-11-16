@@ -111,7 +111,14 @@ class Root:
         (path / "boot" / kernel).write_bytes(b"kernel")
 
     def dtb(self, name, data, soc=None):
-        (self.path / f"boot/dtbs/{soc or self.soc}/{name}").write_bytes(data)
+        f = self.path / f"boot/dtbs/{soc or self.soc}/{name}"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+
+    def vendor(self, *idents):
+        """Converted device trees (D12) in dtbs/<soc>/vendor/, named after their lume,id."""
+        for ident in idents:
+            self.dtb(f"vendor/{ident}.dtb", _cand(ident))
 
     def ga36_panels(self, panel2_rules=None, panel2_priority=0, panel2_id=None):
         self.dtb("sun8i-a33-ga36-mb-v1.2-panel1.dtb", _cand("ga36-panel1", default=True))
@@ -672,6 +679,69 @@ def test_list_closed_without_a_choice(tools, root):
     rc, out, err = run(tools, root)
     assert "list closed without a choice" in err
     assert decision(out)["reason"] == "default"
+
+
+# --- 7.3, 7.9: converted device trees in vendor/, read only when named ---------------------
+
+def test_converted_trees_are_not_read_in_a_normal_boot(tools, root):
+    root.ga36_panels()
+    root.vendor("clone-a", "clone-b")
+    rc, out, err = run(tools, root)
+    assert decision(out)["selected"] == "ga36-panel1"
+    assert "clone-" not in err and "vendor" not in err
+
+
+def test_force_loads_a_converted_tree(tools, root):
+    root.ga36_panels()
+    root.vendor("clone-a", "clone-b")
+    root.force("clone-b")
+    rc, out, err = run(tools, root)
+    assert decision(out)["selected"] == "clone-b" and decision(out)["reason"] == "forced"
+    assert "vendor device tree clone-b loaded on demand" in err
+    assert "candidate clone-b (vendor/clone-b.dtb)" in err
+    assert "clone-a" not in err
+
+
+def test_saved_choice_of_a_converted_tree_is_loaded(tools, root):
+    root.ga36_panels()
+    root.vendor("clone-a")
+    root.state(manual="clone-a", good="ga36-panel1")
+    rc, out, err = run(tools, root)
+    assert decision(out)["selected"] == "clone-a" and decision(out)["reason"] == "manual"
+
+
+def test_force_cannot_leave_the_vendor_folder(tools, root):
+    root.ga36_panels()
+    root.vendor("clone-a")
+    root.force("../a33/sun8i-a33-ga36-mb-v1.2-panel2")
+    rc, out, err = run(tools, root)
+    assert "force ignored" in err and decision(out)["reason"] == "default"
+
+
+def test_list_shows_and_loads_a_converted_tree(tools, root):
+    root.ga36_panels()
+    root.vendor("clone-a", "clone-b")
+    # rows: panel1, panel2, clone-a, clone-b, Automatic (start); up goes to clone-b
+    root.keys(held=[KEY_VOLUMEDOWN], events=[KEY_VOLUMEUP, BTN_EAST])
+    rc, out, err = run(tools, root)
+    assert "list shown (2 candidate(s), 2 converted)" in err
+    assert "clone-a (converted)" in root.tty() and "Selected: clone-b" in root.tty()
+    assert decision(out)["selected"] == "clone-b" and decision(out)["reason"] == "manual"
+    assert root.state()["manual"] == "clone-b"
+
+
+def test_long_list_scrolls_and_jumps_a_page(tools, root):
+    root.ga36_panels()
+    root.vendor(*[f"clone-{i:02d}" for i in range(40)])
+    BTN_TR = 0x137
+    # Automatic (row 41): down wraps to row 0, page down jumps 18 rows: clone-16
+    root.keys(held=[KEY_VOLUMEDOWN], events=[KEY_VOLUMEDOWN, BTN_TR, BTN_EAST],
+              text=KEYS + "pagedown=BTN_TR\n")
+    rc, out, err = run(tools, root)
+    tty = root.tty()
+    assert "more below" in tty and "more above" in tty
+    assert "Page keys: jump" in tty
+    assert decision(out)["selected"] == "clone-16"
 
 
 def test_no_list_without_the_key_held(tools, root):

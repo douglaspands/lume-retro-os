@@ -12,7 +12,8 @@ from r36os.targets import TARGETS
 
 # linux/input-event-codes.h (the names the keys files use)
 CODES = {"KEY_VOLUMEDOWN": 114, "KEY_VOLUMEUP": 115, "BTN_SOUTH": 0x130, "BTN_EAST": 0x131,
-         "BTN_DPAD_UP": 0x220, "BTN_DPAD_DOWN": 0x221}
+         "BTN_DPAD_UP": 0x220, "BTN_DPAD_DOWN": 0x221, "BTN_DPAD_LEFT": 0x222,
+         "BTN_DPAD_RIGHT": 0x223, "BTN_TL": 0x136, "BTN_TR": 0x137}
 
 
 @pytest.fixture
@@ -49,7 +50,9 @@ def test_console_initramfs_has_the_soc_and_the_keys(staged, board, soc, ok):
     keys = (stage / "etc/bootsel-keys").read_text()
     assert keys == (REPO_ROOT / f"board/{board}/bootsel-keys").read_text()
     roles = dict(re.findall(r"^(\w+)=(\S+)$", keys, re.M))
-    assert set(roles) == {"select", "up", "down", "ok"}
+    # pageup/pagedown are optional (the long list of converted trees, D17)
+    assert {"select", "up", "down", "ok"} <= set(roles)
+    assert set(roles) <= {"select", "up", "down", "ok", "pageup", "pagedown"}
     assert roles["select"] == "KEY_VOLUMEDOWN" and roles["ok"] == ok
     for value in roles.values():
         assert all(k in CODES for k in value.split(",")), value
