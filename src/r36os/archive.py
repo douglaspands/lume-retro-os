@@ -36,9 +36,13 @@ def _compress(src: Path, dest: Path) -> tuple[str, str]:
     """Compress with zstd; return (sha256 of the original, sha256 of the .zst)."""
     from compression import zstd
 
+    from r36os import jobs
+
     h_raw, h_zst = hashlib.sha256(), hashlib.sha256()
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with src.open("rb") as fin, zstd.open(tmp, "wb", level=10) as fout:
+    # nb_workers = the build's jobs (zstd -T)
+    opts = {zstd.CompressionParameter.nb_workers: jobs.jobs()}
+    with src.open("rb") as fin, zstd.open(tmp, "wb", level=10, options=opts) as fout:
         while chunk := fin.read(CHUNK):
             h_raw.update(chunk)
             fout.write(chunk)

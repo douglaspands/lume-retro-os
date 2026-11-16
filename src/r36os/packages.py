@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from r36os import jobs
 from r36os.container import Container, ensure_builder
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir, out_dir
 from r36os.targets import Target
@@ -67,7 +68,8 @@ def _container(target: Target, aports: Path) -> Container:
         },
         # USE_CCACHE=1: without it abuild does not put /usr/lib/ccache/bin in PATH, and
         # under emulation (ARM) each rebuild would take hours
-        env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1"},
+        env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1",
+             "JOBS": str(jobs.jobs()), "MAKEFLAGS": f"-j{jobs.jobs()}"},
     )
 
 
@@ -77,6 +79,7 @@ if [ ! -f /root/.abuild/{KEY_NAME}.rsa ]; then
   openssl rsa -in /root/.abuild/{KEY_NAME}.rsa -pubout -out /root/.abuild/{KEY_NAME}.rsa.pub
 fi
 echo 'PACKAGER_PRIVKEY=/root/.abuild/{KEY_NAME}.rsa' > /root/.abuild/abuild.conf
+echo "export JOBS=$JOBS MAKEFLAGS=-j$JOBS" >> /root/.abuild/abuild.conf
 cp /root/.abuild/{KEY_NAME}.rsa.pub /etc/apk/keys/
 apk update -q
 """

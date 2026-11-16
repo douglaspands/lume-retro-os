@@ -137,7 +137,7 @@ sed -n 's/^# \\(CONFIG_[A-Za-z0-9_]*\\) is not set$/\\1/p' /board/kernel.config 
   if grep -q "^$off=" $B/.config; then echo "kernel.config: $off must stay off"; exit 1; fi
 done || fail=1
 [ $fail = 0 ] || exit 1
-make O=$B -j$(nproc) {image} modules 2> /out/build-warnings.log
+make O=$B -j{jobs} {image} modules 2> /out/build-warnings.log
 rm -rf /tmp/mods
 make -s O=$B INSTALL_MOD_PATH=/tmp/mods INSTALL_MOD_STRIP=1 modules_install
 tar -C /tmp/mods --numeric-owner --sort=name -cf /out/modules.tar lib
@@ -189,6 +189,7 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
     directory lives in the cache (incremental) and so does ccache. `initramfs_dir` (with
     initramfs.cpio) is mounted at /initramfs for CONFIG_INITRAMFS_SOURCE.
     """
+    from r36os import jobs
     from r36os.container import Container, ensure_cross
 
     arch, cross, defconfig, image = KERNEL_TARGETS[board]
@@ -205,7 +206,7 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
         volumes=volumes,
     ).sh(_KERNEL_SCRIPT.format(arch=arch, cross=cross, defconfig=defconfig, image=image,
                                own_files="|".join(OWN_DRIVER_FILES),
-                               stamp=build_stamp(board)))
+                               stamp=build_stamp(board), jobs=jobs.jobs()))
     return out / image
 
 
