@@ -16,6 +16,7 @@
 		lume,id = "factory-r35s";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

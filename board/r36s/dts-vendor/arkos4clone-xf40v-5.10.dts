@@ -17,6 +17,7 @@
 		lume,id = "arkos4clone-xf40v-5.10";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

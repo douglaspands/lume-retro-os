@@ -17,6 +17,7 @@
 		lume,id = "darkosre-clone-gr36-mb-v1.1-20250422";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

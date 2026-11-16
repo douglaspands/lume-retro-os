@@ -16,6 +16,7 @@
 		lume,id = "darkosre-soysauce-y3506-v03-20241104";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

@@ -163,6 +163,8 @@ def test_converted_dts_overrides_the_native_tree():
     dts = vendor_dtb.to_dts(board, "r36s-v5-factory", "factory", "0" * 64)
     assert '#include "rk3326-r36s-v5.dts"' in dts
     assert 'lume,id = "r36s-v5-factory";' in dts and "/delete-property/ lume,default;" in dts
+    # the rule of the native tree (its measured panel ID) is not inherited
+    assert "/delete-property/ lume,panel-id;" in dts
     assert 'compatible = "rocknix,generic-dsi";' in dts
     # the factory lane rate of the R36S V5 (the native tree measures the same 180 Mbps)
     assert "rockchip,lane-rate = <180>;" in dts and "phy-hstt" not in dts

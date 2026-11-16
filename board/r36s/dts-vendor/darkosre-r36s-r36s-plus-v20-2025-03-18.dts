@@ -17,6 +17,7 @@
 		lume,id = "darkosre-r36s-r36s-plus-v20-2025-03-18";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

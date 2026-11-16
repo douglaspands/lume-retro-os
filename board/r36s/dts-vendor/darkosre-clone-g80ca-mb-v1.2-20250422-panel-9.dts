@@ -17,6 +17,7 @@
 		lume,id = "darkosre-clone-g80ca-mb-v1.2-20250422-panel-9";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

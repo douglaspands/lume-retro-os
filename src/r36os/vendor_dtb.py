@@ -642,7 +642,9 @@ def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
     L += [" */", "", '#include "rk3326-r36s-v5.dts"', "", "/ {",
           f'\tmodel = "{_q(b.model or lume_id)} (converted)";', "",
           "\tlume-select {", f'\t\tlume,id = "{lume_id}";', "\t\tlume,priority = <0>;",
-          "\t\t/delete-property/ lume,default;", "\t};", ""]
+          "\t\t/delete-property/ lume,default;",
+          # the panel ID measured on the R36S V5 is not this board's (D15)
+          "\t\t/delete-property/ lume,panel-id;", "\t};", ""]
     hogs: dict[int, list[str]] = {}
 
     def hog(name: str, pin: Pin, high: bool) -> None:

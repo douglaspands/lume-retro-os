@@ -953,6 +953,37 @@ def test_panel_id_rule_picks_its_device_tree(tools, root):
                              "dtb": str(root.path / "tmp/lume-bootsel.dtb")}
 
 
+def test_panel_id_rule_of_the_running_tree_needs_no_switch(tools, root):
+    # the R36S V5 since task 8.4: the default tree carries the ID its panel answers
+    root.dtb("sun8i-a33-ga36-mb-v1.2-panel1.dtb",
+             _cand("ga36-panel1", default=True, panel_id="fe5202"))
+    root.dtb("sun8i-a33-ga36-mb-v1.2-panel2.dtb", _cand("ga36-panel2"))
+    root.panel("fe5202")
+    rc, out, err = run(tools, root)
+    assert "probe panel id fe5202: fe5202 match" in err
+    assert decision(out) == {"selected": "ga36-panel1", "reason": "rule", "kexec": "no"}
+
+
+@pytest.mark.parametrize("silent_first", [True, False])
+def test_panel_id_with_two_dsi_devices(tools, root, silent_first):
+    # one DSI host without an answering panel does not hide the one that answered
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("" if silent_first else "aabbcc", dev="1c40000.dsi.0")
+    root.panel("aabbcc" if silent_first else "", dev="1c50000.dsi.0")
+    rc, out, err = run(tools, root)
+    assert "signature: panel id aabbcc" in err
+    assert "the panel did not answer its driver" not in err
+    assert decision(out)["selected"] == "ga36-panel2" and decision(out)["reason"] == "rule"
+
+
+def test_panel_id_rule_without_an_answer_does_not_match(tools, root):
+    root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)
+    root.panel("unsupported")
+    rc, out, err = run(tools, root)
+    assert "probe panel id aabbcc: unknown no match" in err
+    assert decision(out)["reason"] == "default"
+
+
 def test_answering_panel_keeps_and_learns_the_running_tree(tools, root):
     # another panel answers: the rule of panel 2 does not match, the running tree serves
     root.ga36_panels(panel2_id="aabbcc", panel2_priority=10)

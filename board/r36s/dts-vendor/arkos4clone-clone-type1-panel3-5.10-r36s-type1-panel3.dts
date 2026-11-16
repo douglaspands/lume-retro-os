@@ -17,6 +17,7 @@
 		lume,id = "arkos4clone-clone-type1-panel3-5.10-r36s-type1-panel3";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

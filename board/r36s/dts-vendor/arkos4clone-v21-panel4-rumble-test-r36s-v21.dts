@@ -17,6 +17,7 @@
 		lume,id = "arkos4clone-v21-panel4-rumble-test-r36s-v21";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

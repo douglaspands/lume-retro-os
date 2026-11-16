@@ -2199,7 +2199,7 @@ int main(int argc, char **argv)
 	struct cand *forced = NULL, *autoc = NULL, *chosen = NULL, *def, *fallback = NULL;
 	const char *reason, *target;
 	char *text, kid[ID_LEN], kreason[32];
-	int i, has_fallback = 0, choice = -1, is_new, r, learn_running = 0;
+	int i, has_fallback = 0, choice = -1, is_new, r, learn_running = 0, rule_hit;
 
 	for (i = 1; i < argc; i++) {
 		const char *a = argv[i];
@@ -2325,6 +2325,8 @@ int main(int argc, char **argv)
 		if (c->matched && (!autoc || c->priority > autoc->priority))
 			autoc = c;
 	}
+	/* the default may carry rules too (the R36S V5 panel ID): its match is a rule as well */
+	rule_hit = autoc != NULL;
 	if (!autoc) {
 		lg("no rule matched");
 		autoc = def;
@@ -2361,7 +2363,7 @@ int main(int argc, char **argv)
 	} else if (*learned && find_cand(learned) && !list_has(st.bad, learned)) {
 		chosen = find_cand(learned);
 		reason = "learned";
-	} else if (autoc && autoc != def) {
+	} else if (rule_hit) {
 		chosen = autoc;
 		reason = "rule";
 	} else if (*signature) {

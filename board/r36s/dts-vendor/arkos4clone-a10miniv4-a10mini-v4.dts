@@ -16,6 +16,7 @@
 		lume,id = "arkos4clone-a10miniv4-a10mini-v4";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

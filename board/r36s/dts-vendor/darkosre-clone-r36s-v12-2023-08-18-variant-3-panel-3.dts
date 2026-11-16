@@ -17,6 +17,7 @@
 		lume,id = "darkosre-clone-r36s-v12-2023-08-18-variant-3-panel-3";
 		lume,priority = <0>;
 		/delete-property/ lume,default;
+		/delete-property/ lume,panel-id;
 	};
 
 	/delete-node/ gpio-keys;

@@ -52,6 +52,8 @@
 		lume,id = "r36s-v5";
 		lume,priority = <0>;
 		lume,default;
+		/* ID of the ST7703 panel, measured 2026-11-15 (st7703 log, panel_id) */
+		lume,panel-id = [fe 52 02];
 	};
 
 	/* Sticks: SARADC channel 1 behind a 4-way mux (A gpio0 13, B gpio0 12) */
