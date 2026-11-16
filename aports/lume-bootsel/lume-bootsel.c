@@ -951,6 +951,52 @@ static void save_learned(const char *id)
 		lg("forgotten: nothing learned for %s any more", signature);
 }
 
+/*
+ * D16: a start that rewrites the boot image reboots from the initramfs, before any log
+ * reaches the card. Its lines go to dtb-<soc>-before-reboot.log on ROMS, and the next start
+ * repeats them ("before reboot: ...") and removes the file, as the kexec does with /chosen.
+ */
+static const char *reboot_log_path(void)
+{
+	return rp("%s/system/etc/dtb-%s-before-reboot.log", opt_roms, soc);
+}
+
+static void save_reboot_log(void)
+{
+	char tmp[PATH_MAX], path[PATH_MAX];
+	FILE *f;
+
+	if (!opt_roms || !is_dir(rp("%s", opt_roms)))
+		return;
+	snprintf(path, sizeof(path), "%s", reboot_log_path());
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	mkdir(rp("%s/system", opt_roms), 0755);
+	mkdir(rp("%s/system/etc", opt_roms), 0755);
+	f = fopen(tmp, "w");
+	if (!f)
+		return;
+	fwrite(logbuf, 1, loglen, f);
+	fflush(f);
+	fsync(fileno(f));
+	fclose(f);
+	rename(tmp, path);
+}
+
+static void replay_reboot_log(void)
+{
+	char *text, *l, *save;
+
+	if (!opt_roms)
+		return;
+	text = read_file(reboot_log_path(), NULL);
+	if (!text)
+		return;
+	for (l = strtok_r(text, "\n", &save); l; l = strtok_r(NULL, "\n", &save))
+		lg("before reboot: %s", l);
+	free(text);
+	unlink(reboot_log_path());
+}
+
 /* --- keys and menu (D7) ---------------------------------------------------------------- */
 
 enum { K_SELECT, K_UP, K_DOWN, K_OK, K_ROLES };
@@ -1801,6 +1847,8 @@ static int switch_to(struct cand *c, const char *reason, int arm)
 		}
 		if (write_bootimg(c))
 			return -1;
+		lg("rebooting into the boot image with %s", c->id);
+		save_reboot_log();
 		return EXIT_REBOOT;
 	}
 	if (arm && !wd_exists())
@@ -2081,6 +2129,8 @@ int main(int argc, char **argv)
 		return second_start(kid, kreason);
 	if (load_soc())
 		return 0;
+	if (android_sector)
+		replay_reboot_log();
 
 	/*
 	 * D16: after a reboot into a rewritten boot image there is no /chosen from the first

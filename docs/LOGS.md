@@ -291,6 +291,7 @@ com o prefixo `lume-bootsel:`:
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
 | `switching to <id> by the boot image (...) and a reboot` / `boot image with <id> written at sector <n> of <disco> (... read back)` | troca no GA36 (D16): a imagem de boot do setor 172032 é regravada com o DTB escolhido, conferida, e o console reinicia |
 | `device tree from the boot image: <id> (reason: <motivo>)` | no GA36, o início depois desse reinício (o DTB em uso é o `pending`): segue como o segundo início do kexec |
+| `rebooting into the boot image with <id>` e `before reboot: <linha>` | o início que regrava a imagem guarda as suas linhas em `ROMS/system/etc/dtb-<soc>-before-reboot.log` (ele reinicia antes de qualquer log chegar ao cartão); o início seguinte as repete com esse prefixo e apaga o arquivo |
 | `kexec: <linha>` | o que o `kexec -l` imprimiu (antes só ia para a tela) |
 | `kexec -l failed (status <n>); details follow`, `iomem: <linha>` | a carga falhou: segue a saída do `kexec -d` e a RAM do `/proc/iomem` |
 | `watchdog armed: 60 s ...` / `watchdog stopped` / `no /dev/watchdog: ...` | watchdog armado antes da troca para um DTB novo e parado no início seguinte |

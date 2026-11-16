@@ -1081,6 +1081,27 @@ def test_switch_by_boot_image_writes_it_and_asks_for_a_reboot(tools, root):
     assert "kexec" not in err.replace("--kexec", "")
 
 
+def test_log_of_the_start_that_reboots_reaches_the_next_one(tools, root):
+    # the start that rewrites the boot image reboots from the initramfs, before any log is
+    # written to the card: its lines wait on ROMS and the next start repeats them
+    _android(root)
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 11
+    saved = root.path / "roms/system/etc/dtb-a33-before-reboot.log"
+    text = saved.read_text()
+    assert "force: BOOT/dtbs/force selects ga36-panel2" in text
+    assert "rebooting into the boot image with ga36-panel2" in text
+    _running(root, "ga36-panel2")
+    root.keys(events=[BTN_EAST])
+    rc, out, err = run(tools, root, "--disk", "/disk.img", dry=False)
+    assert rc == 0
+    assert "before reboot: force: BOOT/dtbs/force selects ga36-panel2" in err
+    assert "before reboot: rebooting into the boot image with ga36-panel2" in err
+    assert not saved.exists()
+
+
 def test_switch_by_boot_image_dry_run(tools, root):
     _android(root)
     root.ga36_panels()
