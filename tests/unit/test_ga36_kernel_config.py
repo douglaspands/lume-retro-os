@@ -143,6 +143,24 @@ def test_kernel_image_does_not_carry_the_build_time_or_machine():
     assert REPO_ROOT / "board/ga36/kernel.config" in kernel_inputs("ga36")
 
 
+def test_build_stamp_is_the_kernel_release_date_and_ignores_git(monkeypatch):
+    import subprocess
+    from r36os import kernel
+    # same value for both consoles, and no git call at all
+    def no_git(*a, **k):
+        raise AssertionError("build_stamp must not run git")
+    monkeypatch.setattr(subprocess, "run", no_git)
+    assert kernel.build_stamp("ga36") == kernel.build_stamp("r36s")
+    assert kernel.build_stamp("r36s") == kernel.KERNEL_RELEASE_DATES[kernel.KERNEL_VERSION]
+    # `date -d` must accept it
+    monkeypatch.undo()
+    assert subprocess.run(["date", "-d", kernel.build_stamp("r36s")]).returncode == 0
+    # a version without a date fails loudly
+    monkeypatch.setattr(kernel, "KERNEL_VERSION", "0.0.0")
+    with pytest.raises(RuntimeError, match="no release date"):
+        kernel.build_stamp("r36s")
+
+
 def test_initramfs_files_have_a_fixed_mtime():
     from r36os.initramfs import _PACK
     assert _PACK.index("touch -h -d @0") < _PACK.index("cpio -o")

@@ -168,18 +168,23 @@ def kernel_inputs(board: str) -> list[Path]:
     return [PATCHES_DIR, REPO_ROOT / "board" / board / "kernel.config", Path(__file__)]
 
 
-def build_stamp(board: str) -> str:
-    """KBUILD_BUILD_TIMESTAMP of a console kernel: the date of the last commit that touched
-    its inputs, so it only moves when they do (the kernel also turns it into the mtime of
-    the initramfs files with `date -d`, so it must be a date). Without git history, the
-    epoch."""
-    import subprocess
+# Release date of each pinned kernel version (mtime of the tarball's top-level Makefile).
+# Add an entry with every KERNEL_VERSION bump; build_stamp fails loudly without one.
+KERNEL_RELEASE_DATES = {
+    "6.18.62": "2026-11-06 00:00:00 UTC",
+}
 
-    rel = [str(p.relative_to(REPO_ROOT)) for p in kernel_inputs(board)]
-    r = subprocess.run(["git", "-C", str(REPO_ROOT), "log", "-1", "--format=%cd",
-                        "--date=format-local:%Y-%m-%d %H:%M:%S UTC", "--", *rel],
-                       capture_output=True, text=True, env={**os.environ, "TZ": "UTC"})
-    return r.stdout.strip() or "1970-01-01 00:00:00 UTC"
+
+def build_stamp(board: str) -> str:
+    """KBUILD_BUILD_TIMESTAMP of a console kernel: the release date of the pinned kernel
+    version, identical for every board and independent of git history, so a patch that
+    only touches one console does not change the other console's image (the kernel also
+    turns it into the mtime of the initramfs files with `date -d`, so it must be a date)."""
+    try:
+        return KERNEL_RELEASE_DATES[KERNEL_VERSION]
+    except KeyError:
+        raise RuntimeError(f"no release date for kernel {KERNEL_VERSION}: add it to "
+                           "KERNEL_RELEASE_DATES in r36os/kernel.py") from None
 
 
 def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Path:
