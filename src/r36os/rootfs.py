@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from r36os import catalog, lang, leiame, pkglists, version
+from r36os import catalog, jobs, lang, leiame, pkglists, version
 from r36os.container import ALPINE_VERSION, Container, ensure_builder
 from r36os.packages import keys_dir
 from r36os.paths import REPO_ROOT, ensure_dir, out_dir
@@ -153,7 +153,8 @@ def make_system(target: Target, rootfs_tar: Path, dest: Path,
     # mksquashfs does not depend on the target arch: always the x86_64 builder.
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
         f"mksquashfs - /out/{dest.name} -tar -comp zstd -Xcompression-level 19 "
-        f"-b 256K -noappend -quiet -mkfs-time 0 -all-time 0 < {src}"
+        f"-b 256K -noappend -quiet -mkfs-time 0 -all-time 0 "
+        f"-processors {jobs.jobs()} < {src}"
     )
     size = dest.stat().st_size
     if size > limit_mib * 1024 * 1024:
@@ -173,7 +174,7 @@ mkdir -p /tmp/m
 tar -C /tmp/m -xf {src}
 tar -C /tmp/m/lib/modules --numeric-owner --owner=0 --group=0 --sort=name -cf /tmp/modules.tar .
 mksquashfs - /out/{dest} -tar -comp zstd -Xcompression-level 19 \\
-    -b 256K -noappend -quiet -mkfs-time 0 -all-time 0 < /tmp/modules.tar
+    -b 256K -noappend -quiet -mkfs-time 0 -all-time 0 -processors {jobs} < /tmp/modules.tar
 """
 
 
@@ -190,5 +191,5 @@ def make_modules_image(modules_tar: Path, dest: Path) -> Path:
         src = f"/in/{modules_tar.name}"
     # mksquashfs does not depend on the target arch: always the x86_64 builder.
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
-        _MODULES_SCRIPT.format(src=src, dest=dest.name))
+        _MODULES_SCRIPT.format(src=src, dest=dest.name, jobs=jobs.jobs()))
     return dest

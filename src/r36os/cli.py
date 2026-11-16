@@ -65,6 +65,11 @@ def _parser() -> argparse.ArgumentParser:
     k.add_argument("names", nargs="+", help="directories under aports/")
     k.add_argument("--checksum", action="store_true", help="only update the sha512sums")
 
+    for cmd in (b, u, k):
+        cmd.add_argument("--jobs", type=int, metavar="N",
+                         help="parallel jobs for make, abuild, mksquashfs and zstd "
+                              "(default: R36OS_JOBS, else half the cores)")
+
     t = sub.add_parser("test-vm", help="automated acceptance test of the vm image")
     t.add_argument("--keep", action="store_true", help="keep the VM disk after the test")
 
@@ -115,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
 
 def _main(args: argparse.Namespace) -> int:
     try:
+        if args.command in ("build", "pkg", "push"):
+            from r36os import jobs
+
+            jobs.set_jobs(args.jobs)  # the option beats R36OS_JOBS
+            print(jobs.summary(), flush=True)
         if args.command == "build":
             if args.all == bool(args.target):
                 print("error: give a target or --all", file=sys.stderr)
@@ -184,7 +194,7 @@ def _main(args: argparse.Namespace) -> int:
             from r36os.clean import main_clean
 
             return main_clean(yes=args.yes, keep=args.keep)
-    except (InvalidTargetError, lang.InvalidLanguageError) as e:
+    except (InvalidTargetError, lang.InvalidLanguageError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     return 1
