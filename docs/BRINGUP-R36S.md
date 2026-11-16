@@ -146,6 +146,25 @@ cartão montado com o I/O a 1,8 V. Sem som: o V11 não declara GPIO de amplifica
 fone também vem invertida (`ACTIVE_LOW`). São diferenças da placa, não da alimentação. O
 `force` e o `good=` saíram e o boot 104 voltou ao `r36s-v5` (`rule`).
 
+**Lista pela tecla (2026-11-16, boots 105 a 107):** a lista só abre ligando com o Vol-
+segurado **até ela aparecer**: o driver das teclas sobe em ~2,7 s e o `lume-bootsel` lê a
+tecla em ~3,5 s. Pelo `reboot` do SSH, sem a tecla, ela não abre (boot 105); no boot 107 o
+Vol- foi solto 90 ms antes da leitura, enquanto a tela enchia de linhas `evlog` da repetição da
+tecla (patch 0021, corrigido no build `20261116-122213`: só o aperto e a soltura). Boot 106:
+`list shown (1 candidate(s), 169 converted)`, `list: r36s-v5 chosen and saved`, `reason:
+manual`; boot 107 seguiu com `reason: manual` sem lista. A lista abre com o cursor na escolha
+salva, ou em *Automatic* (a última linha); para cima a partir de *Automatic* é o último
+convertido (`factory-r35s`), e Vol- também desce.
+
+**Regra com prioridade (2026-11-16, build `20261116-122213`, boots 109 e 110):** uma cópia do
+`r36s-v5` com `lume,id` `r36s-v5-rule`, prioridade 10 e a mesma regra, posta na `BOOT` com o
+`good=` dela no estado: as duas regras batem e o boot 109 escolheu `r36s-v5-rule (reason:
+rule)` por kexec, sem pergunta. Sem a cópia, o boot 110 voltou ao `r36s-v5` (`rule`).
+
+**Número de série:** não há `/sys/devices/soc0` no RK3326, então o estado é por SoC
+(`dtb-rk3326.conf`). O U-Boot de fábrica grava `/serial-number` no DTB (`c3d9b8674f4b94f6`
+neste aparelho, igual nos boots 108 e 110), que se perde no kexec.
+
 ## 4. Primeiro boot
 
 - **Sinais de vida, em ordem:** o logo do fabricante (U-Boot de fábrica), depois as
