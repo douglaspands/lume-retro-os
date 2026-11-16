@@ -95,22 +95,23 @@ _DTC_FLAGS = ("-Wno-unit_address_vs_reg -Wno-avoid_unnecessary_addr_size -Wno-al
 _DTBS_SCRIPT = """
 set -eu
 inc=/linux/scripts/dtc/include-prefixes
-cd /dts
-for f in *.dts; do
-  n=${{f%.dts}}
-  cpp -nostdinc -I /dts -I /linux/arch/{arch}/boot/dts/{vendor} -I $inc -undef -D__DTS__ \\
-      -x assembler-with-cpp -o /tmp/$n.pp $f
-  dtc -O dtb -b 0 {dtc_flags} -i /dts -o /out/$n.dtb /tmp/$n.pp
-  echo "dtb: $n.dtb"
-done
+compile() {{  # <source folder> <output folder>
+  for f in "$1"/*.dts; do
+    [ -e "$f" ] || continue
+    n=$(basename "$f" .dts)
+    cpp -nostdinc -I "$1" -I /dts -I /linux/arch/{arch}/boot/dts/{vendor} -I $inc -undef \\
+        -D__DTS__ -x assembler-with-cpp -o /tmp/$n.pp "$f"
+    dtc -O dtb -b 0 {dtc_flags} -i "$1" -o "$2/$n.dtb" /tmp/$n.pp
+  done
+  echo "dtb: $(ls "$2" | wc -l) in $2"
+}}
+compile /dts /out
+if [ -d /vendor ]; then mkdir -p /out/vendor; compile /vendor /out/vendor; fi
 dt-mk-schema -j /linux/Documentation/devicetree/bindings > /tmp/schema.json
-fail=0
-for d in /out/*.dtb; do
-  out=$(dt-validate -s /tmp/schema.json -m "$d" 2>&1) || fail=1
-  if [ -n "$out" ]; then echo "$out"; fail=1; fi
-done
-[ $fail = 0 ] && echo "dt-validate: no errors"
-exit $fail
+# one dt-validate for all (the schema loads once); any output is a failure
+out=$(dt-validate -s /tmp/schema.json -m $(find /out -name '*.dtb' | sort) 2>&1) || true
+if [ -n "$out" ]; then echo "$out"; exit 1; fi
+echo "dt-validate: no errors"
 """
 
 
@@ -152,7 +153,7 @@ if grep -E '{own_files}' /out/build-warnings.log; then exit 1; fi
 # USB gadget Rx fix is in musb_gadget.c, patch 0028)
 OWN_DRIVER_FILES = ("panel-ga36mb-jd9366.c", "ga36mb-gamepad.c", "panel-sitronix-st7703.c",
                     "phy-rockchip-inno-dsidphy.c", "dw-mipi-dsi.c", "dw-mipi-dsi-rockchip.c",
-                    "musb_gadget.c")
+                    "musb_gadget.c", "panel-generic-dsi.c")
 
 # target -> (ARCH, cross prefix, starting defconfig, image)
 KERNEL_TARGETS = {
@@ -211,15 +212,18 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
 def build_dtbs(board: str, arch: str, vendor: str, out: Path) -> None:
     """Compile `board/<board>/dts/*.dts` against the patched tree and validate the DTBs.
 
-    Fails if dtc warns about anything beyond the kernel exceptions or if dt-validate
-    reports anything.
+    The trees converted from vendor DTBs (`board/<board>/dts-vendor/`, boot-dtb-select
+    D12) go to `out/vendor/`. Fails if dtc warns about anything beyond the kernel
+    exceptions or if dt-validate reports anything.
     """
     from r36os.container import Container, ensure_cross
 
     tree = source_tree()
     shutil.rmtree(out, ignore_errors=True)
     ensure_dir(out)
-    Container(
-        image=ensure_cross(),
-        volumes={tree: "/linux", REPO_ROOT / "board" / board / "dts": "/dts", out: "/out"},
-    ).sh(_DTBS_SCRIPT.format(arch=arch, vendor=vendor, dtc_flags=_DTC_FLAGS))
+    volumes = {tree: "/linux", REPO_ROOT / "board" / board / "dts": "/dts", out: "/out"}
+    vendor_dts = REPO_ROOT / "board" / board / "dts-vendor"
+    if vendor_dts.is_dir():
+        volumes[vendor_dts] = "/vendor"
+    Container(image=ensure_cross(), volumes=volumes).sh(
+        _DTBS_SCRIPT.format(arch=arch, vendor=vendor, dtc_flags=_DTC_FLAGS))

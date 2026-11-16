@@ -102,6 +102,18 @@ def test_build_check_needs_exactly_one_default(tmp_path, defaults, match):
         image.check_soc_dtbs(files)
 
 
+def test_build_check_of_the_converted_trees(tmp_path):
+    native = {"dtbs/rk3326/c.dtb": _dtb(tmp_path, "c.dtb", "c", default=True)}
+    image.check_soc_dtbs({**native, "dtbs/rk3326/vendor/v.dtb": _dtb(tmp_path, "v.dtb", "v")})
+    for files, match in (
+            ({"dtbs/rk3326/vendor/w.dtb": _dtb(tmp_path, "w.dtb", "other")}, "named after"),
+            ({"dtbs/rk3326/vendor/d.dtb": _dtb(tmp_path, "d.dtb", "d", default=True)},
+             "not the default"),
+            ({"dtbs/rk3326/vendor/c.dtb": _dtb(tmp_path, "c2.dtb", "c")}, "repeated")):
+        with pytest.raises(image.ConsoleImageError, match=match):
+            image.check_soc_dtbs({**native, **files})
+
+
 def test_build_check_refuses_repeated_ids_and_dtbs_without_the_node(tmp_path):
     files = {"dtbs/a33/a.dtb": _dtb(tmp_path, "a.dtb", "same", default=True),
              "dtbs/a33/b.dtb": _dtb(tmp_path, "b.dtb", "same")}

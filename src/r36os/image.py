@@ -158,6 +158,9 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
         for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
             files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
+        # trees converted from vendor DTBs (boot-dtb-select D12), read only on demand
+        for dtb in sorted((out / "kernel/dtbs/vendor").glob("*.dtb")):
+            files[f"dtbs/{SOC_DIR[board]}/vendor/{dtb.name}"] = dtb
     return files
 
 
@@ -201,17 +204,23 @@ def ga36_android_boot_images(ga36_out: Path) -> dict[str, Path]:
 
 def check_soc_dtbs(files: dict[str, Path]) -> None:
     """Every BOOT/dtbs/<soc>/ folder (boot-dtb-select D3): each DTB has the lume-select
-    node, the ids are unique and exactly one DTB is the default of its SoC."""
+    node, the ids are unique and exactly one DTB is the default of its SoC. A converted DTB
+    of dtbs/<soc>/vendor/ (D12) is named after its lume,id (lume-bootsel finds it by the
+    name) and is never the default."""
     from r36os import fdt
 
     by_soc: dict[str, dict[str, dict]] = {}
     for path, src in sorted(files.items()):
         parts = path.split("/")
-        if len(parts) != 3 or parts[0] != "dtbs" or not path.endswith(".dtb"):
+        vendor = len(parts) == 4 and parts[2] == "vendor"
+        if parts[0] != "dtbs" or not path.endswith(".dtb") or not (len(parts) == 3 or vendor):
             continue
         info = fdt.select_info(fdt.parse(src.read_bytes()))
         if info is None or not info["id"]:
             raise ConsoleImageError(f"{path} has no lume-select node with lume,id")
+        if vendor and (info["id"] != parts[3][:-4] or info["default"]):
+            raise ConsoleImageError(f"{path}: a vendor DTB is named after its lume,id "
+                                    f"({info['id']}) and is not the default")
         by_soc.setdefault(parts[1], {})[path] = info
     for soc, dtbs in by_soc.items():
         ids = [i["id"] for i in dtbs.values()]
