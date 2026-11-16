@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Mon, 16 Nov 2026 20:00:00 -0300
+Subject: [PATCH] Input: sun4i-lradc-keys - report a key held before the LRADC
+ is enabled
+
+The driver enables only the key down and key up interrupts. A key that
+is already held when the LRADC starts converting (held at power on, as
+the GA36 does with Vol- to open the device tree list of the initramfs)
+never makes the key down transition: the hardware raises "already hold"
+instead, which the driver leaves off, so the key reads as released
+until it is let go and pressed again (GA36 boot 122, boot-dtb-select
+task 6.3).
+
+Enable the channel 0 "already hold" interrupt and take it as a press,
+with the same voltage lookup as a key down. The cached keycode keeps a
+second report away.
+
+diff --git a/drivers/input/keyboard/sun4i-lradc-keys.c b/drivers/input/keyboard/sun4i-lradc-keys.c
+--- a/drivers/input/keyboard/sun4i-lradc-keys.c
++++ b/drivers/input/keyboard/sun4i-lradc-keys.c
+@@ -122,7 +122,11 @@ static irqreturn_t sun4i_lradc_irq(int irq, void *dev_id)
+ 		lradc->chan0_keycode = 0;
+ 	}
+
+-	if ((ints & CHAN0_KEYDOWN_IRQ) && lradc->chan0_keycode == 0) {
++	/*
++	 * A key held when the LRADC is enabled (at power on) gives no key down,
++	 * only "already hold": take it as a press too.
++	 */
++	if ((ints & (CHAN0_KEYDOWN_IRQ | CHAN0_ALRDY_HOLD_IRQ)) && lradc->chan0_keycode == 0) {
+ 		val = readl(lradc->base + LRADC_DATA0) & 0x3f;
+ 		voltage = val * lradc->vref / 63;
+
+@@ -172,7 +176,8 @@ static int sun4i_lradc_open(struct input_dev *dev)
+ 	writel(FIRST_CONVERT_DLY(2) | LEVELA_B_CNT(1) | HOLD_EN(1) |
+ 		SAMPLE_RATE(0) | ENABLE(1), lradc->base + LRADC_CTRL);
+
+-	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ, lradc->base + LRADC_INTC);
++	writel(CHAN0_KEYUP_IRQ | CHAN0_KEYDOWN_IRQ | CHAN0_ALRDY_HOLD_IRQ,
++	       lradc->base + LRADC_INTC);
+
+ 	return 0;
+

@@ -228,7 +228,21 @@ o U-Boot de fábrica seguiu o boot normal em todas, e o kernel viu a tecla:
 | Select | `BTN_TRIGGER_HAPPY1` (F1) | nada | 118 |
 | A | `BTN_EAST` (`gpio3 PB6`) | nada | 119 |
 
-Vol- fica como tecla da lista no R36S. As teclas de volume são um teclado para o kernel, e o
+Vol- fica como tecla da lista no R36S.
+
+**GA36, prova 1.3 (2026-11-16, build `20261116-151606`, boots 122 a 126):** a tabela
+`softw411` não tem partição `recovery` (só `bootloader`, `env`, `boot`, `rootfs`, `storage`).
+As teclas de volume estão no canal 0 do LRADC (Vol+ 200 mV, Vol- 400 mV; ~32 mV por passo):
+
+| Tecla | LRADC | U-Boot de fábrica | Boot |
+|---|---|---|---|
+| Vol- | ~0xC (entre as faixas) | nada | 122 |
+| Vol+ | ~0x6 (faixa de fastboot 0x2–0x8) | **sai do boot**: modo USB da Allwinner `1f3a:efe8`, sem tela, até desligar | 123 |
+| Start, Select, A | (microcontrolador do controle) | nada | 124 a 126 |
+
+Vol- fica como tecla da lista também no GA36; Vol+ nunca pode ser a tecla de seleção. A
+lista não abriu no boot 122 porque o `sun4i-lradc-keys` ignorava a interrupção "already hold"
+de uma tecla segurada antes de o LRADC começar (patch `0034`, tarefa 6.3). As teclas de volume são um teclado para o kernel, e o
 eco do `tty1` repetia o Vol- segurado na tela; o `init` desliga o eco (tarefa 6.7).
 
 O menu é texto no `tty1` (fbcon), com o automático marcado `(auto)`, o

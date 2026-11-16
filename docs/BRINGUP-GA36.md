@@ -71,7 +71,11 @@ sozinha testa o outro painel.
   volta ao automático. Um nome que não existe é ignorado (motivo no log).
 - **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
   **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-a33-<serial>.conf` (um por
-  aparelho; `dtb-a33.conf` sem número de série) e "Automatic" apaga a escolha. (Teclas provisórias até a prova 1.3 de `boot-dtb-select`.)
+  aparelho; `dtb-a33.conf` sem número de série; o GA36 não tem: nem `soc0` nem
+  `/serial-number` do U-Boot) e "Automatic" apaga a escolha. **Não ligue segurando Vol+:**
+  ele cai na faixa de fastboot do U-Boot de fábrica, que entra no modo USB da Allwinner
+  (`1f3a:efe8`) sem tela até desligar. Vol-, Start, Select e A não mudam nada no U-Boot
+  (prova 1.3 de `boot-dtb-select`, boots 122 a 126).
 - **Se o DTB escolhido não chegar ao menu**, desligue e ligue: o boot seguinte volta ao
   último DTB que funcionou (`reason: fallback` no log).
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o

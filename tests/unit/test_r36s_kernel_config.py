@@ -46,6 +46,8 @@ def test_kernel_target_is_arm64():
     "CONFIG_ZRAM_DEF_COMP_LZ4",
     # DTB selection (boot-dtb-select D2/D7): kexec and the keys read in the initramfs
     "CONFIG_KEXEC", "CONFIG_INPUT_EVDEV", "CONFIG_KEYBOARD_GPIO",
+    # watchdog through the kexec (boot-dtb-select D11)
+    "CONFIG_WATCHDOG", "CONFIG_DW_WATCHDOG",
     # USB gadget on the OTG port (usb-device-access D1/D2): configfs with MTP and NCM on
     # the DWC2 in dual-role, with the role switch
     "CONFIG_USB_DWC2_DUAL_ROLE", "CONFIG_USB_ROLE_SWITCH", "CONFIG_USB_CONFIGFS",
@@ -53,6 +55,13 @@ def test_kernel_target_is_arm64():
 ])
 def test_fragment_builds_in(option):
     assert _options(FRAGMENT).get(option) == "y", option  # built in, not a module
+
+
+def test_watchdog_is_not_fed_forever_and_its_node_is_on():
+    # D11: a watchdog armed before the kexec must reset a second start that never opens it
+    assert _options(FRAGMENT).get("CONFIG_WATCHDOG_OPEN_TIMEOUT") == "30"
+    dts = (REPO_ROOT / "board/r36s/dts/rk3326-r36s-v5.dts").read_text()
+    assert re.search(r'^&wdt \{\n\tstatus = "okay";\n\};', dts, re.M)
 
 
 def test_fragment_has_the_host_role_and_the_usb_radios():

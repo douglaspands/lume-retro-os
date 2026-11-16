@@ -858,3 +858,11 @@
 &vopb_mmu {
 	status = "okay";
 };
+
+/*
+ * boot-dtb-select D11: lume-bootsel arms it before the kexec to a device tree not confirmed
+ * yet, so a kernel that hangs with it resets the console (disabled in px30.dtsi)
+ */
+&wdt {
+	status = "okay";
+};

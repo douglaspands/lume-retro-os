@@ -47,8 +47,10 @@ def test_fragment_enables_kexec_and_the_selection_keys():
     # built in (the build fails if an option of the fragment does not stick)
     opts = _options(FRAGMENT)
     for o in ("CONFIG_KEXEC", "CONFIG_HOTPLUG_CPU", "CONFIG_INPUT_EVDEV",
-              "CONFIG_KEYBOARD_SUN4I_LRADC"):
+              "CONFIG_KEYBOARD_SUN4I_LRADC", "CONFIG_WATCHDOG", "CONFIG_SUNXI_WATCHDOG"):
         assert opts.get(o) == "y", o
+    # D11: a watchdog armed before the switch must reset a start that never opens it
+    assert opts.get("CONFIG_WATCHDOG_OPEN_TIMEOUT") == "30"
 
 
 def test_fragment_builds_in_the_usb_gadget():
