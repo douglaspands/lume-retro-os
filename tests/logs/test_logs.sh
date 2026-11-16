@@ -548,7 +548,11 @@ mkdir -p "$SOC0_DIR"
 check "dtb: without a serial number the state file is per SoC" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
 printf '0000000000000000\n' > "$SOC0_DIR/serial_number"
 check "dtb: an all-zero serial number counts as none" '[ "$(dtb_conf_name)" = dtb-a33.conf ]'
+printf 'c3d9b8674f4b94f6\000' > "$DT_ROOT/serial-number"
+check "dtb: without soc0 the serial number of the bootloader names the file (D6)" '[ "$(dtb_conf_name)" = dtb-a33-c3d9b8674f4b94f6.conf ]'
 printf '02c00042:a1b2c3d4\n' > "$SOC0_DIR/serial_number"
+check "dtb: the SoC serial number wins over the bootloader one" '[ "$(dtb_conf_name)" = dtb-a33-02c00042a1b2c3d4.conf ]'
+rm -f "$DT_ROOT/serial-number"
 check "dtb: with a serial number the state file is per device" '[ "$(dtb_conf_name)" = dtb-a33-02c00042a1b2c3d4.conf ]'
 DEV1=$DTB_CONF_DIR/dtb-a33-02c00042a1b2c3d4.conf
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log

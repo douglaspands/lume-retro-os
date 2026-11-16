@@ -296,7 +296,7 @@ prova).
 
 **Guardado por aparelho:** a escolha e os descartados ficam em
 `ROMS/system/etc/dtb-<soc>-<serial>.conf`, um arquivo por aparelho (pelo número de série do
-SoC), de modo que o cartão levado a outro console do mesmo modelo não leva a escolha do
+SoC ou, no R36S, pelo que o U-Boot de fábrica grava no device tree), de modo que o cartão levado a outro console do mesmo modelo não leva a escolha do
 primeiro. O aprendido por ID do painel fica em `ROMS/system/etc/dtb-<soc>-learned.conf`.
 Para recomeçar do zero, apague esses arquivos pelo PC; para usar de novo um DTB descartado
 com o `force`, tire o nome dele da linha `bad=` do arquivo do aparelho.

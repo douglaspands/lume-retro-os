@@ -108,14 +108,18 @@ Uma escolha forçada pelo PC que nomeia um DTB descartado naquele aparelho MUST 
 - **THEN** o boot ignora o arquivo, registra o motivo no log e segue as outras escolhas
 
 ### Requirement: Escolha por aparelho
-A escolha salva, os DTBs confirmados e os descartados MUST ser guardados por aparelho, identificado pelo número de série do SoC, de modo que o mesmo cartão em dois aparelhos do mesmo SoC mantenha uma escolha para cada um. Sem número de série do SoC, eles MUST ser guardados por SoC, e o log MUST avisar disso. A escolha forçada pelo PC vale para o cartão, em qualquer aparelho do SoC.
+A escolha salva, os DTBs confirmados e os descartados MUST ser guardados por aparelho, identificado pelo número de série do SoC ou, quando o kernel não o informa, pelo número de série que o bootloader grava no device tree, de modo que o mesmo cartão em dois aparelhos do mesmo SoC mantenha uma escolha para cada um. O número de série MUST ser o mesmo antes e depois de uma troca de DTB. Sem nenhum dos dois, eles MUST ser guardados por SoC, e o log MUST avisar disso. A escolha forçada pelo PC vale para o cartão, em qualquer aparelho do SoC.
 
 #### Scenario: Cartão levado a outro GA36
 - **WHEN** o painel 2 foi escolhido e confirmado num GA36 e o cartão é ligado em outro GA36
 - **THEN** o segundo GA36 sobe pelas regras ou pelo padrão, sem a escolha do primeiro, e o primeiro continua com o painel 2 quando o cartão volta para ele
 
+#### Scenario: Número de série do bootloader
+- **WHEN** o kernel do R36S não informa o número de série do SoC, mas o U-Boot de fábrica grava `/serial-number` no device tree
+- **THEN** a escolha fica no arquivo daquele número, o mesmo depois do kexec para outro DTB, e o log diz que o número veio do bootloader
+
 #### Scenario: Sem número de série
-- **WHEN** o kernel do console não informa o número de série do SoC
+- **WHEN** nem o kernel nem o bootloader informam um número de série
 - **THEN** a escolha vale para todo aparelho daquele SoC e o log registra o aviso
 
 ### Requirement: Precedência das escolhas

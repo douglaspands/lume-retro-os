@@ -281,8 +281,9 @@ com o prefixo `lume-bootsel:`:
 | `search: <id> does not work (...); discarded on this device` / `search: <id> works, the panel answered` / `search: no device tree left; ...` | busca sozinha (D15): DTB descartado, achado, ou candidatos esgotados |
 | `probe ...: failed (<motivo>)` | leitura que não pôde ser feita; a regra conta como não batida |
 | `rules of <id>: match\|no match`, `no rule matched` | resultado das regras |
-| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC |
-| `no SoC serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
+| `device: SoC serial number <serial>, choice in dtb-<soc>-<serial>.conf` | o aparelho, pelo número de série do SoC (`/sys/devices/soc0`) |
+| `device: bootloader serial number <serial>, choice in dtb-<soc>-<serial>.conf` | sem `soc0`, o número que o bootloader grava no DTB (`/serial-number`; o U-Boot de fábrica do R36S) |
+| `no serial number: the choice in dtb-<soc>.conf applies to every <soc> device` | sem número de série: a escolha vale para todo aparelho do SoC |
 | `force: BOOT/dtbs/force selects <id>` / `force ignored: '<nome>' ...` | escolha pelo PC aceita ou recusada (nome inválido) |
 | `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
 | `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
@@ -307,7 +308,8 @@ com o prefixo `lume-bootsel:`:
 
 O estado fica em `ROMS/system/etc/dtb-<soc>-<serial>.conf` (`manual=`, `good=`,
 `pending=`, `bad=`), um arquivo por aparelho, identificado pelo número de série do SoC
-(`/sys/devices/soc0/serial_number`); sem ele, `dtb-<soc>.conf`, um por SoC. Um DTB que não
+(`/sys/devices/soc0/serial_number`) ou, sem ele, pelo `/serial-number` que o bootloader grava
+no DTB (levado adiante no kexec); sem nenhum dos dois, `dtb-<soc>.conf`, um por SoC. Um DTB que não
 é o padrão e ainda não foi confirmado no aparelho fica `pending` e é confirmado na tela; se
 a pergunta não pôde aparecer, o `r36os-logd` o confirma quando o frontend sobe (`good=` e
 sem `pending=`). Um DTB que continua `pending` no boot seguinte não foi confirmado e é

@@ -192,6 +192,10 @@ class Root:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(value)
 
+    def dt_serial(self, value):
+        """The /serial-number a bootloader writes into the device tree (R36S U-Boot)."""
+        (self.path / "proc/device-tree/serial-number").write_bytes(fdt.s(value))
+
     def after_kexec(self, ident, reason, watchdog=False):
         """The second (or third) start: the kernel runs with the tree prepared before."""
         dt = self.path / "proc/device-tree"
@@ -819,8 +823,45 @@ def test_without_serial_the_choice_is_per_soc_with_a_warning(tools, root, value)
         root.serial(value)
     root.state(manual="ga36-panel2")
     rc, out, err = run(tools, root)
-    assert "no SoC serial number: the choice in dtb-a33.conf applies to every a33 device" in err
+    assert "no serial number: the choice in dtb-a33.conf applies to every a33 device" in err
     assert decision(out)["selected"] == "ga36-panel2"
+
+
+def test_bootloader_serial_names_the_state_without_soc0(tools, root):
+    """R36S (proof 1.7): no soc0, but the factory U-Boot writes /serial-number."""
+    root.ga36_panels()
+    root.dt_serial("c3d9b8674f4b94f6")
+    root.state(device="c3d9b8674f4b94f6", manual="ga36-panel2", good="ga36-panel2")
+    rc, out, err = run(tools, root)
+    assert ("device: bootloader serial number c3d9b8674f4b94f6, "
+            "choice in dtb-a33-c3d9b8674f4b94f6.conf") in err
+    assert decision(out)["reason"] == "manual"
+
+
+def test_soc_serial_wins_over_the_bootloader_one(tools, root):
+    root.ga36_panels()
+    root.serial("aaaa\n")
+    root.dt_serial("bbbb")
+    rc, out, err = run(tools, root)
+    assert "device: SoC serial number aaaa, choice in dtb-a33-aaaa.conf" in err
+
+
+def test_prepared_tree_carries_the_bootloader_serial(tools, root):
+    """After the kexec the second kernel names the same state file."""
+    root.ga36_panels()
+    root.dt_serial("c3d9b8674f4b94f6")
+    root.force("ga36-panel2")
+    run(tools, root)
+    dtb = fdt.parse((root.path / "tmp/lume-bootsel.dtb").read_bytes())
+    assert dtb.string("serial-number") == "c3d9b8674f4b94f6"
+
+
+def test_prepared_tree_without_a_bootloader_serial_has_none(tools, root):
+    root.ga36_panels()
+    root.force("ga36-panel2")
+    run(tools, root)
+    dtb = fdt.parse((root.path / "tmp/lume-bootsel.dtb").read_bytes())
+    assert "serial-number" not in dtb.props
 
 
 def test_serial_keeps_only_letters_and_digits(tools, root):

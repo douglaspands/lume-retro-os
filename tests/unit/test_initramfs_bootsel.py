@@ -86,6 +86,17 @@ def test_ga36_switches_by_its_boot_image_and_the_r36s_by_kexec(staged):
     assert '--disk "$DISK"' in init and "[ $rc = 11 ]" in init and "reboot -f" in init
 
 
+def test_held_list_key_is_not_echoed_on_the_screen():
+    # 6.7: the volume keys are a keyboard; a Vol- held at power on repeated its characters
+    # on tty1. The echo goes off before anything else reads keys, and back on for the
+    # emergency shell.
+    init = (REPO_ROOT / "initramfs/init").read_text()
+    off = init.index("stty -F /dev/tty1 -echo")
+    assert off < init.index("select_dtb\n") and off < init.index(". /lib/storage.sh")
+    rescue = init[init.index("rescue() {"):init.index("exec setsid cttyhack sh")]
+    assert "stty -F /dev/tty1 echo" in rescue
+
+
 def test_soc_folders_match_the_image():
     from r36os.image import SOC_DIR
     assert SOC_DIR == {"ga36": "a33", "r36s": "rk3326"}

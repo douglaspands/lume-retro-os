@@ -13,7 +13,8 @@
  * of the candidates (read-only probes); the default.
  *
  * The state is per device (D6): ROMS/system/etc/dtb-<soc>-<serial>.conf, with the SoC
- * serial number of /sys/devices/soc0 (dtb-<soc>.conf without one). A device tree that is
+ * serial number of /sys/devices/soc0, else the /serial-number of the bootloader
+ * (dtb-<soc>.conf without one). A device tree that is
  * not the default and was not confirmed on this device is "pending": the watchdog is
  * armed before the kexec (D11) and the second start asks on the screen (D10); without an
  * answer in 15 s it is "bad" and the kernel goes back to the last confirmed one.
@@ -828,21 +829,12 @@ static struct {
 static char serial[64];
 static char state_file[NAME_MAX + 1];
 
-/*
- * The SoC serial number (SID on the A33, OTP on the RK3326) names the state file, so a
- * card taken to another device of the same SoC does not take the choice of the first one.
- * Only letters and digits are kept; an empty or all-zero value (not fused) counts as none.
- */
-static void load_serial(void)
+/* serial <- the letters and digits of the file; 0 when absent, empty or all zeros */
+static int read_serial(const char *path)
 {
-	static int done;
-	char *text, *p;
+	char *text = read_file(path, NULL), *p;
 	size_t n = 0;
 	int nonzero = 0;
-
-	if (done++)
-		return;
-	text = read_file(rp("/sys/devices/soc0/serial_number"), NULL);
 
 	for (p = text; p && *p && n + 1 < sizeof(serial); p++)
 		if (isalnum((unsigned char)*p)) {
@@ -851,12 +843,33 @@ static void load_serial(void)
 		}
 	serial[nonzero ? n : 0] = 0;
 	free(text);
+	return *serial != 0;
+}
+
+/*
+ * The device serial number names the state file, so a card taken to another device of the
+ * same SoC does not take the choice of the first one (D6): the SoC one of
+ * /sys/devices/soc0, else the /serial-number the bootloader writes into the device tree
+ * (the factory U-Boot of the R36S, from the OTP; carried through the kexec by prepare()).
+ * Only letters and digits are kept; an empty or all-zero value (not fused) counts as none.
+ */
+static void load_serial(void)
+{
+	static int done;
+	const char *from = "SoC";
+
+	if (done++)
+		return;
+	if (!read_serial(rp("/sys/devices/soc0/serial_number"))) {
+		from = "bootloader";
+		read_serial(rp("/proc/device-tree/serial-number"));
+	}
 	if (*serial) {
 		snprintf(state_file, sizeof(state_file), "dtb-%s-%s.conf", soc, serial);
-		lg("device: SoC serial number %s, choice in %s", serial, state_file);
+		lg("device: %s serial number %s, choice in %s", from, serial, state_file);
 	} else {
 		snprintf(state_file, sizeof(state_file), "dtb-%s.conf", soc);
-		lg("no SoC serial number: the choice in %s applies to every %s device", state_file,
+		lg("no serial number: the choice in %s applies to every %s device", state_file,
 		   soc);
 	}
 }
@@ -918,7 +931,7 @@ static void save_state(void)
 	}
 	fprintf(f, "# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, r36os-logd)\n"
 		   "manual=%s\ngood=%s\npending=%s\nbad=%s\n",
-		soc, *serial ? serial : "(every device: no SoC serial number)", st.manual, st.good,
+		soc, *serial ? serial : "(every device: no serial number)", st.manual, st.good,
 		st.pending, st.bad);
 	/* only while something is pending, so the file stays as before on the kexec consoles */
 	if (*st.pending && *st.pending_reason)
@@ -1601,6 +1614,17 @@ static int copy_memory(void *fdt)
 	return copied;
 }
 
+/* the /serial-number of the bootloader, so the restarted kernel names the same state file */
+static void copy_serial(void *fdt)
+{
+	size_t len;
+	char *val = read_file(rp("/proc/device-tree/serial-number"), &len);
+
+	if (val && len)
+		fdt_setprop(fdt, 0, "serial-number", val, len);
+	free(val);
+}
+
 static const char *out_path(void)
 {
 	return opt_out ? opt_out : rp("/tmp/lume-bootsel.dtb");
@@ -1619,6 +1643,7 @@ static int prepare(struct cand *c, const char *reason, int watchdog)
 		return -1;
 	}
 	mem = copy_memory(buf);
+	copy_serial(buf);
 	chosen = fdt_path_offset(buf, "/chosen");
 	if (chosen < 0)
 		chosen = fdt_add_subnode(buf, 0, "chosen");

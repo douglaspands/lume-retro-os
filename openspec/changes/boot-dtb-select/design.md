@@ -195,6 +195,18 @@ em uso a cada boot, e agora o `good=` só nasce de uma confirmação.
 aviso no log. O SID existe pelo nvmem (`CONFIG_NVMEM_SUNXI_SID=y`); usá-lo como número de
 série é uma decisão em aberto.
 
+**Número de série do bootloader (2026-11-16, decisão do usuário):** o RK3326 também não tem
+`soc0`, mas o U-Boot de fábrica do R36S grava `/serial-number` na raiz do DTB (do OTP;
+`c3d9b8674f4b94f6`, igual nos boots 108 e 110). A fonte passa a ser, nesta ordem:
+`/sys/devices/soc0/serial_number`, depois `/proc/device-tree/serial-number`, com a mesma
+limpeza (só letras e dígitos, zeros contam como ausente). Como o kexec troca o DTB inteiro,
+o `prepare()` copia o `/serial-number` do DTB em uso para o preparado, ao lado do `/memory`;
+sem isso o segundo início acharia outro arquivo de estado. O `r36os-logd` (`dtb_serial` em
+`lib.sh`) segue a mesma ordem. O log diz a origem (`SoC` ou `bootloader`). No GA36, depende
+do que o U-Boot 2017 da Allwinner grava (prova 1.7); o SID pelo nvmem continua em aberto.
+O estado antigo `dtb-rk3326.conf` não é migrado: o aparelho recomeça pelas regras e pelo
+aprendido (que é por SoC e não muda).
+
 ### D7. Tecla e menu
 
 A tecla de seleção e as de navegação são por console, num arquivo do board
