@@ -76,8 +76,9 @@ sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 | `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
+| `dtbs/rk3326/vendor/` | DTBs de clones do R36S convertidos no PC (`<lume,id>.dtb`, cerca de 170), lidos só quando nomeados (seção 3.1) |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel com que a imagem de boot do setor 172032 é regravada na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
 | `r36s/` | `SYSTEM`, `Image` e `modules` |
 
 A `BOOT` tem só o que os consoles leem; as imagens de boot dos painéis do GA36 ficam na pasta
@@ -91,22 +92,26 @@ No R36S vale no boot seguinte. (No GA36, o logo da `BOOT` depende da tarefa 2.2 
 
 O U-Boot sempre inicia o kernel com o DTB padrão. No initramfs, o `lume-bootsel` olha
 `BOOT/dtbs/rk3326/` e decide, nesta ordem: o arquivo `BOOT/dtbs/force`; a lista na tela
-(tecla segurada ao ligar); a volta ao último DTB que funcionou; a escolha salva da lista; as
-regras de cada DTB (leituras de ADC, GPIO e I2C); o padrão. Se o escolhido não é o que está
-rodando, o kernel reinicia uma vez com ele (kexec, 1 a 2 s a mais). Hoje há um só DTB do
-R36S, então o boot segue sempre com o padrão, sem troca.
+(tecla segurada ao ligar); a volta ao último DTB que funcionou; a escolha salva da lista; o
+aprendido para o ID do painel; as regras de cada DTB (ID do painel, leituras de ADC, GPIO e
+I2C); o padrão. Se o escolhido não é o que está rodando, o kernel reinicia uma vez com ele
+(kexec, alguns segundos a mais). O `r36s-v5` tem a regra `lume,panel-id = [fe 52 02]`, o ID
+que o ST7703 deste aparelho responde, então o R36S V5 segue com ele sem troca (`reason:
+rule`, ou `learned` quando o aprendido já existe). Com a tela muda (o painel não responde
+ao driver), a busca sozinha testa os outros DTBs da pasta, um por boot.
 
 - **Pelo PC:** escrever o nome (por exemplo `r36s-v5`) em `BOOT/dtbs/force`. Apagar o
   arquivo volta ao automático. Um nome que não existe é ignorado (motivo no log).
 - **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
-  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-rk3326.conf` e "Automatic"
-  apaga a escolha. (Teclas provisórias até a prova 1.2 de `boot-dtb-select`.)
+  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-rk3326-<serial>.conf` (um
+  por aparelho; `dtb-rk3326.conf` sem número de série) e "Automatic" apaga a escolha. (Teclas provisórias até a prova 1.2 de `boot-dtb-select`.)
 - **DTB novo:** copiar o `.dtb` (com o nó `lume-select`) para `BOOT/dtbs/rk3326/` basta
   para ele entrar na lista.
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
   `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
 - **DTBs convertidos** (`BOOT/dtbs/rk3326/vendor/`, change `boot-dtb-select` D17): só são
-  lidos quando o `force`, a lista ou o estado os nomeiam. Na lista eles aparecem com
+  lidos quando o `force`, a lista, o aprendido ou o estado os nomeiam; a busca sozinha não
+  os testa. Na lista eles aparecem com
   "(converted)"; esquerda/L1 e direita/R1 pulam uma página.
 
 **DTB de fábrica convertido, provado (2026-11-16, build `20261115-232617`, boots 92 a 95):**

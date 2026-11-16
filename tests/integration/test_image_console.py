@@ -81,7 +81,9 @@ def test_boot_contents():
                  "r36s/SYSTEM", "r36s/Image", "r36s/modules",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel2.dtb",
-                 "dtbs/rk3326/rk3326-r36s-v5.dtb"):
+                 "dtbs/rk3326/rk3326-r36s-v5.dtb",
+                 # D17: the converted trees, named after their lume,id (docs table, 2.3)
+                 "dtbs/rk3326/vendor/darkosre-r36s.dtb"):
         assert f"::/{name}" in listing, listing
     assert "::/logs" not in listing and "::/SYSTEM" not in listing.split()
     # boot-dtb-select D8: the DTBs only live in dtbs/<soc>/, and force is the user's

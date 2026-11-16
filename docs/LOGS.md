@@ -287,7 +287,7 @@ com o prefixo `lume-bootsel:`:
 | `force ignored: <id> was discarded on this device (bad); ...` | `force` de um DTB descartado neste aparelho |
 | `fallback: <id> was not confirmed in the previous boot; discarded` | volta ao último DTB confirmado |
 | `list shown (<n> candidate(s)[, <m> converted])`, `list: <id> chosen and saved`, `list: automatic chosen, ...` | lista aberta pela tecla de seleção; `converted`: quantos DTBs de `vendor/` ela mostrou |
-| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
+| `selected <id> (reason: default\|rule\|manual\|forced\|fallback\|reverted\|learned\|auto\|search)` | **o DTB escolhido e o motivo** (`rule`: as regras de um DTB bateram, inclusive as do padrão, como o ID do painel do R36S V5; `learned`: aprendido antes para a assinatura; `auto`: o painel respondeu ao DTB em uso, que é aprendido; `search`: o painel não respondeu e o próximo candidato é testado) |
 | `keeping the running device tree, no kexec` | boot segue sem troca |
 | `switching to <id> by kexec (...)` | troca: o kernel reinicia com o DTB escolhido |
 | `switching to <id> by the boot image (...) and a reboot` / `boot image with <id> written at sector <n> of <disco> (... read back)` | troca no GA36 (D16): a imagem de boot do setor 172032 é regravada com o DTB escolhido, conferida, e o console reinicia |

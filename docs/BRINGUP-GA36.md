@@ -38,8 +38,9 @@ A mesma nos dois consoles (`docs/BRINGUP-R36S.md` tem a mesma tabela):
 | `logo.bmp` | logo do boot (o de fábrica do R36S), BMP 640x480 de 24 bits |
 | `dtbs/a33/` | DTBs do GA36: `sun8i-a33-ga36-mb-v1.2-panel1.dtb` (`ga36-panel1`, o padrão) e `sun8i-a33-ga36-mb-v1.2-panel2.dtb` (`ga36-panel2`) |
 | `dtbs/rk3326/` | DTB do R36S: `rk3326-r36s-v5.dtb` (`r36s-v5`, o padrão) |
+| `dtbs/rk3326/vendor/` | DTBs de clones do R36S convertidos no PC (`<lume,id>.dtb`, cerca de 170), lidos só quando nomeados (README, "Clones do R36S") |
 | `dtbs/force` | opcional, criado pelo usuário: o nome do DTB a usar (seção 3.1) |
-| `ga36/` | `SYSTEM`, `zImage` (o kernel recarregado na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
+| `ga36/` | `SYSTEM`, `zImage` (o kernel com que a imagem de boot do setor 172032 é regravada na troca de DTB) e `modules` (os módulos do kernel, montados em `/lib/modules`) |
 | `r36s/` | `SYSTEM`, `Image` e `modules` |
 
 A `BOOT` tem só o que os consoles leem. O GA36 inicia pela imagem de boot do setor 172032,
@@ -56,24 +57,28 @@ prova 1.4.
 O bootloader sempre inicia com o painel 1 (a imagem de boot do setor 172032, com o DTB do
 painel 1 anexado). No initramfs, o `lume-bootsel` olha `BOOT/dtbs/a33/` e decide, nesta
 ordem: o arquivo `BOOT/dtbs/force`; a lista na tela (tecla segurada ao ligar); a volta ao
-último DTB que funcionou; a escolha salva da lista; as regras de cada DTB; o padrão. Se o
-escolhido não é o que está rodando, o kernel reinicia uma vez com ele (kexec do
-`ga36/zImage`). Os dois painéis ainda não têm uma regra que os distinga, então sem
-escolha o GA36 fica no painel 1.
+último DTB que funcionou; a escolha salva da lista; o aprendido; as regras de cada DTB; o
+padrão. Se o escolhido não é o que está rodando, o `lume-bootsel` regrava a imagem de boot
+do setor 172032 com o `ga36/zImage` e o DTB escolhido, confere lendo de volta e reinicia o
+console (D16: o kexec não funciona no A33, ver o `tasks.md` da change, 8.6). O início
+seguinte pergunta na tela se o painel serve (A em 15 s); sem resposta, regrava a imagem do
+DTB anterior e reinicia de novo. Os dois painéis usam o mesmo controlador, que responde o
+ID `000000` (nunca gravado), então nenhuma regra os distingue: com a tela funcionando, a
+escolha entre eles é da lista ou do `force`; com a tela muda (driver sem resposta), a busca
+sozinha testa o outro painel.
 
 - **Tela preta, pelo PC:** escrever `ga36-panel2` em `BOOT/dtbs/force`. Apagar o arquivo
   volta ao automático. Um nome que não existe é ignorado (motivo no log).
 - **Pela tecla:** segurar **Vol-** ao ligar abre a lista; direcional ou volume navegam e
-  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-a33.conf` e "Automatic"
-  apaga a escolha. (Teclas provisórias até a prova 1.3 de `boot-dtb-select`.)
+  **A** confirma. A escolha fica salva em `ROMS/system/etc/dtb-a33-<serial>.conf` (um por
+  aparelho; `dtb-a33.conf` sem número de série) e "Automatic" apaga a escolha. (Teclas provisórias até a prova 1.3 de `boot-dtb-select`.)
 - **Se o DTB escolhido não chegar ao menu**, desligue e ligue: o boot seguinte volta ao
   último DTB que funcionou (`reason: fallback` no log).
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
   `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
 
-**Enquanto a troca por kexec não estiver provada no GA36** (prova 1.5 de
-`boot-dtb-select`), o caminho antigo continua valendo: gravar a imagem de boot do painel 2,
-da pasta do build gravado no cartão, no setor 172032, pelo PC:
+**À mão, sem o `lume-bootsel`** (por exemplo, se o sistema não chega ao initramfs): gravar
+a imagem de boot do painel 2, da pasta do build gravado no cartão, no setor 172032, pelo PC:
 
 ```sh
 sudo dd if=out/images/console/<build>/ga36-android-boot-panel2.img of=/dev/sdX \
