@@ -87,6 +87,27 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - `./cache/` é rascunho; o que vale guardar vai para o lugar certo do projeto (`src/`,
   `tests/`, `docs/`, `out/`). Não confundir com `./.cache/` (cache do build).
 
+## Planejamento e execução em grafo (regra do projeto)
+
+- Todo plano de execução (o `tasks.md` de uma change, ou um plano de várias etapas fora do
+  OpenSpec) é um **grafo de dependências**: cada tarefa é um nó com as dependências, os
+  recursos exclusivos que usa, o executor e a onda. As regras completas estão em
+  `openspec/config.yaml` (`rules.tasks` e `operations.apply`).
+- Recursos exclusivos deste projeto: `CPU` (um build pesado por vez, sob a proteção de calor),
+  `ARCH:<arch>` (um `r36os pkg` por arquitetura), `GA36`, `R36S`, `USUARIO` (ação física ou
+  olho humano) e `MERGE` (um merge por vez).
+- Executar onda por onda: o código de nós independentes vai em paralelo, cada um na sua
+  worktree em `out/worktrees/<nó>`; builds numa fila única; as provas que precisam do usuário
+  ficam juntas em janelas de aparelho. Vários subagentes ao mesmo tempo, ou a ferramenta
+  Workflow, só com o pedido do usuário para aquela onda.
+- Cada subagente usa o modelo da coluna "modelo" do nó: `opus` para o que pode deixar o console
+  sem boot, corromper o build ou passar uma versão errada, e para provas de caminho incerto;
+  `sonnet` para código bem especificado, documentação e mudanças mecânicas; `haiku` só para
+  buscas. Na dúvida, `opus`.
+- **O usuário aprova os modelos:** ao escrever o grafo, e de novo antes de cada onda, mostrar
+  os nós com o modelo de cada um e esperar a aprovação ou as trocas pedidas; a troca entra na
+  tabela do `tasks.md`. Nenhum subagente é criado sem essa aprovação.
+
 ## Pendências (regra do projeto)
 
 - `docs/PENDENCIAS.md` lista **só o que exige uma change própria** (design novo, capacidade nova, refatoração grande ou fora do escopo da change ativa). Ao ser perguntado sobre pendências, ou antes de propor uma change, consultar esse arquivo.
