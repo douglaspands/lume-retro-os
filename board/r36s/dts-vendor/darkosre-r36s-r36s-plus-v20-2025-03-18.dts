@@ -240,8 +240,7 @@
 };
 
 &dsi {
-	/delete-property/ rockchip,lane-rate;
-	/delete-property/ rockchip,phy-hstt;
+	rockchip,lane-rate = <243>;
 };
 
 &backlight {

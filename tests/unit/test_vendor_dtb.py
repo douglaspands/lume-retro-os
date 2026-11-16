@@ -164,7 +164,15 @@ def test_converted_dts_overrides_the_native_tree():
     assert '#include "rk3326-r36s-v5.dts"' in dts
     assert 'lume,id = "r36s-v5-factory";' in dts and "/delete-property/ lume,default;" in dts
     assert 'compatible = "rocknix,generic-dsi";' in dts
-    assert "/delete-property/ rockchip,lane-rate;" in dts
+    # the factory lane rate of the R36S V5 (the native tree measures the same 180 Mbps)
+    assert "rockchip,lane-rate = <180>;" in dts and "phy-hstt" not in dts
+
+
+@pytest.mark.parametrize("clock, fmt, lanes, mbps", [
+    (27000, 0, 4, 180), (29000, 0, 4, 193), (62000, 0, 4, 413), (30000, 0, 2, 400),
+    (200000, 0, 1, 1000)])
+def test_lane_rate_is_the_vendor_one(clock, fmt, lanes, mbps):
+    assert vendor_dtb.vendor_lane_mbps(clock, fmt, lanes) == mbps
 
 
 @pytest.mark.parametrize("collection, rel, expected", [

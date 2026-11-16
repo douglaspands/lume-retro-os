@@ -41,8 +41,19 @@ KEY_VOLUMEDOWN, KEY_VOLUMEUP = 114, 115
 ABS_X, ABS_Y, ABS_RX, ABS_RY = 0, 1, 3, 4
 ABS_NAMES = {ABS_X: "ABS_X", ABS_Y: "ABS_Y", ABS_RX: "ABS_RX", ABS_RY: "ABS_RY"}
 
-# the 4.4 dsi,format value -> panel_description format
+# the 4.4 dsi,format value -> panel_description format, and its bits per pixel
 DSI_FORMATS = ["rgb888", "rgb666", "rgb666_packed", "rgb565"]
+DSI_BPP = [24, 18, 18, 16]
+PX30_MAX_LANE_MBPS = 1000
+
+
+def vendor_lane_mbps(clock_khz: int, fmt: int, lanes: int) -> int:
+    """The DSI lane rate the Rockchip 4.4 driver picks for a mode (dw-mipi-dsi.c,
+    dw_mipi_dsi_get_lane_rate): the pixel bandwidth per lane over 0.9, capped. Our kernel
+    gets it as rockchip,lane-rate (patch 0019): its own estimate differs, and the R36S V5
+    shows no image without the factory rate (180 Mbps for 27 MHz, RGB888, 4 lanes)."""
+    rate = clock_khz * 1000 * DSI_BPP[fmt] // lanes * 10 // 9
+    return min(rate // 1_000_000, PX30_MAX_LANE_MBPS)
 
 
 class Refused(Exception):
@@ -87,6 +98,7 @@ class Board:
     model: str
     panel: list[str]
     reset: Pin
+    lane_mbps: int = 0
     enable: Pin | None = None
     stbyb: Pin | None = None
     lcd_power: tuple[Pin, bool] | None = None   # gpio, enable-active-high
@@ -277,6 +289,9 @@ def _panel(t: Tree, b: Board) -> None:
     if "simple-panel-dsi" not in panel.strings("compatible"):
         raise Refused(f"{path}: panel {panel.strings('compatible')} is not simple-panel-dsi")
     b.panel = panel_description(panel)
+    m = re.search(r"^M clock=(\d+) .* default=1", "\n".join(b.panel), re.M)
+    fmt = (panel.cells("dsi,format") or [0])[0]
+    b.lane_mbps = vendor_lane_mbps(int(m.group(1)), fmt, panel.cells("dsi,lanes")[0])
     if not panel.cells("reset-gpios"):
         raise Refused(f"{path}: no reset-gpios")
     b.reset = t.pin(panel.cells("reset-gpios"), "panel reset")
@@ -729,8 +744,9 @@ def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
         L += [f"\tenable-gpios = {b.enable.spec()};"]
     L += ["\tpanel_description =", "\t\t" + ",\n\t\t".join(f'"{_q(x)}"' for x in b.panel) + ";",
           "};", "",
-          "&dsi {", "\t/delete-property/ rockchip,lane-rate;",
-          "\t/delete-property/ rockchip,phy-hstt;", "};", ""]
+          # the lane rate the vendor kernel ran (the PHY transition times of the native
+          # tree are the constants of that driver, so they stay)
+          "&dsi {", f"\trockchip,lane-rate = <{b.lane_mbps}>;", "};", ""]
     if b.stbyb:
         hog("lcd-stbyb", b.stbyb, True)
     if b.mux_en:
