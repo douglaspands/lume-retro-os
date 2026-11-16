@@ -177,6 +177,175 @@ def test_lane_rate_is_the_vendor_one(clock, fmt, lanes, mbps):
     assert vendor_dtb.vendor_lane_mbps(clock, fmt, lanes) == mbps
 
 
+# --- the supply (D18) ---------------------------------------------------------------------
+
+EE_K36_STOCK = COLLECTIONS["ee"] / "K36/Stock (Panel1 2TF)/rk3326-evb-lp3-v12-linux.dtb"
+ARKOS_K36 = COLLECTIONS["arkos4clone"] / "boot/dArkOS/consoles/k36/rk3326-k36-linux.dtb"
+DARKOSRE_V11 = (COLLECTIONS["darkosre"]
+                / "files/BOOT/dtb/r36s/R35S-V11 2022-08-18/rk3326-r36s-linux.dtb")
+
+
+def _native_power():
+    """(regulators, io domains) of the native DTS: {node: (min, max, always-on)} and
+    {domain: node}."""
+    code = re.sub(r"/\*.*?\*/", "", NATIVE, flags=re.S)
+    labels, regs = {}, {}
+    for label, node, body in re.findall(
+            r"(\w+): ((?:DCDC|LDO)_REG\d|BOOST|OTG_SWITCH) \{(.*?)\n\t\t\t\};", code, re.S):
+        labels[label] = node
+        own = body.split("regulator-state-mem")[0]
+        lo = re.search(r"regulator-min-microvolt = <(\d+)>", own)
+        hi = re.search(r"regulator-max-microvolt = <(\d+)>", own)
+        regs[node] = (lo and int(lo[1]), hi and int(hi[1]), "regulator-always-on;" in own)
+    domains = {d: labels[l] for d, l in re.findall(r"\t(\w+)-supply = <&(\w+)>;", code)
+               if d.startswith(("vccio", "pmuio"))}
+    return regs, domains
+
+
+def _power(path):
+    return vendor_dtb.power(vendor_dtb.Tree(_need(path).read_bytes()))
+
+
+def test_factory_tree_of_the_r36s_v5_keeps_the_native_supply():
+    p = _power(FACTORY)
+    regs, domains = _native_power()
+    assert len(regs) == 15 and set(p.regulators) == set(regs)
+    assert {n: (r.min_uv, r.max_uv, r.always_on) for n, r in p.regulators.items()} == regs
+    assert {**p.io_domains, **p.pmu_io_domains} == domains
+
+
+def test_board_with_another_supply_gets_the_source_one():
+    # the spec scenario: DCDC4 at 3.0 V, vccio3 and vccio6 on the 1.8 V regulator
+    board = vendor_dtb.extract(_need(ARKOS_K36).read_bytes())
+    dts = vendor_dtb.to_dts(board, "k36", "src", "0" * 64)
+    dcdc4 = re.search(r"\t\tDCDC_REG4 \{(.*?)\n\t\t\};", dts, re.S)[1]
+    assert "regulator-min-microvolt = <3000000>;" in dcdc4
+    assert "regulator-max-microvolt = <3000000>;" in dcdc4
+    assert "regulator-suspend-microvolt = <3000000>;" in dcdc4   # not the native 3.3 V
+    ldo2 = re.search(r"\t\tLDO_REG2 \{(.*?)\n\t\t\};", dts, re.S)[1]
+    assert "regulator-max-microvolt = <1800000>;" in ldo2
+    for d in ("vccio3", "vccio6"):
+        assert f"\t{d}-supply = <&{{/i2c@ff180000/pmic@20/regulators/LDO_REG2}}>;" in dts
+    assert "\tvccio1-supply = <&{/i2c@ff180000/pmic@20/regulators/LDO_REG7}>;" in dts
+    assert "\t/delete-property/ vccio-oscgpi-supply;" in dts
+
+
+def test_factory_ee_tree_supply_and_rk809_nodes():
+    p = _power(EE_K36_STOCK)
+    assert p.regulators["DCDC_REG4"].max_uv == 3000000
+    assert p.regulators["LDO_REG8"].min_uv == 3300000
+    assert p.io_domains == {"vccio1": "LDO_REG7", "vccio2": "LDO_REG5", "vccio3": "LDO_REG2",
+                            "vccio4": "DCDC_REG4", "vccio5": "DCDC_REG4"}
+    # RK809 nodes are not regulators of the mainline RK817 driver
+    assert not {"DCDC_REG5", "SWITCH_REG1", "SWITCH_REG2"} & set(p.regulators)
+    assert any("SWITCH_REG1 is not an RK817 one" in n for n in p.notes)
+    # vccio6 is not declared: the converted tree drops the native one
+    dts = "\n".join(vendor_dtb._power_dts(p))
+    assert "\t/delete-property/ vccio6-supply;" in dts
+
+
+def test_rg351_like_tree_and_a_regulator_the_source_does_not_declare():
+    board = vendor_dtb.extract(_need(DARKOSRE_V11).read_bytes())
+    p = board.power
+    assert (p.regulators["LDO_REG8"].min_uv, p.regulators["LDO_REG8"].max_uv) == (2800000,) * 2
+    assert "LDO_REG9" not in p.regulators
+    assert any("LDO_REG9" in n and "no voltage set" in n for n in board.notes)
+    dts = vendor_dtb.to_dts(board, "v11", "src", "0" * 64)
+    ldo9 = re.search(r"\t\tLDO_REG9 \{(.*?)\n\t\t\};", dts, re.S)[1]
+    assert "/delete-property/ regulator-min-microvolt;" in ldo9
+    assert "/delete-property/ regulator-max-microvolt;" in ldo9
+    assert "regulator-always-on" not in ldo9 and "/delete-node/ regulator-state-mem;" in ldo9
+    # LDO7 feeds the vendor panel's backlight-supply, which the converted tree does not
+    # attach: the native always-on is never removed
+    ldo7 = re.search(r"\t\tLDO_REG7 \{(.*?)\n\t\t\};", dts, re.S)[1]
+    assert "always-on" not in ldo7 and "regulator-name = \"vcc_backlight\";" in ldo7
+    assert "/delete-property/ regulator-always-on" not in dts
+
+
+def _power_tree(supply_target: str = "LDO_REG5", uv: int = 3300000, regulators: bool = True):
+    """A minimal RK3326 tree: an RK817 with one regulator, an outside fixed regulator and
+    the IO domain vccio1 on `supply_target` (a regulator name or "fixed")."""
+    reg = fdt.Node(props={"phandle": fdt.u32(1), "regulator-min-microvolt": fdt.u32(1800000),
+                          "regulator-max-microvolt": fdt.u32(uv)})
+    pmic = fdt.Node(props={"compatible": fdt.s("rockchip,rk817")},
+                    children={"regulators": fdt.Node(children={"LDO_REG5": reg})}
+                    if regulators else {})
+    fixed = fdt.Node(props={"compatible": fdt.s("regulator-fixed"), "phandle": fdt.u32(2)})
+    io = fdt.Node(props={"compatible": fdt.s("rockchip,px30-io-voltage-domain"),
+                         "vccio1-supply": fdt.u32(2 if supply_target == "fixed" else 1)})
+    return vendor_dtb.Tree(fdt.build(fdt.Node(
+        props={"compatible": fdt.s("rockchip,rk3326")},
+        children={"i2c@ff180000": fdt.Node(children={"pmic@20": pmic}),
+                  "vcc-fixed": fixed,
+                  "syscon@ff140000": fdt.Node(children={"io-domains": io})})))
+
+
+def test_supply_of_the_minimal_tree_is_read():
+    p = vendor_dtb.power(_power_tree())
+    assert p.io_domains == {"vccio1": "LDO_REG5"} and p.pmu_io_domains == {}
+
+
+@pytest.mark.parametrize("tree, why", [
+    (lambda: _power_tree(regulators=False), "PMIC: no regulators node"),
+    (lambda: _power_tree(supply_target="fixed"), "io domain vccio1: supply /vcc-fixed is "
+                                                 "outside the PMIC"),
+    (lambda: _power_tree(uv=3800000), "io domain vccio1: LDO_REG5 up to 3800000 uV, "
+                                      "above 3.6 V"),
+])
+def test_unknown_supply_is_refused(tree, why):
+    with pytest.raises(vendor_dtb.Refused, match=re.escape(why)):
+        vendor_dtb.power(tree())
+
+
+ROCKNIX_EECLONE = (REPO_ROOT / ".cache/upstream/rocknix/projects/ROCKNIX/devices/RK3326/linux/"
+                   "dts/rockchip/rk3326-gameconsole-eeclone.dts")
+# where the factory EE trees and the ROCKNIX eeclone DTS differ, none of them an IO domain
+# supply: the boost and DCDC2 floors, the card vmmc range (LDO6), the second slot or camera
+# rail (LDO8: 3.3 V in the factory trees, 3.0 V in ROCKNIX) and the LDO9 of the G30
+EE_KNOWN_DIFFERENCES = {"BOOST", "DCDC_REG2", "LDO_REG6", "LDO_REG8", "LDO_REG9"}
+
+
+def _rocknix_eeclone():
+    text = _need(ROCKNIX_EECLONE).read_text()
+    labels, regs = {}, {}
+    for label, node, body in re.findall(
+            r"(\w+): ((?:DCDC|LDO)_REG\d|BOOST|OTG_SWITCH) \{(.*?)\n\s*\};", text, re.S):
+        labels[label] = node
+        own = body.split("regulator-state-mem")[0]
+        lo = re.search(r"regulator-min-microvolt = <(\d+)>", own)
+        hi = re.search(r"regulator-max-microvolt = <(\d+)>", own)
+        regs[node] = (lo and int(lo[1]), hi and int(hi[1]))
+    domains = {d: labels[l] for d, l in re.findall(r"(\w+)-supply = <&(\w+)>;", text)
+               if d.startswith(("vccio", "pmuio"))}
+    return regs, domains
+
+
+def _check_against_rocknix(p, regs, domains, what):
+    got = {**p.io_domains, **p.pmu_io_domains}
+    assert got and all(domains[d] == r for d, r in got.items()), what
+    for name in set(got.values()):   # the rails behind the IO domains: the same voltages
+        r = p.regulators[name]
+        assert (r.min_uv, r.max_uv) == regs[name], f"{what}: {name}"
+    other = {n for n, r in p.regulators.items() if (r.min_uv, r.max_uv) != regs[n]}
+    assert other <= EE_KNOWN_DIFFERENCES, f"{what}: {other}"
+
+
+def test_factory_ee_trees_match_the_rocknix_eeclone_supply():
+    regs, domains = _rocknix_eeclone()
+    trees = sorted(_need(COLLECTIONS["ee"]).rglob("*.dtb"))
+    assert len(trees) >= 50
+    for f in trees:
+        _check_against_rocknix(_power(f), regs, domains, f.name)
+
+
+def test_converted_ee_family_board_matches_the_rocknix_eeclone_supply():
+    regs, domains = _rocknix_eeclone()
+    board = vendor_dtb.extract(_need(ARKOS_K36).read_bytes())
+    _check_against_rocknix(board.power, regs, domains, "arkos4clone-k36")
+    got = _dts_supply((VENDOR_DIR / "arkos4clone-k36.dts").read_text())[1]
+    assert got == domains
+
+
 @pytest.mark.parametrize("collection, rel, expected", [
     ("arkos4clone", "boot/dArkOS/consoles/r36max/rk3326-r36max-linux.dtb", "arkos4clone-r36max"),
     ("arkos4clone", "boot/dArkOS/consoles/go2/5.10/rk3326-go2-linux.dtb", "arkos4clone-go2-5.10"),
@@ -206,6 +375,69 @@ def test_every_collection_tree_converts_or_is_refused_with_a_reason(tmp_path):
     committed = {p.name: p.read_text() for p in VENDOR_DIR.glob("*")}
     fresh = {p.name: p.read_text() for p in tmp_path.glob("*")}
     assert committed == fresh, "board/r36s/dts-vendor is stale: run r36os dtb-import"
+
+
+def _source_supply(data: bytes):
+    """The supply of a source DTB read on its own (the task 7.2 survey, not the converter):
+    {regulator: (min, max)} of the RK817 and {domain: regulator} of both IO domain nodes."""
+    root = fdt.parse(data)
+
+    def walk(node, path=""):
+        yield path, node
+        for name, child in node.children.items():
+            yield from walk(child, f"{path}/{name}")
+
+    nodes = dict(walk(root))
+    by_phandle = {(n.cells("phandle") or n.cells("linux,phandle"))[0]: p
+                  for p, n in nodes.items() if n.cells("phandle") or n.cells("linux,phandle")}
+    regs, domains = {}, {}
+    for path, n in nodes.items():
+        if "rockchip,rk817" in n.strings("compatible"):
+            for name, r in n.children["regulators"].children.items():
+                lo, hi = r.cells("regulator-min-microvolt"), r.cells("regulator-max-microvolt")
+                regs[name] = (lo[0] if lo else None, hi[0] if hi else None)
+        if any(c.endswith("io-voltage-domain") for c in n.strings("compatible")):
+            for prop in n.props:
+                if prop.endswith("-supply"):
+                    domains[prop[:-7]] = by_phandle[n.cells(prop)[0]].rsplit("/", 1)[1]
+    return regs, domains
+
+
+def _dts_supply(text: str):
+    """The same, read back from a converted DTS."""
+    regs = {}
+    block = re.search(r"&rk817 \{\n\tregulators \{\n(.*?)\n\t\};\n\};", text, re.S)[1]
+    for name, body in re.findall(r"\t\t(\w+) \{\n(.*?)\n\t\t\};", block, re.S):
+        own = body.split("regulator-state-mem")[0]
+        lo = re.search(r"\tregulator-min-microvolt = <(\d+)>", own)
+        hi = re.search(r"\tregulator-max-microvolt = <(\d+)>", own)
+        regs[name] = (lo and int(lo[1]), hi and int(hi[1]))
+    domains = dict(re.findall(r"\t([\w-]+)-supply = <&\{/i2c@ff180000/pmic@20/regulators/"
+                              r"(\w+)\}>;", text))
+    return regs, domains
+
+
+def test_every_converted_tree_keeps_the_supply_of_its_source():
+    rows = [line.split("\t") for line in (VENDOR_DIR / "SOURCES.tsv").read_text().splitlines()
+            if line.startswith("converted\t")]
+    checked = 0
+    for _, lid, collection, rel, _sha, _reason in rows:
+        src = COLLECTIONS[collection] / rel
+        if not src.exists():
+            continue
+        regs, domains = _source_supply(src.read_bytes())
+        got_regs, got_domains = _dts_supply((VENDOR_DIR / f"{lid}.dts").read_text())
+        mainline = set(vendor_dtb.RK817_REGULATORS)
+        assert set(got_regs) == mainline, lid
+        assert {k: v for k, v in regs.items() if k in mainline} == {
+            k: v for k, v in got_regs.items() if k in regs}, lid
+        # what the source does not declare has no voltage in the converted tree
+        assert all(got_regs[k] == (None, None) for k in mainline - set(regs)), lid
+        assert got_domains == domains, lid
+        checked += 1
+    if not checked:
+        pytest.skip("vendor collections not in .cache/upstream")
+    assert checked == len(rows)
 
 
 def test_committed_trees_have_a_source_line_each():
