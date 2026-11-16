@@ -19,11 +19,12 @@ def test_runs_in_the_background_as_the_game_user():
     assert INIT_PATH.stat().st_mode & 0o111
 
 
-def test_order_after_the_card_before_the_frontend():
+def test_order_after_the_card_and_the_frontend():
+    # build-speed D20: the scan does not hold the frontend (tests/unit/test_boot_order.py)
     deps = re.search(r"depend\(\) \{(.*?)\n\}", INIT, re.S).group(1)
     assert "need localmount" in deps
-    assert "after r36os-persist" in deps
-    assert "before frontend" in deps
+    assert "after r36os-persist frontend" in deps
+    assert "before frontend" not in deps
 
 
 def test_without_roms_it_starts_nothing():
@@ -32,9 +33,11 @@ def test_without_roms_it_starts_nothing():
     assert start.index("mountpoint") < start.index("default_start")
 
 
-def test_enabled_before_the_frontend():
-    line = re.search(r"^for s in seatd .*?; do", CONFIGURE, re.S | re.M).group(0)
-    assert line.index("r36os-persist") < line.index("lume-index") < line.index("frontend")
+def test_enabled_in_the_default_runlevel():
+    line = re.search(r"^for s in r36os-playlists .*?; do", CONFIGURE, re.S | re.M).group(0)
+    assert re.search(r"\blume-index\b", line)
+    assert re.search(r'^for s in r36os-playlists .*?; do\n\tadd "\$s" default$', CONFIGURE,
+                     re.S | re.M)
 
 
 def test_usb_gadget_restarts_it_when_the_pc_lets_go():

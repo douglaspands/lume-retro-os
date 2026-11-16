@@ -1,0 +1,4 @@
+# Bluetooth by USB dongle starts after the frontend (build-speed D20): no game uses it, and
+# the init script comes from the bluez-openrc package (left untouched), so the order is
+# added here. Enabled on the consoles only (rootfs/configure.sh).
+rc_after="frontend"
