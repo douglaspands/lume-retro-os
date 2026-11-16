@@ -41,8 +41,10 @@ def _compress(src: Path, dest: Path) -> tuple[str, str]:
     h_raw, h_zst = hashlib.sha256(), hashlib.sha256()
     tmp = dest.with_suffix(dest.suffix + ".part")
     # nb_workers = the build's jobs (zstd -T)
-    opts = {zstd.CompressionParameter.nb_workers: jobs.jobs()}
-    with src.open("rb") as fin, zstd.open(tmp, "wb", level=10, options=opts) as fout:
+    # (level and options are exclusive: the level goes in the options)
+    opts = {zstd.CompressionParameter.compression_level: 10,
+            zstd.CompressionParameter.nb_workers: jobs.jobs()}
+    with src.open("rb") as fin, zstd.open(tmp, "wb", options=opts) as fout:
         while chunk := fin.read(CHUNK):
             h_raw.update(chunk)
             fout.write(chunk)
