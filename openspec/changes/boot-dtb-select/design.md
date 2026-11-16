@@ -384,6 +384,41 @@ usuário):**
   (aviso na página do handhelds.wiki). O conversor não copia o ganho do amplificador do DTB
   de origem: usa o valor seguro da base, e um DTB que peça outro registra isso no log.
 
+**Avaliação da segunda base (tarefa 7.2, 2026-11-16).** A coleção EE-Clones-DTB tem 55
+arquivos e nenhum convertido: 44 recusados por `play_joystick`, 5 por `micro,gamepad`, 1
+sem painel DSI (G30) e 5 repetidos. As mesmas famílias aparecem convertidas pelas versões do
+arkos4clone (K36, K36S, HG36, MyMini, R36 Max/Pro/Ultra, R36T, RX6H, T16 Max, U8,
+XF35H/XF40H, XGB36) e as placas G80C/G80CA/G80D pelo dArkOSRE; ficam sem versão convertida
+ANS11, ANS13, D28S, G30, L35, Project X Pro, R39 Max e RX6S. **O que não basta é a base, não
+o controle:** um levantamento dos DTBs de origem (medição com `r36os.fdt` sobre o
+`SOURCES.tsv`) comparou os reguladores do RK817 e os domínios de I/O de cada um com o DTB de
+fábrica do R36S V5, que é o que todo convertido herda do nativo (o conversor não lê nem um
+nem outro). Só o `factory-r35s` é igual; dos 169 convertidos, 153 diferem nos domínios de
+I/O e 15 só nos reguladores. Duas famílias:
+
+- **Layout "EE"** (os DTBs de fábrica EE "Stock", o `darkosre-r36s`, as G80, os
+  `clone-type1/2` do arkos4clone e a maior parte das outras placas, cerca de 100 dos
+  convertidos): `vccio3` e `vccio6` em 1,8 V, `vccio4`/`vccio5` no DCDC4 a 3,0 V, `vccio1` no
+  LDO7 (1,8–3,3 V), LDO8 a 3,3 V (segundo slot ou câmera), LDO9 a 1,5 V. É o layout do
+  `rk3326-gameconsole-eeclone.dts` do ROCKNIX. Na nossa base, `vccio3`–`vccio6` ficam no
+  DCDC4 a 3,3 V e `vccio1` junto do `vccio_sd` (LDO5, que desce a 1,8 V com cartão UHS). Numa
+  placa EE isso põe o seletor de tensão do SoC (GRF) em 3,3 V em bancos alimentados a 1,8 V,
+  e, com cartão UHS, em 1,8 V num banco alimentado a 3,3 V pelo LDO7; e o DCDC4 fica 10%
+  acima do projeto da placa. O kernel só recusa acima de 3,6 V; não foi medido no aparelho
+  se isso só desliga pinos ou também estressa os pads.
+- **Layout "RG351/origin"** (o `origin` e o `a10mini` do arkos4clone, os R36S V12/V20/R35S
+  do dArkOSRE e parecidos, cerca de 45): `pmuio` a 3,3 V (nossa base: 3,0 V), LDO8 a 2,8 V no
+  painel (nossa base: 1,8 V, painel sub-alimentado), LDO5 fixo em 1,8 V. Atenção: o
+  `darkosre-r36s-r35s-v11` é a mesma placa do nosso `factory-r35s` e declara valores
+  diferentes do DTB de fábrica dela; os DTBs de SO (dArkOS, arkos4clone) nem sempre retratam
+  o hardware, e os de fábrica (EE "Stock", `out/r36s-factory`) valem mais.
+
+**Conclusão:** o layout "EE" exige uma segunda base (a do ROCKNIX, GPL-2.0+ OR MIT),
+escolhida pelo conversor pelos domínios de I/O da origem, e o "RG351/origin" ao menos os
+reguladores da origem; o controle `play_joystick` é um passo à parte (P-75). Vira pendência
+própria (P-77): muda a base de cerca de 150 convertidos e precisa de prova num aparelho de
+cada família.
+
 **Fora do alcance do DTB** (registrado em `docs/PENDENCIAS.md`): aparelhos com eMMC, que o
 RK3326 tenta iniciar antes do cartão (o ROCKNIX precisou de um U-Boot próprio para o K36
 com eMMC), e outra memória: P-43. As placas A33/A23 da família do GA36 (GA36-MB V1.0 e
