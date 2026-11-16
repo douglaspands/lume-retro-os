@@ -11,44 +11,60 @@ from r36os import bootimg, image, kernel, lang, rootfs, uboot, version
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
+from r36os.stages import StageTimer
 from r36os.targets import TARGETS, ImageTarget, Target
 
 
 def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
                        language: str = lang.DEFAULT) -> None:
     lang.retro_language(language)  # validate before any stage
+    timer = StageTimer()
+    try:
+        _build_image_target(img_target, rebuild_packages, language, timer)
+    finally:
+        # on success and on error alike; the error then propagates as before
+        timer.print_summary()
+
+
+def _build_image_target(img_target: ImageTarget, rebuild_packages: bool, language: str,
+                        timer: StageTimer) -> None:
     v = version.current()  # one timestamp per build, in every stage and layer (D15)
     print(f"build {img_target.name} {v.build_id} (language {language})", flush=True)
     layers = {}
     for name in img_target.layers:
         target = TARGETS[name]
         print(f"layer {name} ({target.alpine_arch})", flush=True)
-        build_layer(target, v, language, rebuild_packages)
+        build_layer(target, v, language, rebuild_packages, timer)
         layers[name] = _layer_info(target)
     extras = {}
-    if img_target.name == "vm":
-        img = image.build_image(TARGETS["vm"], v=v, language=language)
-        info = {**layers["vm"], "alpine": _alpine()}
-        manifests = {"manifest.txt": img.parent / "manifest.txt"}
-    else:
-        img = image.build_console_image(v, language=language)
-        info = {"alpine": _alpine(), "layers": layers, "bootloaders": console_bootloaders()}
-        manifests = {f"manifest-{n}.txt": rootfs.target_out(TARGETS[n]) / "manifest.txt"
-                     for n in img_target.layers}
-        # the GA36 panel boot images: for a dd to sector 172032 from the PC, not on BOOT
-        extras = image.ga36_android_boot_images(rootfs.target_out(TARGETS["ga36"]))
-        # the files of BOOT with their SHA256, read back from the FAT (task 5.1): what
-        # `r36os push` sends and checks on the console
-        extras[image.BOOT_LIST] = img.parent / image.BOOT_LIST
+    with timer.stage("image"):
+        if img_target.name == "vm":
+            img = image.build_image(TARGETS["vm"], v=v, language=language)
+            info = {**layers["vm"], "alpine": _alpine()}
+            manifests = {"manifest.txt": img.parent / "manifest.txt"}
+        else:
+            img = image.build_console_image(v, language=language)
+            info = {"alpine": _alpine(), "layers": layers,
+                    "bootloaders": console_bootloaders()}
+            manifests = {f"manifest-{n}.txt": rootfs.target_out(TARGETS[n]) / "manifest.txt"
+                         for n in img_target.layers}
+            # the GA36 panel boot images: for a dd to sector 172032 from the PC, not on BOOT
+            extras = image.ga36_android_boot_images(rootfs.target_out(TARGETS["ga36"]))
+            # the files of BOOT with their SHA256, read back from the FAT (task 5.1): what
+            # `r36os push` sends and checks on the console
+            extras[image.BOOT_LIST] = img.parent / image.BOOT_LIST
     # image archived with the timestamp in out/images/<image>/
-    dest = archive_image(img_target, img, v, {**info, "language": language}, manifests,
-                         extras)
+    with timer.stage("archive"):
+        dest = archive_image(img_target, img, v, {**info, "language": language}, manifests,
+                             extras)
     print(f"ok: {img}\narchived: {dest}")
 
 
 def build_layer(target: Target, v: version.BuildVersion, language: str,
-                rebuild_packages: bool = False) -> None:
+                rebuild_packages: bool = False, timer: StageTimer | None = None) -> None:
     """Packages, kernel, initramfs and SYSTEM of one hardware layer in out/<layer>/."""
+    timer = timer or StageTimer()
+    p = f"{target.name}: "  # prefix of the stage names in the summary
     out = rootfs.target_out(target)
     console = target.name in kernel.KERNEL_TARGETS
     # [2] local packages (only those missing from the repository, unless rebuilding)
@@ -56,18 +72,25 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     missing = [n for n in local_aports(target)
                if rebuild_packages or not _has_package(target, n)]
     if missing:
-        build_packages(target, missing)
+        with timer.stage(p + "local packages"):
+            build_packages(target, missing)
+    else:
+        timer.skip(p + "local packages", "all in the repository")
     if console:
         # on the consoles the initramfs is built into the kernel: it comes before stage 1
-        build_initramfs(target)
+        with timer.stage(p + "initramfs"):
+            build_initramfs(target)
         # [1] kernel, modules, DTBs and boot image, cross-compiled
-        build_console_kernel(target)
+        build_console_kernel(target, timer)
     # [3] rootfs (with the stage 1 modules), manifest and SYSTEM
-    tar = rootfs.build_rootfs(target, v, language)
-    rootfs.make_system(target, tar, out / "SYSTEM", rootfs.system_limit_mib(target))
+    with timer.stage(p + "rootfs"):
+        tar = rootfs.build_rootfs(target, v, language)
+    with timer.stage(p + "SYSTEM"):
+        rootfs.make_system(target, tar, out / "SYSTEM", rootfs.system_limit_mib(target))
     # [4] VM: the initramfs carries modules from the rootfs
     if not console:
-        build_initramfs(target)
+        with timer.stage(p + "initramfs"):
+            build_initramfs(target)
 
 
 def _alpine() -> str:
@@ -108,21 +131,29 @@ ANDROID_BOOT = {"ga36": {"panel1": "sun8i-a33-ga36-mb-v1.2-panel1.dtb",
                          "panel2": "sun8i-a33-ga36-mb-v1.2-panel2.dtb"}}
 
 
-def build_console_kernel(target: Target) -> None:
+def build_console_kernel(target: Target, timer: StageTimer | None = None) -> None:
     """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (BOOT
     <console>/modules, outside SYSTEM), validated dtbs/ and boot."""
+    timer = timer or StageTimer()
+    p = f"{target.name}: "
     out = rootfs.target_out(target)
     kdir = out / "kernel"
-    zimage = kernel.build_kernel(target.name, kdir, initramfs_dir=out)
-    rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules")
+    with timer.stage(p + "kernel"):
+        zimage = kernel.build_kernel(target.name, kdir, initramfs_dir=out)
+        rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules")
     arch, vendor = DTS_VENDOR[target.name]
-    kernel.build_dtbs(target.name, arch, vendor, kdir / "dtbs")
+    with timer.stage(p + "DTBs + validation"):
+        kernel.build_dtbs(target.name, arch, vendor, kdir / "dtbs")
     if target.name in uboot.UBOOT_TARGETS:
-        uboot.build_uboot(target.name, kdir)
-    for panel, dtb in ANDROID_BOOT.get(target.name, {}).items():
-        # zImage + appended DTB, like goodluckOS (CONFIG_ARM_APPENDED_DTB)
-        kernel_blob = zimage.read_bytes() + (kdir / "dtbs" / dtb).read_bytes()
-        (kdir / f"android-boot-{panel}.img").write_bytes(bootimg.make(kernel_blob))
+        with timer.stage(p + "u-boot"):
+            uboot.build_uboot(target.name, kdir)
+    else:
+        timer.skip(p + "u-boot", "no U-Boot for this console")
+    with timer.stage(p + "boot images"):
+        for panel, dtb in ANDROID_BOOT.get(target.name, {}).items():
+            # zImage + appended DTB, like goodluckOS (CONFIG_ARM_APPENDED_DTB)
+            kernel_blob = zimage.read_bytes() + (kdir / "dtbs" / dtb).read_bytes()
+            (kdir / f"android-boot-{panel}.img").write_bytes(bootimg.make(kernel_blob))
 
 
 def _has_package(target: Target, name: str) -> bool:
