@@ -105,6 +105,21 @@ R36S, então o boot segue sempre com o padrão, sem troca.
   para ele entrar na lista.
 - **Log:** `boot/boot-<n>.log` tem `lume-bootsel: selected <id> (reason: …)`, e o
   `hw/boot-<n>.txt` tem `dt in use` (formato em `docs/LOGS.md`).
+- **DTBs convertidos** (`BOOT/dtbs/rk3326/vendor/`, change `boot-dtb-select` D17): só são
+  lidos quando o `force`, a lista ou o estado os nomeiam. Na lista eles aparecem com
+  "(converted)"; esquerda/L1 e direita/R1 pulam uma página.
+
+**DTB de fábrica convertido, provado (2026-11-16, build `20261115-232617`, boots 92 a 95):**
+`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `r36os dtb-import`) em
+`BOOT/dtbs/force`. Boot 92: tela preta. O painel respondeu o ID (`fe5202`) ao driver
+`panel-generic-dsi`, mas o DTB convertido não levava a taxa da DSI, e a estimativa do
+mainline não dá imagem neste painel. Depois que o conversor passou a gravar a taxa do kernel
+do fabricante (180 Mbps, a mesma do nativo) e os tempos da PHY do nativo, o boot 94 mostrou
+imagem. A pergunta foi confirmada com A, e tela, botões, analógicos, som e brilho
+funcionaram como no nativo. O launcher abriu em 30,8 s, contra cerca de 24 s no nativo; a
+diferença é o kexec. O boot 93, sem ninguém na frente, mostrou a volta sozinha
+(`not confirmed within 15 s`, `reverted`). Ao tirar o `force` e o aprendido, o boot 95
+voltou ao `r36s-v5` (`auto`).
 
 ## 4. Primeiro boot
 
