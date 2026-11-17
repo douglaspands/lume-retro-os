@@ -8,17 +8,13 @@ reiniciar quando o pedaço permite, para o ciclo de uma mudança até o aparelho
 ## ADDED Requirements
 
 ### Requirement: Sistema em slots com manifesto
-O sistema de cada console MUST ser um conjunto de slots squashfs na `BOOT` (base, runtime, projeto,
-módulos e um por core), descrito por um manifesto do conjunto, e um slot MUST mudar só quando os
-fragmentos dele mudam.
+O sistema de cada console MUST ser um conjunto de slots squashfs na `BOOT` (base, runtime com o
+RetroArch e os cores, projeto e módulos), descrito por um manifesto do conjunto, e um slot MUST
+mudar só quando os fragmentos dele mudam.
 
 #### Scenario: Só o launcher mudou
 - **WHEN** só o `lume-launcher` muda e o build roda
-- **THEN** só o slot do projeto daquele console muda de conteúdo, e os slots base, runtime, módulos e cores saem iguais byte a byte
-
-#### Scenario: Só um core mudou
-- **WHEN** só um core muda
-- **THEN** só o slot daquele core muda
+- **THEN** só o slot do projeto daquele console muda de conteúdo, e os slots base, runtime e módulos saem iguais byte a byte
 
 ### Requirement: Troca atômica do conjunto
 O `push` MUST trocar o conjunto de slots de uma vez, de modo que um corte de energia em qualquer
@@ -31,14 +27,6 @@ momento deixe o console iniciando com o conjunto antigo inteiro ou com o novo in
 #### Scenario: Manifesto ausente ou citando arquivo que falta
 - **WHEN** o console inicia e o manifesto falta ou cita um slot ausente
 - **THEN** o boot usa o manifesto anterior e registra uma linha `ERROR` no log de boot
-
-### Requirement: Cores fora do caminho do boot
-Os slots dos cores MUST ser montados depois do frontend, fora do caminho crítico do boot, e um jogo
-aberto antes disso MUST esperar o core ficar disponível.
-
-#### Scenario: Jogo logo após o boot
-- **WHEN** o usuário abre um jogo antes de os cores terem sido montados
-- **THEN** o jogo abre assim que o core do sistema fica disponível, sem erro
 
 ### Requirement: Push pontual sem descompactar
 O `r36os push` MUST mandar ao console só os arquivos e slots cujo SHA256 difere do que está no
@@ -58,16 +46,12 @@ cartão para isso.
 - **THEN** o R36S inicia com o conjunto novo dele, sem outro `push`
 
 ### Requirement: Reinício como padrão
-Toda troca de slot do boot ou do kernel MUST terminar com o reinício do console; a troca de um
-slot de core MUST acontecer sem reinício.
+Toda troca de slot ou do kernel MUST terminar com o reinício do console; só o `push --hot` (abaixo)
+atualiza sem reiniciar.
 
-#### Scenario: Troca de um core
-- **WHEN** o `push` troca só o slot de um core que não está em uso
-- **THEN** o console não reinicia e o próximo jogo daquele sistema usa o core novo
-
-#### Scenario: Core em uso
-- **WHEN** o `push` troca o slot de um core que está rodando um jogo
-- **THEN** o jogo continua com o core antigo e a troca acontece quando o jogo fecha
+#### Scenario: Slot trocado
+- **WHEN** o `push` troca qualquer slot do conjunto
+- **THEN** o console reinicia e o `push` confere o boot novo
 
 ### Requirement: Push em RAM para iterar
 O `r36os push --hot <fragmento>` MUST instalar os arquivos do fragmento na camada gravável em RAM,

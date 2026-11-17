@@ -50,9 +50,8 @@ apoio, nunca para um nó.
 | 4.6 | 4.3, 4.4, 4.5 | GA36, R36S | AG+PR | opus | 4 | J2 |
 | 4.7 | 4.2–4.6, 3.2, 3.3 | CPU, GA36, R36S | PR | — | 5 | J2 |
 | 5.1 | 3.1, 4.2 | GA36 | AG+PR | opus | 3 | J2 |
-| 5.2 | 4.4, 4.5, 4.6 | GA36, R36S, USUARIO | AG+PR | opus | 6 | J3 |
 | 5.3 | 5.1, 6.2 | GA36 | AG+PR | sonnet | 5 | J3 |
-| 5.4 | 5.1, 5.2, 5.3 | — | AG | sonnet | 6 | |
+| 5.4 | 5.1, 5.3 | — | AG | sonnet | 6 | |
 | 6.1 | 4.1 | — | AG | opus | 2 | |
 | 6.2 | 6.1, 4.4 | CPU (leve) | AG+PR | opus | 4 | |
 | 6.3 | 2.3 | CPU (prova) | AG+PR | sonnet | 1 | |
@@ -68,8 +67,6 @@ apoio, nunca para um nó.
 | 8.2 | 8.1, 6.1 | GA36, R36S | AG+PR | sonnet | 6 | J3 |
 | 9.1 | — | CPU, ARCH:armv7 | AG+PR | opus | 1 | |
 | 9.2 | 9.1 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S | AG+PR | opus | 2 | J3 |
-| 9.3 | — | CPU, ARCH:armv7, GA36 | AG+PR | opus | 1 | J3 |
-| 9.4 | 9.3, 6.1 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S | AG+PR | opus | 4 | J3 |
 | 10.1 | — | GA36, R36S | AG+PR | opus | 0 | J2 |
 | 10.2 | 10.1 | — | AG | sonnet | 7 | |
 | 11.1 | todos | CPU, GA36, R36S, USUARIO | PR | — | 7 | J4 |
@@ -89,9 +86,9 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
                     \--> 3.3 ---------\
  D  slots     4.0 --+--> 4.5 ----------+--> 4.6 --> 4.7 --> 8.1 --> 8.2
                     \--> 4.3 <---------/     ^
-              4.1 --> 4.2 --> 4.4 -----------+--> 5.2 ; 6.2 --> 5.3 ; 6.5
-                       \--> 5.1 ;  4.1 --> 6.1 --> 6.2, 7.3, 9.4
- E  compilar  9.1 --> 9.2          9.3 --> 9.4
+              4.1 --> 4.2 --> 4.4 -----------+--> 6.2 --> 5.3 ; 6.5
+                       \--> 5.1 ;  4.1 --> 6.1 --> 6.2, 7.3
+ E  compilar  9.1 --> 9.2          (cores: change propria, P-36 e P-80)
  F  boot      10.1 --> 10.2
 
  caminho critico: 4.1 --> 4.2 --> 4.4 --> 4.6 --> 4.7 --> 8.1 --> 8.2 --> 11.x
@@ -103,12 +100,12 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
 ```
  onda 0  1.1  2.2  2.3  3.1  4.0  6.4  7.1  10.1                (so codigo: 8 nos AG)
- onda 1  1.2* (logo apos o merge da 1.1)  2.1  3.2  3.3  3.5  4.1*  6.3  7.2*  9.1*  9.3*
+ onda 1  1.2* (logo apos o merge da 1.1)  2.1  3.2  3.3  3.5  4.1*  6.3  7.2*  9.1*
  onda 2  2.4  3.6  4.2*  4.3  4.5  6.1  6.6*  7.4*  7.5  9.2*
  onda 3  4.4*  5.1
- onda 4  4.6  6.2*  6.5*  7.3*  9.4*
+ onda 4  4.6  6.2*  6.5*  7.3*
  onda 5  4.7*  5.3
- onda 6  5.2  5.4  8.1*  8.2
+ onda 6  5.4  8.1*  8.2
  onda 7  3.4  10.2  11.1*  11.2*
 ```
 
@@ -118,7 +115,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 |---|---|---|---|
 | J1 | 1.2, 3.1, 3.2, 3.3, 3.5 | fim da onda 1 | liga o GA36 e depois o R36S no cabo, passando o cartão de um ao outro, confere as telas |
 | J2 | 4.3, 4.5, 4.6, 4.7, 5.1, 10.1 | fim da onda 5 | push de cartão antigo e novo nos dois, olha o boot |
-| J3 | 5.2, 5.3, 7.3, 8.1, 8.2, 9.2, 9.3, 9.4 | fim da onda 6 | abre um jogo por core nos dois, troca de core com jogo aberto |
+| J3 | 5.3, 7.3, 8.1, 8.2, 9.2 | fim da onda 6 | abre o launcher e um jogo nos dois, passando o cartão de um ao outro |
 | J4 | 3.4, 11.1, 11.2 | onda 7 | passa o cartão de um console ao outro entre as provas, corte de energia no meio de um push |
 
 ## 1. Proteção de calor e medição de partida (D15, D14)
@@ -145,7 +142,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 ## 4. Esqueleto ponta a ponta: um fragmento noarch em slot (D1, D2, D9, D10)
 
 - [x] 4.0 Congelar as interfaces compartilhadas antes dos consumidores: formato do `SLOTS` (nome, arquivo, sha256, versões dos fragmentos, sha dos slots de baixo), da `boot-files.sha256` com os objetos, do `.lume-content` e do `out/repo/<arch>/hashes.json`, num módulo Python com leitura e escrita, e o leitor do `SLOTS` em shell para o initramfs. Verificação: testes de unidade de ida e volta (Python) e de leitura (shell, busybox), com os casos de manifesto ausente, truncado e citando arquivo que falta; formato documentado no D9 e no D10.
-- [ ] 4.1 Provar no x86 um pacote noarch (`abuild` no `builder` x86_64) publicado igual em `out/repo/armv7/` e `out/repo/aarch64/`, aceito pelo `apk` de cada arquitetura sem `--allow-untrusted`, e a checagem de ELF. Verificação: `apk add --root` num container de cada arquitetura instala o pacote de teste; teste de unidade da checagem de ELF.
+- [x] 4.1 Provar no x86 um pacote noarch (`abuild` no `builder` x86_64) publicado igual em `out/repo/armv7/` e `out/repo/aarch64/`, aceito pelo `apk` de cada arquitetura sem `--allow-untrusted`, e a checagem de ELF. Verificação: `apk add --root` num container de cada arquitetura instala o pacote de teste; teste de unidade da checagem de ELF.
 - [ ] 4.2 Primeiro fragmento: `aports/lume-core` noarch com os arquivos do `rootfs/overlay/` que o D2 lista para ele (os outros continuam no overlay por enquanto); `rootfs/packages.txt` o inclui. Verificação: manifesto do rootfs com os mesmos arquivos e SHA256 de antes nos dois consoles.
 - [ ] 4.3 Arquivo do build por conteúdo (`out/images/objects/`, `boot-files.sha256` por build) e `push` lendo dele sem descompactar; `VERSION` fora da comparação e enviado só com outro arquivo; `flash` monta a imagem dos objetos quando não há `.img.zst`; compressão da imagem com threads. Verificação: testes de `test_push.py` (nada mudou, um arquivo mudou, build antigo arquivado); um `push` real sem a linha `unpacking`.
 - [ ] 4.4 Slots e manifesto no build: `rootfs/slots.toml`, separação do rootfs por dono no banco do `apk` (sem dono e banco do `apk` no `lume`), slots `base`, `runtime`, `lume` e `modules` com nome pelo conteúdo, `SLOTS` com sha256, versões e os sha dos slots de baixo, limites somados. Verificação: teste de unidade de que todo arquivo está em exatamente um slot; dois builds sem mudança dão os mesmos slots.
@@ -153,12 +150,11 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 - [ ] 4.6 `push` dos slots: copia os slots novos, confere, troca `SLOTS.new` → `SLOTS` com o antigo em `SLOTS.old`, apaga os slots que nenhum dos dois cita; migra o cartão antigo (o `SYSTEM` some no push seguinte); `flash --update` grava o layout novo; `check_room` conta o conjunto anterior. Verificação: testes de `test_push.py`; no GA36 e no R36S, push de cartão antigo, push seguinte e `dev check` verde.
 - [ ] 4.7 Prova ponta a ponta: mudar um script de `lume-core`, `r36os build lume-core`, `push`, e o console volta com o slot `lume` novo e a versão nova do `lume-core` no log, nos dois consoles. Verificação: saída do `push` com `ok` e tempos anotados no design.
 
-## 5. Push em RAM e cores sem reinício (D11)
+## 5. Push em RAM (D11)
 
 - [ ] 5.1 `r36os push --hot <fragmento>`: extrai os arquivos na camada em RAM, reinicia os serviços do fragmento (`init.d` dele ou `_lume_restart`), linha `push hot` no `events.log`; recusa kernel, módulos e base. Verificação: testes de `test_push.py`; no GA36, `--hot lume-core` com um script mudado e o serviço reiniciado; depois do reboot, o arquivo do cartão volta.
-- [ ] 5.2 Slots `core-<nome>` fora do overlay: serviço `lume-cores` depois do `frontend` monta em `/run/lume/cores/<nome>/`; o runner acha o core lá e espera se ainda não montou; o push troca um core sem reinício (remonta, ou no fim do jogo se em uso). Verificação: teste do runner com o core ausente e depois presente; no aparelho, jogo aberto logo após o boot, e troca de um core com e sem jogo aberto; `boot OK completed` sem piora.
 - [ ] 5.3 `r36os dev watch <fragmento>` (D19): inotify nos arquivos de entrada, 1 s de calma, build pontual e `push --hot`, uma linha por ciclo; recusa fragmentos sem `--hot`. Verificação: teste de unidade do agrupamento das mudanças; no GA36, salvar um script do `lume-core` e ver o serviço reiniciado em segundos.
-- [ ] 5.4 Documentar `--hot`, `dev watch`, a política de reinício e os cores no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
+- [ ] 5.4 Documentar `--hot`, `dev watch` e a política de reinício no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
 
 ## 6. Esteira: versão pelo conteúdo e etapas puladas (D3, D4, D6)
 
@@ -186,8 +182,6 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
 - [x] 9.1 `lume-launcher`, passo 1: `target/` do cargo em `.cache/cargo/<arch>`, sem vazar entre arquiteturas. Verificação: uma linha do `lume-ui` mudada → build armv7 medido contra os 8 min de antes.
 - [ ] 9.2 `lume-launcher`, passo 2: cross no x86 com a sysroot da arquitetura (`apk --root --arch --no-scripts`) e o Rust 1.96; o `abuild` só empacota. Verificação: build armv7 e aarch64 perto de 1 minuto; o launcher abre nos dois consoles e o `cargo test` passa.
-- [ ] 9.3 Prova do P-36 com um core pequeno (`libretro-snes9x2005-plus`): `distcc` para compiladores x86 com o gcc do Alpine 3.24 (caminho a) e, se não servir, cross completo do `abuild` (caminho b). Verificação: mesmo conteúdo do pacote (ou diferença explicada) e o core roda um jogo no GA36; decisão anotada no D7.
-- [ ] 9.4 Aplicar o caminho escolhido ao RetroArch e aos outros cores. Verificação: cada core abre um jogo do seu sistema nos dois consoles; tempo de recompilação de todos antes e depois.
 
 ## 10. Boot mais curto para o ciclo de teste (D20)
 
@@ -197,9 +191,16 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 ## 11. Verificação integrada
 
 - [ ] 11.1 Repetir as medições da 1.2 e preencher a coluna "Depois", conferindo as metas do design (driver < 1 min por arquitetura, launcher ~1 min, script e build sem mudança em segundos), a temperatura máxima da CPU e do NVMe e o tempo pausado pela proteção de calor. Verificação: tabela preenchida no design.
-- [ ] 11.2 Nos dois consoles, um de cada vez com o mesmo cartão: `push` depois de um patch de driver, de uma mudança no launcher, de um core e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; depois de um push feito por um console, o cartão passado ao outro inicia com o conjunto novo dele sem outro push; `r36os dev check` verde nos dois; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
+- [ ] 11.2 Nos dois consoles, um de cada vez com o mesmo cartão: `push` depois de um patch de driver, de uma mudança no launcher e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; depois de um push feito por um console, o cartão passado ao outro inicia com o conjunto novo dele sem outro push; `r36os dev check` verde nos dois; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
 
 ## Workflow follow-up
+
+- **Cores fora desta change** (decisão do usuário, 2026-11-16): as tarefas 9.3 (prova do P-36 com
+  um core), 9.4 (cores e RetroArch sem qemu) e 5.2 (slots `core-<nome>` trocados sem reinício)
+  saíram para uma change só de cores (P-36 e P-80). Nesta change os cores continuam os pacotes de
+  hoje, sem recompilar. O código da 9.3 já mesclado (`r36os.distcc`, `containers/cross-gcc.sh`,
+  `containers/distcc.Containerfile`, opção `R36OS_DISTCC`) fica como ponto de partida, desligado
+  por padrão e sem prova.
 
 - Fazer depois do archive da `boot-dtb-select` (feito), no mesmo bloco da change do governor e dos cenários do frontend (decisão do usuário, 2026-11-16).
 - `docs/PENDENCIAS.md`: anotar no P-36 e no P-61 o que esta change resolveu; no P-14 (tema 1) a instalação com o `apk` dentro do console, que ficou fora; pendência nova no tema 11 para voltar a construir e testar a imagem `vm` (saiu do ciclo nesta change, D13); pendência nova no tema 6 para avaliar o userland armv7 nos dois consoles (desempenho por core).

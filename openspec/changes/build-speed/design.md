@@ -188,7 +188,12 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   a sysroot da arquitetura instalada por `apk --root --arch <arch> --no-scripts` (sem emulação) e o
   mesmo Rust do Alpine (1.96). O `abuild` só empacota o binário. Verificação: o binário roda no
   aparelho e os testes do `lume-ui` passam.
-- **Cores e RetroArch (P-36):** uma prova decide o caminho entre (a) `distcc` com compiladores
+- **Cores e RetroArch: fora desta change** (decisão do usuário, 2026-11-16, durante a prova da
+  9.3: "vamos deixar os cores para uma change só de cores"). Nesta change os cores continuam os
+  pacotes de hoje, sem recompilar. O que segue fica como registro e ponto de partida da change de
+  cores (P-36); o código mesclado fica desligado por padrão e nada dele foi provado (a compilação
+  do gcc cruzado foi interrompida no começo).
+- **Cores e RetroArch (P-36), plano original:** uma prova decide o caminho entre (a) `distcc` com compiladores
   x86 que geram código musl da arquitetura, com o mesmo gcc do Alpine 3.24, mantendo o `abuild` no
   container da arquitetura, e (b) cross completo do `abuild` (`CBUILD`/`CHOST`). Começa por (a),
   que muda menos o pipeline. Critério: o mesmo `manifest`, e os cores rodam iguais no aparelho.
@@ -241,10 +246,9 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
    SLOTS                      manifesto do conjunto: nome, arquivo, sha256, versoes dos fragmentos
    SLOTS.old                  o conjunto anterior
    slots/base-<sha12>         base do Alpine (bibliotecas, busybox, OpenRC)
-   slots/runtime-<sha12>      RetroArch, mesa/drivers de video, SDL
+   slots/runtime-<sha12>      RetroArch e os cores, mesa/drivers de video, SDL
    slots/lume-<sha12>         fragmentos do projeto + banco do apk + saidas de triggers
    slots/modules-<sha12>      modulos do kernel
-   slots/core-<nome>-<sha12>  um por core
  BOOT/dtbs/<soc>/...          (como hoje)
 ```
 
@@ -263,9 +267,9 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 - **Coerência:** cada slot grava o sha dos slots de baixo contra os quais foi montado; o
   manifesto só é gerado com um conjunto coerente, e o push nunca manda um slot sem o resto do
   conjunto que ele exige.
-- **Cores fora do caminho do boot:** os slots `core-*` não entram no overlay. Um serviço
-  (`lume-cores`, no runlevel `default`, depois do `frontend`) os monta em `/run/lume/cores/<nome>/`;
-  o runner acha o core lá e espera o mount se o jogo abrir antes.
+- **Cores:** nesta change ficam no slot `runtime`, com o RetroArch. Um slot `core-<nome>` por
+  core, montado depois do frontend e trocado sem reinício, saiu para a change de cores (P-80); o
+  formato do `SLOTS` já aceita as linhas `core-<nome>` (reservadas, nenhum build as gera aqui).
 - **Formato do `SLOTS` (tarefa 4.0):** texto por linhas, campos separados por um espaço, sem
   JSON, para o `awk` do busybox. Leitores iguais em `src/r36os/manifests.py` (`read_slots`,
   `write_slots`) e `initramfs/lib/slots.sh`:
@@ -335,8 +339,8 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 
 - **Padrão: reiniciar.** Slots do boot e kernel só trocam com o sistema parado; a troca do
   conjunto é atômica e cada atualização prova o boot.
-- **Sem reinício:** (1) slots de core — o push troca o arquivo e pede ao `lume-cores` para
-  remontar; com o core em uso, a troca acontece quando o jogo fecha; (2) `push --hot <fragmento>` —
+- **Sem reinício:** só o `push --hot <fragmento>` (a troca de core sem reinício saiu com os
+  cores para o P-80) —
   extrai os arquivos do `.apk` na camada gravável em RAM e reinicia os serviços do fragmento (os
   `init.d` que ele traz, ou os listados no `APKBUILD` em `_lume_restart`); some no reboot e deixa
   uma linha `push hot <fragmento> <versão>` no `events.log`. Kernel, módulos e `base` não aceitam

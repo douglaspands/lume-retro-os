@@ -32,8 +32,9 @@ fragmento só está provado quando chega ao console e funciona.
 - **Kernel incremental:** uma árvore do kernel com histórico git e uma pasta de build fixa por
   arquitetura; um patch recompila só os arquivos que mudaram. A data do kernel passa a ser fixa,
   para um kernel sem mudança sair igual byte a byte.
-- **Compilação sem emulação onde mais pesa:** o `lume-launcher` (P-61) e os cores (P-36) deixam
-  de compilar sob qemu ou passam a reaproveitar o que já foi compilado.
+- **Compilação sem emulação onde mais pesa:** o `lume-launcher` (P-61) deixa de compilar sob qemu
+  ou passa a reaproveitar o que já foi compilado. Os cores e o RetroArch (P-36) ficam para uma
+  change só de cores (decisão do usuário, 2026-11-16); nesta, eles continuam os pacotes de hoje.
 - **Build gentil com o PC:** prioridade baixa (`nice`, `ionice`) e limite de tarefas ajustável
   (`--jobs`, `R36OS_JOBS`; padrão metade dos núcleos).
 - **Proteção de calor** (pedido do usuário, 2026-11-16): o build lê a temperatura da CPU (sensor
@@ -47,13 +48,13 @@ fragmento só está provado quando chega ao console e funciona.
   proteção de calor.
 - **Slots no cartão** (**BREAKING** no layout da `BOOT` do console): o sistema de cada console
   deixa de ser um único `SYSTEM` e passa a ser um conjunto de slots squashfs (base do Alpine,
-  runtime com o RetroArch, o projeto, os módulos, um por core), descritos num manifesto trocado
-  de uma vez. O initramfs monta os slots do boot; os cores são montados depois do frontend, fora
-  do caminho crítico do boot. Cartões antigos continuam iniciando e são migrados pelo `push` ou
-  pelo `flash --update`.
+  runtime com o RetroArch e os cores, o projeto, os módulos), descritos num manifesto trocado
+  de uma vez e montados pelo initramfs. Cartões antigos continuam iniciando e são migrados pelo
+  `push` ou pelo `flash --update`. Um slot por core, trocado sem reinício, fica para a change de
+  cores (P-80).
 - **Atualização pontual:** o `push` manda só os slots e arquivos que mudaram, lidos do arquivo
   do build (endereçado por conteúdo), sem descompactar imagem; reiniciar é o padrão (atômico).
-  Sem reinício: os cores (trocados com o console ligado) e o `push --hot <fragmento>`, que
+  Sem reinício: só o `push --hot <fragmento>`, que
   instala na camada gravável em RAM e reinicia só os serviços do fragmento, para iterar.
 - **Teste no aparelho como ferramenta do projeto:** o `push` espera o console voltar e confere o
   boot e as versões no log; `r36os dev` (esperar, comando, tela, botões, conferência) substitui
@@ -84,8 +85,8 @@ na change do governor); voltar a VM ao ciclo (pendência nova).
   hash de entradas, prioridade e limite de tarefas, compilação sem emulação e tempo por etapa.
 - `build-packages`: tudo o que o projeto entrega sai como fragmento `.apk` (por arquitetura ou
   noarch), versionado pelo conteúdo e compilado sozinho.
-- `system-update`: slots do sistema no cartão, manifesto do conjunto, push pontual, troca de
-  cores e push em RAM sem reinício, versões no log.
+- `system-update`: slots do sistema no cartão, manifesto do conjunto, push pontual, push em RAM
+  sem reinício, versões no log.
 - `device-testing`: o teste no aparelho pelo cabo como ferramenta do projeto — esperar o boot,
   conferir o log e as versões, comandos, captura de tela, botões e auto-teste.
 
@@ -101,8 +102,7 @@ na change do governor); voltar a VM ao ciclo (pendência nova).
 
 - Código: `src/r36os/` (`kernel.py`, `build.py`, `rootfs.py`, `image.py`, `packages.py`,
   `container.py`, `push.py`, `archive.py`, `flash.py`, `cli.py`) e um módulo novo para
-  `r36os dev`; `initramfs/init` e `initramfs/lib/storage.sh` (slots e manifesto); serviço novo
-  que monta os cores; `game-runners` passa a achar o core no slot montado; módulo novo de
+  `r36os dev`; `initramfs/init` e `initramfs/lib/storage.sh` (slots e manifesto); módulo novo de
   proteção de calor; a ordem dos serviços do OpenRC (`rc.conf`, dependências dos `init.d`).
 - Repositório: `rootfs/overlay/` vira aports noarch em `aports/lume-*`; novos pacotes
   `lume-kernel`, `lume-modules`, `lume-dtbs` em `out/repo/<arch>/`.

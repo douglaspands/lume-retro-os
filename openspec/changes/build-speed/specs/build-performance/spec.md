@@ -45,17 +45,14 @@ só os slots que os contêm, sem gerar a imagem do cartão.
 - **WHEN** o usuário roda `r36os build lume-launcher`
 - **THEN** só o `lume-launcher` é compilado (nas arquiteturas pedidas), só o slot que o contém é remontado, e o build termina com um conjunto novo pronto para o `push`, sem `.img`
 
-### Requirement: Compilação sem emulação para o launcher e os cores
-O `lume-launcher`, o RetroArch e os cores MUST compilar sem emular o compilador sob qemu, ou
-reaproveitando a compilação anterior, e MUST gerar pacotes que rodam no aparelho como os de antes.
+### Requirement: Compilação sem emulação para o launcher
+O `lume-launcher` MUST compilar sem emular o compilador sob qemu, ou reaproveitando a compilação
+anterior, e MUST gerar pacotes que rodam no aparelho como os de antes. Os cores e o RetroArch ficam
+para uma change própria (P-36, P-80).
 
 #### Scenario: Uma linha do launcher
 - **WHEN** uma linha do código do `lume-ui` muda e o build do `lume-launcher` roda para armv7
 - **THEN** o build leva perto de 1 minuto, e o launcher novo abre no GA36
-
-#### Scenario: Core recompilado
-- **WHEN** um core muda e é recompilado
-- **THEN** o compilador roda nativo no x86 e o core abre um jogo do seu sistema no aparelho
 
 ### Requirement: Build em prioridade baixa
 Todos os containers do build e do `r36os pkg` MUST rodar em prioridade baixa de CPU e de disco,
