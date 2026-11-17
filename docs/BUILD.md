@@ -86,6 +86,18 @@ Nunca são apagados: a árvore e as pastas de build atuais, `ccache`, `cargo`, `
 o build só avisa que as deixou). O `r36os clean` (simulação por padrão, `--yes` para apagar)
 usa as mesmas regras e lista as mesmas gerações antigas.
 
+## lume-launcher sem emulação
+
+No armv7 e no aarch64 o `cargo` do `lume-launcher` roda no PC (container x86_64, com o Rust
+do Alpine e a std do alvo tirada do pacote `rust` da arquitetura), e o container emulado só
+empacota os binários (design D7 da change `build-speed`). Ficam no `.cache/`:
+`lume-cross/<arch>/` (sysroot do alvo, std e cache do `apk`) e `cargo/<arch>-cross/` (o
+`target/` do cargo). Para voltar ao build antigo, com o cargo sob qemu:
+
+```
+R36OS_LUME_CROSS=0 .venv/bin/r36os pkg ga36 lume-launcher
+```
+
 ## Teste com limite baixo
 
 Para ver a pausa e a retomada sem esquentar o PC, baixe o limite (ele precisa ficar acima
