@@ -10,7 +10,7 @@ from __future__ import annotations
 from r36os import bootimg, heat, image, kernel, lang, rootfs, stage_inputs, uboot, version
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
-from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
+from r36os.packages import build_packages, ensure_key, local_aports
 from r36os.stages import StageTimer
 from r36os.targets import TARGETS, ImageTarget, Target
 
@@ -68,15 +68,11 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     p = f"{target.name}: "  # prefix of the stage names in the summary
     out = rootfs.target_out(target)
     console = target.name in kernel.KERNEL_TARGETS
-    # [2] local packages (only those missing from the repository, unless rebuilding)
+    # [2] local packages: each compiles only when its inputs changed and is published only
+    # when its content changed (build-speed D3); rebuild_packages compiles them all
     ensure_key(target)
-    missing = [n for n in local_aports(target)
-               if rebuild_packages or not _has_package(target, n)]
-    if missing:
-        with timer.stage(p + "local packages"):
-            build_packages(target, missing)
-    else:
-        timer.skip(p + "local packages", "all in the repository")
+    with timer.stage(p + "local packages"):
+        build_packages(target, local_aports(target), force=rebuild_packages)
     if console:
         # on the consoles the initramfs is built into the kernel: it comes before stage 1
         _initramfs_stage(target, timer, p)
@@ -171,7 +167,3 @@ def build_console_kernel(target: Target, timer: StageTimer | None = None) -> Non
             # zImage + appended DTB, like goodluckOS (CONFIG_ARM_APPENDED_DTB)
             kernel_blob = zimage.read_bytes() + (kdir / "dtbs" / dtb).read_bytes()
             (kdir / f"android-boot-{panel}.img").write_bytes(bootimg.make(kernel_blob))
-
-
-def _has_package(target: Target, name: str) -> bool:
-    return any(repo_dir(target).glob(f"{name}-[0-9]*.apk"))

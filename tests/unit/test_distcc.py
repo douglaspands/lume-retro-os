@@ -83,6 +83,7 @@ def test_build_packages_runs_distccd_only_around_the_chosen_packages(tmp_path, m
     class FakeContainer:
         def __init__(self, through):
             self.through = through
+            self.volumes, self.env = {}, {}
 
         def sh(self, script):
             calls.append(("sh", self.through, script))
@@ -93,27 +94,36 @@ def test_build_packages_runs_distccd_only_around_the_chosen_packages(tmp_path, m
         yield
         calls.append(("distccd-stop", arch))
 
+    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
     monkeypatch.setattr(packages, "_container",
-                        lambda t, a, cargo_target=False, distcc=False: FakeContainer(distcc))
+                        lambda t, a, cargo_target=False, distcc=False, repodest=None:
+                        FakeContainer(distcc))
     monkeypatch.setattr(distcc, "distccd", fake_distccd)
+    # one container per aport (build-speed 6.1); what it built is not looked at here
+    monkeypatch.setattr(packages, "_settle", lambda *a, **kw: [])
+    monkeypatch.setattr(packages, "clean_repo", lambda arch: False)
+    aports = tmp_path / "aports"
+    for n in ("a", "core"):
+        (aports / n).mkdir(parents=True)
+        (aports / n / "APKBUILD").write_text(f"pkgname={n}\npkgver=1\npkgrel=0\n")
     ga36 = get_target("ga36")
 
     monkeypatch.delenv("R36OS_DISTCC", raising=False)
-    packages.build_packages(ga36, ["a", "core"], aports=tmp_path)
-    assert [c[:2] for c in calls] == [("sh", False)]  # unchanged without the variable
+    packages.build_packages(ga36, ["a", "core"], aports=aports)
+    assert [c[:2] for c in calls] == [("sh", False)] * 2  # unchanged without the variable
 
     calls.clear()
     monkeypatch.setenv("R36OS_DISTCC", "core")
-    packages.build_packages(ga36, ["a", "core"], aports=tmp_path)
+    packages.build_packages(ga36, ["a", "core"], aports=aports)
     assert [c[:2] for c in calls] == [
         ("sh", False), ("distccd-start", "armv7"), ("sh", True), ("distccd-stop", "armv7")]
     assert "apk add -q distcc" in calls[2][2] and "/core &&" in calls[2][2]
     assert "distcc" not in calls[0][2]
 
     calls.clear()
-    packages.build_packages(ga36, ["core"], aports=tmp_path, checksum=True)
+    packages.build_packages(ga36, ["core"], aports=aports, checksum=True)
     assert [c[:2] for c in calls] == [("sh", False)]  # checksum never needs a compiler
 
     calls.clear()
-    packages.build_packages(get_target("vm"), ["core"], aports=tmp_path)
+    packages.build_packages(get_target("vm"), ["core"], aports=aports)
     assert [c[:2] for c in calls] == [("sh", False)]  # x86_64 is native already

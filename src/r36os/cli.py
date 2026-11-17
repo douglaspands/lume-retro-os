@@ -94,6 +94,9 @@ def _parser() -> argparse.ArgumentParser:
     k.add_argument("target", help=f"layer: {', '.join(TARGETS)}")
     k.add_argument("names", nargs="+", help="directories under aports/")
     k.add_argument("--checksum", action="store_true", help="only update the sha512sums")
+    k.add_argument("--force", action="store_true",
+                   help="compile even when the inputs did not change (a same content is "
+                        "still not published)")
 
     for cmd in (b, u, k):
         cmd.add_argument("--jobs", type=int, metavar="N",
@@ -206,7 +209,8 @@ def _main(args: argparse.Namespace) -> int:
             target = get_target(args.target)
             from r36os.packages import build_packages
 
-            _heat_guarded(lambda: build_packages(target, args.names, checksum=args.checksum))
+            _heat_guarded(lambda: build_packages(target, args.names, checksum=args.checksum,
+                                                 force=args.force))
             return 0
         if args.command == "vm":
             from r36os.vm import run_vm

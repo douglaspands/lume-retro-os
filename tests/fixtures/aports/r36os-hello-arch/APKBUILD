@@ -1,0 +1,17 @@
+# Trivial x86_64 package for the incremental build test (build-speed 6.1): one data file
+# from the aport dir, so changing it changes the content.
+pkgname=r36os-hello-arch
+pkgver=1.0
+pkgrel=0
+pkgdesc="Test package of the Lume Retro OS incremental build"
+url="https://example.invalid"
+arch="x86_64"
+license="MIT"
+options="!check"
+source=""
+
+package() {
+	install -Dm644 "$startdir"/greeting "$pkgdir"/usr/share/r36os/greeting
+	cmd_name=r36os-hello-arch
+	install -Dm755 /dev/null "$pkgdir"/usr/bin/$cmd_name
+}
