@@ -89,6 +89,9 @@ acrescentado e aprovado pelo usuário em 2026-11-17, sonnet.
   do `test-vm`) e a captura de tela (no `--headless` o `lume-ui` não liga o vídeo: `Could not
   set videomode on CRTC`). A tarefa fica aberta até decidir como levar jogos de teste à vm.
 - [ ] 3.6 SSH multiplexado no `r36os` (pedido do usuário, 2026-11-17): todos os comandos que falam com o console pelo `ssh` (`r36os dev`, `r36os push`, o `dev run` e as consultas de 1 s dele) passam por um canal mestre do OpenSSH do PC (`ControlMaster=auto`, `ControlPath` em `cache/ssh/`, `ControlPersist` de 60 s), sem nada novo no console; o canal guarda qual console e qual boot atende e é descartado quando o console reinicia (`push`, `wait`) ou quando o console no cabo muda; uma opção (`R36OS_SSH_MUX=0`) desliga. Verificação: testes de unidade dos argumentos do `ssh` com e sem a opção, do descarte do canal (boot novo, console trocado, `push`) e de que o `dev run` usa o canal; na vm (só vm), 20 `dev sh true` seguidos com e sem o canal, tempos anotados; na V1, o mesmo no GA36 e a CPU do `dropbear` num `dev run`, antes e depois.
+  **Na vm (só vm, 2026-11-17, `cache/tmp/mux_bench.py`):** 20 `dev sh true` seguidos, sem o
+  canal 5,19 s (260 ms cada), com o canal 1,71 s (81 ms cada; o primeiro, que abre o canal,
+  178 ms). Falta a V1 no GA36 (tempos e CPU do `dropbear`).
 
 ## 4. Build e provas
 
