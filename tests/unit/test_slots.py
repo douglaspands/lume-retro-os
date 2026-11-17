@@ -373,7 +373,9 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
     out.mkdir()
     _rootfs(out / "rootfs.tar")
-    _modules(out / "kernel" / "modules")
+    # the modules slot is the image of the published lume-modules (build-speed 7.3)
+    _modules(out / "kernel-pkg" / "boot" / "modules.squashfs")
+    (out / "kernel").mkdir()
     (out / "kernel" / "release").write_text("6.18.2\n")
     runs = []
 
@@ -407,7 +409,11 @@ def _level_setup(tmp_path, monkeypatch, pad_fast=0):
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
     out.mkdir()
     _rootfs(out / "rootfs.tar")
-    _modules(out / "kernel" / "modules")
+    from r36os import kernel_packages
+
+    # the modules slot comes from the published lume-modules (build-speed 7.3)
+    _modules(kernel_packages.modules_image(out))
+    (out / "kernel").mkdir(exist_ok=True)
     (out / "kernel" / "release").write_text("6.18.2\n")
     levels = []
 

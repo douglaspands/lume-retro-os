@@ -382,7 +382,9 @@ def test_console_boot_files_layout(tmp_path):
     assert {"boot.ini", "ga36/SLOTS", "ga36/zImage", "r36s/SLOTS", "r36s/Image",
             "dtbs/rk3326/rk3326-r36s-v5.dtb"} <= set(files)
     assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
-    assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
+    # build-speed 7.3: the kernel is the data of the published lume-kernel
+    assert files["ga36/zImage"] == tmp_path / "ga36/kernel-pkg/boot/zImage"
+    assert files["r36s/Image"] == tmp_path / "r36s/kernel-pkg/boot/Image"
     # build-speed D9: the root of each console is its slot set; without one the SLOTS path
     # is still listed, so the image build says it is missing
     assert files["ga36/SLOTS"] == tmp_path / "ga36/slot/SLOTS"
@@ -398,13 +400,16 @@ def test_console_boot_files_layout(tmp_path):
     _slot_set(tmp_path / "x", "r36s")
     with pytest.raises(Exception, match="not ga36"):
         image.console_boot_files(tmp_path / "x", tmp_path / "r36s")
-    (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
-    (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
-    (tmp_path / "r36s/kernel/dtbs").mkdir(parents=True)
-    (tmp_path / "r36s/kernel/dtbs/b.dtb").write_bytes(b"d")
+    (tmp_path / "ga36/kernel-pkg/boot/dtbs/a33/vendor").mkdir(parents=True)
+    (tmp_path / "ga36/kernel-pkg/boot/dtbs/a33/a.dtb").write_bytes(b"d")
+    (tmp_path / "ga36/kernel-pkg/boot/dtbs/a33/vendor/v.dtb").write_bytes(b"d")
+    (tmp_path / "r36s/kernel-pkg/boot/dtbs/rk3326").mkdir(parents=True)
+    (tmp_path / "r36s/kernel-pkg/boot/dtbs/rk3326/b.dtb").write_bytes(b"d")
+    (tmp_path / "ga36/kernel").mkdir(parents=True)
     (tmp_path / "ga36/kernel/android-boot-panel2.img").write_bytes(b"i")
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
     assert "dtbs/a33/a.dtb" in files and "dtbs/rk3326/b.dtb" in files
+    assert files["dtbs/a33/vendor/v.dtb"] == tmp_path / "ga36/kernel-pkg/boot/dtbs/a33/vendor/v.dtb"
     # only what the consoles read: the panel boot images are archived with the build
     assert not [p for p in files if "android-boot" in p]
     assert image.ga36_android_boot_images(tmp_path / "ga36") == {
@@ -548,17 +553,18 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     from r36os import image, version
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    for f in ("ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
-              "ga36/kernel/android-boot-panel1.img", "r36s/kernel/Image",
-              "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
+    # the kernel and the DTBs as extracted from the published packages (build-speed 7.3)
+    for f in ("ga36/kernel-pkg/boot/zImage", "ga36/kernel-pkg/boot/dtbs/a33/a.dtb",
+              "ga36/kernel/android-boot-panel1.img", "r36s/kernel-pkg/boot/Image",
+              "r36s/kernel-pkg/boot/dtbs/rk3326/rk3326-r36s-v5.dtb"):
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
     ga36_set = _slot_set(tmp_path / "ga36", "ga36")
     _slot_set(tmp_path / "r36s", "r36s")
     # the build checks the lume-select node of every DTB (boot-dtb-select D3)
     from r36os import fdt
-    for f, ident in (("ga36/kernel/dtbs/a.dtb", "a"),
-                     ("r36s/kernel/dtbs/rk3326-r36s-v5.dtb", "r36s-v5")):
+    for f, ident in (("ga36/kernel-pkg/boot/dtbs/a33/a.dtb", "a"),
+                     ("r36s/kernel-pkg/boot/dtbs/rk3326/rk3326-r36s-v5.dtb", "r36s-v5")):
         node = fdt.Node(props={"lume,id": fdt.s(ident), "lume,priority": fdt.u32(0),
                                "lume,default": b""})
         (tmp_path / f).write_bytes(fdt.build(fdt.Node(children={"lume-select": node})))

@@ -3,7 +3,8 @@ and lume, plus the kernel modules image as the modules slot, and the SLOTS manif
 
     out/<console>/slot/
       base-<sha12> runtime-<sha12> lume-<sha12>   squashfs, from rootfs.tar (stage "slots")
-      modules-<sha12>                              copy of kernel/modules (stage 1)
+      modules-<sha12>                              copy of the published lume-modules
+                                                   (kernel-pkg/boot/modules.squashfs)
       overlay.json                                 the three overlay slots of the last run
       SLOTS                                        the set, with the build id (every build)
 

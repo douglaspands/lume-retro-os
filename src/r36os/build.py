@@ -9,8 +9,8 @@ the single card image with both systems.
 
 from __future__ import annotations
 
-from r36os import (bootimg, heat, image, kernel, lang, manifests, parallel, rootfs, slots,
-                   stage_inputs, uboot, version)
+from r36os import (bootimg, heat, image, kernel, kernel_packages, lang, manifests, parallel,
+                   rootfs, slots, stage_inputs, uboot, version)
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import (build_noarch, build_packages, ensure_key, is_noarch_aport,
@@ -163,7 +163,8 @@ def build_console_slots(target: Target, v: version.BuildVersion,
     out = rootfs.target_out(target)
     tar = out / "rootfs.tar"
     sdir = slots.slots_dir(out)
-    modules = out / "kernel" / "modules"
+    # the modules slot is the image of the published lume-modules (build-speed 7.3)
+    modules = kernel_packages.modules_image(out)
 
     def stage(lvl: int) -> None:
         options = slots.with_level(rootfs.SQUASHFS_OPTIONS, lvl)
@@ -294,3 +295,7 @@ def build_console_kernel(target: Target, timer: StageTimer | None = None) -> Non
             # zImage + appended DTB, like goodluckOS (CONFIG_ARM_APPENDED_DTB)
             kernel_blob = zimage.read_bytes() + (kdir / "dtbs" / dtb).read_bytes()
             (kdir / f"android-boot-{panel}.img").write_bytes(bootimg.make(kernel_blob))
+    # lume-kernel, lume-modules and lume-dtbs of the arch (build-speed 7.3): published
+    # only when their content changed; BOOT and the modules slot take the published data
+    with timer.stage(p + "kernel packages"):
+        kernel_packages.package_console(target.name, out)
