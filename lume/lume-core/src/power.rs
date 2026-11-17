@@ -1,6 +1,6 @@
 //! Writer of the power FIFO `/run/r36os/power` (openspec game-governor, D1/D2).
 //!
-//! Protocol: one message per line, `menu`, `idle`, `game <system> <core>` or `end`.
+//! Protocol: one message per line, `menu`, `idle`, `game <system> <core>`, `end` or `reload`.
 //! The writer opens the FIFO with `O_NONBLOCK` and never creates it: without the service (no
 //! reader, no FIFO, full pipe) the message is dropped and the caller goes on. A game or the
 //! launcher never waits for the power service. English only, and never a game name or path.
@@ -16,6 +16,8 @@ pub enum Message {
     Idle,
     Game { system: String, core: String },
     End,
+    /// Read the profile files again and reapply the profile of the current scenario.
+    Reload,
 }
 
 impl Message {
@@ -31,6 +33,7 @@ impl Message {
             Message::Idle => "idle\n".to_string(),
             Message::Game { system, core } => format!("game {} {}\n", word(system), word(core)),
             Message::End => "end\n".to_string(),
+            Message::Reload => "reload\n".to_string(),
         }
     }
 }
@@ -79,6 +82,7 @@ mod tests {
         assert_eq!(Message::Menu.line(), "menu\n");
         assert_eq!(Message::Idle.line(), "idle\n");
         assert_eq!(Message::End.line(), "end\n");
+        assert_eq!(Message::Reload.line(), "reload\n");
         assert_eq!(Message::Game { system: "snes".into(), core: "snes9x2005_plus".into() }.line(), "game snes snes9x2005_plus\n");
     }
 
