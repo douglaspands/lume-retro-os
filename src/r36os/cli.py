@@ -45,6 +45,9 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--build", default="latest", metavar="TIMESTAMP",
                    help="console build from out/images/console/ (default: latest)")
     u.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    u.add_argument("--no-wait", action="store_true",
+                   help="reboot and return, without waiting for the console to come back "
+                        "and checking the new boot")
 
     dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
                                     "keys, log)")
@@ -164,7 +167,7 @@ def _main(args: argparse.Namespace) -> int:
         if args.command == "push":
             from r36os.push import main_push
 
-            return main_push(args.build, args.yes)
+            return main_push(args.build, args.yes, wait=not args.no_wait)
         if args.command == "dev":
             from r36os.dev import main_dev
 
