@@ -184,7 +184,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
 ## 9. Compilação sem emulação (D7)
 
-- [ ] 9.1 `lume-launcher`, passo 1: `target/` do cargo em `.cache/cargo/<arch>`, sem vazar entre arquiteturas. Verificação: uma linha do `lume-ui` mudada → build armv7 medido contra os 8 min de antes.
+- [x] 9.1 `lume-launcher`, passo 1: `target/` do cargo em `.cache/cargo/<arch>`, sem vazar entre arquiteturas. Verificação: uma linha do `lume-ui` mudada → build armv7 medido contra os 8 min de antes.
 - [ ] 9.2 `lume-launcher`, passo 2: cross no x86 com a sysroot da arquitetura (`apk --root --arch --no-scripts`) e o Rust 1.96; o `abuild` só empacota. Verificação: build armv7 e aarch64 perto de 1 minuto; o launcher abre nos dois consoles e o `cargo test` passa.
 - [ ] 9.3 Prova do P-36 com um core pequeno (`libretro-snes9x2005-plus`): `distcc` para compiladores x86 com o gcc do Alpine 3.24 (caminho a) e, se não servir, cross completo do `abuild` (caminho b). Verificação: mesmo conteúdo do pacote (ou diferença explicada) e o core roda um jogo no GA36; decisão anotada no D7.
 - [ ] 9.4 Aplicar o caminho escolhido ao RetroArch e aos outros cores. Verificação: cada core abre um jogo do seu sistema nos dois consoles; tempo de recompilação de todos antes e depois.
