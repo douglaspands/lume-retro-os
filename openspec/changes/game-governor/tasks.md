@@ -46,7 +46,7 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 6.3 | 6.2, 5.4 | CPU, ARCH:aarch64 | PR | — | 10 | |
 | 6.4 | 6.3, 5.5 | R36S, USUARIO | PR | — | 11 | J4 |
 
-Modelos: ondas 0 e 1 aprovadas pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
+Modelos: ondas 0, 1 e 2 aprovadas pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
 outras ondas aguardam aprovação antes de começar.
 
 **GA36 primeiro (pedido do usuário, 2026-11-17):** o usuário vai levar o GA36 e ficar fora;
