@@ -60,6 +60,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from r36os import sshmux
 from r36os.push import (CONSOLE_ADDR, PushError, Remote, console_refusal,
                         identify_console)
 
@@ -292,6 +293,7 @@ def build_script(steps: list[Step], pads: Pads, machine: str,
 
 def cmd_wait(host: str, timeout: float) -> int:
     print(f"waiting for {host} (up to {timeout:g}s)...", file=sys.stderr)
+    Remote(host).drop_channel()       # the console is probably restarting: no old channel
     if wait_for_console(host, timeout):
         print("console answers")
         return 0
@@ -647,9 +649,13 @@ def which_console(host: str, wanted: str | None) -> str:
         seen.append(run_capture(host, cmd))
         return seen[-1]
 
+    boot_id = probe(sshmux.BOOT_ID_COMMAND) if sshmux.enabled() else None
     name = identify_console(probe)
     if not name and seen and vm_machine(seen[-1]):
         name = "vm"
+    if boot_id is not None:
+        # the channel remembers which console and boot it serves; another one drops it
+        sshmux.revalidate(Remote(host).base, name, boot_id)
     print(f"console: {name.upper() or 'unknown'} ({host})", file=sys.stderr)
     if reason := console_refusal(name, wanted):
         raise DevError(reason)

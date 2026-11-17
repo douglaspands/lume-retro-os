@@ -60,7 +60,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from r36os import image, manifests
+from r36os import image, manifests, sshmux
 from r36os.archive import images_dir, objects_dir
 from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import IMAGES
@@ -163,12 +163,20 @@ class Remote:
         # ServerAlive*: a connection that dies in the middle (the console rebooting) is
         # dropped in ~6 s; ConnectTimeout only covers opening it (J1, 2026-11-16: a probe
         # caught by the reboot hung for minutes)
-        self.base = ["ssh", "-o", "UserKnownHostsFile=/dev/null",
-                     "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
-                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-                     "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
-                     *(["-p", str(port)] if port is not None else []),
-                     f"root@{addr}"]
+        self.plain_base = ["ssh", "-o", "UserKnownHostsFile=/dev/null",
+                           "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
+                           "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                           "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
+                           *(["-p", str(port)] if port is not None else []),
+                           f"root@{addr}"]
+        # the shared OpenSSH master channel (virtual-gamepad 3.6, r36os.sshmux); the same
+        # argv as plain_base when R36OS_SSH_MUX=0
+        mux = sshmux.options(addr, port)
+        self.base = [*self.plain_base[:-1], *mux, self.plain_base[-1]]
+
+    def drop_channel(self) -> None:
+        """Close the shared master (the console is about to restart or changed)."""
+        sshmux.drop(self.base)
 
     def run(self, cmd: str, stdin: Path | None = None) -> str:
         with (stdin.open("rb") if stdin else open("/dev/null", "rb")) as f:
@@ -185,7 +193,7 @@ class Remote:
         """True when the console answers ssh over the cable now (False after
         PROBE_TIMEOUT seconds, whatever ssh is doing)."""
         try:
-            return subprocess.run([*self.base, "true"], stdin=subprocess.DEVNULL,
+            return subprocess.run([*self.plain_base, "true"], stdin=subprocess.DEVNULL,
                                   capture_output=True, timeout=PROBE_TIMEOUT).returncode == 0
         except subprocess.TimeoutExpired:
             return False
@@ -759,6 +767,13 @@ def _duration(seconds: float) -> str:
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
+def _drop_channel(remote) -> None:
+    """Close the shared ssh master of `remote` (fakes in the tests have none)."""
+    drop = getattr(remote, "drop_channel", None)
+    if drop:
+        drop()
+
+
 def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
                 now=time.monotonic, checks: list[AfterBootCheck] | None = None
                 ) -> BootState:
@@ -768,6 +783,7 @@ def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
     from r36os.dev import wait_for_console      # dev imports this module
 
     host = getattr(remote, "host", CONSOLE_ADDR)
+    _drop_channel(remote)
     if not wait_for_console(host, GONE_TIMEOUT, POLL_INTERVAL, sleep, now,
                             probe=lambda: not remote.answers()):
         raise PushError(f"the console still answers {GONE_TIMEOUT}s after the reboot "
@@ -777,6 +793,7 @@ def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
         raise PushError(f"the console did not come back over the cable within "
                         f"{BACK_TIMEOUT}s (last step confirmed: the console went away for "
                         "the reboot)")
+    _drop_channel(remote)       # a new boot: nothing of the old channel may be reused
     end = now() + BOOT_OK_TIMEOUT
     state, last_error = None, None
     while True:
@@ -829,6 +846,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     except manifests.ManifestError as e:
         raise PushError(str(e)) from None
     remote = remote or Remote()
+    _drop_channel(remote)       # a push always starts on a fresh connection
     console = read_console(remote)
     out(f"console: {console.board}, build {console.build or '?'}, battery "
         f"{'?' if console.battery is None else f'{console.battery}%'}, card {console.device}")
@@ -998,6 +1016,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     old_boot_n = (remote.run(READ_BOOT_N).strip() or None) if wait else None
     out("swapped: BOOT updated, rebooting the console")
     remote.run("(sleep 1; reboot) >/dev/null 2>&1 &")
+    _drop_channel(remote)       # the master would hang on the dead connection
     if not wait:
         return 0
     rebooted = now()

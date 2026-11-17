@@ -278,6 +278,22 @@ console para perguntar, e a imagem é a mesma para os dois consoles (o cartão e
 do aparelho no boot). Quem confere o console é o primeiro `push` ou `dev` depois que o cartão
 volta a um console.
 
+### Canal ssh compartilhado (`dev`, `push`, `dev run`)
+
+Todas as chamadas `ssh` do `r36os` ao console passam por um canal mestre do OpenSSH do PC
+(`ControlMaster=auto`, `ControlPersist=60`): a primeira abre a conexão e as seguintes a
+reaproveitam, sem custo de um `dropbear` novo por comando e sem nada novo no console. O
+socket fica em `cache/ssh/<hash de host:porta>` (um por console; ao lado, `<hash>.id` guarda
+`<console> <boot_id>`). A identidade é conferida a cada comando `r36os dev` (uma leitura de
+`/proc/sys/kernel/random/boot_id` pelo próprio canal): boot novo ou outro console no cabo
+fecha o canal e reconecta. O `push` (antes de começar, depois do `reboot` e quando o console
+volta) e o `dev wait` também o descartam. As sondagens "o console responde?" nunca usam o canal.
+
+- Desligar: `R36OS_SSH_MUX=0` (o argv do `ssh` volta a ser o de antes, byte a byte).
+- Soltar à mão: `ssh -O exit -o ControlPath=cache/ssh/<hash> root@10.55.0.1`
+  (ou apague a pasta `cache/ssh/` com o canal já fechado).
+- Se o caminho do socket passar do limite de 104 bytes, o `r36os` segue sem o canal.
+
 ## `r36os dev`
 
 Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
