@@ -17,6 +17,10 @@ Removed (all of it comes back by itself on the next build or download):
     image, except `latest`, `flashed` (the build last written to a card, set by `flash`;
     also the one whose decompressed copy is in <cache>/flash/) and any timestamp cited in
     docs/, openspec/ or README.md (a cited build is evidence of a test);
+  - the files of out/images/objects/ (build-speed D10) that no build kept after this clean
+    cites in its boot-files.sha256 or image-parts.sha256 (objects stored in the last hour
+    stay: a build may be archiving them). A kept list that cannot be read is listed for
+    review and no object is removed;
   - the decompressed image kept by `flash` (<cache>/flash/) when it is not the latest
     console image;
   - abuild work folders (aports/*/src, pkg, tmp) and Python caches (__pycache__,
@@ -39,6 +43,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,6 +64,8 @@ class Item:
     path: Path
     size: int
     reason: str
+    # when set, only these files under `path` are removed (the unused objects), not `path`
+    members: tuple[Path, ...] = ()
 
 
 def size_of(path: Path) -> int:
@@ -168,6 +175,50 @@ def _old_images(out: Path, keep: int, cited: set[str]) -> list[Item]:
     return items
 
 
+CITING_LISTS = ("boot-files.sha256", "image-parts.sha256")   # `<sha256>  <name>` lines
+OBJECT_MIN_AGE = 3600       # seconds
+
+
+def _unused_objects(out: Path, removed: list[Item]) -> tuple[list[Item], list[Item]]:
+    """(to remove, to review) for out/images/objects/ (build-speed D10): the objects that no
+    build kept after this clean cites in its boot-files.sha256 or image-parts.sha256. A kept
+    build whose list cannot be read stops it (nothing is removed, the build is listed)."""
+    objects = out / "images" / "objects"
+    if not objects.is_dir():
+        return [], []
+    gone = {i.path for i in removed}
+    cited: set[str] = set()
+    for build in sorted((out / "images").glob("*/*")):
+        if (not build.is_dir() or build.is_symlink() or build in gone
+                or not TIMESTAMP.fullmatch(build.name)):
+            continue
+        for name in CITING_LISTS:
+            path = build / name
+            if not path.exists():
+                continue
+            try:
+                lines = path.read_text().splitlines()
+            except (OSError, UnicodeDecodeError) as e:
+                return [], [Item(path, size_of(path), f"unreadable ({e}): the unused objects "
+                                                      "stay until it is fixed")]
+            for line in lines:
+                sha, sep, _ = line.partition("  ")
+                if not sep or len(sha) != 64:
+                    return [], [Item(path, size_of(path), "garbled line: the unused objects "
+                                                          "stay until it is fixed")]
+                cited.add(sha)
+    # *.tmp, and objects stored in the last hour: a build may be storing them right now,
+    # before its list is archived (store_object renames the .tmp when complete)
+    young = time.time() - OBJECT_MIN_AGE
+    unused = tuple(sorted(p for p in objects.iterdir()
+                          if p.is_file() and not p.name.endswith(".tmp")
+                          and p.name not in cited and p.stat().st_mtime < young))
+    if not unused:
+        return [], []
+    return [Item(objects, sum(p.stat().st_size for p in unused),
+                 f"{len(unused)} archived file(s) no kept build cites", unused)], []
+
+
 def _stale_flash_cache(cache: Path, out: Path) -> list[Item]:
     latest = out / "images" / "console" / "latest"
     keep = f"console-{os.readlink(latest)}.img" if latest.is_symlink() else None
@@ -224,11 +275,13 @@ def plan(repo: Path, out: Path, cache: Path, version: str, keep: int = DEFAULT_K
     # the build on the card stays archived, even when its decompressed copy goes
     cited = cited | flashed_timestamps(cache)
     old_kernels, kept_kernels = old_kernel_generations(cache, version)
-    remove = (old_kernels + _old_images(out, keep, cited)
+    images = _old_images(out, keep, cited)
+    objects, objects_review = _unused_objects(out, images)
+    remove = (old_kernels + images + objects
               + _stale_flash_cache(cache, out) + _work_folders(repo))
     review = kept_kernels + [Item(p, size_of(p), "unknown entry in out/ (a one-off test?)")
                              for p in sorted(out.glob("*")) if p.name not in KNOWN_OUT]
-    review += _merged_worktrees(repo, out)
+    review += objects_review + _merged_worktrees(repo, out)
     return remove, review
 
 
@@ -252,12 +305,16 @@ def remove(items: list[Item], repo: Path, out: Path, cache: Path,
            failed: list[tuple[Item, str]] | None = None) -> int:
     """Remove the items; return the bytes freed. Items that fail go to `failed`."""
     for it in items:
-        if not _allowed(it.path, repo, out, cache):
-            raise RuntimeError(f"refusing to remove {it.path}")
+        for p in it.members or (it.path,):
+            if not _allowed(p, repo, out, cache):
+                raise RuntimeError(f"refusing to remove {p}")
     freed = 0
     for it in items:
         try:
-            if it.path.is_dir() and not it.path.is_symlink():
+            if it.members:
+                for p in it.members:
+                    p.unlink(missing_ok=True)
+            elif it.path.is_dir() and not it.path.is_symlink():
                 try:
                     shutil.rmtree(it.path)
                 except PermissionError:

@@ -7,9 +7,11 @@ root@10.55.0.1 (root has no password on the USB cable, D4):
    *.old/*.new left by an earlier push, BOOT used (df) against what its files take (du),
    and the SHA256 of the files on BOOT (not *.old/*.new); refuse below 20% battery; warn
    when df passes du by more than 32 MiB (lost clusters, push-boot-swap D3);
-2. take the BOOT files of the build out of the archived image (the list and SHA256 of
-   boot-files.sha256, read back from the FAT when the image was built) and keep only the
-   ones that differ from the console;
+2. compare the BOOT list of the build (boot-files.sha256, read back from the FAT when the
+   image was built) with the console, leaving VERSION out: when nothing else differs there
+   is nothing to send; otherwise the files that differ go, with VERSION last. They are read
+   from out/images/objects/<sha256> (build-speed D10), without unpacking the image; a build
+   archived before the objects is unpacked once and its files stored as objects;
 3. send them to /storage/.lume-push/<build>/ (ROMS) and check them there with
    `sha256sum -c`: nothing on BOOT changes if one differs;
 4. on BOOT (remounted rw): the *.old/*.new of an earlier push deleted (nothing holds them
@@ -43,8 +45,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from r36os import image
-from r36os.archive import images_dir
+from r36os import image, manifests
+from r36os.archive import images_dir, objects_dir
 from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import IMAGES
 
@@ -219,10 +221,39 @@ def _run_in_builder(volumes: dict[Path, str], script: str) -> None:
         raise PushError(f"could not read BOOT from the image: {(r.stdout + r.stderr).strip()}")
 
 
-def plan_files(boot_list: list[tuple[str, str]], console: Console) -> list[tuple[str, str]]:
-    """(path, sha256) to send: the ones the console does not have, in list order (VERSION
-    last). A build that is already on the console sends nothing."""
-    return [(p, d) for p, d in boot_list if console.boot_sums.get(p) != d]
+def plan_files(boot_list: list[tuple[str, str]], console: Console,
+               other_change: bool = False) -> list[tuple[str, str]]:
+    """(path, sha256) to send: the ones the console does not have, in list order, and
+    VERSION last. VERSION is left out of the comparison (it differs in every build): it goes
+    only together with another file (or with `other_change`, the GA36 boot sector), so a
+    build that changed nothing else sends nothing."""
+    version = [(p, d) for p, d in boot_list if p == manifests.VERSION_FILE]
+    files = [(p, d) for p, d in boot_list
+             if p != manifests.VERSION_FILE and console.boot_sums.get(p) != d]
+    return files + version if files or other_change else []
+
+
+def object_sources(build_dir: Path, files: list[tuple[str, str]], extractor,
+                   out=print) -> dict[str, Path]:
+    """BOOT path -> local file of each of `files`: its object (D10), or, for a build
+    archived before the objects, the file unpacked from the image, checked and then stored
+    as an object for the next push."""
+    objects = objects_dir()
+    missing = set(manifests.missing_objects(objects, files))
+    sources = {p: manifests.object_path(objects, d) for p, d in files if p not in missing}
+    if missing:
+        wanted = [p for p, _ in files if p in missing]
+        out(f"note: build {build_dir.name} has no stored object for {len(wanted)} file(s) "
+            "(archived before build-speed): reading them from its image")
+        stage = extractor(build_dir, wanted)
+        for p, digest in files:
+            if p not in missing:
+                continue
+            if _sha256(stage / p) != digest:
+                raise PushError(f"{p} read from the image does not match {image.BOOT_LIST}")
+            sources[p] = manifests.object_path(objects, manifests.store_object(objects,
+                                                                               stage / p))
+    return sources
 
 
 def check_room(console: Console, sizes: dict[str, int]) -> None:
@@ -340,7 +371,10 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     if not list_path.exists():
         raise PushError(f"{build_dir.name} has no {image.BOOT_LIST}: rebuild it "
                         "(`r36os build console`) to push it")
-    boot_list = image.read_boot_list(list_path)
+    try:
+        boot_list = manifests.read_boot_list(list_path)
+    except manifests.ManifestError as e:
+        raise PushError(str(e)) from None
     remote = remote or Remote()
     console = read_console(remote)
     out(f"console: {console.board}, build {console.build or '?'}, battery "
@@ -352,7 +386,6 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
         raise PushError(f"battery at {console.battery}%: charge the console above "
                         f"{MIN_BATTERY}% first (a power cut while BOOT is swapped can leave "
                         "it unable to start)")
-    files = plan_files(boot_list, console)
     panel1 = build_dir / PANEL1_IMAGE if console.board == "ga36" else None
     panel1_changed = False
     if panel1 is not None and panel1.exists():
@@ -361,16 +394,18 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
                              f"count={sectors} 2>/dev/null | head -c {panel1.stat().st_size} "
                              "| sha256sum | cut -d' ' -f1").strip()
         panel1_changed = on_card != _sha256(panel1)
+    files = plan_files(boot_list, console, panel1_changed)
     if not files and not panel1_changed:
-        out("nothing to send: the console already runs this build")
+        same = console.boot_sums.get(manifests.VERSION_FILE) == dict(boot_list).get(
+            manifests.VERSION_FILE)
+        out("nothing to send: the console already runs this build" if same else
+            "nothing to send: the console already has every file of this build (only "
+            "VERSION differs)")
         return 0
-    stage = extractor(build_dir, [p for p, _ in files]) if files else None
-    sizes = {}
-    for p, digest in files:
-        local = stage / p
-        if _sha256(local) != digest:
-            raise PushError(f"{p} read from the image does not match {image.BOOT_LIST}")
-        sizes[p] = local.stat().st_size
+    # the console checks every file against SHA256SUMS before BOOT changes, so an object
+    # (named by its SHA256) is not hashed again here
+    sources = object_sources(build_dir, files, extractor, out)
+    sizes = {p: sources[p].stat().st_size for p, _ in files}
     if panel1_changed:
         sizes[PANEL1_IMAGE] = panel1.stat().st_size
     check_room(console, sizes)
@@ -386,7 +421,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     sums = "".join(f"{d}  {p}\n" for p, d in files)
     for p, _ in files:
         remote.run(f"mkdir -p {_q(str(Path(remote_dir, p).parent))} && "
-                   f"cat > {_q(f'{remote_dir}/{p}')}", stdin=stage / p)
+                   f"cat > {_q(f'{remote_dir}/{p}')}", stdin=sources[p])
         out(f"sent:    {p}")
     if panel1_changed:
         remote.run(f"cat > {_q(f'{remote_dir}/{PANEL1_IMAGE}')}", stdin=panel1)
