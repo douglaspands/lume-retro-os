@@ -8,7 +8,8 @@ person to review. `--yes` removes only the first list.
 
 Removed (all of it comes back by itself on the next build or download):
   - kernel build trees of old patch sets: <cache>/kbuild/<board>-<digest> whose digest is
-    not the one of the current kernel/patches/ (each is 0.3 to 2.8 GB);
+    not the one of the current kernel/patches/ (each is 0.3 to 2.8 GB). The build now uses
+    one fixed folder per architecture (<cache>/kbuild/<arch>/, no dash), never removed;
   - archived images in out/images/<image>/<timestamp>/ beyond the newest `keep` of each
     image, except `latest`, `flashed` (the build last written to a card, set by `flash`;
     also the one whose decompressed copy is in <cache>/flash/) and any timestamp cited in
@@ -85,6 +86,7 @@ def cited_timestamps(repo: Path) -> set[str]:
 
 def _old_kernel_builds(cache: Path, digest: str) -> list[Item]:
     items = []
+    # only the old <board>-<digest> layout: the per-architecture folders have no dash
     for d in sorted((cache / "kbuild").glob("*-*")):
         if d.is_dir() and not d.name.endswith(f"-{digest}"):
             items.append(Item(d, size_of(d), "kernel build of an old patch set"))
