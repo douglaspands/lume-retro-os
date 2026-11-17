@@ -13,10 +13,10 @@ arch="noarch"
 license="GPL-2.0-or-later"
 depends="lume-core"
 options="!check" # tested on the host (tests/unit and the shell suites)
-# etc/sysctl.d/00-alpine.conf may belong to an Alpine package (procps or the
-# baselayout); the image carries the Lume version.
-# The image has always carried the Lume version: replaces lets apk install it on top and
-# replaces_priority makes the Lume file win whichever package apk unpacks first.
+# etc/sysctl.d/00-alpine.conf is the Lume version of a setting an Alpine package could ship.
+# On Alpine 3.24 apk lists no owner for it (checked with baselayout, procps-ng installed), so
+# this is a guard: replaces lets apk install ours on top and replaces_priority makes the Lume
+# file win whichever package apk unpacks first.
 replaces="alpine-baselayout alpine-baselayout-data procps procps-ng"
 replaces_priority=100
 # services `r36os push --hot` restarts when they are running (empty: none)

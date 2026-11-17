@@ -49,6 +49,13 @@ def test_fragment_restarts_only_services_it_ships(name):
         assert svc in shipped or svc in {"bluetooth"}, svc  # bluetooth is bluez-openrc's
 
 
+def test_a_fragment_is_built_after_the_fragment_it_depends_on(tmp_path):
+    # abuild -r installs `depends` before building: lume-core must come first
+    order = packages._order(REPO_ROOT / "aports", ["lume-usb", "lume-net", "lume-core"])
+    assert order.index("lume-core") < order.index("lume-usb")
+    assert order.index("lume-core") < order.index("lume-net")
+
+
 def test_image_installs_every_fragment():
     names = {line.split("#")[0].strip() for line in
              (REPO_ROOT / "rootfs/packages.txt").read_text().splitlines()}

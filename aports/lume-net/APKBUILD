@@ -13,10 +13,10 @@ arch="noarch"
 license="GPL-2.0-or-later"
 depends="lume-core"
 options="!check" # tested on the host (tests/unit and the shell suites)
-# etc/conf.d/bluetooth and etc/conf.d/networkmanager are files of bluez-openrc and
-# networkmanager-openrc; the image carries the Lume version (rc_after frontend).
-# The image has always carried the Lume version: replaces lets apk install it on top and
-# replaces_priority makes the Lume file win whichever package apk unpacks first.
+# etc/conf.d/bluetooth and etc/conf.d/networkmanager (rc_after frontend) are the Lume version
+# of settings of bluez-openrc and networkmanager-openrc. On Alpine 3.24 apk lists no owner for
+# them, so this is a guard: replaces lets apk install ours on top if a package ever ships them,
+# and replaces_priority makes the Lume file win whichever package apk unpacks first.
 replaces="bluez-openrc networkmanager-openrc"
 replaces_priority=100
 # services `r36os push --hot` restarts when they are running (empty: none)
