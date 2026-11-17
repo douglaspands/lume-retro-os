@@ -315,6 +315,59 @@ o `lume-index` é um scan em segundo plano que sai ao terminar (o OpenRC o mostr
 `crashed`), então passa se ainda está rodando ou se a linha `lume-index: scan ... failed=0`
 está no syslog.
 
+### Gravações (`.evrec`) e roteiros de prova (change `virtual-gamepad`)
+
+Dois formatos congelados; o leitor e o escritor Python estão em `src/r36os/evrec.py` e a
+validação dos roteiros em `src/r36os/scripts.py`.
+
+**Gravação** (`cache/recordings/<console>-<data>.evrec`, texto ASCII):
+
+```
+# r36os-evrec 1 <ga36|r36s>
+<ms> <tipo> <código> <valor>
+...
+# end <ms>
+```
+
+- uma linha por evento, quatro inteiros decimais separados por um espaço: `ms` desde o início
+  da gravação (nunca diminui), `tipo` e `código` do `input_event` (não negativos) e `valor`
+  (pode ser negativo); um `SYN_REPORT` (`0 0 0`) fecha cada grupo;
+- a última linha `# end <ms>` marca o fim (`ms` não menor que o do último evento); sem ela, a
+  gravação é recusada. Linha em branco, linha a mais depois do fim ou linha mal formada é erro
+  com o número da linha. O leitor recusa uma gravação de outro console;
+- só botões, nunca nome de jogo. **Fica em `cache/`: um `.evrec` no repositório faz um teste
+  falhar.**
+
+**Roteiro** (`tests/device/scripts/<nome>.toml`):
+
+```toml
+description = "texto opcional"
+consoles = ["ga36", "r36s"]        # não vazio; o roteiro recusa o console que não listar
+
+[[step]]
+name = "abrir o menu"              # rótulo do passo, nunca um jogo
+type = "keys"
+timeout = 30                       # segundos (> 0); sem ele vale o padrão do tipo
+sequence = "fn+start,wait:500"
+```
+
+| `type` | Campos | Padrão do `timeout` |
+|---|---|---|
+| `keys` | `sequence` (sintaxe do `dev keys`) | 60 s |
+| `play` | `recording` (caminho `cache/...evrec`) | 120 s |
+| `wait_event` | `pattern` (regex), `category` (opcional) | 30 s |
+| `wait_process` | `process`, `state` = `"present"` ou `"absent"` | 30 s |
+| `shot` | `screen` (de `tests/device/shots/screens.toml`) | 30 s |
+| `sh` | `command` | 30 s |
+| `open_game` | `system`, `position` (inteiro >= 1) | 60 s |
+| `close_game` | nenhum | 30 s |
+
+Tipo ou campo desconhecido é erro. **Privacidade:** os campos `game`, `rom`, `path`, `content` e
+`title` são recusados em qualquer lugar do roteiro, e o `name` de um passo não pode terminar
+numa extensão de ROM (`.gba`, `.zip`, `.nes`...). Um jogo é sempre `system` + `position`. Um
+teste de unidade valida todo roteiro rastreado em `tests/device/scripts/` e falha se houver
+`.evrec` no repositório.
+
 ## Relatório de energia: `r36os power report`
 
 Change `game-governor` (D14). Lê pelo cabo as métricas (`metrics/boot-<n>.csv`) e o `events.log`
