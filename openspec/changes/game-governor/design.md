@@ -1,0 +1,221 @@
+# Design
+
+## Context
+
+Motivação em `proposal.md`; requisitos em `specs/power-profiles` e nos deltas de
+`device-support`, `boot-runtime` e `game-launcher`.
+
+Estado atual (kernel 6.18, configurações em `.cache/kbuild/<arch>/.config`):
+
+```
+                 GA36 (A33, armv7)               R36S (RK3326, aarch64)
+governor         schedutil (padrão)              schedutil (padrão)
+outros           só performance                  performance, ondemand, userspace
+                                                 (powersave e conservative como módulo)
+OPP da CPU       120 .. 1008 MHz                 600/816/1008/1200/1296 MHz
+cpuidle          não (CPU_IDLE off)              sim (PSCI, governor menu)
+hotplug          sim                             sim
+GPU devfreq      simple_ondemand                 simple_ondemand, userspace
+```
+
+- **Medido no GA36 (P-60):** o `logd` e os processos que ele dispara gastam ~30% de um núcleo,
+  e a thread `sugov:0` mais ~40%; hipótese: os picos do `logd` a cada 5 s mudam o clock, e no
+  A33 cada mudança passa pelo regulador do AXP pelo RSB.
+- **Fábrica do GA36** (`docs/referencia/ga36-emuelec/sistema/cpu-ondemand-tune`): `ondemand`
+  com `up_threshold 30`, `sampling_down_factor 10` e piso de 600 MHz no jogo.
+- **Medições que já existem**: as métricas do `logd` têm clock e ocupação por núcleo, `bat_ma`,
+  `fps` (pelo patch 0004 do RetroArch) e os eventos `game FAIL slow`/`full speed again`.
+- **Pontos de aviso**: o `lume-run` sabe o início e o fim do jogo, o sistema e o core; o
+  `lume-ui` sabe quando está na tela e quando está parado.
+- **Bateria no launcher** (`lume/lume-ui/src/system.rs:91-100`, `main.rs:133-146`): o `lume-ui`
+  já lê `capacity` e se está carregando, mas a cada 30 s, e o desenho da bateria ignora a carga
+  ("no charging mark: the prototype has none", `app.rs:1460`). É a causa do P-78.
+- **Desligamento**: o `session` grava os dados e chama `poweroff`; parar o frontend faz o
+  `lume-run` pedir a saída ao jogo pela política do runner (fim `session`), o que grava a SRAM.
+- **Teste que hoje trava a decisão do kernel**: `tests/unit/test_ga36_kernel_config.py:31-34`
+  exige que o fragmento não toque em `CPU_FREQ_GOV_*`.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Valores de perfil escolhidos por medição, com a regra de nunca perder quadros em relação ao
+  padrão de hoje.
+- Troca de perfil só nas fronteiras de cenário, num serviço que não custa nada parado.
+- Medições confiáveis: o coletor deixa de pesar antes de medir qualquer perfil.
+
+**Non-Goals:**
+- Controlador que muda o clock no meio do jogo pelo FPS (P-20, etapas 2 e 3): fica para depois,
+  se os perfis por classe não bastarem.
+- Modo escolhido pelo usuário (Desempenho, Equilibrado, Economia).
+- Overclock, clock da DRAM variável, mudar a tabela de OPPs ou as zonas térmicas.
+
+## Decisions
+
+### D1. Cenários e quem avisa
+
+```
+ boot --(serviço sobe: perfil boot)--> menu <--(lume-ui na tela)
+                                        |  ^
+       (lume-ui sem botão N min) idle <-+  |  (primeiro botão)
+                                        |  |
+       (lume-run: game <sistema> <core>)v  | (lume-run: end)
+                                       jogo
+```
+
+| Cenário | Quem avisa | Mensagem |
+|---|---|---|
+| boot | o próprio serviço ao subir | — |
+| menu | `lume-ui` ao mostrar a primeira tela e ao voltar do ocioso | `menu` |
+| idle | `lume-ui` depois de N minutos sem botão (o mesmo prazo de escurecer) | `idle` |
+| jogo | `lume-run` antes do `exec` do jogo | `game <sistema> <core>` |
+| fim do jogo | `lume-run` depois de o cgroup esvaziar | `end` |
+
+O serviço registra cada troca no `events.log`: `power OK profile: <cenário> -> <perfil>`.
+
+### D2. Serviço `r36os-power` sem laço caro
+
+Shell no pacote `lume-power`, como root (escreve no sysfs de cpufreq, de hotplug e do devfreq),
+no runlevel `boot`, logo cedo, aplicando o perfil `boot`. Lê as mensagens de um FIFO
+`/run/r36os/power` (grupo `game`, gravável pelo `lume-ui` e pelo `lume-run`) com `read -t 60`:
+dorme até chegar mensagem, e acorda no máximo a cada 60 s para a bateria (D7). Os escritores
+abrem o FIFO sem bloquear e ignoram a falha se o serviço não estiver rodando: o jogo e o
+launcher nunca esperam por ele.
+
+*Alternativas descartadas:* o `lume-run` aplicar o perfil (não roda como root e não está vivo no
+launcher); udev dando escrita no cpufreq ao grupo `game` (espalharia a política em dois
+programas e o hotplug ficaria aberto a qualquer processo do usuário); o GameMode (P-83:
+polkit, ganhos pensados para GPU de PC, preso ao RetroArch).
+
+### D3. Arquivo de perfis
+
+`/usr/share/lume/power/<console>.conf` (`ga36`, `r36s`), em linhas lidas com `read` do shell,
+sem `awk` por mensagem:
+
+```
+# profile <nome> chave=valor...   (khz; cores = núcleos ligados; gpu_max em Hz)
+profile boot    governor=performance
+profile menu    governor=schedutil min=120000 max=648000 cores=2 gpu_max=144000000
+profile idle    governor=schedutil min=120000 max=480000 cores=1 gpu_max=144000000
+profile light   governor=schedutil min=480000 max=1008000 cores=2
+profile medium  governor=ondemand  min=648000 max=1008000 cores=4 up_threshold=30 sampling_down_factor=10
+profile heavy   governor=performance cores=4
+profile game    governor=schedutil cores=4                 # sistema sem classe
+class nes light
+class psx heavy
+core  snes9x2005_plus heavy                                # exceção por core
+```
+
+Os números acima são só o formato: os valores saem da medição (D5). Validação ao subir: cada
+clock tem de estar em `scaling_available_frequencies` (ou entre `cpuinfo_min_freq` e
+`cpuinfo_max_freq` e num OPP do devfreq), cada governor em `scaling_available_governors`,
+`cores` entre 1 e o número de núcleos. Um perfil inválido é recusado inteiro (log) e o cenário
+usa o padrão do kernel. Um `ROMS/system/lume/power.conf` opcional sobrescreve linhas, para
+ajuste fino pelo PC (avançado, documentado, validado igual).
+
+### D4. Como um perfil é aplicado
+
+Ordem, para nunca passar do limite: liga os núcleos que faltam, ajusta `scaling_min_freq` e
+`scaling_max_freq` (descendo primeiro o mínimo, subindo primeiro o máximo), troca o governor,
+aplica os parâmetros do governor, desliga os núcleos a mais (nunca o `cpu0`), ajusta o
+`max_freq` do devfreq da GPU. A GPU só muda nas fronteiras, nunca no jogo (P-20: sem regulador
+nem refrigeração da Mali no DTS do GA36). O RetroArch com vídeo em thread e o áudio não são
+afetados por desligar núcleos porque a troca acontece antes do `exec` do jogo.
+
+### D5. Medição que escolhe os valores
+
+Pré-requisito: o `logd` barato (D8), senão ele falseia a corrente e a ocupação.
+
+- **Candidatos por classe:** `K` (governor padrão, a linha de base), `S+piso` (schedutil com
+  mínimo), `O` (ondemand da fábrica com piso), `S+rate` (schedutil com `rate_limit_us` maior,
+  hipótese do P-60) e, no GA36, cada um com 2 núcleos e com 4.
+- **Sessão:** o mesmo ponto de cada jogo de teste por save state, 10 minutos por candidato, sem
+  carregador, bateria entre 40% e 90% (a rodada 1 do `snes9x2005_plus` foi descartada por
+  bateria baixa), console já aquecido.
+- **Métricas:** corrente média (`bat_ma`), eventos `game FAIL slow`, temperatura máxima, clock
+  médio. O serviço tem um modo manual (`r36os-power set <perfil>` pelo cabo) para trocar de
+  candidato sem rebuild.
+- **Regra:** por classe, o candidato de menor corrente média sem mais eventos `slow` que o `K`.
+  Resultados só agregados por sistema e classe, nunca por jogo (regra das ROMs de teste).
+
+### D6. Boot
+
+O perfil `boot` (`performance`) vale do início do serviço até a primeira tela do launcher. O
+tempo do boot (`boot OK completed`) é anotado antes e depois; se o ganho não aparecer, o perfil
+`boot` vira igual ao padrão e a linha fica registrada.
+
+### D7. Bateria fraca
+
+O serviço lê `capacity` e `status` da fonte `Battery` a cada mensagem e a cada 60 s. Com
+`Discharging`:
+- **aviso (5%)**, uma vez por descarga: no jogo do RetroArch, `SHOW_MSG` por UDP em
+  `127.0.0.1:55355`, com o texto no idioma do sistema (`ui_lang` do `lib.sh`); no launcher, o
+  próprio `lume-ui` mostra o aviso ao ler a bateria (D9), com o mesmo limite;
+- **crítico (3%)** em duas leituras seguidas (uma queda de tensão sob carga não desliga): grava
+  `power OK shutdown: battery critical` e chama `poweroff`. O caminho normal faz o resto: o
+  OpenRC para o frontend, o `lume-run` pede a saída ao jogo (fim `session`, SRAM gravada), os
+  serviços descarregam os logs e os saves.
+
+Os limites ficam no arquivo de perfis (`battery warn=5 critical=3`).
+
+### D8. `logd` barato (P-60)
+
+Trocar os processos de cada amostra por leituras com `read` do shell (`/proc/stat`,
+temperatura, frequência, bateria), o `trace_kernel` pelo `/dev/kmsg` sem bloquear no lugar de
+dois `dmesg`, o `pidof` uma vez por amostra, a data com o `printf '%(...)T'` do shell quando
+houver, senão uma vez por lote. Medir o `logd` e o `sugov:0` em 60 s, antes e depois, nos dois
+consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em C pequeno, como o
+`r36os-input`, mantendo o formato das métricas (`docs/LOGS.md`).
+
+### D9. Launcher
+
+- A thread da bateria passa de 30 s para 5 s (duas leituras pequenas do sysfs; conferir o
+  requisito "Parado não consome CPU").
+- Marca de carga na bateria: primeiro no protótipo, depois no `lume-ui` com a régua.
+- Ocioso: depois de 2 minutos sem botão no launcher, o `lume-ui` manda `idle` e baixa a luz
+  para `min(10%, brilho do usuário)` sem gravar o valor; o primeiro botão devolve o brilho,
+  manda `menu` e é consumido.
+- Aviso de bateria fraca: o aviso curto (toast) que o tema já tem, em en/pt/es.
+
+### D10. Kernel do GA36
+
+`board/ga36/kernel.config` ganha `CONFIG_CPU_FREQ_GOV_ONDEMAND=y` e
+`CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y`, sem mudar o padrão (`schedutil`). O teste
+`test_fragment_keeps_mainline_cpufreq_and_thermal` passa a exigir esses dois e a proibir
+`CPU_FREQ_DEFAULT_GOV_*` e `THERMAL_DEFAULT_GOV_*`.
+
+### D11. DRAM do A33 (P-23, só medir)
+
+O `hwinfo` lê com o `r36os-devmem` os registradores do P-23 (`PLL_DDR1_CTRL_REG`,
+`PLL_DDR1_PAT_CTRL_REG0/1`, `DRAM_CFG_REG`) e grava o clock efetivo no `hw/boot-<n>.txt` do
+GA36. Nada muda no clock.
+
+## Risks / Trade-offs
+
+- [Desligar núcleos com o jogo esperando mais threads] → Os perfis só desligam núcleos onde a
+  medição mostrar que não há `slow` a mais; `cpu0` nunca sai.
+- [Perfil mais baixo perde quadros num jogo fora dos de teste] → A regra compara com o padrão
+  em jogos de cada classe; o `events.log` registra o perfil junto dos `game FAIL slow`, então um
+  caso novo aparece nos logs e vira exceção por core.
+- [O serviço cai e o console fica no perfil do último cenário] → OpenRC reinicia o serviço, que
+  volta ao `menu` (ou ao padrão do kernel se o arquivo for recusado); o pior caso é um perfil
+  de jogo no menu, que só gasta mais.
+- [Desligamento por bateria crítica com um leitor de `capacity` instável] → Duas leituras
+  seguidas e só descarregando; o limite é configurável pelo PC.
+- [Escurecer a tela consome o primeiro botão e o usuário estranha] → É o comportamento de
+  celulares e consoles; o aviso não é preciso.
+- [Medições longas ocupam os aparelhos] → Janelas próprias, depois das provas das changes
+  `build-speed` e `card-health`, na fila única do cartão.
+- [O `logd` em C muda o formato] → O formato é congelado pelos testes de `tests/logs/` antes da
+  troca.
+
+## Migration Plan
+
+Sem perfil (arquivo ausente ou recusado), tudo continua como hoje. Os arquivos de perfil chegam
+com os valores medidos só no fim; até lá a imagem leva o serviço com perfis iguais ao padrão
+do kernel, e o modo manual serve à medição. Voltar à versão anterior pelo `push` volta ao
+`schedutil` puro.
+
+## Open Questions
+
+- Os valores de cada perfil e o `N` de núcleos por classe: saem da medição (D5) e não mudam o
+  desenho.
