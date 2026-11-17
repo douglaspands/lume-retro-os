@@ -11,8 +11,9 @@ Removed (all of it comes back by itself on the next build or download):
     trees of another kernel version, and <cache>/kbuild/<console>-<hash>/. The build removes
     them by itself at the start of the kernel stage (`prune_old_generations`, same rules).
     The current <cache>/src/linux-<version>/ and linux-<version>.git and the fixed
-    <cache>/kbuild/<arch>/ are never removed; neither is anything named `*.antes-1.2`
-    (listed for review);
+    <cache>/kbuild/<arch>/ are never removed; neither is anything named `*.antes-<task>`
+    (the folders set aside for a measurement, `*.antes-1.2`, `*.antes-11.1`: listed for
+    review, also directly under <cache>);
   - archived images in out/images/<image>/<timestamp>/ beyond the newest `keep` of each
     image, except `latest`, `flashed` (the build last written to a card, set by `flash`;
     also the one whose decompressed copy is in <cache>/flash/) and any timestamp cited in
@@ -33,7 +34,8 @@ in out/worktrees/ whose branch is already merged into the current branch.
 Never touched: var/ (test ROMs), out/repo (local package repository, hours to rebuild),
 out/r36s-factory and out/r36s-bootlogs (evidence from the device, not reproducible), the
 current kernel tree and build, ccache, distfiles, the abuild keys, vendor/ and vm/ of the
-cache, .ctx/ and .venv/. The search for Python caches never walks into .cache/ (millions of
+cache, the cargo targets (<cache>/cargo/<arch> and <arch>-cross) and the sysroot of the
+lume-launcher cross build (<cache>/lume-cross/<arch>), .ctx/ and .venv/. The search for Python caches never walks into .cache/ (millions of
 kernel build files).
 """
 
@@ -54,6 +56,9 @@ DEFAULT_KEEP = 3
 KNOWN_OUT = {
     "console", "ga36", "r36s", "vm", "images", "repo", "worktrees",
     "r36s-factory", "r36s-bootlogs",
+    # build-speed: noarch fragments, package staging (abuild output, cross-built launcher
+    # binaries) and the build log of `r36os dev watch`
+    "noarch", "pkg-staging", "dev-watch",
 }
 TIMESTAMP = re.compile(r"\b(\d{8}-\d{6})\b")
 SKIP_DIRS = {".git", ".venv", ".ctx", ".cache", "out", "var", "node_modules"}
@@ -94,7 +99,9 @@ def cited_timestamps(repo: Path) -> set[str]:
     return found
 
 
-KEEP_MARK = ".antes-1.2"  # renamed baseline folders of the user: reported, never removed
+# renamed baseline folders of the measurements (`*.antes-1.2`, `*.antes-11.1`): reported,
+# never removed
+KEEP_MARK = ".antes-"
 
 
 def old_kernel_generations(cache: Path, version: str) -> tuple[list[Item], list[Item]]:
@@ -109,8 +116,8 @@ def old_kernel_generations(cache: Path, version: str) -> tuple[list[Item], list[
     remove, review = [], []
 
     def classify(d: Path, old: bool, reason: str) -> None:
-        if d.name.endswith(KEEP_MARK):
-            review.append(Item(d, size_of(d), f"{reason} kept for the user ({KEEP_MARK})"))
+        if KEEP_MARK in d.name:
+            review.append(Item(d, size_of(d), f"{reason} kept for the user ({KEEP_MARK}*)"))
         elif old:
             remove.append(Item(d, size_of(d), reason))
 
@@ -281,8 +288,15 @@ def plan(repo: Path, out: Path, cache: Path, version: str, keep: int = DEFAULT_K
               + _stale_flash_cache(cache, out) + _work_folders(repo))
     review = kept_kernels + [Item(p, size_of(p), "unknown entry in out/ (a one-off test?)")
                              for p in sorted(out.glob("*")) if p.name not in KNOWN_OUT]
-    review += objects_review + _merged_worktrees(repo, out)
+    review += objects_review + _merged_worktrees(repo, out) + _baselines(cache)
     return remove, review
+
+
+def _baselines(cache: Path) -> list[Item]:
+    """Cache folders set aside for a cold-cache measurement (`<cache>/src.antes-11.1`, ...):
+    the user removes them by hand once the measurement is done."""
+    return [Item(d, size_of(d), "cache set aside for a measurement: remove by hand when done")
+            for d in sorted(cache.glob(f"*{KEEP_MARK}*")) if d.is_dir() and not d.is_symlink()]
 
 
 def _allowed(path: Path, repo: Path, out: Path, cache: Path) -> bool:

@@ -168,6 +168,26 @@ def test_plan_lists_the_same_generations_as_the_automatic_prune(generations):
     assert {i.path.name for i in review} == {"linux-6.6.1.antes-1.2", "ga36-0000.antes-1.2"}
 
 
+def test_plan_reports_the_caches_set_aside_and_keeps_the_cross_caches(generations):
+    repo, out, cache, old, _kept = generations
+    for rel in ("src.antes-11.1/linux-x/f", "kbuild.antes-11.1/armv7/f",
+                "lume-cross/armv7/sysroot/f", "cargo/armv7-cross/f"):
+        _mk(cache / rel, b"x" * 10)
+    remove, review = clean.plan(repo, out, cache, VERSION, cited=set())
+    names = {i.path.name for i in review}
+    assert {"src.antes-11.1", "kbuild.antes-11.1"} <= names
+    removed = {str(i.path.relative_to(cache)) for i in remove}
+    assert removed == set(old)
+
+
+def test_build_speed_entries_of_out_are_known(tmp_path):
+    repo, out, cache = tmp_path / "repo", tmp_path / "repo" / "out", tmp_path / "cache"
+    for name in ("noarch", "pkg-staging", "dev-watch", "one-off"):
+        (out / name).mkdir(parents=True)
+    _remove, review = clean.plan(repo, out, cache, VERSION, cited=set())
+    assert [i.path.name for i in review if "unknown entry" in i.reason] == ["one-off"]
+
+
 def test_remove_refuses_var_and_the_evidence(tree):
     repo, out, cache, _ = tree
     for p in (repo / "var" / "sd_roms", out / "repo", out / "r36s-factory"):
