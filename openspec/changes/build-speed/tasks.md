@@ -155,7 +155,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 
 ## 5. Push em RAM (D11)
 
-- [ ] 5.1 `r36os push --hot <fragmento>`: extrai os arquivos na camada em RAM, reinicia os serviços do fragmento (`init.d` dele ou `_lume_restart`), linha `push hot` no `events.log`; recusa kernel, módulos e base. Verificação: testes de `test_push.py`; no GA36, `--hot lume-core` com um script mudado e o serviço reiniciado; depois do reboot, o arquivo do cartão volta.
+- [x] 5.1 `r36os push --hot <fragmento>`: extrai os arquivos na camada em RAM, reinicia os serviços do fragmento (`init.d` dele ou `_lume_restart`), linha `push hot` no `events.log`; recusa kernel, módulos e base. Verificação: testes de `test_push.py`; no GA36, `--hot lume-core` com um script mudado e o serviço reiniciado; depois do reboot, o arquivo do cartão volta.
 - [ ] 5.3 `r36os dev watch <fragmento>` (D19): inotify nos arquivos de entrada, 1 s de calma, build pontual e `push --hot`, uma linha por ciclo; recusa fragmentos sem `--hot`. Verificação: teste de unidade do agrupamento das mudanças; no GA36, salvar um script do `lume-core` e ver o serviço reiniciado em segundos.
 - [ ] 5.4 Documentar `--hot`, `dev watch` e a política de reinício no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
 

@@ -779,6 +779,14 @@ def test_hot_checks_the_room_of_the_ram_layer_before_writing(repo, tmp_path):
     assert len(console.cmds) == 1          # only the probe: nothing written
 
 
+def test_hot_reads_the_ram_layer_free_space_from_the_root(repo, tmp_path):
+    # /rw lives in the initramfs and is gone after switch_root: `df /` reports the overlay's
+    # upper layer (GA36, 2026-11-17)
+    from r36os import push_hot
+
+    assert "df -Pk / " in push_hot._PROBE and "df -Pk /rw" not in push_hot._PROBE
+
+
 def test_hot_needs_the_ram_overlay_root(repo, tmp_path):
     console = FakeHotConsole(overlay=False)
     with pytest.raises(push.PushError, match="would write to the card"):

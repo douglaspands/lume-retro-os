@@ -58,8 +58,11 @@ _PROBE = f"""
 uname -m
 b=$(cat /etc/r36os/board 2>/dev/null); echo "${{b:--}}"
 if grep -q '^overlay / overlay .*upperdir={UPPER}' /proc/mounts; then echo overlay; else echo none; fi
-f=$(df -Pk {UPPER} 2>/dev/null | awk 'NR==2{{print $4}}'); echo "${{f:--}}"
+f=$(df -Pk / 2>/dev/null | awk 'NR==2{{print $4}}'); echo "${{f:--}}"
 """
+# The free space of the RAM layer is read from `df /`: /rw (the tmpfs) lives in the
+# initramfs and is not visible after switch_root, and statfs on an overlay reports its upper
+# layer (seen on the GA36, 2026-11-17: `df /rw/upper` -> "can't find mount point").
 
 
 @dataclass
