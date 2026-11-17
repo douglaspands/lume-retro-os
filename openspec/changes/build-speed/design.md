@@ -193,6 +193,33 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   container da arquitetura, e (b) cross completo do `abuild` (`CBUILD`/`CHOST`). Começa por (a),
   que muda menos o pipeline. Critério: o mesmo `manifest`, e os cores rodam iguais no aparelho.
   Com o D3, um core só recompila quando muda.
+- **Prova do P-36 (9.3), caminho escolhido: (a) `distcc`.** Levantamento no Alpine 3.24: o gcc
+  dos alvos é o `15.2.0-r5` (armv7 e aarch64, igual ao x86_64) e o binutils `2.45.1-r1`. O
+  Alpine publica `binutils-armv7` e `binutils-aarch64` para x86_64 na mesma versão, mas não
+  publica gcc cruzado para musl (só `gcc-arm-none-eabi` e afins, sem libc). O gcc cruzado sai do
+  próprio APKBUILD `main/gcc` do aports 3.24-stable (commit `fd4fecac`, fixado em
+  `src/r36os/distcc.py`), como o passo "Full cross GCC" do `scripts/bootstrap.sh`, mas com o
+  `musl-dev` e o `libucontext-dev` do repositório binário do alvo na sysroot (sem `gcc-pass2`
+  nem musl recompilado): `CTARGET=<arch> BOOTSTRAP=nobase LANG_D=false LANG_ADA=false abuild`.
+  Mesmo fonte, mesmos patches e o mesmo `configure` do gcc nativo (inclusive
+  `--with-arch/--with-fpu/--with-float/--with-mode` do armv7); a diferença é só não ter o
+  bootstrap de 3 estágios, que não muda o código gerado. O script é
+  `containers/cross-gcc.sh` e confere que o repositório do alvo ainda tem a mesma versão
+  (gcc novo no Alpine = refixar o commit). As fases deps, fetch, unpack e prepare já passaram
+  no x86_64.
+- Funcionamento: o `abuild` continua no container emulado (pré-processamento, link e
+  empacotamento sob qemu); o `ccache` entrega cada falha ao `distcc` (`CCACHE_PREFIX`) e o
+  `distccd` roda nativo num container próprio (`localhost/r36os-distcc:<arch>`, sem gcc x86),
+  onde `/usr/bin/cc`, `gcc`, `g++` e `c++` são o gcc cruzado, só em loopback, uma porta por
+  arquitetura, com `nice`/`ionice` e o rótulo da proteção de calor. `DISTCC_FALLBACK=0`: uma
+  falha remota quebra o build em vez de compilar escondido sob qemu. Opt-in por pacote:
+  `R36OS_DISTCC=<nome>[,...]` ou `all`; sem a variável nada muda. O `ccache` do distcc é
+  separado (`.cache/ccache/<arch>-distcc`) até a prova mostrar objetos iguais;
+  `R36OS_CCACHE=0` desliga o cache para medir.
+- Decisão pendente da prova (sessão principal): o mesmo `.so` do snes9x2005-plus pelo qemu e
+  pelo distcc (sha256 igual, ou diferença explicada) e o core rodando um jogo no GA36. Se o
+  objeto divergir sem explicação, ou o pré-processamento sob qemu dominar o tempo, o caminho
+  (b) entra na fila.
 - Alternativa: deixar tudo sob qemu. Rejeitada: o hash evita recompilar, mas quando o fragmento
   muda, a espera continua de minutos a horas.
 
