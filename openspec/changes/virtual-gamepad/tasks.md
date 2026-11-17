@@ -25,12 +25,17 @@ sessão principal (merge, build, aparelho, aprovação do usuário).
 | 2.3 | — | — | AG | sonnet | 0 | V1 |
 | 3.1 | 1.1 | — | AG | sonnet | 1 | V1 |
 | 3.2 | 3.1 | — | AG | sonnet | 2 | V1 |
+| 3.3 | — | — | AG | opus | 3 | VM |
+| 3.4 | 2.1, 2.2, 3.2 | — | AG | sonnet | 3 | VM |
+| 3.5 | 3.3, 3.4 | CPU | PR | — | 4 | VM |
 | 4.1 | 2.1, 2.2, 2.3, 3.1, 3.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | V1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | V2 |
 
 Modelos aprovados pelo usuário em 2026-11-17 ("crie e execute", como na tabela, ondas em
-paralelo).
+paralelo). Nós 3.3 a 3.5 (suporte à vm) acrescentados e aprovados em 2026-11-17: o usuário
+pediu o teste do controle virtual no emulador x86 enquanto o GA36 está fora (só o controle
+virtual; a prova na vm vale só para a vm, e as V1/V2 continuam).
 
 **Trilhas e caminho crítico:**
 
@@ -66,6 +71,10 @@ paralelo).
 
 - [ ] 3.1 `r36os dev run <roteiro>` (D4): executa os passos em ordem, cada um com tempo limite, imprime `passo <n> <nome>: ok|FALHOU (<motivo>)`, recusa um console fora de `consoles` antes do primeiro botão, lê o `events.log` só a partir do começo do roteiro e corta as linhas no `content=` (o nome do jogo nunca sai do console). Verificação: testes de unidade com o console falso (passo que falha pelo tempo, console errado, linha com `content=` cortada na saída, código de saída).
 - [ ] 3.2 `open_game` e `close_game` (D5) e os primeiros roteiros em `tests/device/scripts/`: um comando no console que imprime só a posição do sistema no Dock e o número de jogos (pelo índice do launcher), a sequência de botões montada no PC, `close_game` por Fn+Start; roteiros `open-close-<sistema>.toml` (um jogo de cada sistema com jogos no cartão, pela posição 1) e `launcher-screens.toml` (as telas de referência do `dev shot`). Verificação: testes de unidade da montagem da sequência (sistema no começo, no meio e no fim do Dock, sistema sem jogos falha sem apertar botões) e do comando do console com um índice falso; na V1, os roteiros passam no GA36.
+
+- [ ] 3.3 Rede só local na imagem `vm` para o `r36os dev`: `r36os vm --ssh [porta]` liga a rede de usuário da QEMU com o `ssh` da vm redirecionado só para `127.0.0.1:<porta>` do PC (padrão 2222), sem rota para fora; na imagem `vm`, e só nela, a interface sobe por DHCP e o `dropbear` escuta nela com root sem senha, como no cabo dos consoles; o `r36os dev` e o `r36os push` aceitam `--host 127.0.0.1:<porta>`; o `test-vm` continua sem rede. Verificação: testes de unidade dos argumentos da QEMU (com e sem `--ssh`, `test-vm` sem `-nic` de usuário) e do `host:porta` no `ssh`; `r36os vm --ssh` + `r36os dev sh --host 127.0.0.1:2222 uname -m` responde `x86_64`.
+- [ ] 3.4 Console `vm` no `r36os dev` e no `r36os-evrec`: o controle virtual "Lume VM Keyboard" reconhecido como o console `vm` (gravação `# r36os-evrec 1 vm`, roteiros com `consoles = ["vm"]`), a tabela de botões da vm (as teclas do `vm.conf` do `r36os-input`) no `dev keys`, sem controle do kernel separado (os atalhos do Fn da vm, se houver, pelo mesmo teclado), e o `open_game` com a mesma navegação. Verificação: testes de unidade (identificação do console `vm`, tabela de botões, gravação da vm recusada num console e vice-versa) e testes do `r36os-evrec` com um nó falso de nome "Lume VM Keyboard".
+- [ ] 3.5 Prova na vm (**vale só para a vm**): build da `vm`, `test-vm` verde, e com `r36os vm --ssh`: `dev keys`, `dev record`/`play` de 30 s no launcher com o atraso medido, `dev run` de um roteiro `consoles = ["vm"]` que abre e fecha um jogo de teste livre da vm, `dev replay` num jogo do RetroArch da vm. Verificação: resultados anotados neste `tasks.md` e no `docs/BUILD.md`, marcados como "só vm"; as provas da V1 e da V2 continuam pendentes.
 
 ## 4. Build e provas
 
