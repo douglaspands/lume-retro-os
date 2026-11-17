@@ -195,7 +195,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 ## 11. Verificação integrada
 
 - [x] 11.1 Repetir as medições da 1.2 e preencher a coluna "Depois", conferindo as metas do design (driver < 1 min por arquitetura, launcher ~1 min, script e build sem mudança em segundos), a temperatura máxima da CPU e do disco do build (SATA, com o `drivetemp` carregado) e o tempo pausado pela proteção de calor. Verificação: tabela preenchida no design.
-- [ ] 11.2 Nos dois consoles, um de cada vez com o mesmo cartão: `push` depois de um patch de driver, de uma mudança no launcher e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; depois de um push feito por um console, o cartão passado ao outro inicia com o conjunto novo dele sem outro push; `r36os dev check` verde nos dois; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
+- [x] 11.2 Nos dois consoles, um de cada vez com o mesmo cartão: `push` depois de um patch de driver, de uma mudança no launcher e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; depois de um push feito por um console, o cartão passado ao outro inicia com o conjunto novo dele sem outro push; `r36os dev check` verde nos dois; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
 
 ## Workflow follow-up
 
