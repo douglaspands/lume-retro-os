@@ -1333,3 +1333,75 @@ def test_a_build_with_no_fragment_in_its_slots_asks_nothing(builds):
     c = rebooted(first)
     rc, _ = slot_push(c, C, wait=True)
     assert rc == 0 and "fragment versions" not in c.log
+
+
+# --- push --dry-run (build-speed 3.7) ---------------------------------------------------
+
+def _no_write(c, boot_before):
+    assert c.boot == boot_before
+    assert not [s for s in c.cmds if "remount,rw" in s or "reboot" in s or "cat >" in s]
+
+
+def test_dry_run_lists_the_changed_slot_and_writes_nothing(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    before = dict(c.boot)
+    rc, out = slot_push(c, C, dry_run=True)
+    assert rc == 0
+    _no_write(c, before)
+    lume_c = slot_file_of(builds[C], "ga36", "lume")
+    assert out[out.index("dry run: nothing is sent and the console does not reboot") + 1:]
+    sends = [line.split()[1] for line in out if line.startswith("send:")]
+    assert set(sends) == {lume_c, "ga36/SLOTS", "r36s/SLOTS", "VERSION"}
+    assert any(line.startswith("total:") and "4 file(s)" in line for line in out)
+    assert any(line.startswith("delete:") and "ga36/SYSTEM" in line for line in out)
+    assert out[-1] == "room:     enough free space on BOOT"
+
+
+def test_dry_run_sends_the_same_files_as_the_push_after_it(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    _rc, out = slot_push(c, C, dry_run=True)
+    listed = {line.split()[1] for line in out if line.startswith("send:")}
+    rc, _ = slot_push(c, C)
+    assert rc == 0 and sent_files(c) == listed
+
+
+def test_dry_run_on_an_old_card_says_every_package_is_new(builds):
+    c = FakeConsole(board="ga36", boot=OLD_CARD)
+    before = dict(c.boot)
+    rc, out = slot_push(c, B, dry_run=True)
+    assert rc == 0
+    _no_write(c, before)
+    assert "packages: ga36: no slot set on the card yet (old card or first push): all 0 " \
+        "packages are new" in out
+
+
+def test_dry_run_of_the_running_build_has_nothing_to_send(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    rc, out = slot_push(c, B, dry_run=True)
+    assert rc == 0 and out[-1].startswith("nothing to send")
+
+
+def test_package_changes_by_slot():
+    from r36os import manifests
+
+    def ss(lume, runtime):
+        return manifests.SlotSet(build=B, console="ga36", slots=(
+            manifests.Slot(name="runtime", sha256="a" * 64, size=1, packages=runtime),
+            manifests.Slot(name="lume", sha256="b" * 64, size=1, packages=lume)))
+
+    old = ss((("lume-core", "1.0-r5"), ("lume-net", "1.0-r0")), (("retroarch", "1.22.2-r112"),))
+    new = ss((("lume-core", "1.0-r6"), ("lume-usb", "1.0-r0")), (("retroarch", "1.22.2-r112"),))
+    assert push.package_changes(new, old) == [
+        "lume: lume-core 1.0-r5 -> 1.0-r6",
+        "lume: lume-net 1.0-r0 -> -",
+        "lume: lume-usb - -> 1.0-r0"]
+    assert push.package_changes(new, new) == []
+
+
+def test_cli_dry_run_is_not_for_hot():
+    from r36os import cli
+
+    assert cli.main(["push", "--hot", "lume-core", "--dry-run"]) == 2

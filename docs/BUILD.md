@@ -342,9 +342,39 @@ está no syslog.
 
 ## `r36os push` e a verificação depois do reboot
 
-`r36os push [--build CARIMBO] [--yes] [--no-wait] [--console ga36|r36s] [--hot FRAGMENTO] [--jobs N]` atualiza o `BOOT` do console pelo cabo (ver
-o `README.md`). Depois do reboot ele **espera e confere** o boot novo, a menos que se passe
-`--no-wait`, que só reinicia e volta:
+`r36os push [--build CARIMBO] [--yes] [--no-wait] [--dry-run] [--console ga36|r36s] [--hot FRAGMENTO] [--jobs N]` atualiza o `BOOT` do console pelo cabo (ver
+o `README.md`).
+
+### Ver antes o que vai mudar (`--dry-run`)
+
+`r36os push --dry-run` consulta o console como o push normal e só lista, sem enviar nada, sem
+gravar no `BOOT` e sem reiniciar:
+
+```
+dry run: nothing is sent and the console does not reboot
+packages: ga36/lume: lume-core 1.0-r5 -> 1.0-r6
+packages: r36s/lume: lume-core 1.0-r5 -> 1.0-r6
+send:     ga36/slot/lume-ed256572b9e7 (2.5 MiB)
+send:     ga36/SLOTS (0.0 MiB)
+...
+total:    5.1 MiB in 5 file(s)
+delete:   ga36/slot/lume-cf00b3e4a070, r36s/slot/lume-c9f5f4ee8881
+room:     enough free space on BOOT
+```
+
+- `packages:` compara, slot por slot, os pacotes do conjunto que está no cartão (`SLOTS`) com
+  os do build (`-` = ausente de um lado). Num cartão antigo, sem conjunto de slots, diz que
+  todos os pacotes são novos.
+- `send:` são exatamente os arquivos que o push mandaria, com o tamanho; `delete:` o que ele
+  apagaria depois da troca; `room:` se o `BOOT` tem espaço.
+- A peça mínima do envio é o slot: um pacote mudado manda o slot inteiro dele (o `lume` tem
+  poucos MiB, o `runtime` centenas). Slots menores para os cores são o P-80.
+- Não vale com `--hot`.
+
+### Verificação depois do reboot
+
+Depois do reboot o push **espera e confere** o boot novo, a menos que se passe `--no-wait`, que
+só reinicia e volta:
 
 1. o console deixa de responder pelo cabo (até 60 s) e volta a responder (até 180 s). Cada
    sondagem de 10 s tem limite próprio, e o ssh usa `ServerAliveInterval` para uma conexão

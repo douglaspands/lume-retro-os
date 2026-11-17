@@ -66,6 +66,9 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--console", choices=("ga36", "r36s"),
                    help="refuse, before sending anything, when the console on the cable is "
                         "the other one")
+    u.add_argument("--dry-run", action="store_true",
+                   help="only list what would change: the packages of each slot set, the "
+                        "files to send with their sizes and what would be deleted")
 
     dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
                                     "keys, log)")
@@ -232,13 +235,17 @@ def _main(args: argparse.Namespace) -> int:
             return main_flash(get_image(args.target), args.device, args.update,
                               args.build, args.yes, args.eject)
         if args.command == "push" and args.hot:
+            if args.dry_run:
+                print("error: --dry-run is for the normal push, not --hot", file=sys.stderr)
+                return 2
             from r36os.push_hot import main_push_hot
 
             return main_push_hot(args.hot, console=args.console)
         if args.command == "push":
             from r36os.push import main_push
 
-            return main_push(args.build, args.yes, wait=not args.no_wait, console=args.console)
+            return main_push(args.build, args.yes, wait=not args.no_wait, console=args.console,
+                             dry_run=args.dry_run)
         if args.command == "dev":
             from r36os.dev import main_dev
 

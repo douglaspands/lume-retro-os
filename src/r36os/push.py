@@ -682,6 +682,63 @@ def make_fragment_check(expected: dict[str, str]) -> AfterBootCheck:
     return check_fragments
 
 
+def package_changes(new: manifests.SlotSet, current: manifests.SlotSet | None) -> list[str]:
+    """`<slot>: <package> <on the card> -> <in the build>` for every package whose version
+    differs between the set on the card and the one the push would write (`-` = absent)."""
+    def versions(ss):
+        return {} if ss is None else {n: (s.name, v) for s in ss.slots for n, v in s.packages}
+    old, now = versions(current), versions(new)
+    lines = []
+    for name in sorted(old.keys() | now.keys()):
+        a, b = old.get(name), now.get(name)
+        if a is not None and b is not None and a[1] == b[1]:
+            continue
+        slot = (b or a)[0]
+        lines.append(f"{slot}: {name} {a[1] if a else '-'} -> {b[1] if b else '-'}")
+    return lines
+
+
+def _mib(n: int) -> str:
+    return f"{n / 2**20:.1f} MiB"
+
+
+def dry_run_report(files: list[tuple[str, str]], sizes: dict[str, int], sources: dict[str, Path],
+                   plan: SlotPlan, state: SlotState, panel1_changed: bool) -> list[str]:
+    """What a push would do, without doing it (build-speed 3.7): the packages that change in
+    each console's slot set, the files it would send with their sizes and what it would
+    delete."""
+    out = ["dry run: nothing is sent and the console does not reboot"]
+    for p in plan.manifests:
+        c = p.split("/")[0]
+        try:
+            new = manifests.parse_slots(sources[p].read_text(), p)
+        except (OSError, UnicodeDecodeError, manifests.ManifestError) as e:
+            out.append(f"packages: {c}: the build's {p} cannot be read ({e})")
+            continue
+        current = state.folder(c).current
+        if current is None:
+            out.append(f"packages: {c}: no slot set on the card yet (old card or first push): "
+                       f"all {sum(len(s.packages) for s in new.slots)} packages are new")
+            continue
+        changes = package_changes(new, current)
+        if not changes:
+            out.append(f"packages: {c}: no package changed")
+        for line in changes:
+            out.append(f"packages: {c}/{line}")
+    for p, _ in files:
+        out.append(f"send:     {p} ({_mib(sizes[p])})")
+    if panel1_changed:
+        out.append(f"send:     {PANEL1_IMAGE} ({_mib(sizes[PANEL1_IMAGE])}, sector "
+                   f"{ANDROID_SECTOR})")
+    out.append(f"total:    {_mib(sum(sizes.values()))} in {len(sizes)} file(s)")
+    gone = plan.orphans + plan.after + [p for c in plan.migrate for p in plan.migrate[c]]
+    if gone:
+        out.append("delete:   " + ", ".join(gone))
+    for p in plan.kept_running:
+        out.append(f"keep:     {p} (the console runs from it)")
+    return out
+
+
 def _duration(seconds: float) -> str:
     s = round(seconds)
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
@@ -746,7 +803,7 @@ def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
 def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
          extractor=extract_boot, out=print, wait: bool = True, sleep=time.sleep,
          now=time.monotonic, checks: list[AfterBootCheck] | None = None,
-         console_wanted: str | None = None) -> int:
+         console_wanted: str | None = None, dry_run: bool = False) -> int:
     build_dir = (images_dir(IMAGES["console"]) / build).resolve()
     list_path = build_dir / image.BOOT_LIST
     if not list_path.exists():
@@ -791,8 +848,19 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     sizes = {p: sources[p].stat().st_size for p, _ in files}
     if panel1_changed:
         sizes[PANEL1_IMAGE] = panel1.stat().st_size
-    plan = plan_slots(files, sources, boot_list, console, read_slot_state(remote))
-    check_room(console, sizes, sum(plan.slot_sizes.get(p, 0) for p in plan.orphans))
+    slot_state = read_slot_state(remote)
+    plan = plan_slots(files, sources, boot_list, console, slot_state)
+    reclaim = sum(plan.slot_sizes.get(p, 0) for p in plan.orphans)
+    if dry_run:
+        for line in dry_run_report(files, sizes, sources, plan, slot_state, panel1_changed):
+            out(line)
+        try:
+            check_room(console, sizes, reclaim)
+            out("room:     enough free space on BOOT")
+        except PushError as e:
+            out(f"room:     the push would stop here: {e}")
+        return 0
+    check_room(console, sizes, reclaim)
     out("files:   " + ", ".join(p for p, _ in files)
         + (f", {PANEL1_IMAGE} (sector {ANDROID_SECTOR})" if panel1_changed else ""))
     for c, gone in plan.migrate.items():
@@ -931,9 +999,10 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     return 0
 
 
-def main_push(build: str, yes: bool, wait: bool = True, console: str | None = None) -> int:
+def main_push(build: str, yes: bool, wait: bool = True, console: str | None = None,
+              dry_run: bool = False) -> int:
     try:
-        return push(build, Remote(), yes, wait=wait, console_wanted=console)
+        return push(build, Remote(), yes, wait=wait, console_wanted=console, dry_run=dry_run)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
