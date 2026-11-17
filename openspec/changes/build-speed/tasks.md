@@ -140,7 +140,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 - [ ] 3.3 O `push` espera o console voltar e confere `boot OK completed` e o `VERSION` novo no log, com tempos de envio e de boot; `--no-wait` pula. Verificação: testes de `tests/unit/test_push.py` (volta certo, não volta, versão errada); um `push` real nos dois consoles termina com `ok`.
 - [ ] 3.4 Console identificado pelo cabo, com cartão único (D18): o endereço continua `10.55.0.1` nos dois; `push`, `dev` e `flash` dizem qual console respondeu (GA36 ou R36S, pelo que o console informa) e `--console ga36|r36s` confere e recusa quando o ligado é o outro. Verificação: testes de unidade da identificação e da recusa; com o mesmo cartão, `r36os dev check --console r36s` recusa no GA36 e passa no R36S.
 - [ ] 3.5 `r36os dev shot --compare <tela>` e `--update`, com as referências em `tests/device/shots/<console>/` e as sequências de botões de cada tela, num cartão de demonstração com nomes inventados (D19). Verificação: teste de unidade da comparação (igual, diferente com a imagem da diferença em `./cache/`); referências das telas principais do launcher gravadas nos dois consoles.
-- [ ] 3.6 Documentar `r36os dev`, a conferência do `push`, os endereços e as capturas no `docs/BUILD.md`, no `docs/LOGS.md` e nos guias de bring-up. Verificação: os comandos documentados rodam como escritos.
+- [x] 3.6 Documentar `r36os dev`, a conferência do `push`, os endereços e as capturas no `docs/BUILD.md`, no `docs/LOGS.md` e nos guias de bring-up. Verificação: os comandos documentados rodam como escritos.
 
 ## 4. Esqueleto ponta a ponta: um fragmento noarch em slot (D1, D2, D9, D10)
 
@@ -157,7 +157,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 
 - [x] 5.1 `r36os push --hot <fragmento>`: extrai os arquivos na camada em RAM, reinicia os serviços do fragmento (`init.d` dele ou `_lume_restart`), linha `push hot` no `events.log`; recusa kernel, módulos e base. Verificação: testes de `test_push.py`; no GA36, `--hot lume-core` com um script mudado e o serviço reiniciado; depois do reboot, o arquivo do cartão volta.
 - [x] 5.3 `r36os dev watch <fragmento>` (D19): inotify nos arquivos de entrada, 1 s de calma, build pontual e `push --hot`, uma linha por ciclo; recusa fragmentos sem `--hot`. Verificação: teste de unidade do agrupamento das mudanças; no GA36, salvar um script do `lume-core` e ver o serviço reiniciado em segundos.
-- [ ] 5.4 Documentar `--hot`, `dev watch` e a política de reinício no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
+- [x] 5.4 Documentar `--hot`, `dev watch` e a política de reinício no `docs/BUILD.md` e no `docs/LOGS.md`. Verificação: comandos documentados rodam como escritos.
 
 ## 6. Esteira: versão pelo conteúdo e etapas puladas (D3, D4, D6)
 
