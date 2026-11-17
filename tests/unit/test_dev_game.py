@@ -11,14 +11,17 @@ def test_info_command_prints_only_numbers_and_rejects_bad_ids():
     cmd = dev_game.info_command("gba")
     assert dev_game.CATALOG in cmd and dev_game.INDEX_DIR in cmd
     assert "od -An -tu4 -j8 -N4" in cmd
-    assert 'echo "dock_index=$di dock_count=$((n+3)) games=$g"' in cmd
+    assert 'echo "dock_index=$di dock_count=$((n+3)) games=$g focus=$fi"' in cmd
+    assert "id -u game" in cmd and dev_game.STATE_FILE in cmd
+    assert "game_path" not in cmd
     for bad in ("", "a b", "x;rm", "../x", "A$(x)"):
         with pytest.raises(dev.DevError):
             dev_game.info_command(bad)
 
 
-def test_info_command_runs_against_a_fixture_index(tmp_path):
-    """The snippet itself, with the paths pointed at a fake catalog and index files."""
+def fixture_query(tmp_path, system, state_text):
+    """Run the snippet under /bin/sh against a fake catalog, index files and state file
+    (None = no state file). Dock: Favorites 0, nes 1, gba 2, Recent 3, Settings 4."""
     import struct
     import subprocess
     catalog = tmp_path / "systems.json"
@@ -27,20 +30,50 @@ def test_info_command_runs_against_a_fixture_index(tmp_path):
                        '  {\n    "id": "gba",\n    "name": "G"\n  },\n'
                        '  {\n    "id": "psx",\n    "name": "P"\n  }]}')
     idx = tmp_path / "index"
-    idx.mkdir()
+    idx.mkdir(exist_ok=True)
     for sid, count in (("nes", 3), ("gba", 12), ("psx", 0)):   # snes has no file
         (idx / f"{sid}.bin").write_bytes(b"LUMEIDX1" + struct.pack("<I", count) + b"\0" * 20)
-    cmd = (dev_game.info_command("gba")
-           .replace(dev_game.CATALOG, str(catalog)).replace(dev_game.INDEX_DIR, str(idx)))
-    out = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, text=True).stdout
-    assert out.strip() == "dock_index=2 dock_count=5 games=12"
-    cmd = cmd.replace("= gba", "= psx")
-    out = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, text=True).stdout
-    assert out.strip() == "dock_index=0 dock_count=5 games=0"
+    state = tmp_path / "state"
+    if state_text is not None:
+        state.write_text(state_text)
+    cmd = (dev_game.info_command(system)
+           .replace(dev_game.CATALOG, str(catalog)).replace(dev_game.INDEX_DIR, str(idx))
+           .replace(dev_game.STATE_FILE, str(state)))
+    return subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, text=True).stdout.strip()
+
+
+def test_info_command_runs_against_a_fixture_index(tmp_path):
+    assert fixture_query(tmp_path, "gba", None) == \
+        "dock_index=2 dock_count=5 games=12 focus=0"
+    assert fixture_query(tmp_path, "psx", None) == \
+        "dock_index=0 dock_count=5 games=0 focus=0"
+
+
+@pytest.mark.parametrize("state, focus", [
+    ("screen=grid\ndock=favorites\nlist=favorites\n", 0),
+    ("screen=grid\ndock=sys:nes\nlist=sys:nes\n", 1),
+    ("screen=grid\ndock=sys:gba\nlist=sys:gba\n", 2),
+    ("dock=recent\n", 3),
+    ("dock=settings\n", 4),
+    ("dock=sys:snes\n", 0),          # a system with no games is not a tile: unknown -> 0
+    ("dock=bogus\n", 0),
+    ("screen=grid\n", 0),            # no dock= line
+    ("", 0),
+])
+def test_focus_from_the_state_file(tmp_path, state, focus):
+    assert fixture_query(tmp_path, "gba", state) == \
+        f"dock_index=2 dock_count=5 games=12 focus={focus}"
+
+
+def test_state_file_game_path_never_reaches_the_output(tmp_path):
+    state = "screen=grid\ngame_path=/fake/roms/Fake Game.rom\ndock=sys:gba\nlist=sys:gba\n"
+    out = fixture_query(tmp_path, "gba", state)
+    assert out == "dock_index=2 dock_count=5 games=12 focus=2"
+    assert "fake" not in out.lower() and "rom" not in out
 
 
 def test_parse_info():
-    assert dev_game.parse_info("dock_index=3 dock_count=9 games=12\n") == (3, 9, 12)
+    assert dev_game.parse_info("dock_index=3 dock_count=9 games=12 focus=5\n") == (3, 9, 12, 5)
     with pytest.raises(dev.DevError):
         dev_game.parse_info("sh: od: not found\n")
 
@@ -91,18 +124,31 @@ def make_driver(answer):
     return driver, asked, keys
 
 
-def test_open_sends_the_sequence_and_tracks_the_dock_focus():
-    driver, asked, keys = make_driver("dock_index=4 dock_count=11 games=7\n")
+def test_open_builds_the_sequence_from_the_reported_focus():
+    driver, asked, keys = make_driver("dock_index=4 dock_count=11 games=7 focus=0\n")
     driver.open("gba", 6)
     assert keys == [seq_of(0, 4, 11, 6)]
     assert len(asked) == 1 and "gba" in asked[0]
-    driver.open("gba", 1)                     # the launcher is back on the same tile
-    assert keys[1] == seq_of(4, 4, 11, 1)
+
+
+def test_open_from_a_non_zero_focus():
+    # the launcher came back on snes (tile 2); the target is tile 4 of 11: two Rights
+    driver, _, keys = make_driver("dock_index=4 dock_count=11 games=7 focus=2\n")
+    driver.open("gba", 1)
+    assert keys == ["b*4,wait:300,right*2,wait:300,a,wait:500,a,wait:300,a"]
+    # focus on the target tile itself: no Dock move
+    driver, _, keys = make_driver("dock_index=4 dock_count=11 games=7 focus=4\n")
+    driver.open("gba", 1)
+    assert keys == [seq_of(4, 4, 11, 1)]
+    # focus on Settings (last tile of 11), target tile 1: the Dock wraps, two Rights
+    driver, _, keys = make_driver("dock_index=1 dock_count=11 games=7 focus=10\n")
+    driver.open("nes", 1)
+    assert keys == ["b*4,wait:300,right*2,wait:300,a,wait:500,a,wait:300,a"]
 
 
 @pytest.mark.parametrize("answer", [
-    "dock_index=0 dock_count=8 games=0\n",     # not a Dock tile
-    "dock_index=0 dock_count=8 games=3\n",
+    "dock_index=0 dock_count=8 games=0 focus=0\n",     # not a Dock tile
+    "dock_index=0 dock_count=8 games=3 focus=0\n",
 ])
 def test_system_without_games_fails_before_any_key(answer):
     driver, _, keys = make_driver(answer)
@@ -112,7 +158,7 @@ def test_system_without_games_fails_before_any_key(answer):
 
 
 def test_position_past_the_games_fails_before_any_key():
-    driver, _, keys = make_driver("dock_index=2 dock_count=9 games=3\n")
+    driver, _, keys = make_driver("dock_index=2 dock_count=9 games=3 focus=0\n")
     with pytest.raises(dev.DevError, match="past the 3 games"):
         driver.open("nes", 4)
     assert keys == []
@@ -139,7 +185,7 @@ class FakeConsole:
             return "\n".join(self.pending) + "\n"
         if cmd == dev_run.count_command():
             return f"{len(self.lines)}\n"
-        if cmd.startswith("n=0; di=0"):
+        if cmd.startswith("u=$(id -u game"):
             return self.info
         if "-v s=" in cmd:
             skip = int(cmd.split("-v s=")[1].split()[0])
@@ -183,7 +229,7 @@ def run_script(console, capsys):
 
 def test_open_then_close_script_passes_and_never_prints_the_game(capsys):
     opened_seq = dev_game.open_sequence(0, 2, 9, 1)
-    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+    console = FakeConsole("dock_index=2 dock_count=9 games=5 focus=0\n", {
         opened_seq: f"2026-11-09T21:10:00 4 game OK gba retroarch mgba start content={SECRET}",
         "fn+start": "2026-11-09T21:11:00 4 game OK gba retroarch mgba exit=0 "
                     f"end=quit-combo secs=60 content={SECRET}",
@@ -196,12 +242,12 @@ def test_open_then_close_script_passes_and_never_prints_the_game(capsys):
 
 def test_open_ignores_another_system_and_close_accepts_fail(capsys):
     opened_seq = dev_game.open_sequence(0, 2, 9, 1)
-    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+    console = FakeConsole("dock_index=2 dock_count=9 games=5 focus=0\n", {
         opened_seq: "2026-11-09T21:10:00 4 game OK nes retroarch fceumm start",
     })
     rc, out = run_script(console, capsys)
     assert rc == 1 and out.startswith("passo 1 open one: FALHOU (timeout")
-    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+    console = FakeConsole("dock_index=2 dock_count=9 games=5 focus=0\n", {
         opened_seq: "2026-11-09T21:10:00 4 game OK gba retroarch mgba start",
         "fn+start": "2026-11-09T21:11:00 4 game FAIL gba retroarch mgba exit=1 end=normal secs=2",
     })
@@ -211,7 +257,7 @@ def test_open_ignores_another_system_and_close_accepts_fail(capsys):
 
 def test_open_fails_fast_on_start_failed(capsys):
     opened_seq = dev_game.open_sequence(0, 2, 9, 1)
-    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+    console = FakeConsole("dock_index=2 dock_count=9 games=5 focus=0\n", {
         opened_seq: "2026-11-09T21:10:00 4 game FAIL gba retroarch mgba start-failed no core",
     })
     rc, out = run_script(console, capsys)
@@ -220,14 +266,14 @@ def test_open_fails_fast_on_start_failed(capsys):
 
 
 def test_open_fails_when_the_game_never_opens(capsys):
-    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {})
+    console = FakeConsole("dock_index=2 dock_count=9 games=5 focus=0\n", {})
     rc, out = run_script(console, capsys)
     assert rc == 1
     assert out.startswith("passo 1 open one: FALHOU (timeout after 60s waiting for an event")
 
 
 def test_open_of_a_system_without_games_presses_nothing(capsys):
-    console = FakeConsole("dock_index=0 dock_count=8 games=0\n", {})
+    console = FakeConsole("dock_index=0 dock_count=8 games=0 focus=0\n", {})
     rc, out = run_script(console, capsys)
     assert rc == 1
     assert "FALHOU (system gba has no games in the launcher index)" in out

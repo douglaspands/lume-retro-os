@@ -115,6 +115,14 @@ launcher no cartão, o mesmo que o `lume-ui` mostra), e monta a sequência de bo
 Dock, ir ao sistema, entrar, descer até a posição, abrir. O nome do jogo nunca chega ao PC.
 Sistema sem jogos falha antes de apertar botões.
 
+O foco do Dock também vem do console (corrigido em 2026-11-17): depois de um jogo o launcher
+volta ao ladrilho em que estava (na vm, `sys:snes`), e a premissa antiga de partir de
+Favoritos errava. O comando lê só a linha `dock=` de `$XDG_RUNTIME_DIR/lume/state`
+(`/run/user/<uid de game>/lume/state`, nunca `game_path`) e imprime `focus=<índice do Dock>`;
+sem arquivo (boot novo, `/run` é tmpfs) ou com valor desconhecido, 0. O driver não guarda mais
+o último sistema. Limite: se alguém mexer no Dock à mão depois de um jogo, sem abrir outro, o
+arquivo fica velho.
+
 ### D6. Privacidade
 
 Gravações e replays guardam botões e estados de jogo, não nomes, mas o arquivo de replay do

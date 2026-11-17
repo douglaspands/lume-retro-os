@@ -13,9 +13,11 @@ Navigation model, derived from lume/lume-ui/src/app.rs (see docs/BUILD.md):
 - A on a game opens its menu with "Start" first; A again launches.
 - B closes an overlay, clears a filter, leaves the grid or Settings for the Dock; on the Dock
   it does nothing. Four B presses reach the Dock from any screen.
-- The Dock focus is not readable from outside: it starts on Favorites after a launcher
-  start, and after a game the launcher comes back with the same system tile focused (state
-  file). The driver therefore tracks it.
+- The Dock focus is read from the launcher's state file (`dock=` line only, see
+  lume-ui state.rs): written when the launcher leaves for a game, read when it starts again,
+  on tmpfs, so a fresh boot has none (Favorites). Limit: if someone moves the Dock by hand
+  after a game without launching another, the file is stale and the sequence starts from the
+  wrong tile.
 """
 from __future__ import annotations
 
@@ -29,39 +31,48 @@ GRID_COLS = 4
 BACK_PRESSES = 4            # B from the deepest screen: submenu, menu, filter, grid -> Dock
 FIXED_DOCK_TILES = 3        # Favorites + Recent + Settings around the systems
 SYSTEM_ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
-INFO_LINE = re.compile(r"dock_index=(\d+) dock_count=(\d+) games=(\d+)")
+STATE_FILE = "/run/user/$u/lume/state"     # $u = uid of the games user, 0 as fallback
+INFO_LINE = re.compile(r"dock_index=(\d+) dock_count=(\d+) games=(\d+) focus=(\d+)")
 SETTLE_MS = 300             # let the Dock/grid animations and the menu finish
 GRID_MS = 500               # the grid maps the index before it takes input
 CLOSE_SEQUENCE = "fn+start"
 
 
 def info_command(system: str) -> str:
-    """Remote POSIX sh (busybox) command: `dock_index=<n> dock_count=<n> games=<n>`.
+    """Remote POSIX sh (busybox) command:
+    `dock_index=<n> dock_count=<n> games=<n> focus=<n>`.
 
     The system ids come from the image catalog in order; the games count is the u32 at offset
     8 of the system's index file (lume-index header). A system with no games (or no index) is
-    not a Dock tile, so it prints dock_index=0 games=0. Only numbers are printed."""
+    not a Dock tile, so it prints dock_index=0 games=0. `focus` is the Dock tile the launcher
+    will have focused: only the `dock=` line of the state file is read (never `game_path`):
+    favorites -> 0, sys:<id> -> its Dock index, recent -> count-2, settings -> count-1; no
+    file or an unknown value -> 0. Only numbers are printed."""
     if not SYSTEM_ID.fullmatch(system):
         raise DevError(f"bad system id `{system}`")
     return (
-        f"n=0; di=0; g=0; "
+        f"u=$(id -u game 2>/dev/null || echo 0); "
+        f"d=$(sed -n 's/^dock=//p' {STATE_FILE} 2>/dev/null | head -n 1); "
+        f"n=0; di=0; g=0; fi=0; "
         f"for id in $(grep -o '\"id\": *\"[^\"]*\"' {CATALOG} | cut -d'\"' -f4); do "
         f"f={INDEX_DIR}/$id.bin; c=0; "
         f"[ -r \"$f\" ] && c=$(od -An -tu4 -j8 -N4 \"$f\" | tr -d ' '); "
         f"[ \"${{c:-0}}\" -gt 0 ] 2>/dev/null || continue; "
         f"n=$((n+1)); "
         f"if [ \"$id\" = {system} ]; then di=$n; g=$c; fi; "
+        f"if [ \"$d\" = \"sys:$id\" ]; then fi=$n; fi; "
         f"done; "
-        f"echo \"dock_index=$di dock_count=$((n+{FIXED_DOCK_TILES})) games=$g\""
+        f"case \"$d\" in recent) fi=$((n+1));; settings) fi=$((n+2));; esac; "
+        f"echo \"dock_index=$di dock_count=$((n+{FIXED_DOCK_TILES})) games=$g focus=$fi\""
     )
 
 
-def parse_info(text: str) -> tuple[int, int, int]:
-    """(dock_index, dock_count, games) from the console output; anything else is an error."""
+def parse_info(text: str) -> tuple[int, int, int, int]:
+    """(dock_index, dock_count, games, focus) from the console output; else an error."""
     for line in text.splitlines():
         m = INFO_LINE.fullmatch(line.strip())
         if m:
-            return int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
     raise DevError("unexpected answer to the game index query")
 
 
@@ -97,18 +108,14 @@ class GameDriver:
     def __init__(self, run, keys):
         self.run = run
         self.keys = keys
-        self.dock_focus = 0      # Favorites: where the launcher starts
 
     def open(self, system: str, position: int) -> None:
-        info = parse_info(self.run(info_command(system)))
-        dock_index, dock_count, games = info
+        dock_index, dock_count, games, focus = parse_info(self.run(info_command(system)))
         if games == 0 or dock_index == 0:
             raise DevError(f"system {system} has no games in the launcher index")
         if position > games:
             raise DevError(f"position {position} is past the {games} games of {system}")
-        seq = open_sequence(self.dock_focus % dock_count, dock_index, dock_count, position)
-        self.keys(seq)
-        self.dock_focus = dock_index
+        self.keys(open_sequence(focus % dock_count, dock_index, dock_count, position))
 
     def close(self) -> None:
         self.keys(CLOSE_SEQUENCE)

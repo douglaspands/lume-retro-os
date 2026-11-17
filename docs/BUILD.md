@@ -463,9 +463,13 @@ do jogo nunca sai do console. Código em `src/r36os/dev_run.py`.
 (1 = o primeiro da grade, ordenada por nome). Código em `src/r36os/dev_game.py`.
 
 1. Um comando de shell no console lê o índice do launcher e imprime só números:
-   `dock_index=<n> dock_count=<n> games=<n>` (`dock_index` é a posição do ladrilho do sistema
-   no Dock, 0 = Favoritos; `dock_count` são todos os ladrilhos; `games` vem do campo `count`
-   do cabeçalho de `/storage/system/lume/cache/index/<sistema>.bin`). A ordem do Dock é a do
+   `dock_index=<n> dock_count=<n> games=<n> focus=<n>` (`dock_index` é a posição do ladrilho
+   do sistema no Dock, 0 = Favoritos; `dock_count` são todos os ladrilhos; `games` vem do campo
+   `count` do cabeçalho de `/storage/system/lume/cache/index/<sistema>.bin`; `focus` é o
+   ladrilho que o launcher terá em foco, lido só da linha `dock=` de
+   `/run/user/<uid do usuário game>/lume/state`, nunca de `game_path`: `favorites` = 0,
+   `sys:<id>` = o índice do sistema, `recent` = `dock_count`-2, `settings` = `dock_count`-1;
+   sem arquivo ou valor desconhecido = 0). A ordem do Dock é a do
    catálogo `/usr/share/r36os/systems.json`, só com sistemas que têm jogos. Sistema sem jogos
    (ou `position` maior que `games`) falha **antes de qualquer botão**.
 2. O PC monta a sequência a partir do código do `lume-ui` (`app.rs`: `dock_input`,
@@ -480,10 +484,14 @@ do jogo nunca sai do console. Código em `src/r36os/dev_run.py`.
    em 2026-11-17: os padrões antigos (`game OK opened`/`closed`) eram do frontend RetroArch e
    nunca casavam com o launcher lume.
 
-Premissas a confirmar no aparelho: o foco do Dock é lido de fora? Não: o driver parte de
-Favoritos (o launcher recém-iniciado) e depois lembra o ladrilho do último jogo aberto (o
-launcher volta a ele); a grade tem 4 colunas (todos os temas entregues); o Dock não lista
-sistemas só do cartão (`systems.d`), que ficam fora da conta.
+Premissas a confirmar no aparelho: o foco do Dock vem do arquivo de estado do launcher
+(corrigido em 2026-11-17: antes o driver supunha Favoritos e lembrava o último sistema, e na
+vm o launcher voltou de um jogo em `sys:snes`). O arquivo é escrito quando o launcher sai
+para um jogo e lido quando ele volta; `/run` é tmpfs, então depois de um boot novo não há
+arquivo (Favoritos). Limite: se alguém mexer no Dock à mão depois de um jogo, sem abrir outro,
+o arquivo fica velho e a sequência parte do ladrilho errado. A grade tem 4 colunas (todos os
+temas entregues); o Dock não lista sistemas só do cartão (`systems.d`), que ficam fora da
+conta.
 
 Roteiros prontos em `tests/device/scripts/`: `open-close-<sistema>.toml` (nes, snes, gb, gbc,
 gba, megadrive, psx; o primeiro jogo de cada um) e `launcher-screens.toml` (as telas de
