@@ -36,6 +36,7 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 /* bateria horizontal: ícone desenhado com currentColor, na cor do texto principal do tema (branco no escuro) */
 .batt { display: inline-flex; align-items: center; gap: .35em; color: var(--fg); }
 .batt svg { height: .95em; width: auto; display: block; }
+.batt span { font-variant-numeric: tabular-nums; }      /* digits keep their width: the text does not shift when the state changes */
 .net { display: inline-flex; align-items: center; gap: .5em; color: var(--fg); font-weight: 700; }
 .net svg { height: .9em; width: auto; display: block; }
 .hints { margin-top: auto; display: flex; gap: 1.2em; justify-content: center; align-items: center; padding: .35em .8em; font-size: var(--fs-s); color: var(--muted); }

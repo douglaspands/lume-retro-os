@@ -29,6 +29,9 @@
   const urlTheme = new URLSearchParams(location.search).get('tema');
   const env = { theme: urlTheme || load('theme', 'material-escuro'), wifi: load('dwifi', true), bt: load('dbt', true), lite: load('lite', false), res: load('res', '640x480'), demo: load('demo', true), real: load('real', false), ppi: load('ppi', 96) };
   const S = { screen: 'dock', dock: 0, g: 0, top: 0, q: '', kb: null, jt: 0, jk: 0, s: 0, stop: 0, view: false, vlist: [], vi: 0, fp: [], fi: 0, ftop: 0, text: false, off: false, menu: null, si: 0, sub: null, wifiConn: 0, btConn: [], sys: null, stopSys: null, launching: false, th: null };
+  const QS = new URLSearchParams(location.search);
+  if (['pt-BR', 'en', 'es'].includes(QS.get('idioma'))) P.lang = QS.get('idioma');   // review override, not saved
+  if (/^\d+x\d+$/.test(QS.get('res') || '')) env.res = QS.get('res');
   const t = k => i18n.t(P.lang, k);
   /* save states válidos para o jogo COM um core: save state é específico do core, então trocar o emulador troca a lista.
      Saves reais só valem para o core a que pertencem; jogos sem nenhum save real ganham inventados (por core) se a opção estiver ligada. */
@@ -39,14 +42,23 @@
     ...(files.available ? [{ id: 'files', kind: 'files' }] : []), { id: 'shots', kind: 'shots' }, { id: 'set', kind: 'set' }];
 
   /* ------------------------------------------------------------ DOM base */
-  const BATT = 82;                                  // simulado; no aparelho vem de /sys/class/power_supply
+  /* simulated; on the device it comes from /sys/class/power_supply (capacity + status).
+     Force it for review: ?bat=5&carga=charging|discharging|full&idioma=en|pt-BR|es&tema=<id>, or the toolbar controls. */
+  const BAT = { p: 82, st: 'discharging', warned: false };
+  const WARN_AT = 5;                                // low-battery limit (game-governor D7), same as the service
+  if (QS.has('bat')) BAT.p = Math.max(0, Math.min(100, parseInt(QS.get('bat'), 10) || 0));
+  if (['charging', 'discharging', 'full'].includes(QS.get('carga'))) BAT.st = QS.get('carga');
   const bar3 = '<div class="topbar"><span class="net"></span><span class="r"><span class="batt"></span></span></div>';
   const FOLDER_PATH = '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"';
   const ICON_FOLDER = `<svg class="gi" viewBox="0 0 24 24" aria-hidden="true">${FOLDER_PATH} fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
   const DOC_PATH = '<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>';
   const ICON_WIFI = '<svg viewBox="0 0 20 14" aria-label="Wi-Fi"><path d="M1.5 5a12 12 0 0 1 17 0M4.5 8a8 8 0 0 1 11 0M7.5 11a4 4 0 0 1 5 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="12.6" r="1.2" fill="currentColor"/></svg>';
   /* bateria na horizontal: contorno + ponta + preenchimento proporcional ao nível; tudo em currentColor */
-  const battHtml = p => `<svg viewBox="0 0 30 14" aria-hidden="true"><rect x="1" y="1" width="25" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="27" y="4.5" width="2" height="5" rx="1" fill="currentColor"/><rect x="3.5" y="3.5" width="${(20 * p / 100).toFixed(1)}" height="7" rx="1" fill="currentColor"/></svg><span>${p}%</span>`;
+  /* charge mark: a bolt inside the body, filled with the text colour and haloed with the theme background
+     (paint-order stroke), so it reads over the filled part and over the empty part in light and dark themes.
+     It lives inside the icon, so the icon and the percentage text keep their width. 'full' has no bolt. */
+  const BOLT = '<path class="bolt" d="M15.6 2.6 10.4 7.6h3.1l-1 3.8 5.2-5.2h-3.2z" fill="currentColor" stroke="var(--bg)" stroke-width="1.1" stroke-linejoin="round" paint-order="stroke"/>';
+  const battHtml = (p, st) => `<svg viewBox="0 0 30 14" aria-hidden="true"><rect x="1" y="1" width="25" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="27" y="4.5" width="2" height="5" rx="1" fill="currentColor"/><rect x="3.5" y="3.5" width="${(20 * p / 100).toFixed(1)}" height="7" rx="1" fill="currentColor"/>${st === 'charging' ? BOLT : ''}</svg><span>${p}%</span>`;
   const ICON_SHOTS = '<svg class="gi" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5.5-5.5 3.5 3.5 3-3L20 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   document.title = 'lume-launcher · protótipo';
   document.getElementById('app').innerHTML = `
@@ -56,6 +68,7 @@
       <label title="Janela: a interface se ajusta sozinha ao tamanho da janela do navegador">Tela <select id="res"><option value="auto">Janela (responsivo)</option><option>640x480</option><option>480x320</option><option>720x720</option><option>854x480</option><option>1280x720</option></select></label>
       <label><input type="checkbox" id="dwifi"> Dongle Wi-Fi</label>
       <label><input type="checkbox" id="dbt"> Dongle Bluetooth</label>
+      <label title="Battery review: level, state, and the low-battery warning (also ?bat=5&carga=charging&idioma=en)">Bateria <input type="number" id="batp" min="0" max="100"> <select id="bats"><option value="discharging">descarregando</option><option value="charging">carregando</option><option value="full">cheia</option></select> <button id="batw" type="button">Aviso 5%</button></label>
       <label title="Inventa save states (com miniatura) em alguns jogos que não têm, para avaliar a tela"><input type="checkbox" id="demo"> Save states de demonstração</label>
       <label title="Mostra a tela no tamanho físico aproximado de 3,5 polegadas, para avaliar legibilidade"><input type="checkbox" id="real"> Tamanho real 3,5″</label>
       <label title="Densidade de pixels do seu monitor (ex.: 24″ Full HD ≈ 92, 27″ QHD ≈ 109)">ppi do monitor <input type="number" id="ppi" min="50" max="400"></label>
@@ -118,13 +131,19 @@
   /* ------------------------------------------------------------ helpers */
   /* indicadores de estado (sem relógio: estes aparelhos não guardam a hora). Bateria sempre; Wi-Fi/BT só quando conectados */
   function status() {
-    document.querySelectorAll('.batt').forEach(e => (e.innerHTML = battHtml(BATT)));
+    document.querySelectorAll('.batt').forEach(e => (e.innerHTML = battHtml(BAT.p, BAT.st)));
     const net = (env.wifi && S.wifiConn >= 0 ? ICON_WIFI : '') + (env.bt && S.btConn.length ? '<span>BT</span>' : '');
     document.querySelectorAll('.net').forEach(e => (e.innerHTML = net));
   }
+  /* low-battery warning: the theme's short toast, once per discharge at or below WARN_AT (re-armed by charging or a higher level) */
+  function checkBattery(force) {
+    if (BAT.st !== 'discharging' || BAT.p > WARN_AT) { BAT.warned = false; if (!force) return; }
+    else if (BAT.warned && !force) return;
+    BAT.warned = true; toast(t('lowbatt') + ' ' + BAT.p + '%', 4000);
+  }
   const hints = (el, items) => { el.innerHTML = items.map(([k, v]) => `<span><b${/[◀▶▲▼]/.test(k) ? ' class="nav"' : ''}>${k}</b>${v}</span>`).join(''); };   // setas ganham a classe .nav
   let toastT;
-  function toast(msg) { const e = $('#toast'); e.textContent = msg; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), 1600); }
+  function toast(msg, ms) { const e = $('#toast'); e.textContent = msg; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), ms || 1600); }
   function show(name) {
     S.screen = name;
     ['dock', 'games', 'set', 'shots', 'files'].forEach(n => $('#s-' + n).classList.toggle('on', n === name));
@@ -670,6 +689,12 @@
     const rl = $('#real'), pp = $('#ppi'); rl.checked = env.real; pp.value = env.ppi;
     rl.onchange = () => { env.real = rl.checked; save('real', env.real); applyRes(); };
     pp.onchange = () => { env.ppi = Math.max(50, Math.min(400, +pp.value || 96)); save('ppi', env.ppi); applyRes(); };
+    /* battery review controls (charge mark and low-battery warning) */
+    const bp = $('#batp'), bs = $('#bats');
+    bp.value = BAT.p; bs.value = BAT.st;
+    const bset = () => { BAT.p = Math.max(0, Math.min(100, parseInt(bp.value, 10) || 0)); BAT.st = bs.value; status(); checkBattery(); };
+    bp.onchange = bset; bs.onchange = bset;
+    $('#batw').onclick = () => { BAT.p = Math.min(BAT.p, WARN_AT); BAT.st = 'discharging'; bp.value = BAT.p; bs.value = BAT.st; status(); checkBattery(true); };
     addEventListener('resize', applyRes);
   }
 
@@ -691,5 +716,5 @@
     im.dataset.fb = '1'; im.src = art(Object.assign({}, g, { img: null }));
   }, true);
 
-  buildDock(); bindTools(); applyBri(); applyTheme(); applyRes();
+  buildDock(); bindTools(); applyBri(); applyTheme(); applyRes(); checkBattery();
 })();
