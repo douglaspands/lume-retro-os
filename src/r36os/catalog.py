@@ -23,6 +23,12 @@ PLACEHOLDERS = {"rom", "core", "core_path", "system", "bios_dir", "saves_dir", "
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 RUNNER_KINDS = {"libretro", "native"}
 QUIT_POLICIES = {"retroarch-cmd", "sigterm"}
+# lume-hud-actions D3 (lume-core runner.rs: ACTIONS, SIGNALS, OVERLAYS)
+RUNNER_FIELDS = {"id", "kind", "exec", "quit", "timeout", "overlay", "actions"}
+RUNNER_ACTIONS = ("pause", "app_menu", "reset", "save_state", "load_state", "screenshot")
+RUNNER_SIGNALS = {"SIGHUP", "SIGINT", "SIGQUIT", "SIGUSR1", "SIGUSR2", "SIGTERM", "SIGSTOP",
+                  "SIGCONT", "SIGTSTP"}
+OVERLAYS = {"retroarch"}
 # The libretro runner the core fields (core, core_by_arch, alt_cores) expand to
 LIBRETRO_RUNNER = "retroarch"
 
@@ -67,7 +73,41 @@ def validate_runner(r: dict) -> list[str]:
             errs.append(f"runner {rid}: a placeholder must be a whole argument ({arg!r})")
     if r.get("kind") == "libretro" and "{core_path}" not in exe and "{core}" not in exe:
         errs.append(f"runner {rid}: a libretro runner needs {{core_path}} or {{core}}")
+    if "overlay" in r and r["overlay"] not in OVERLAYS:
+        errs.append(f"runner {rid}: unknown overlay {r['overlay']!r} (only \"retroarch\")")
+    actions = r.get("actions", {})
+    if not isinstance(actions, dict):
+        errs.append(f"runner {rid}: actions must be a table")
+        actions = {}
+    for name, value in actions.items():
+        if name not in RUNNER_ACTIONS:
+            errs.append(f"runner {rid}: unknown action {name!r}")
+        elif err := action_error(name, value):
+            errs.append(f"runner {rid}: {err}")
+    unknown = set(r) - RUNNER_FIELDS
+    if unknown:
+        errs.append(f"runner {rid}: unknown field(s) {sorted(unknown)}")
     return errs
+
+
+def action_error(name: str, value) -> str | None:
+    """Why one action of [runner.actions] is refused (lume-core ActionForm::parse), or None."""
+    bad = f"action {name} = {value!r}"
+    if not isinstance(value, str):
+        return f"{bad}: must be text"
+    if value == "retroarch-pause":
+        return None if name == "pause" else f"{bad}: retroarch-pause is only for pause"
+    form, sep, arg = value.partition(":")
+    if not sep:
+        return f"{bad}: expected retroarch-cmd:<CMD>, key:<KEY_*> or signal:<NAME>"
+    if form == "retroarch-cmd":
+        ok = re.fullmatch(r"[A-Z0-9_]+( [A-Za-z0-9_ ]*)?", arg) is not None
+        return None if ok else f"{bad}: the command must be an upper-case RetroArch command"
+    if form == "key":
+        return None if re.fullmatch(r"KEY_[A-Z0-9_]+", arg) else f"{bad}: the key must be a KEY_ code"
+    if form == "signal":
+        return None if arg in RUNNER_SIGNALS else f"{bad}: unknown signal"
+    return f"{bad}: expected retroarch-cmd:<CMD>, key:<KEY_*> or signal:<NAME>"
 
 
 def validate(cat: dict, runners: dict[str, dict] | None = None) -> list[str]:

@@ -7,6 +7,8 @@
 pub mod atomic;
 pub mod catalog;
 pub mod events;
+pub mod gametext;
+pub mod input;
 pub mod log;
 pub mod options;
 pub mod paths;

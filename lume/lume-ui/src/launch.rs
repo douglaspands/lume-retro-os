@@ -107,10 +107,15 @@ pub fn game(dirs: &Dirs, catalog: &Catalog, runner: &Runner, system: &str, path:
             // --set-shader only works with shaders on
             extra.extend(set("video_shader_enable=true"));
         }
+        // the quick slot of Fn+R1/Fn+L1 (lume-hud-actions D4): the entry slot when opened
+        // from a slot, slot 0 otherwise, whatever slot was last chosen in RetroArch's menu
         match &slot {
             Some(Slot::N(_)) => extra.extend(["--lume-keep".into(), "state_slot".into()]),
-            Some(Slot::Auto) => extra.extend(["--lume-set".into(), "savestate_auto_load=true".into()]),
-            None => {}
+            Some(Slot::Auto) => {
+                extra.extend(set("savestate_auto_load=true"));
+                extra.extend(set("state_slot=0"));
+            }
+            None => extra.extend(set("state_slot=0")),
         }
         // an empty shader is "None" chosen over a console default
         if let Some(sh) = eff.shader.as_ref().filter(|s| !s.is_empty()) {
@@ -154,6 +159,14 @@ impl Request {
             self.path,
             self.states
         );
+        // lume-hud-actions D3: what the runner draws and how it carries out each action
+        // (a lume-run that does not know these keys ignores them)
+        if let Some(o) = &self.runner.overlay {
+            s.push_str(&format!("overlay={o}\n"));
+        }
+        for (name, form) in self.runner.resolved_actions() {
+            s.push_str(&format!("action={name} {}\n", form.to_value()));
+        }
         for a in &self.argv {
             s.push_str(&format!("arg={a}\n"));
         }
@@ -217,7 +230,7 @@ mod tests {
         assert_eq!(r.argv, [
             "/usr/libexec/r36os/frontends/retroarch",
             "--lume-set", "aspect_ratio_index=22", "--lume-set", "auto_overrides_enable=false",
-            "--lume-set", "auto_shaders_enable=false", "-L",
+            "--lume-set", "auto_shaders_enable=false", "--lume-set", "state_slot=0", "-L",
             "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/Alpha (USA).sfc"]);
         assert_eq!(r.states, "/storage/states/snes/Alpha (USA)");
     }
@@ -234,8 +247,28 @@ mod tests {
             "-L", "/usr/lib/libretro/gpsp_libretro.so", "/storage/roms/gba/sub/G.gba"]);
         // RetroArch keeps states per content folder: the subfolder, not the system
         assert_eq!(r.states, "/storage/states/sub/G");
+        // opened from slot 3, the quick slot is 3: no state_slot=0
+        assert!(!r.argv.contains(&"state_slot=0".to_string()));
         let auto = game(&d, &cat, &ra, "gba", "G.gba", &eff("gpsp", None, None), Some(Slot::Auto));
         assert!(auto.argv.contains(&"savestate_auto_load=true".to_string()));
+        assert!(auto.argv.contains(&"state_slot=0".to_string()));
+    }
+
+    #[test]
+    fn launch_file_carries_the_actions_and_the_overlay() {
+        let (d, cat, ra) = setup();
+        let text = game(&d, &cat, &ra, "nes", "a.nes", &eff("fceumm", None, None), None).file(false);
+        for line in ["overlay=retroarch", "action=pause retroarch-pause", "action=app_menu retroarch-cmd:MENU_TOGGLE",
+                     "action=reset retroarch-cmd:RESET", "action=save_state retroarch-cmd:SAVE_STATE",
+                     "action=load_state retroarch-cmd:LOAD_STATE", "action=screenshot retroarch-cmd:SCREENSHOT"] {
+            assert!(text.lines().any(|l| l == line), "{line}");
+        }
+        // a native runner declares nothing
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let (runners, _) = lume_core::runner::load(&[repo.join("aports/lume-games/files/usr/share/lume/runners.d")], false);
+        let sh = Request { system: "ports".into(), runner: runners["sh"].clone(), core: String::new(),
+                           path: "x.sh".into(), states: String::new(), argv: vec!["/bin/sh".into()] };
+        assert!(!sh.file(false).contains("action=") && !sh.file(false).contains("overlay="));
     }
 
     #[test]

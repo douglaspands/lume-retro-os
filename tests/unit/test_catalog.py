@@ -148,6 +148,15 @@ def test_image_runners_are_valid():
     assert runners["retroarch"]["kind"] == "libretro"
     assert runners["retroarch"]["quit"] == "retroarch-cmd"
     assert runners["love"]["quit"] == runners["sh"]["quit"] == "sigterm"
+    # lume-hud-actions D3: RetroArch declares every action and the overlay; the native
+    # runners declare nothing (the system freezes them for the menu)
+    assert runners["retroarch"]["overlay"] == "retroarch"
+    assert runners["retroarch"]["actions"] == {
+        "pause": "retroarch-pause", "app_menu": "retroarch-cmd:MENU_TOGGLE",
+        "reset": "retroarch-cmd:RESET", "save_state": "retroarch-cmd:SAVE_STATE",
+        "load_state": "retroarch-cmd:LOAD_STATE", "screenshot": "retroarch-cmd:SCREENSHOT"}
+    for native in ("love", "sh"):
+        assert "actions" not in runners[native] and "overlay" not in runners[native]
 
 
 def test_validator_refuses_missing_runner():
@@ -193,6 +202,18 @@ def test_validator_refuses_bad_runner():
     assert any("whole argument" in e for e in
                catalog.validate_runner(dict(base, exec=["/bin/x", "--rom={rom}"])))
     assert any("absolute" in e for e in catalog.validate_runner(dict(base, exec=["x"])))
+    # actions and overlay: the same rules as lume-core's ActionForm::parse
+    ok = dict(base, overlay="retroarch", actions={"pause": "retroarch-pause", "reset": "key:KEY_F2",
+                                                  "screenshot": "signal:SIGUSR1"})
+    assert catalog.validate_runner(ok) == []
+    for actions, why in (({"save_state": "retroarch-pause"}, "only for pause"),
+                         ({"reset": "key:BTN_A"}, "KEY_"),
+                         ({"reset": "signal:SIGKILL"}, "unknown signal"),
+                         ({"reset": "retroarch-cmd:reset"}, "upper-case"),
+                         ({"rewind": "retroarch-cmd:REWIND"}, "unknown action")):
+        assert any(why in e for e in catalog.validate_runner(dict(base, actions=actions))), why
+    assert any("unknown overlay" in e for e in catalog.validate_runner(dict(base, overlay="sdl")))
+    assert any("unknown field" in e for e in catalog.validate_runner(dict(base, shell=True)))
 
 
 def test_new_folders_created_without_deleting(tmp_path):
