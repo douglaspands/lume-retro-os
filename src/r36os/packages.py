@@ -121,9 +121,15 @@ def ensure_key(target: Target) -> Path:
 
 
 def build_packages(
-    target: Target, names: list[str], aports: Path | None = None, checksum: bool = False
-) -> None:
-    """Build the `aports/<name>` packages for the target architecture.
+    target: Target, names: list[str], aports: Path | None = None, checksum: bool = False,
+    force: bool = False,
+) -> list[Path]:
+    """Build the `aports/<name>` packages for the target architecture (build-speed D3).
+
+    Each aport is compiled only when its inputs hash differs from the one in
+    out/repo/<arch>/hashes.json (or with `force`), and published only when the content of
+    what it built differs from the newest published version, with the next pkgrel. At the
+    end, old versions leave out/repo/<arch>/. Returns the published .apk files.
 
     With `checksum=True`, only update the APKBUILD sha512sums (abuild checksum).
     """
@@ -133,21 +139,349 @@ def build_packages(
         # the Rust workspace and its vendored crates (abuild only sees aports/)
         from r36os import lume
         lume.stage()
-    step = "abuild -F checksum" if checksum else "abuild -F -r -P /repodest"
     # R36OS_DISTCC (build-speed D7, P-36): the chosen packages compile through distcc
     from r36os import distcc as dcc
-    chosen = set() if checksum else dcc.selected()
-    for through_distcc, group in dcc.groups(names, target.alpine_arch, chosen):
-        # abuild -r installs the dependencies; at the end it updates and signs the APKINDEX.
-        script = _SETUP_KEY + ("apk add -q distcc\n" if through_distcc else "") + "".join(
-            f"(cd /aports/{REPO_NAME}/{n} && {step})\n" for n in group
-        )
-        cargo = lume_staged and "lume-launcher" in group
-        if through_distcc:
-            with dcc.distccd(target.alpine_arch):
-                _container(target, aports, cargo_target=cargo, distcc=True).sh(script)
+    if checksum:
+        script = _SETUP_KEY + "".join(
+            f"(cd /aports/{REPO_NAME}/{n} && abuild -F checksum)\n" for n in names)
+        _container(target, aports).sh(script)
+        return []
+    chosen = dcc.selected()
+    arch = target.alpine_arch
+    published: list[Path] = []
+    for n in _order(aports, names):
+        published += _build_fragment(
+            target, n, aports, force,
+            distcc=dcc.uses_distcc(n, arch, chosen),
+            cargo=lume_staged and n == "lume-launcher")
+    if clean_repo(arch):
+        reindex([arch])
+    return published
+
+
+# --- inputs and content (build-speed D3, task 6.1) -------------------------------------
+#
+# A fragment is compiled in a staging repository (out/pkg-staging/<arch>/) with a generated
+# copy of its APKBUILD (pkgrel replaced) mounted over the committed one, and with the
+# inputs hash in ABUILD_LAST_COMMIT (abuild writes it as `commit` in .PKGINFO). What it
+# built is compared by content with the newest published version; only a different content
+# is published: its control area gets `.lume-content`, it is signed again and copied to
+# out/repo/<arch>/, and hashes.json records version, inputs, content and file.
+
+STAGING = "pkg-staging"
+
+
+def staging_dir() -> Path:
+    return out_dir() / STAGING
+
+
+def hashes_path(arch: str) -> Path:
+    return arch_repo_dir(arch) / manifests.HASHES_FILE
+
+
+def read_repo_hashes(arch: str) -> manifests.RepoHashes:
+    return manifests.read_hashes(hashes_path(arch), arch)
+
+
+def _builder_identity() -> str:
+    """The recipe of the builder image: the Alpine release and its Containerfile."""
+    from r36os.container import ALPINE_VERSION
+    recipe = REPO_ROOT / "containers/builder.Containerfile"
+    return f"alpine {ALPINE_VERSION}\n" + (recipe.read_text() if recipe.exists() else "")
+
+
+def _local_repo(arch_dir: str) -> str:
+    """Script lines: the published local packages (out/repo) as an apk repository."""
+    return (f"if [ -f /localrepo/{arch_dir}/APKINDEX.tar.gz ]; then\n"
+            "  echo /localrepo >> /etc/apk/repositories\nfi\n"
+            "apk update -q\n")
+
+
+def _abuild_step(name: str, commit: str = "") -> str:
+    env = f"ABUILD_LAST_COMMIT={commit} " if commit else ""
+    return f"(cd /aports/{REPO_NAME}/{name} && {env}abuild -F -r -P /repodest)\n"
+
+
+def _fragment_script(arch_dir: str, name: str) -> str:
+    """The build script of one fragment, as hashed into its inputs (no commit, no distcc:
+    neither changes what is built)."""
+    return _KEY + _local_repo(arch_dir) + _abuild_step(name)
+
+
+def _order(aports: Path, names: list[str]) -> list[str]:
+    from r36os import fragments as frag
+    deps = {n: frag.build_deps((aports / n / "APKBUILD").read_text()) for n in names}
+    return frag.build_order(names, deps)
+
+
+def _inputs(aports: Path, name: str, arch_dir: str, dep_arch: str,
+            built_now: dict[str, str] | None = None) -> str:
+    """The inputs hash of `name`. Local build deps count by content: from hashes.json of
+    `dep_arch`, or `built_now` for those built earlier in the same call."""
+    from r36os import fragments as frag
+    text = (aports / name / "APKBUILD").read_text()
+    local_names = [p.parent.name for p in aports.glob("*/APKBUILD")]
+    hashes = read_repo_hashes(dep_arch)
+    for n, content in (built_now or {}).items():
+        if n in hashes.packages:
+            p = hashes.packages[n]
+            hashes.packages[n] = manifests.PackageHashes(p.version, p.inputs, content, p.file)
         else:
-            _container(target, aports, cargo_target=cargo).sh(script)
+            hashes.packages[n] = manifests.PackageHashes("0-r0", "0" * 64, content,
+                                                         f"{n}-0-r0.apk")
+    deps = frag.local_dep_contents(frag.build_deps(text), hashes, local_names)
+    return manifests.inputs_hash(frag.fragment_inputs(
+        aports / name, _fragment_script(arch_dir, name), _builder_identity(), deps))
+
+
+def _up_to_date(name: str, inputs: str, arches: list[str] | tuple[str, ...]) -> bool:
+    """hashes.json of every arch has `name` built from these inputs, its files present."""
+    for a in arches:
+        h = read_repo_hashes(a)
+        p = h.packages.get(name)
+        if p is None or p.inputs != inputs:
+            return False
+        for p2 in h.packages.values():   # the subpackages of the same build
+            if p2.inputs == inputs and not (arch_repo_dir(a) / p2.file).exists():
+                return False
+    return True
+
+
+def _adopt(aports: Path, name: str, inputs: str,
+           arches: list[str] | tuple[str, ...]) -> bool:
+    """First build after hashes.json existed: adopt what is already published, no build.
+
+    When no arch has an entry for `name` and every package of the aport (subpackages
+    too) has its newest version published in every arch, with the APKBUILD pkgver, the
+    same version for all of them and a pkgrel not below the APKBUILD one, hashes.json
+    records the current inputs and the content of those files. Nothing is compiled
+    (RetroArch and the cores under qemu would take hours, P-80).
+    """
+    from r36os import fragments as frag
+    text = (aports / name / "APKBUILD").read_text()
+    pkgs = frag.apkbuild_packages(text, f"{name}/APKBUILD")
+    if pkgs is None:
+        return False
+    pkgver, minimum = frag.apkbuild_version(text, f"{name}/APKBUILD")
+    hashes = {a: read_repo_hashes(a) for a in arches}
+    if any(name in h.packages for h in hashes.values()):
+        return False
+    newest = {}
+    for a in arches:
+        files = frag.apk_files(arch_repo_dir(a))
+        for p in pkgs:
+            if not files.get(p):
+                return False
+            newest[(a, p)] = files[p][0]
+    versions = {f.version for f in newest.values()}
+    main = newest[(arches[0], name)]
+    if versions != {main.version} or main.pkgver != pkgver or main.pkgrel < minimum:
+        return False
+    entries = {}
+    for p in pkgs:
+        apk = newest[(arches[0], p)].path
+        content = frag.apk_lume_content(apk) or frag.apk_content_hash(apk)
+        entries[p] = manifests.PackageHashes(main.version, inputs, content, apk.name)
+    _record(arches, entries)
+    print(f"pkg {name}: adopted {main.path.name} (no build)", flush=True)
+    return True
+
+
+def _next_pkgrel(aports: Path, name: str, arches: list[str] | tuple[str, ...]) -> int:
+    from r36os import fragments as frag
+    pkgver, minimum = frag.apkbuild_version((aports / name / "APKBUILD").read_text(),
+                                            f"{name}/APKBUILD")
+    hashes = [read_repo_hashes(a) for a in arches]
+    names = {name} | {n for h in hashes for n, p in h.packages.items()
+                      if name in h.packages and p.inputs == h.packages[name].inputs}
+    return frag.next_pkgrel([arch_repo_dir(a) for a in arches], names, pkgver, minimum,
+                            hashes)
+
+
+def _generated_apkbuild(aports: Path, name: str, pkgrel: int, tag: str) -> Path:
+    """A copy of the APKBUILD with the computed pkgrel, mounted over the committed one."""
+    from r36os import fragments as frag
+    text = (aports / name / "APKBUILD").read_text()
+    dest = ensure_dir(staging_dir() / "apkbuild" / tag / name) / "APKBUILD"
+    dest.write_text(frag.with_pkgrel(text, pkgrel, f"{name}/APKBUILD"))
+    return dest
+
+
+def _reference(arch: str, name: str) -> tuple[str, str] | None:
+    """(version, content hash) of the newest published `name` in out/repo/<arch>/."""
+    from r36os import fragments as frag
+    p = read_repo_hashes(arch).packages.get(name)
+    if p is not None and (arch_repo_dir(arch) / p.file).exists():
+        return p.version, p.content
+    files = frag.apk_files(arch_repo_dir(arch)).get(name)
+    if not files:
+        return None
+    newest = files[0].path   # published before hashes.json existed
+    return files[0].version, frag.apk_lume_content(newest) or frag.apk_content_hash(newest)
+
+
+def _check_built(apk: Path, version: str, commit: str) -> None:
+    info = dict(read_apk_pkginfo(apk))
+    if info.get("pkgver") != version or info.get("commit") != commit:
+        raise RuntimeError(f"{apk.name}: built as {info.get('pkgver')} with commit "
+                           f"{info.get('commit')}, expected {version} and {commit}")
+
+
+def _decide(built: list[Path], arches: list[str] | tuple[str, ...]
+            ) -> tuple[dict[str, str], dict[str, tuple[str, str] | None]]:
+    """Content hash of each built package and its published reference (first arch)."""
+    from r36os import fragments as frag
+    contents, refs = {}, {}
+    for apk in built:
+        name = dict(read_apk_pkginfo(apk))["pkgname"]
+        contents[name] = frag.apk_content_hash(apk)
+        ref = _reference(arches[0], name)
+        # noarch: the same reference file must be in every arch, or it is published again
+        if ref is not None and any(not (arch_repo_dir(a) / f"{name}-{ref[0]}.apk").exists()
+                                   for a in arches):
+            ref = None
+        refs[name] = ref
+    return contents, refs
+
+
+def _record(arches, entries: dict[str, manifests.PackageHashes]) -> None:
+    for a in arches:
+        h = read_repo_hashes(a)
+        h.packages.update(entries)
+        manifests.write_hashes(hashes_path(a), h)
+
+
+def _keep_unchanged(name: str, inputs: str, contents: dict[str, str],
+                    refs: dict[str, tuple[str, str] | None], arches) -> None:
+    """Same content: nothing published; hashes.json now maps the new inputs to the
+    published file, so the next build does not compile it again."""
+    _record(arches, {n: manifests.PackageHashes(refs[n][0], inputs, contents[n],
+                                                f"{n}-{refs[n][0]}.apk")
+                     for n in contents})
+    versions = ", ".join(f"{n}-{refs[n][0]}" for n in sorted(contents))
+    print(f"pkg {name}: same content as the published {versions}, not published",
+          flush=True)
+
+
+_SIGN = """
+cd /work
+for c in *.control.tar.gz; do
+  n="${c%.control.tar.gz}"
+  abuild-sign -q "$c"
+  cat "$c" "$n.data.tar.gz" > "$n.signed"
+done
+"""
+
+
+def sign_with_lume_content(apks: list[tuple[Path, str]], tag: str) -> None:
+    """Rewrite each built .apk with `.lume-content` (its content hash) in the control area
+    and sign it again with the local key (x86_64 builder, abuild-sign). In place."""
+    from r36os import fragments as frag
+    if not apks:
+        return
+    work = staging_dir() / f"sign-{tag}"
+    shutil.rmtree(work, ignore_errors=True)
+    ensure_dir(work)
+    parts = {}
+    for apk, content in apks:
+        ctl, data = frag.control_with_lume_content(apk, content)
+        (work / f"{apk.name}.control.tar.gz").write_bytes(ctl)
+        (work / f"{apk.name}.data.tar.gz").write_bytes(data)
+        parts[apk] = (ctl, data, content)
+    c = _container(NOARCH_BUILD_TARGET, REPO_ROOT / "aports")
+    c.volumes[work] = "/work"
+    c.sh(_KEY + _SIGN)
+    for apk, (ctl, data, content) in parts.items():
+        signed = work / f"{apk.name}.signed"
+        got = frag.split_apk(signed)
+        if (got.control != ctl or got.data != data or not got.signature
+                or frag.apk_lume_content(signed) != content):
+            raise RuntimeError(f"{apk.name}: the signed package does not match its parts")
+        signed.replace(apk)
+    shutil.rmtree(work, ignore_errors=True)
+
+
+def _build_fragment(target: Target, name: str, aports: Path, force: bool,
+                    distcc: bool = False, cargo: bool = False) -> list[Path]:
+    """Inputs -> maybe compile -> compare content -> maybe publish one arch fragment."""
+    arch = target.alpine_arch
+    arches = [arch]
+    inputs = _inputs(aports, name, arch, arch)
+    if not force and _up_to_date(name, inputs, arches):
+        print(f"pkg {name} ({arch}): inputs unchanged, not built", flush=True)
+        return []
+    if not force and _adopt(aports, name, inputs, arches):
+        return []
+    pkgrel = _next_pkgrel(aports, name, arches)
+    commit = manifests.commit_of_inputs(inputs)
+    staging = staging_dir()
+    shutil.rmtree(staging / arch, ignore_errors=True)
+    c = _container(target, aports, cargo_target=cargo, repodest=staging, distcc=distcc)
+    c.volumes[_generated_apkbuild(aports, name, pkgrel, arch)] = (
+        f"/aports/{REPO_NAME}/{name}/APKBUILD")
+    c.volumes[ensure_dir(out_dir() / "repo")] = "/localrepo"
+    # abuild -r installs the dependencies (Alpine and the published local ones)
+    script = (_KEY + _local_repo(arch) + ("apk add -q distcc\n" if distcc else "")
+              + _abuild_step(name, commit))
+    if distcc:
+        from r36os import distcc as dcc
+        with dcc.distccd(arch):
+            c.sh(script)
+    else:
+        c.sh(script)
+    return _settle(name, inputs, sorted((staging / arch).glob("*.apk")), arches, arch)
+
+
+INPUTS_SIDECAR = ".inputs"   # <apk>.inputs in the noarch staging: its full inputs hash
+
+
+def _settle(name: str, inputs: str, built: list[Path], arches, tag: str,
+            publish: bool = True, contents_out: dict[str, str] | None = None) -> list[Path]:
+    """Publish what `name` built when its content changed; else only record the inputs.
+
+    With `publish=False` (noarch), the changed packages are only signed in the staging
+    area, with their inputs hash in `<apk>.inputs`, and returned for publish_noarch.
+    `contents_out` receives the content hash of each built package.
+    """
+    if not built:
+        raise RuntimeError(f"pkg {name}: abuild produced no .apk")
+    commit = manifests.commit_of_inputs(inputs)
+    version = dict(read_apk_pkginfo(built[0]))["pkgver"]
+    for apk in built:
+        _check_built(apk, version, commit)
+    contents, refs = _decide(built, arches)
+    if contents_out is not None:
+        contents_out.update(contents)
+    if all(refs[n] is not None and refs[n][1] == contents[n] for n in contents):
+        _keep_unchanged(name, inputs, contents, refs, arches)
+        return []
+    sign_with_lume_content([(apk, contents[dict(read_apk_pkginfo(apk))["pkgname"]])
+                            for apk in built], tag)
+    if not publish:
+        for apk in built:
+            apk.with_name(apk.name + INPUTS_SIDECAR).write_text(inputs + "\n")
+        return built
+    published = [_copy_identical(apk, arch_repo_dir(a)) for a in arches for apk in built]
+    _record(arches, {n: manifests.PackageHashes(version, inputs, contents[n],
+                                                f"{n}-{version}.apk") for n in contents})
+    reindex(list(arches))
+    print(f"pkg {name}: published " + ", ".join(a.name for a in built), flush=True)
+    return published
+
+
+def clean_repo(arch: str) -> bool:
+    """Remove old versions from out/repo/<arch>/ (build-speed D3): keep the newest and the
+    previous of each package, every version a kept build cites (latest, flashed) and every
+    file hashes.json names. Prints the freed space; True when something was removed (the
+    index must then be rebuilt)."""
+    from r36os import fragments as frag
+    repo = arch_repo_dir(arch)
+    protected = (frag.cited_versions(out_dir() / "images")
+                 | frag.hashes_protected(read_repo_hashes(arch)))
+    removed, freed = frag.remove_old_versions(repo, protected)
+    print(f"repo {arch}: removed {len(removed)} old package file(s), "
+          f"freed {frag.human_size(freed)}", flush=True)
+    return bool(removed)
 
 
 # --- noarch fragments (build-speed D2) -------------------------------------------------
@@ -247,37 +581,50 @@ def check_noarch_aport(aport_dir: Path) -> None:
                           + ", ".join(elf))
 
 
-def build_noarch(names: list[str], aports: Path | None = None) -> list[Path]:
+def build_noarch(names: list[str], aports: Path | None = None,
+                 force: bool = False) -> list[Path]:
     """Build the noarch `aports/<name>` fragments in the x86_64 builder and check them.
 
-    Returns the built .apk files (in the staging dir); nothing is published yet. Fails
-    with NoarchError if a fragment is not noarch or contains an ELF file.
+    Like build_packages (build-speed D3): a fragment whose inputs match hashes.json of
+    every arch is not built (unless `force`), and one whose content matches the published
+    version is not returned. Returns the changed .apk files, signed with `.lume-content`,
+    in the staging dir; nothing is published yet (publish_noarch). Fails with NoarchError
+    if a fragment is not noarch or contains an ELF file.
     """
     aports = aports or REPO_ROOT / "aports"
     for n in names:
         check_noarch_aport(aports / n)
     staging = noarch_staging_dir()
-    shutil.rmtree(staging / NOARCH_BUILD_TARGET.alpine_arch, ignore_errors=True)
-    c = _container(NOARCH_BUILD_TARGET, aports, repodest=staging)
-    c.volumes[ensure_dir(out_dir() / "repo")] = "/localrepo"
-    # dependencies may be other local fragments, already in out/repo/x86_64
-    script = _KEY + (
-        "if [ -f /localrepo/x86_64/APKINDEX.tar.gz ]; then\n"
-        "  echo /localrepo >> /etc/apk/repositories\nfi\n"
-        "apk update -q\n"
-    ) + "".join(f"(cd /aports/{REPO_NAME}/{n} && abuild -F -r -P /repodest)\n" for n in names)
-    c.sh(script)
-    built = sorted((staging / NOARCH_BUILD_TARGET.alpine_arch).glob("*.apk"))
-    by_origin: dict[str, list[Path]] = {}
-    for apk in built:
-        origin = dict(read_apk_pkginfo(apk)).get("origin", "")
-        by_origin.setdefault(origin, []).append(apk)
-    for n in names:
-        if n not in by_origin:
-            raise NoarchError(f"fragment {n}: abuild produced no .apk")
-        for apk in by_origin[n]:
+    build_arch = NOARCH_BUILD_TARGET.alpine_arch
+    shutil.rmtree(staging / build_arch, ignore_errors=True)
+    out: list[Path] = []
+    built_now: dict[str, str] = {}
+    for n in _order(aports, names):
+        inputs = _inputs(aports, n, build_arch, build_arch, built_now)
+        if not force and _up_to_date(n, inputs, REPO_ARCHES):
+            print(f"pkg {n} (noarch): inputs unchanged, not built", flush=True)
+            continue
+        if not force and _adopt(aports, n, inputs, REPO_ARCHES):
+            continue
+        before = set((staging / build_arch).glob("*.apk"))
+        c = _container(NOARCH_BUILD_TARGET, aports, repodest=staging)
+        c.volumes[_generated_apkbuild(aports, n, _next_pkgrel(aports, n, REPO_ARCHES),
+                                      "noarch")] = f"/aports/{REPO_NAME}/{n}/APKBUILD"
+        # dependencies may be other local fragments, already in out/repo/x86_64 or built
+        # earlier in this call (the staging repository, which abuild -r also reads)
+        c.volumes[ensure_dir(out_dir() / "repo")] = "/localrepo"
+        c.sh(_KEY + _local_repo(build_arch)
+             + _abuild_step(n, manifests.commit_of_inputs(inputs)))
+        built = sorted(set((staging / build_arch).glob("*.apk")) - before)
+        origins = {dict(read_apk_pkginfo(apk)).get("origin", "") for apk in built}
+        if not built or origins != {n}:
+            raise NoarchError(f"fragment {n}: abuild produced no .apk of its own "
+                              f"({', '.join(a.name for a in built) or 'none'})")
+        for apk in built:
             check_noarch_apk(apk, n)
-    return [apk for n in names for apk in by_origin[n]]
+        out += _settle(n, inputs, built, REPO_ARCHES, "noarch", publish=False,
+                       contents_out=built_now)
+    return out
 
 
 def _copy_identical(apk: Path, dest_dir: Path) -> Path:
@@ -323,10 +670,28 @@ def reindex(arches: tuple[str, ...] | list[str] = REPO_ARCHES) -> None:
 
 
 def publish_noarch(apks: list[Path], arches: tuple[str, ...] = REPO_ARCHES) -> list[Path]:
-    """Publish the same .apk files in out/repo/<arch>/ for every arch and reindex them."""
+    """Publish the same .apk files in out/repo/<arch>/ for every arch and reindex them.
+
+    A package built by build_noarch (with `<apk>.inputs` next to it) also enters
+    hashes.json of every arch; old versions then leave each arch (clean_repo).
+    """
+    from r36os import fragments as frag
     for apk in apks:
         check_noarch_apk(apk, dict(read_apk_pkginfo(apk)).get("origin", apk.name))
     published = [_copy_identical(apk, arch_repo_dir(a)) for a in arches for apk in apks]
+    entries = {}
+    for apk in apks:
+        sidecar = apk.with_name(apk.name + INPUTS_SIDECAR)
+        if not sidecar.exists():
+            continue
+        info = dict(read_apk_pkginfo(apk))
+        content = frag.apk_lume_content(apk) or frag.apk_content_hash(apk)
+        entries[info["pkgname"]] = manifests.PackageHashes(
+            info["pkgver"], sidecar.read_text().strip(), content, apk.name)
+    if entries:
+        _record(arches, entries)
+    for a in arches:
+        clean_repo(a)
     reindex(arches)
     return published
 

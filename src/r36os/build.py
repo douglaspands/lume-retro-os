@@ -12,9 +12,8 @@ from r36os import (bootimg, heat, image, kernel, lang, parallel, rootfs, stage_i
                    version)
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
-from r36os.packages import (REPO_ARCHES, arch_repo_dir, build_noarch, build_packages,
-                            ensure_key, is_noarch_aport, local_aports, publish_noarch,
-                            repo_dir)
+from r36os.packages import (build_noarch, build_packages, ensure_key, is_noarch_aport,
+                            local_aports, publish_noarch)
 from r36os.paths import REPO_ROOT
 from r36os.stages import StageTimer
 from r36os.targets import TARGETS, ImageTarget, Target
@@ -115,17 +114,14 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     p = f"{target.name}: "  # prefix of the stage names in the summary
     out = rootfs.target_out(target)
     console = target.name in kernel.KERNEL_TARGETS
-    # [2] local packages (only those missing from the repository, unless rebuilding)
+    # [2] local packages: each compiles only when its inputs changed and is published only
+    # when its content changed (build-speed D3); rebuild_packages compiles them all
     ensure_key(target)
     # the noarch fragments were built and published by build_noarch_fragments, not per arch
     noarch = set(noarch_fragments())
-    missing = [n for n in local_aports(target) if n not in noarch
-               and (rebuild_packages or not _has_package(target, n))]
-    if missing:
-        with timer.stage(p + "local packages"):
-            build_packages(target, missing)
-    else:
-        timer.skip(p + "local packages", "all in the repository")
+    with timer.stage(p + "local packages"):
+        build_packages(target, [n for n in local_aports(target) if n not in noarch],
+                       force=rebuild_packages)
     if console:
         # on the consoles the initramfs is built into the kernel: it comes before stage 1
         _initramfs_stage(target, timer, p)
@@ -152,31 +148,24 @@ def noarch_fragments() -> list[str]:
             if is_noarch_aport(REPO_ROOT / "aports" / n / "APKBUILD")]
 
 
-def _missing_noarch(rebuild_packages: bool) -> list[str]:
-    """Fragments with no .apk in the repository of some architecture (all, if rebuilding)."""
-    return [n for n in noarch_fragments()
-            if rebuild_packages
-            or any(not list(arch_repo_dir(a).glob(f"{n}-[0-9]*.apk")) for a in REPO_ARCHES)]
-
-
 def build_noarch_fragments(rebuild_packages: bool = False,
                            timer: StageTimer | None = None) -> None:
-    """Build the missing noarch fragments once (x86_64 builder) and publish the same .apk
-    in out/repo/<arch> for every arch, each index rebuilt. Runs before the arch packages."""
+    """Build the noarch fragments once (x86_64 builder) and publish the same .apk in
+    out/repo/<arch> for every arch, each index rebuilt. Runs before the arch packages.
+
+    build_noarch decides by content (build-speed D3): a fragment whose inputs did not
+    change is not built, one whose content did not change is not published, and a changed
+    one gets the next pkgrel; `rebuild_packages` compiles them all (same content is still
+    not published)."""
     timer = timer or StageTimer()
-    missing = _missing_noarch(rebuild_packages)
-    if not missing:
-        timer.skip("noarch fragments", "all in the repository")
+    names = noarch_fragments()
+    if not names:
+        timer.skip("noarch fragments", "none")
         return
     with timer.stage("noarch fragments"):
-        apks = build_noarch(missing)  # makes the abuild key too
-        if rebuild_packages:
-            # a rebuild is a different file under the same name: publish refuses to mix them
-            for n in missing:
-                for a in REPO_ARCHES:
-                    for old in arch_repo_dir(a).glob(f"{n}-[0-9]*.apk"):
-                        old.unlink()
-        publish_noarch(apks)
+        apks = build_noarch(names, force=rebuild_packages)  # makes the abuild key too
+        if apks:
+            publish_noarch(apks)
 
 
 def _initramfs_stage(target: Target, timer: StageTimer, prefix: str) -> None:
@@ -253,7 +242,3 @@ def build_console_kernel(target: Target, timer: StageTimer | None = None) -> Non
             # zImage + appended DTB, like goodluckOS (CONFIG_ARM_APPENDED_DTB)
             kernel_blob = zimage.read_bytes() + (kdir / "dtbs" / dtb).read_bytes()
             (kdir / f"android-boot-{panel}.img").write_bytes(bootimg.make(kernel_blob))
-
-
-def _has_package(target: Target, name: str) -> bool:
-    return any(repo_dir(target).glob(f"{name}-[0-9]*.apk"))

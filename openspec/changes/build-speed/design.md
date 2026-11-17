@@ -145,6 +145,69 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
     "<nome>-<pkgver>-rN.apk"}}}`, pacotes por nome, gravado por rename. Ausente = índice
     vazio (primeiro build); JSON truncado, chave a mais ou a menos, hash que não tem 64
     dígitos hexadecimais ou `file` que não bate com nome e versão → erro.
+- **Build incremental (tarefa 6.1, `src/r36os/fragments.py` + `src/r36os/packages.py`):**
+  - **Entradas de um fragmento:** todo arquivo do diretório do aport (`APKBUILD` com o `pkgrel`
+    commitado, arquivos ao lado, e o `stage/` que o `lume.stage()` monta, ou seja, o código de
+    `lume/` e o `Cargo.lock`), menos as pastas de trabalho do `abuild` (`src/`, `pkg/`,
+    `tmp/`) e, dentro de `stage/`, as pastas `target/` (cache do cargo) e `vendor/` (as crates,
+    fixadas pelo `Cargo.lock` e pelo nome do tarball em `.cargo/vendor-tarball`, que entram);
+    o texto do script de build do `packages.py` (sem o `commit` e sem o distcc, que não mudam o
+    resultado); a receita da imagem `builder` (versão do Alpine + `builder.Containerfile`); e o
+    hash de conteúdo de cada dependência de build local (`makedepends*`/`checkdepends` que
+    estão no `hashes.json`, inclusive subpacotes como `mesa-dev`). Dependências de runtime
+    (`depends`) não entram: não mudam o que é compilado. Atualizações do Alpine dentro da
+    mesma versão não são detectadas (use `--force`). A ordem do build põe a dependência local
+    antes de quem a usa, então um build sem mudanças nunca vê um hash de dependência diferente.
+  - **`pkgrel` calculado sem editar o `APKBUILD`:** uma cópia gerada do `APKBUILD` com
+    `pkgrel=` trocado fica em `out/pkg-staging/apkbuild/<arch>/<nome>/` e é montada **por
+    cima** de `/aports/r36os/<nome>/APKBUILD` no container (bind mount de arquivo): o
+    `startdir`, o `stage/` e o caminho do cache do cargo continuam os mesmos, sem copiar o
+    aport. O `pkgrel` é o maior entre o do `APKBUILD` (mínimo), o seguinte ao de cada arquivo
+    publicado com o mesmo `pkgver` e o seguinte à versão do `hashes.json`. Um `pkgrel`
+    compilado mas descartado (conteúdo igual) é reaproveitado no build seguinte: ninguém o viu.
+  - **`commit`:** o `abuild` 3.17 grava `commit = $ABUILD_LAST_COMMIT` no `.PKGINFO` e só
+    consulta o git quando a variável está vazia; o script passa
+    `ABUILD_LAST_COMMIT=<40 dígitos>` na linha do `abuild`. Conferido no pacote gerado.
+  - **`.lume-content`:** o hash de conteúdo é lido do próprio `.apk` gerado (segmento de dados:
+    arquivo, modo, dono e SHA256; link; diretório; link físico conta como arquivo), com o
+    `.PKGINFO` sem os campos voláteis e com a versão do próprio build (`<pkgver>-rN`) trocada
+    por `<pkgver>` em todo campo (o `abuild` grava `provides = cmd:x=<ver>` e o `install_if`
+    do `-doc`, que mudariam a cada `pkgrel`). Para publicar, o Python refaz o segmento de
+    controle com os membros do `abuild` na ordem (`.PKGINFO` primeiro) mais `.lume-content`,
+    sem os blocos de fim (como `abuild-tar --cut`), e o `abuild-sign` do builder x86_64 assina
+    de novo; o segmento de dados fica byte a byte (o `datahash` continua valendo). O `apk` 3.0.9
+    instala o pacote com a chave local e ignora o arquivo extra
+    (`tests/integration/test_fragment_versions.py`).
+  - **Adoção sem build (primeiro build após o merge):** um aport sem entrada no `hashes.json`
+    cujo pacote principal e todos os subpacotes (`subpackages=` com `$pkgname` expandido) já
+    têm a versão mais nova publicada em `out/repo/<arch>/` (todas iguais, com o `pkgver` do
+    `APKBUILD` e `pkgrel` não abaixo do dele) é **adotado sem compilar**: o hash de conteúdo
+    sai do `.apk` publicado, o `hashes.json` grava as entradas atuais apontando para esse
+    arquivo e o log diz `pkg <n>: adopted <arquivo> (no build)`. Assim o RetroArch e os cores
+    não recompilam sob qemu (horas): eles ficam com os pacotes de hoje nesta change (P-80).
+    Só compila o aport sem nada publicado, ou com subpacote/versão faltando; `--force` sempre
+    compila. Vale também para os noarch (o arquivo precisa estar nas três arquiteturas).
+  - **Decisão:** entradas iguais às do `hashes.json` (e arquivos presentes) → não compila.
+    Senão compila numa área de preparo (`out/pkg-staging/<arch>/`, com `out/repo` como
+    repositório para as dependências locais) e compara o conteúdo com o da versão publicada
+    (do `hashes.json`; sem ele, o do `.apk` mais novo em `out/repo/<arch>/`). Conteúdo igual → não publica e
+    o `hashes.json` passa a ligar as entradas novas ao arquivo já publicado (o `commit` do
+    `.apk` continua o das entradas que o geraram). Diferente → publica todos os pacotes do
+    aport (principal e subpacotes) com o `pkgrel` novo, grava o `hashes.json` e refaz o índice.
+    `--force` (`r36os pkg --force`, e `rebuild_packages` do `build`) compila mesmo com entradas
+    iguais; conteúdo igual continua sem publicar. O `build` passa todos os aports locais para o
+    `build_packages`, que decide sozinho.
+  - **Noarch:** `build_noarch` aplica a mesma regra contra o `hashes.json` das três
+    arquiteturas e devolve só os `.apk` alterados, já assinados com `.lume-content`, com o hash
+    de entradas completo em `<apk>.inputs` ao lado; `publish_noarch` copia, grava o
+    `hashes.json` de cada arquitetura, limpa e refaz os índices.
+  - **Limpeza:** depois de publicar (e no fim de todo `build_packages`), cada pacote de
+    `out/repo/<arch>/` fica com a versão mais nova e a anterior; nunca sai uma versão citada no
+    `manifest*.txt` do build `latest` ou `flashed` de cada imagem em `out/images/`, nem o
+    arquivo que o `hashes.json` aponta. Uma linha diz quantos arquivos saíram e o espaço
+    liberado; havendo remoção, o índice é refeito. No `out/repo` de 2026-11-17 isso tira 59
+    arquivos (72,5 MiB) do armv7 e 40 (38,6 MiB) do aarch64; o `retroarch` fica com 4 versões
+    porque o build `flashed` do console e o `latest` da VM citam r108 e r110.
 
 ### D4. Data fixa do kernel e `VERSION` fora da comparação
 
