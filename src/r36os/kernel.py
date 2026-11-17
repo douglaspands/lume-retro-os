@@ -227,6 +227,11 @@ export KBUILD_BUILD_TIMESTAMP="{stamp}" KBUILD_BUILD_VERSION=1
 export KBUILD_BUILD_USER=lume KBUILD_BUILD_HOST=lume
 B=/build
 cd /linux
+# The build folder is kept between runs (one per architecture, make is incremental), so the
+# configuration is rebuilt from scratch every run: defconfig overwrites any .config left by
+# an earlier run, the fragment goes on top and the checks below read the resulting .config.
+# Kconfig touches only the include/config/ stamps of options whose value changed, so an
+# unchanged configuration recompiles nothing.
 make -s O=$B {defconfig}
 scripts/kconfig/merge_config.sh -m -O $B $B/.config /board/kernel.config >/dev/null
 make -s O=$B olddefconfig
@@ -240,15 +245,26 @@ sed -n 's/^# \\(CONFIG_[A-Za-z0-9_]*\\) is not set$/\\1/p' /board/kernel.config 
   if grep -q "^$off=" $B/.config; then echo "kernel.config: $off must stay off"; exit 1; fi
 done || fail=1
 [ $fail = 0 ] || exit 1
+# objects newer than this mark are the ones this run compiled (/out/rebuilt-objects.txt)
+touch /tmp/make-start
 make O=$B -j{jobs} {image} modules 2> /out/build-warnings.log
+find $B -name '*.o' -newer /tmp/make-start | sed "s|^$B/||" | sort > /out/rebuilt-objects.txt
+echo "kernel: $(wc -l < /out/rebuilt-objects.txt) objects compiled (list in rebuilt-objects.txt)"
+# no warnings accepted in our own drivers (kernel/patches/)
+if grep -E '{own_files}' /out/build-warnings.log; then
+  # a warning does not stop the compiler: the object stays in the kept build folder and the
+  # next incremental run would not compile it again (nor show the warning). Delete it.
+  for f in $(grep -oE '{own_files}' /out/build-warnings.log | sort -u); do
+    find $B -name "${{f%.c}}.o" -delete
+  done
+  exit 1
+fi
 rm -rf /tmp/mods
 make -s O=$B INSTALL_MOD_PATH=/tmp/mods INSTALL_MOD_STRIP=1 modules_install
 tar -C /tmp/mods --numeric-owner --sort=name -cf /out/modules.tar lib
 cp $B/arch/{arch}/boot/{image} /out/{image}
 cp $B/.config /out/config
 make -s O=$B kernelrelease > /out/release
-# no warnings accepted in our own drivers (kernel/patches/)
-if grep -E '{own_files}' /out/build-warnings.log; then exit 1; fi
 """
 
 # Our own drivers and the drivers our patches change: any warning in them fails the build
@@ -290,25 +306,62 @@ def build_stamp(board: str) -> str:
                            "KERNEL_RELEASE_DATES in r36os/kernel.py") from None
 
 
+def kbuild_dir(board: str) -> Path:
+    """Build folder of a console kernel: `<cache>/kbuild/<arch>/` (build-speed D5).
+
+    Fixed per architecture (armv7 for the GA36, aarch64 for the R36S), kept between runs:
+    a changed patch recompiles only what depends on the files it changed. It is mounted at
+    the same path (/build) in every run, so nothing of the host path reaches the kernel.
+    """
+    from r36os.targets import TARGETS
+
+    return cache_dir() / "kbuild" / TARGETS[board].alpine_arch
+
+
+INITRAMFS_CPIO = "initramfs.cpio"
+
+
+def stage_initramfs(initramfs_dir: Path, dest: Path) -> Path:
+    """Copy `initramfs_dir/initramfs.cpio` into `dest` only when its content changed.
+
+    The kernel embeds the cpio named by CONFIG_INITRAMFS_SOURCE and make decides by mtime.
+    The initramfs stage writes a new file every build, even with the same content: copied
+    as is, every kernel build would relink the image. Kept here with its old mtime when
+    the bytes are equal, an unchanged initramfs does not touch the image, and a changed one
+    gets a new mtime and relinks it.
+    """
+    import filecmp
+
+    src = initramfs_dir / INITRAMFS_CPIO
+    ensure_dir(dest)
+    target = dest / INITRAMFS_CPIO
+    if not (target.is_file() and filecmp.cmp(src, target, shallow=False)):
+        tmp = dest / f".{INITRAMFS_CPIO}.part"
+        shutil.copyfile(src, tmp)
+        tmp.replace(target)
+    return dest
+
+
 def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Path:
     """Cross-compile the console kernel (D3): image, modules.tar, config and release.
 
-    Starts from the target defconfig plus `board/<board>/kernel.config`. The build
-    directory lives in the cache (incremental) and so does ccache. `initramfs_dir` (with
-    initramfs.cpio) is mounted at /initramfs for CONFIG_INITRAMFS_SOURCE.
+    Starts from the target defconfig plus `board/<board>/kernel.config`, applied again on
+    every run. The build folder is `kbuild_dir(board)`, kept between runs (incremental
+    make), and ccache stays. `initramfs_dir` (with initramfs.cpio) is staged by content in
+    the build folder and mounted at /initramfs for CONFIG_INITRAMFS_SOURCE.
     """
     from r36os import jobs
     from r36os.container import Container, ensure_cross
 
     arch, cross, defconfig, image = KERNEL_TARGETS[board]
     tree = source_tree()
-    build = ensure_dir(cache_dir() / "kbuild" / f"{board}-{patches_digest()}")
+    build = ensure_dir(kbuild_dir(board))
     ccache = ensure_dir(cache_dir() / "ccache" / f"kernel-{board}")
     ensure_dir(out)
     volumes = {tree: "/linux", build: "/build", out: "/out", ccache: "/cache/ccache",
                REPO_ROOT / "board" / board: "/board"}
     if initramfs_dir is not None:
-        volumes[initramfs_dir] = "/initramfs"
+        volumes[stage_initramfs(initramfs_dir, build / "r36os-initramfs")] = "/initramfs"
     Container(
         image=ensure_cross(),
         volumes=volumes,
