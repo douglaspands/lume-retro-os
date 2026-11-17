@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from r36os.push import CONSOLE_ADDR, Remote
+from r36os.push import CONSOLE_ADDR, PushError, Remote
 
 HOLD_MS = 80
 GAP_MS = 120
@@ -430,6 +430,13 @@ def main_dev(args) -> int:
             return cmd_log(host)
         if args.dev_command == "check":
             return cmd_check(host, args.console)
+        if args.dev_command == "watch":
+            from r36os.dev_watch import cmd_watch
+
+            return cmd_watch(args.fragment, args.host)
+    except PushError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     except DevError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
