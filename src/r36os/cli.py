@@ -92,7 +92,11 @@ def _parser() -> argparse.ArgumentParser:
     ky.add_argument("--gap", type=int, default=120, metavar="MS", help="pause after a press")
     lg = ds.add_parser("log", help="print the boot log of the current boot")
     ck = ds.add_parser("check", help="run the on-device self-test; exit 0 only if all pass")
-    for action in (sh, st, ky, lg, ck):     # not wait: the console may still be off
+    rp = ds.add_parser("replay", help="RetroArch replay: record, stop, or play <slot> "
+                                      "(network command; needs a running game)")
+    rp.add_argument("action", choices=("record", "stop", "play"))
+    rp.add_argument("slot", type=int, nargs="?", help="replay slot (play only)")
+    for action in (sh, st, ky, lg, ck, rp):     # not wait: the console may still be off
         action.add_argument("--console", choices=("ga36", "r36s"),
                             help="refuse to run when the console on the cable is the other one")
 

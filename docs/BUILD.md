@@ -259,6 +259,7 @@ Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
 | `keys <sequência> [--hold MS] [--gap MS]` | aperta botões (sintaxe abaixo) |
 | `log` | imprime o log do boot atual e os eventos desse boot do `events.log` |
 | `check` | roda o autoteste do aparelho; código 0 só se tudo passar |
+| `replay record\|stop\|play <slot>` | replay do próprio RetroArch (gravar, parar, repetir o slot) pelo comando de rede (`RECORD_REPLAY`, `HALT_REPLAY`, `PLAY_REPLAY_SLOT`); sem jogo rodando é erro. O UDP não tem confirmação: o `dev` só confere, antes e depois, que o jogo segue em `PLAYING`; confirme o replay pela tela ou captura. Imprime só o core, nunca o nome do jogo |
 | `watch <fragmento>` | a cada arquivo salvo do fragmento: build do fragmento e `push --hot` (seção abaixo); Ctrl-C encerra |
 
 `sh`, `shot`, `keys`, `log` e `check` aceitam `--console ga36|r36s` (seção acima); `wait` e

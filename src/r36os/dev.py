@@ -14,6 +14,11 @@ refuses before running anything when the cable has the other one (build-speed 3.
 - `log`: the boot log of the current boot.
 - `check [--console ga36|r36s]`: run the on-device `selftest device` and report which console
   answered and the failed checks by name; exit 0 only if all pass.
+- `replay record|stop|play <slot>`: RetroArch's own replay (virtual-gamepad D3) through its
+  network command (`nc -u` to 127.0.0.1:55355 on the console): RECORD_REPLAY, HALT_REPLAY,
+  PLAY_REPLAY_SLOT <slot>. A GET_STATUS before (no game = error) and after (still PLAYING);
+  UDP gives no ack, so the sent command itself is unconfirmed. Only the core is printed
+  (the reply is cut before the game name on the console).
 
 Key sequence syntax (tokens separated by commas, spaces ignored):
 
@@ -411,6 +416,58 @@ def cmd_check(host: str, console: str | None) -> int:
     return 1
 
 
+RA_NC = "nc -u -w1 127.0.0.1 55355"
+
+
+def status_command() -> str:
+    """Remote command: RetroArch GET_STATUS, cut after the core field so the game name
+    (the content) never crosses the cable."""
+    return f"printf GET_STATUS | {RA_NC} 2>/dev/null | cut -d, -f1; true"
+
+
+def send_command(cmd: str) -> str:
+    """Remote command: send one RetroArch network command (UDP, no reply expected)."""
+    return f"printf '%s' '{cmd}' | {RA_NC} >/dev/null 2>&1; true"
+
+
+def parse_status(text: str) -> str | None:
+    """The core of a PLAYING/PAUSED `GET_STATUS` reply (already cut after the core field),
+    else None (no game: CONTENTLESS, no answer)."""
+    parts = text.strip().split(None, 2)
+    if len(parts) >= 3 and parts[0] == "GET_STATUS" and parts[1] in ("PLAYING", "PAUSED"):
+        return parts[2].strip() or "unknown"
+    return None
+
+
+def cmd_replay(host: str, action: str, slot: int | None = None, run=None,
+               settle=time.sleep) -> int:
+    """`replay record|stop|play <slot>`: RetroArch's own replay (input recording with a
+    savestate, exact repetition) through its network command. UDP has no ack, so a
+    GET_STATUS first (no game = error) and another after (game still PLAYING). Only the
+    core is ever printed, never the game name."""
+    run = run or (lambda c: run_capture(host, c))
+    wire = {"record": "RECORD_REPLAY", "stop": "HALT_REPLAY"}.get(action)
+    if action == "play":
+        if slot is None or slot < 0:
+            raise DevError("play needs a replay slot number (0 or more)")
+        wire = f"PLAY_REPLAY_SLOT {slot}"
+    if wire is None:
+        raise DevError(f"unknown replay action `{action}`")
+    core = parse_status(run(status_command()))
+    if core is None:
+        raise DevError("no RetroArch game is running (GET_STATUS has no PLAYING answer)")
+    run(send_command(wire))
+    settle(1.0)
+    after = parse_status(run(status_command()))
+    if after is None:
+        raise DevError(f"sent {wire}, but RetroArch no longer reports a running game")
+    what = {"record": "recording to the current replay slot", "stop": "replay halted",
+            "play": f"playing replay slot {slot}"}[action]
+    print(f"{core}: playing; {wire} sent ({what}); game still PLAYING "
+          "(UDP gives no ack: confirm on screen/capture)")
+    return 0
+
+
 def which_console(host: str, wanted: str | None) -> str:
     """Say which console answered on the cable (stderr) and refuse, before anything runs,
     when `--console` names the other one (build-speed 3.4, push.console_refusal)."""
@@ -444,6 +501,8 @@ def main_dev(args) -> int:
             return cmd_log(host)
         if args.dev_command == "check":
             return cmd_check(host, args.console)
+        if args.dev_command == "replay":
+            return cmd_replay(host, args.action, args.slot)
         if args.dev_command == "watch":
             from r36os.dev_watch import cmd_watch
 
