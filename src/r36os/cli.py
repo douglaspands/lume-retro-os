@@ -10,6 +10,13 @@ from r36os import lang
 from r36os.targets import IMAGES, TARGETS, InvalidTargetError, get_image, get_target
 
 
+def _port(text: str) -> int:
+    port = int(text)
+    if not 1024 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"port {port}: use 1024-65535")
+    return port
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="r36os",
@@ -69,10 +76,15 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--dry-run", action="store_true",
                    help="only list what would change: the packages of each slot set, the "
                         "files to send with their sizes and what would be deleted")
+    u.add_argument("--host", metavar="ADDR[:PORT]",
+                   help="console address (default: the USB cable's); 127.0.0.1:PORT for "
+                        "`r36os vm --ssh`")
 
     dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
                                     "keys, log)")
-    dv.add_argument("--host", metavar="ADDR", help="console address (default: the USB cable's)")
+    dv.add_argument("--host", metavar="ADDR[:PORT]",
+                    help="console address (default: the USB cable's); 127.0.0.1:PORT for "
+                         "`r36os vm --ssh`")
     ds = dv.add_subparsers(dest="dev_command", required=True, metavar="<action>")
     w = ds.add_parser("wait", help="wait until the console answers over the cable")
     w.add_argument("--timeout", type=float, default=120, metavar="SECONDS")
@@ -137,6 +149,9 @@ def _parser() -> argparse.ArgumentParser:
                    help="share a PC ROM folder (bound to /storage/roms in the VM)")
     v.add_argument("--no-gamepad", action="store_true",
                    help="do not pass the host gamepads through to the VM")
+    v.add_argument("--ssh", type=_port, nargs="?", const=2222, metavar="PORT",
+                   help="local network for `r36os dev`: the VM's ssh (root, no password) on "
+                        "127.0.0.1:PORT of the PC only (default 2222), no route out")
 
     k = sub.add_parser("pkg", help="build packages from aports/ for a hardware layer")
     k.add_argument("target", help=f"layer: {', '.join(TARGETS)}")
@@ -264,12 +279,12 @@ def _main(args: argparse.Namespace) -> int:
                 return 2
             from r36os.push_hot import main_push_hot
 
-            return main_push_hot(args.hot, console=args.console)
+            return main_push_hot(args.hot, console=args.console, host=args.host)
         if args.command == "push":
             from r36os.push import main_push
 
             return main_push(args.build, args.yes, wait=not args.no_wait, console=args.console,
-                             dry_run=args.dry_run)
+                             dry_run=args.dry_run, host=args.host)
         if args.command == "dev":
             from r36os.dev import main_dev
 
@@ -294,7 +309,7 @@ def _main(args: argparse.Namespace) -> int:
 
             share = args.roms or args.share
             return run_vm(headless=args.headless, gamepads=args.gamepad, share_dir=share,
-                          no_gamepad=args.no_gamepad)
+                          no_gamepad=args.no_gamepad, ssh_port=args.ssh)
         if args.command == "test-vm":
             from r36os.selftest import test_vm
 

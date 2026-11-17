@@ -261,9 +261,10 @@ def push_hot(fragment: str, remote=None, out=print, aports: Path | None = None,
     return 0
 
 
-def main_push_hot(fragment: str, console: str | None = None) -> int:
+def main_push_hot(fragment: str, console: str | None = None, host: str | None = None) -> int:
     try:
-        return push_hot(fragment, console_wanted=console)
+        remote = Remote(host) if host else None
+        return push_hot(fragment, remote=remote, console_wanted=console)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

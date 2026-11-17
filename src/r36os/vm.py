@@ -69,6 +69,8 @@ class VmConfig:
     # container name: prevents two runs on the same disk and allows removing it
     name: str | None = None
     gl: bool = True  # False: virtio-vga without virgl (QMP screendump works on any GPU)
+    # `r36os vm --ssh`: the vm's port 22 on 127.0.0.1:<ssh_port> of the PC (None: no network)
+    ssh_port: int | None = None
 
     @property
     def host_audio(self) -> bool:
@@ -77,11 +79,29 @@ class VmConfig:
         return not self.headless and bool(xdg) and Path(xdg, "pulse/native").exists()
 
 
+DEFAULT_SSH_PORT = 2222
+
+
+def nic_arg(ssh_port: int | None) -> str:
+    """The -nic of the vm: none, or with --ssh a QEMU user network that only forwards the
+    vm's port 22 (virtual-gamepad 3.3).
+
+    restrict=on isolates the guest (no packet of it is routed out of the PC, it cannot
+    reach the host either) while the hostfwd rule still accepts connections; slirp's DHCP
+    keeps answering. Inside the container the forward listens on all its addresses so the
+    port podman publishes on the PC's 127.0.0.1 (podman_argv) reaches it.
+    """
+    if ssh_port is None:
+        return "none"
+    return (f"user,model=virtio-net-pci,restrict=on,"
+            f"hostfwd=tcp:0.0.0.0:{ssh_port}-:22")
+
+
 def qemu_argv(cfg: VmConfig) -> list[str]:
     """QEMU command line as seen inside the container (VM directory at /vm)."""
     a = ["qemu-system-x86_64", "-name", "lume-retro-os",
          "-machine", "q35,accel=kvm", "-cpu", "host", "-smp", "2",
-         "-m", str(cfg.memory_mib), "-nic", "none", "-rtc", "base=utc",
+         "-m", str(cfg.memory_mib), "-nic", nic_arg(cfg.ssh_port), "-rtc", "base=utc",
          "-drive", f"file=/vm/{cfg.disk.name},format=raw,if=virtio,cache=writeback"]
     for d in cfg.extra_disks:
         a += ["-drive", f"file=/vm/{d.name},format=raw,if=virtio"]
@@ -157,6 +177,9 @@ def podman_argv(cfg: VmConfig) -> list[str]:
          "-e", "HOME=/tmp", "-v", f"{cfg.disk.parent}:/vm"]
     if cfg.name:
         a += ["--name", cfg.name]
+    if cfg.ssh_port is not None:
+        # only the PC's loopback: nothing on the LAN reaches the vm's root ssh
+        a += ["-p", f"127.0.0.1:{cfg.ssh_port}:{cfg.ssh_port}"]
     if nvidia_cdi():
         # proprietary driver: the host GL/EGL libraries come in through CDI
         a += ["--device", "nvidia.com/gpu=all"]
@@ -191,7 +214,8 @@ def podman_argv(cfg: VmConfig) -> list[str]:
 
 
 def run_vm(headless: bool = False, gamepads: list[str] | None = None,
-           share_dir: Path | None = None, no_gamepad: bool = False) -> int:
+           share_dir: Path | None = None, no_gamepad: bool = False,
+           ssh_port: int | None = None) -> int:
     d = run_dir()
     disk = prepare_disk(d / "run.img")
     pads = list(gamepads or [])
@@ -201,11 +225,15 @@ def run_vm(headless: bool = False, gamepads: list[str] | None = None,
             print(f"Gamepad(s) detected: {', '.join(pads)}", flush=True)
     cfg = VmConfig(disk=disk, headless=headless, qmp=d / "qmp.sock",
                    serial_log=d / "serial.log", gamepads=pads,
-                   share_dir=share_dir)
+                   share_dir=share_dir, ssh_port=ssh_port)
     (d / "qmp.sock").unlink(missing_ok=True)
     print(f"VM: throwaway disk {disk}; serial also in {d / 'serial.log'}; "
           f"QMP at {d / 'qmp.sock'}. Ctrl+A X does not apply: close the window or use poweroff.",
           flush=True)
+    if ssh_port is not None:
+        print(f"VM: ssh on 127.0.0.1:{ssh_port} once the launcher is up "
+              f"(r36os dev --host 127.0.0.1:{ssh_port} ...); no route out of the PC.",
+              flush=True)
     try:
         return subprocess.run(podman_argv(cfg)).returncode
     finally:

@@ -60,6 +60,60 @@ def test_share_missing_dir_fails(tmp_path):
         podman_argv(_cfg(tmp_path, share_dir=tmp_path / "nao-existe"))
 
 
+def _nic(q):
+    return q[q.index("-nic") + 1]
+
+
+def test_no_network_by_default(tmp_path):
+    # `r36os vm` without --ssh and `r36os test-vm`: no NIC, no published port
+    cfg = _cfg(tmp_path)
+    assert _nic(qemu_argv(cfg)) == "none"
+    assert "-p" not in podman_argv(cfg)
+
+
+def test_ssh_forwards_only_port_22_on_the_pc_loopback(tmp_path):
+    cfg = _cfg(tmp_path, ssh_port=2222)
+    q = qemu_argv(cfg)
+    assert q.count("-nic") == 1
+    nic = _nic(q)
+    assert nic.startswith("user,") and "model=virtio-net-pci" in nic
+    assert "restrict=on" in nic.split(",")           # no route out of the PC
+    assert nic.endswith("hostfwd=tcp:0.0.0.0:2222-:22")
+    p = podman_argv(cfg)
+    assert p[p.index("-p") + 1] == "127.0.0.1:2222:2222"
+    assert p.count("-p") == 1
+
+
+def test_ssh_custom_port(tmp_path):
+    cfg = _cfg(tmp_path, ssh_port=2300)
+    assert "hostfwd=tcp:0.0.0.0:2300-:22" in _nic(qemu_argv(cfg))
+    assert "127.0.0.1:2300:2300" in podman_argv(cfg)
+
+
+def test_test_vm_has_no_user_network(tmp_path, monkeypatch):
+    # selftest.test_vm builds its VmConfig without ssh_port: the same -nic none as before
+    import inspect
+
+    from r36os import selftest
+
+    src = inspect.getsource(selftest)
+    assert "ssh_port" not in src
+    assert _nic(qemu_argv(VmConfig(disk=tmp_path / "t.img", headless=True,
+                                   name=selftest.CONTAINER))) == "none"
+
+
+def test_cli_ssh_option():
+    from r36os.cli import _parser
+
+    p = _parser()
+    assert p.parse_args(["vm"]).ssh is None
+    assert p.parse_args(["vm", "--ssh"]).ssh == vm.DEFAULT_SSH_PORT == 2222
+    assert p.parse_args(["vm", "--ssh", "2300"]).ssh == 2300
+    with pytest.raises(SystemExit):
+        p.parse_args(["vm", "--ssh", "22"])
+    assert not hasattr(p.parse_args(["test-vm"]), "ssh")
+
+
 def test_hostshare_only_on_vm():
     from r36os.paths import REPO_ROOT
 

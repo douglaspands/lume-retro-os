@@ -138,14 +138,28 @@ class PushError(RuntimeError):
     pass
 
 
+def split_host(addr: str) -> tuple[str, int | None]:
+    """"host" or "host:port" (`r36os vm --ssh`: 127.0.0.1:2222) -> (host, port or None).
+
+    Only one colon makes a port, so a bare IPv6 address stays a host."""
+    host, sep, port = addr.rpartition(":")
+    if not sep or ":" in host or not host:
+        return addr, None
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise PushError(f"bad port in {addr!r}: use HOST:PORT, e.g. 127.0.0.1:2222")
+    return host, int(port)
+
+
 class Remote:
     """Commands on the console over ssh (replaced by a fake in the tests).
 
     Root has no password on the USB cable (D4) and the console makes a new host key every
-    boot, so nothing is checked against or written to the user's known_hosts."""
+    boot, so nothing is checked against or written to the user's known_hosts. `host` may
+    carry a port (host:port, the vm's forwarded ssh); `root@host` stays the last word."""
 
     def __init__(self, host: str = CONSOLE_ADDR):
         self.host = host
+        addr, port = split_host(host)
         # ServerAlive*: a connection that dies in the middle (the console rebooting) is
         # dropped in ~6 s; ConnectTimeout only covers opening it (J1, 2026-11-16: a probe
         # caught by the reboot hung for minutes)
@@ -153,7 +167,8 @@ class Remote:
                      "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
                      "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
                      "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
-                     f"root@{host}"]
+                     *(["-p", str(port)] if port is not None else []),
+                     f"root@{addr}"]
 
     def run(self, cmd: str, stdin: Path | None = None) -> str:
         with (stdin.open("rb") if stdin else open("/dev/null", "rb")) as f:
@@ -1000,9 +1015,9 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
 
 
 def main_push(build: str, yes: bool, wait: bool = True, console: str | None = None,
-              dry_run: bool = False) -> int:
+              dry_run: bool = False, host: str | None = None) -> int:
     try:
-        return push(build, Remote(), yes, wait=wait, console_wanted=console, dry_run=dry_run)
+        return push(build, Remote(host or CONSOLE_ADDR), yes, wait=wait, console_wanted=console, dry_run=dry_run)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
