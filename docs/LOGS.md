@@ -120,6 +120,23 @@ Uma linha por evento:
 | `logs` | logs só na RAM, sem a partição de jogos |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
+### O que o `r36os push` e o `r36os dev` leem
+
+Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.
+
+- `/run/r36os/logs/boot-n` (RAM): o número do boot atual. O `push` o lê antes do reboot e
+  depois dele; o boot novo precisa ter outro número (o relógio do console não é confiável).
+- `events.log`, a linha `<time> <n> boot OK completed: ...` do boot `<n>` (o segundo campo
+  é o número do boot): o `push` espera por ela até 120 s e mostra o detalhe
+  (`frontend in <s>s from kernel`) no `ok: boot N completed with build X (...)`. O autoteste
+  (`boot-completed`) e o `r36os dev log` leem a mesma linha; o `dev log` imprime todas as
+  linhas do boot atual do `events.log` depois do `boot-<n>.log`.
+- `/boot/VERSION` (linha `build: <carimbo>`): comparada com o build enviado.
+- `boot/boot-<n>.log` (RAM, senão `ROMS/logs/boot/`): o que o `dev log` imprime primeiro; o
+  autoteste confere que existe (`bootlog-written`).
+- `lume-index: scan ... failed=<n>` do syslog do boot: o autoteste (`lume-index-scan`) passa
+  com `failed=0`, ou se o scan ainda roda.
+
 ## `metrics/boot-<n>.csv`
 
 CSV com cabeçalho, uma linha a cada `interval` segundos. As colunas que dependem do

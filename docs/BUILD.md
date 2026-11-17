@@ -84,3 +84,136 @@ alguns por cento de velocidade, estes ajustes são por sua conta e exigem root:
   `echo balance_power | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference`.
 
 Ambos voltam ao normal ao reiniciar (ou com o valor anterior no mesmo arquivo).
+
+# Testar no console pelo cabo: `r36os dev`, `push` e capturas
+
+Change `build-speed` (D12, D19). Tudo isto fala com o console pelo cabo USB da porta OTG, como
+root por ssh, sem senha e sem gravar nada no `known_hosts` do PC. Nada disso roda sem o
+console ligado e com o cabo.
+
+## Endereços
+
+Um só cartão SD vai de um console para o outro (GA36 e R36S), e **nunca os dois ficam ligados
+no PC ao mesmo tempo**. Os dois respondem no mesmo endereço pelo cabo: **`10.55.0.1`** (o PC
+recebe `10.55.0.2`). O `r36os dev` e o `r36os push` usam esse endereço; `--host ADDR` (antes
+da ação, ex. `r36os dev --host 10.55.0.1 wait`) troca o endereço.
+
+Para não testar o console errado, o `check` aceita `--console ga36|r36s` e recusa o outro com
+`error: the console on the cable is the GA36, not the R36S` (código de saída 1).
+
+## `r36os dev`
+
+Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
+
+| Ação | O que faz |
+| :--- | :--- |
+| `wait [--timeout S]` | espera o console responder pelo cabo (padrão 120 s); código 1 se não responder |
+| `sh <comando...>` | roda o comando no console como root, mostra a saída e devolve o código de saída dele |
+| `shot <arquivo.png>` | grava um PNG da tela (`r36os-shot` no console, lido pelo ssh) |
+| `shot --compare <tela>` / `--update <tela>` | captura de referência (seção abaixo) |
+| `keys <sequência> [--hold MS] [--gap MS]` | aperta botões (sintaxe abaixo) |
+| `log` | imprime o log do boot atual e os eventos desse boot do `events.log` |
+| `check [--console ga36\|r36s]` | roda o autoteste do aparelho; código 0 só se tudo passar |
+
+Exemplos:
+
+```
+.venv/bin/r36os dev wait --timeout 180
+.venv/bin/r36os dev sh uname -a
+.venv/bin/r36os dev shot cache/tmp/tela.png
+.venv/bin/r36os dev keys 'a,down*3,start+select,wait:500'
+.venv/bin/r36os dev log
+.venv/bin/r36os dev check --console ga36
+```
+
+### Sintaxe de `keys`
+
+Fichas separadas por vírgula (espaços são ignorados), tocadas em ordem:
+
+- um nome de botão: `a b x y l1 r1 l2 r2 l3 r3 up down left right select start fn`
+  (`mode` é o mesmo que `fn`); o botão fica apertado 80 ms (`--hold`) e há 120 ms de pausa
+  depois (`--gap`);
+- `nome*N` repete o aperto N vezes (`down*3`);
+- `a+b` é uma combinação: todos descem juntos e sobem juntos (`start+select`);
+- `wait:MS` (ou `w:MS`) pausa MS milissegundos;
+- os botões comuns vão ao controle virtual do `r36os-input` ("GA36-MB Gamepad" ou "R36S
+  Gamepad"), o que o launcher e o RetroArch leem. Uma combinação com `fn` (`fn+start`) vai ao
+  controle do kernel, porque o daemon monta os atalhos a partir dos botões físicos. `k:<ficha>`
+  força o controle do kernel e `v:<ficha>` o virtual.
+
+Os números dos `event` são lidos em `/proc/bus/input/devices` de cada console: nada é fixo
+por aparelho.
+
+### `log`
+
+Imprime o `boot-<n>.log` do boot atual (a cópia na RAM, senão a do cartão, senão o `dmesg`),
+uma linha em branco, `== events (boot <n>)` e as linhas desse boot no `events.log`. É o único
+lugar onde aparece a linha `boot OK completed: ...`, que não vai para o log de boot.
+
+### `check`
+
+Roda `/usr/libexec/r36os/selftest device` no console (sem disco de teste, sem reboot, sem
+botões) e imprime `GA36: self-test PASS (<n> checks)` ou `... FAIL (<k> of <n> checks failed)`
+seguido de uma linha `  FAIL <nome>: <detalhe>` por verificação. As verificações: partição
+`ROMS` montada, overlay da raiz, zram, resumo de hardware do boot sem falha, os serviços do
+nível padrão, `lume-index-scan`, frontend rodando como `game` e sem desistir, o controle
+virtual do `r36os-input`, o log de boot escrito, `boot-completed`, as pastas de log e o cgroup
+dos jogos entregue ao usuário `game`.
+
+O `lume-index-scan` olha o resultado do scan do launcher neste boot, não o estado do serviço:
+o `lume-index` é um scan em segundo plano que sai ao terminar (o OpenRC o mostra como
+`crashed`), então passa se ainda está rodando ou se a linha `lume-index: scan ... failed=0`
+está no syslog.
+
+## Capturas de referência (`shot --compare` / `--update`)
+
+- As telas estão em `tests/device/shots/screens.toml`: cada uma tem `keys`, a sequência (a
+  mesma sintaxe do `dev keys`) que leva a ela **a partir da home do launcher**; vazio é a
+  própria home. Volte à home antes de comparar a tela seguinte.
+- A referência de cada console fica em `tests/device/shots/<ga36|r36s>/<tela>.png`. O console
+  é descoberto pelo `uname -m` (`armv7l` = ga36, `aarch64` = r36s), então o mesmo comando
+  serve para os dois.
+- `shot --update <tela>` aperta as teclas, captura e grava a referência; `shot --compare
+  <tela>` captura e compara pixel a pixel. Um pixel conta como diferente quando algum canal
+  difere em mais de 16 (de 255); a tela falha quando **mais de 0,2%** dos pixels diferem
+  (ou o tamanho é outro).
+- Ao falhar, a imagem de diferença vai para `cache/shots/<console>-<tela>-diff.png`
+  (pixels iguais escurecidos, diferentes em vermelho) e o comando sai com código 1:
+  `ga36/home: FAILED (<n> of <total> pixels differ, <x>%); diff image: ...`.
+- Sem referência: `no reference at ... (record it with --update)`.
+- **Privacidade:** referência nunca mostra nome de jogo nem caminho de ROM. Só telas do
+  sistema e do launcher entram no `screens.toml`; telas com lista de jogos só depois de um
+  cartão de demonstração com nomes inventados.
+
+```
+.venv/bin/r36os dev shot --update home
+.venv/bin/r36os dev shot --compare home
+```
+
+## `r36os push` e a verificação depois do reboot
+
+`r36os push [--build CARIMBO] [--yes] [--no-wait]` atualiza o `BOOT` do console pelo cabo (ver
+o `README.md`). Depois do reboot ele **espera e confere** o boot novo, a menos que se passe
+`--no-wait`, que só reinicia e volta:
+
+1. o console deixa de responder pelo cabo (até 60 s) e volta a responder (até 180 s). Cada
+   sondagem de 10 s tem limite próprio, e o ssh usa `ServerAliveInterval` para uma conexão
+   cortada pelo reboot cair em cerca de 6 s em vez de travar;
+2. o número do boot (`/run/r36os/logs/boot-n`) é outro que o de antes do reboot (o relógio do
+   console não é confiável, então horas não são comparadas);
+3. o `/boot/VERSION` tem o build enviado;
+4. o `events.log` tem a linha `boot OK completed` desse boot (até 120 s).
+
+Sucesso (código 0):
+
+```
+ok: boot 47 completed with build 20261117-101500 (frontend in 33.1s from kernel); send 1m12s, boot 52s
+```
+
+O "send" é do início do envio até o reboot, o "boot" é do reboot até o `boot OK completed`.
+Cada falha (código 1) nomeia o último passo confirmado, por exemplo `the console did not come
+back over the cable within 180s (last step confirmed: the console went away for the
+reboot)`, `the console is back but still runs boot N, the one before the reboot`,
+`boot N runs build X from /boot/VERSION, not the pushed build Y` ou `boot N did not reach
+boot OK completed within 120s ... see r36os dev log`. Depois de um `push`, `r36os dev
+check` confirma a saúde do sistema.
