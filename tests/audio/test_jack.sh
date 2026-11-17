@@ -9,10 +9,13 @@ W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 
+# the jack is a CARD control (iface=CARD): asked as a MIXER control, amixer finds nothing
+# ("Cannot find the given element", R36S 2026-11-17)
 cat > "$W/amixer" <<'EOF'
 #!/bin/sh
 case "$*" in
-*cget*) echo "  : values=$(cat "$FAKE_STATE")" ;;
+*cget*iface=CARD*) echo "  : values=$(cat "$FAKE_STATE")" ;;
+*cget*) echo "amixer: Cannot find the given element from control sysdefault:0" >&2; exit 1 ;;
 *) echo "$*" >> "$FAKE_LOG" ;;
 esac
 exit 0

@@ -30,7 +30,9 @@ say() {
 last=""
 apply() {
 	local state mux
-	state=$("$AMIXER" -c "$CARD" cget name='Headphones Jack' 2>/dev/null | sed -n 's/.*: values=//p')
+	# a CARD control: without iface=CARD amixer looks among the MIXER ones and finds nothing
+	state=$("$AMIXER" -c "$CARD" cget iface=CARD,name='Headphones Jack' 2>/dev/null \
+		| sed -n 's/.*: values=//p')
 	case "$state" in
 	on) mux=HP ;;
 	off) mux=SPK ;;
@@ -60,5 +62,9 @@ if [ -z "$dev" ]; then
 	exit 1
 fi
 say "jack: watching $dev"
-# every event (switch and sync) wakes the loop; apply() only acts on a change
-od -An -v -tx1 -w"$EVENT_SIZE" "$dev" | while read -r _; do apply; done
+# every event (switch and sync) wakes the loop; apply() only acts on a change. dd reads the
+# device one event at a time: busybox od reads an evdev node with a size it refuses ("od:
+# /dev/input/event0: read error", R36S 2026-11-17), and od on a pipe would hold the events
+# back until its buffer fills; the inner dd takes one event per turn, none at the end
+dd if="$dev" bs="$EVENT_SIZE" 2>/dev/null \
+	| while [ "$(dd bs="$EVENT_SIZE" count=1 2>/dev/null | wc -c)" -gt 0 ]; do apply; done

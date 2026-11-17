@@ -79,7 +79,10 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
 
 
 # files edited on purpose after the move (only their mode is still held to the base commit)
-EDITED_AFTER_MOVE = {"usr/libexec/r36os/hwinfo"}        # 8.2: the fragments section
+EDITED_AFTER_MOVE = {
+    "usr/libexec/r36os/hwinfo",     # 8.2: the fragments section
+    "usr/libexec/r36os/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
+}
 
 
 def test_every_file_keeps_its_content_and_mode():
