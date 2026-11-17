@@ -230,10 +230,36 @@ def initramfs_inputs(target, rootfs_tar: Path) -> Inputs:
     return inp
 
 
+def tar_content_digest(tar_path: Path) -> str:
+    """SHA256 of what a tar holds (names, types, modes, owners, link targets and file bytes),
+    ignoring member times: `make modules_install` writes new mtimes on every build, so the
+    bytes of modules.tar change while the modules do not. The modules image is packed with
+    fixed times (-all-time 0), so the times do not reach it either."""
+    import tarfile
+
+    h = hashlib.sha256()
+    with tarfile.open(tar_path) as t:
+        for m in sorted(t.getmembers(), key=lambda m: m.name):
+            h.update(f"{m.name}\0{m.type!r}\0{m.mode:o}\0{m.uid}:{m.gid}\0{m.linkname}\0"
+                     .encode())
+            if m.isfile():
+                f = t.extractfile(m)
+                if f is not None:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+            h.update(b"\n")
+    return h.hexdigest()
+
+
 def modules_inputs(modules_tar: Path, script: str) -> Inputs:
-    """The console modules image (BOOT <console>/modules): the kernel modules.tar and the
-    script that packs it (compression included)."""
-    return Inputs().file("modules.tar", modules_tar).text("script", script)
+    """The console modules image (BOOT <console>/modules): the content of the kernel
+    modules.tar (not its bytes, see tar_content_digest) and the script that packs it."""
+    inp = Inputs()
+    if modules_tar.is_file():
+        inp.text("modules.tar content", tar_content_digest(modules_tar))
+    else:
+        inp.unknown = f"{modules_tar} is missing"
+    return inp.text("script", script)
 
 
 def system_inputs(rootfs_tar: Path, squashfs_options: str, limit_mib: int) -> Inputs:

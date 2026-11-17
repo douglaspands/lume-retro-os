@@ -219,18 +219,30 @@ def test_system_stage_runs_on_the_tar_the_options_and_the_limit(repo, tmp_path):
 
 def test_modules_image_stage_runs_on_the_modules_tar_and_the_script(repo, tmp_path):
     # a build without changes must not call mksquashfs for <console>/modules either
+    import io
+    import tarfile
+
     out = tmp_path / "k" / "modules"
     tar = tmp_path / "k" / "modules.tar"
     tar.parent.mkdir(parents=True)
-    tar.write_text("m1")
+
+    def write_tar(content: bytes, mtime: int) -> None:
+        with tarfile.open(tar, "w") as t:
+            info = tarfile.TarInfo("lib/modules/6.18.62-r36os/kernel/x.ko")
+            info.size, info.mtime = len(content), mtime
+            t.addfile(info, io.BytesIO(content))
 
     def make(script=rootfs.MODULES_SCRIPT):
         return lambda: stage_inputs.modules_inputs(tar, script)
 
+    write_tar(b"m1", 1000)
     assert run(make(), out)
+    assert not run(make(), out)
+    # modules_install writes new times on every build: same modules, stage skipped
+    write_tar(b"m1", 2000)
     assert not run(make(), out)
     assert run(make(script=rootfs.MODULES_SCRIPT + "# changed\n"), out)
     assert run(make(), out)
-    tar.write_text("m2")
+    write_tar(b"m2", 2000)
     assert run(make(), out)
     assert not run(make(), out)
