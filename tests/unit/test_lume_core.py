@@ -78,11 +78,18 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
     assert set(seen) == set(base)
 
 
+# files edited on purpose after the move (only their mode is still held to the base commit)
+EDITED_AFTER_MOVE = {"usr/libexec/r36os/hwinfo"}        # 8.2: the fragments section
+
+
 def test_every_file_keeps_its_content_and_mode():
     base = _base_overlay()
     for root in _roots():
         for rel in _tree(root):
             mode, sha = base[rel]
+            if rel in EDITED_AFTER_MOVE:
+                assert _git_mode(root / rel) == mode, rel
+                continue
             assert (_git_mode(root / rel), _blob_sha(root / rel)) == (mode, sha), rel
 
 

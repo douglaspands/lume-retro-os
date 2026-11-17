@@ -429,6 +429,12 @@ sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Se
 - `== system`: versão, placa, modelo e `compatible` do device tree, o DTB em uso
   (`dt in use: <id> (<motivo>)`, com `after kexec` quando houve troca), número de série,
   SoC, kernel e linha de comando.
+- `== fragments`: a versão de cada fragmento do projeto instalado no console (pacotes
+  `lume-*` e `r36os-*` do banco do apk, lidos de `/lib/apk/db/installed`), uma linha
+  `   <pacote>:   <versão>` por fragmento, em ordem alfabética (por exemplo
+  `   lume-core:   1.0-r5`). Mostra qual versão de cada fragmento rodou naquele boot; o
+  `r36os push` confere essas mesmas versões depois do reboot e falha quando diferem das
+  que enviou (`the console runs lume-core 1.0-r4, the push sent 1.0-r5`).
 - `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
   entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
   decodificador de vídeo, áudio, DMA, botões, gamepad, cartão, RTC, watchdog, sensor
