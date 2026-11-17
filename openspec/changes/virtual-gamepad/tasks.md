@@ -54,7 +54,7 @@ paralelo).
 
 ## 1. Formatos
 
-- [ ] 1.1 Congelar os dois formatos (D2, D4): o arquivo de gravação (`# r36os-evrec 1 <console>`, uma linha `<ms> <tipo> <código> <valor>` por evento, fim marcado) com leitor e escritor em Python no `r36os` (`src/r36os/evrec.py`), e o esquema do roteiro TOML (`consoles`, passos `keys`, `play`, `wait_event`, `wait_process`, `shot`, `sh`, `open_game`, `close_game`, cada um com `name` e `timeout`) com validação em `src/r36os/scripts.py`; o documento do teste no aparelho (`docs/BUILD.md`, seção do `r36os dev`) com os dois formatos. Verificação: testes de unidade (ida e volta de uma gravação, console errado recusado, roteiro com tipo desconhecido ou campo de nome de jogo recusado) e um teste que falha se um `.evrec` estiver no repositório ou se um roteiro de `tests/device/scripts/` tiver `name`/`path` de ROM.
+- [x] 1.1 Congelar os dois formatos (D2, D4): o arquivo de gravação (`# r36os-evrec 1 <console>`, uma linha `<ms> <tipo> <código> <valor>` por evento, fim marcado) com leitor e escritor em Python no `r36os` (`src/r36os/evrec.py`), e o esquema do roteiro TOML (`consoles`, passos `keys`, `play`, `wait_event`, `wait_process`, `shot`, `sh`, `open_game`, `close_game`, cada um com `name` e `timeout`) com validação em `src/r36os/scripts.py`; o documento do teste no aparelho (`docs/BUILD.md`, seção do `r36os dev`) com os dois formatos. Verificação: testes de unidade (ida e volta de uma gravação, console errado recusado, roteiro com tipo desconhecido ou campo de nome de jogo recusado) e um teste que falha se um `.evrec` estiver no repositório ou se um roteiro de `tests/device/scripts/` tiver `name`/`path` de ROM.
 
 ## 2. Gravar, repetir e replay
 
