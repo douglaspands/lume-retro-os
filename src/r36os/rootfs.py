@@ -19,6 +19,9 @@ SYSTEM_LIMIT_MIB = 768
 # On the console image both systems share the 2 GiB BOOT (r36s-single-card, system-image)
 CONSOLE_SYSTEM_LIMIT_MIB = 448
 MIRROR = "https://dl-cdn.alpinelinux.org/alpine"
+# mksquashfs options of SYSTEM (an input of its stage; -processors does not change the file)
+SQUASHFS_OPTIONS = ("-comp zstd -Xcompression-level 19 -b 256K -noappend -quiet "
+                    "-mkfs-time 0 -all-time 0")
 
 
 class SystemTooLargeError(RuntimeError):
@@ -91,6 +94,24 @@ tar -C $R --numeric-owner --sort=name -cf /out/rootfs.tar .
 """
 
 
+def _rootfs_script(target: Target, language: str) -> str:
+    tty, baud = serial_console(target)
+    return _ROOTFS_SCRIPT.format(
+        ver=ALPINE_VERSION, mirror=MIRROR, tty=tty, baud=baud, arch=target.alpine_arch,
+        board=target.name, lang=language, retro_lang=lang.retro_language(language),
+    )
+
+
+def stage_inputs(target: Target, v: version.BuildVersion | None, language: str):
+    """Inputs of the rootfs stage (build-speed D6); the build id is never one of them."""
+    from r36os import stage_inputs
+
+    return stage_inputs.rootfs_inputs(
+        target, _rootfs_script(target, language), pkglists.all_packages(target), language,
+        version.os_release() if v is not None else "", leiame.render(),
+        stage_inputs.mirror_index_hash(ALPINE_VERSION, MIRROR, target.alpine_arch))
+
+
 def build_rootfs(target: Target, v: version.BuildVersion | None = None,
                  language: str = lang.DEFAULT) -> Path:
     """Build the target rootfs; write rootfs.tar, manifest.txt and kernel/ to out/<target>/.
@@ -112,11 +133,7 @@ def build_rootfs(target: Target, v: version.BuildVersion | None = None,
     if errs:
         raise RuntimeError("invalid catalog: " + "; ".join(errs))
     (work / "LEIA-ME.txt").write_text(leiame.render())
-    tty, baud = serial_console(target)
-    script = _ROOTFS_SCRIPT.format(
-        ver=ALPINE_VERSION, mirror=MIRROR, tty=tty, baud=baud, arch=target.alpine_arch,
-        board=target.name, lang=language, retro_lang=retro_lang,
-    )
+    script = _rootfs_script(target, language)
     Container(
         image=ensure_builder(target),
         platform=target.oci_platform,
@@ -152,8 +169,7 @@ def make_system(target: Target, rootfs_tar: Path, dest: Path,
         src = f"/in/{rootfs_tar.name}"
     # mksquashfs does not depend on the target arch: always the x86_64 builder.
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
-        f"mksquashfs - /out/{dest.name} -tar -comp zstd -Xcompression-level 19 "
-        f"-b 256K -noappend -quiet -mkfs-time 0 -all-time 0 "
+        f"mksquashfs - /out/{dest.name} -tar {SQUASHFS_OPTIONS} "
         f"-processors {jobs.jobs()} < {src}"
     )
     size = dest.stat().st_size

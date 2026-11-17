@@ -24,6 +24,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="build the vm, test it, then the console image")
     b.add_argument("--lang", default=lang.DEFAULT, metavar="CODE",
                    help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en)")
+    b.add_argument("--clean", action="store_true",
+                   help="run every stage, even those whose inputs did not change")
 
     f = sub.add_parser("flash", help="write a built image to the card (run it in a terminal)")
     f.add_argument("target", help=f"image: {', '.join(IMAGES)}")
@@ -168,6 +170,9 @@ def _main(args: argparse.Namespace) -> int:
                 print("error: give a target or --all", file=sys.stderr)
                 return 2
             lang.retro_language(args.lang)  # validate before creating any file
+            from r36os import stage_inputs
+
+            stage_inputs.set_clean(args.clean)
             if args.all:
                 from r36os.release import build_all
 
