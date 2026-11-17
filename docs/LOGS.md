@@ -454,6 +454,13 @@ sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Se
   kernel criou o dispositivo e **qual driver o ativa** (`NO DRIVER` quando não há),
   ou se o nó existe mas está desativado (`disabled in DT`). Traz também o modo do USB OTG,
   o estado da entrada de energia e os LEDs com driver, brilho e gatilho.
+- `== memory` traz, só no GA36 (com o `r36os-devmem` instalado), o bloco
+  `-- DRAM clock (A33 registers, read only)`: os registradores crus `PLL_DDR1_CTRL_REG`
+  (0x01c2004c), `PLL_DDR1_PAT_CTRL_REG0/1` (0x01c202ac/b0), `DRAM_CFG_REG` (0x01c200f4) e
+  `PLL_DDR_CFG_REG` (0x01c200f8) e a linha `dram effective: memory <MHz> MHz, controller
+  <MHz> MHz (pll-ddr1 24 MHz x N=<n> = <MHz> MHz, M+1=<m>; ...)` (P-23). A conta é a parte
+  inteira do PLL (24 x N), memória = PLL / 2 e controlador = PLL / (M+1); a fração do
+  sigma-delta não entra (o registrador cru está na linha acima, com `sigma-delta on/off`).
 - `== CPU`, `== memory` (com o mapa físico do `/proc/iomem`), `== thermal`,
   `== regulators` (com a árvore de quem usa cada alimentação), `== battery and power`
   (com os domínios de energia).

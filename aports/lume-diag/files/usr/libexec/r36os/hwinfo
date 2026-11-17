@@ -21,6 +21,37 @@ fragment_versions() {
 		/^V:/ { if (p ~ /^(lume|r36os)-/) print p, substr($0, 3) }' "$APK_DB" 2>/dev/null | sort
 }
 
+# DRAM clock of the GA36 (game-governor 4.1, P-23): reads the A33 CCU registers with
+# r36os-devmem (read only, nothing is written) and prints the raw values next to the clock
+# computed from them. Skips silently on any other board or without the tool.
+# Sources: Linux drivers/clk/sunxi-ng/ccu-sun8i-a33.c (pll-ddr1 = 24 MHz * N, N = bits 13:8
+# of 0x04C, no offset; "pll-ddr" mux = bit 16 of 0x0F8, 0 = pll-ddr0, 1 = pll-ddr1; "dram" =
+# pll-ddr / (M + 1), M = bits 3:0 of 0x0F4) and U-Boot arch/arm/mach-sunxi/dram_sun8i_a33.c
+# (the memory runs at half of the PLL: DRAM_CLK_MUL 2, DRAM_CLK_DIV 4 for the controller).
+# The sigma-delta pattern (0x2AC/0x2B0, bit 31 of 0x2AC = enable) shifts the PLL by a
+# fraction that is not computed here: with it enabled the MHz below is the integer base and
+# the raw registers are the evidence to check it (P-23).
+R36OS_DEVMEM=${R36OS_DEVMEM:-r36os-devmem}
+dram_clock() {
+	local pll pat0 pat1 cfg mux n m src base
+	[ "$(board)" = ga36 ] && has "$R36OS_DEVMEM" || return 0
+	pll=$("$R36OS_DEVMEM" 0x01C2004C 2>/dev/null) || return 0
+	pat0=$("$R36OS_DEVMEM" 0x01C202AC 2>/dev/null) || return 0
+	pat1=$("$R36OS_DEVMEM" 0x01C202B0 2>/dev/null) || return 0
+	cfg=$("$R36OS_DEVMEM" 0x01C200F4 2>/dev/null) || return 0
+	mux=$("$R36OS_DEVMEM" 0x01C200F8 2>/dev/null) || return 0
+	n=$(( (pll >> 8) & 0x3f ))
+	m=$(( (cfg & 0xf) + 1 ))
+	base=$(( 24 * n ))
+	if [ $(( (mux >> 16) & 1 )) = 1 ]; then src="pll-ddr1"; else src="pll-ddr0 (not decoded)"; fi
+	kv "PLL_DDR1_CTRL_REG" "0x01c2004c = $pll"
+	kv "PLL_DDR1_PAT_CTRL_REG0" "0x01c202ac = $pat0 (sigma-delta $([ $(( pat0 >> 31 & 1 )) = 1 ] && echo on || echo off))"
+	kv "PLL_DDR1_PAT_CTRL_REG1" "0x01c202b0 = $pat1"
+	kv "DRAM_CFG_REG" "0x01c200f4 = $cfg"
+	kv "PLL_DDR_CFG_REG" "0x01c200f8 = $mux (source $src)"
+	kv "dram effective" "memory $(( base / 2 )) MHz, controller $(( base / m )) MHz (pll-ddr1 24 MHz x N=$n = $base MHz, M+1=$m; sigma-delta fraction not included)"
+}
+
 mountpoint -q /sys/kernel/debug 2>/dev/null || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 DBG=/sys/kernel/debug
 
@@ -160,6 +191,12 @@ for z in /sys/block/zram*; do
 done
 echo "-- physical memory map (/proc/iomem, top level)"
 grep -v '^ ' /proc/iomem 2>/dev/null | indent
+
+drams=$(dram_clock)
+if [ -n "$drams" ]; then
+	echo "-- DRAM clock (A33 registers, read only)"
+	printf '%s\n' "$drams"
+fi
 
 sec thermal
 for z in /sys/class/thermal/thermal_zone*; do

@@ -535,6 +535,39 @@ APK_DB=$W/none
 check "hwinfo: a missing apk database lists nothing" '[ -z "$(fragment_versions)" ]'
 check "hwinfo: the snapshot has the fragments section" \
 	'grep -q "^sec fragments" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
+### DRAM clock in the hardware snapshot (game-governor 4.1): the function of hwinfo run
+### against a fake r36os-devmem (N = 46 -> 1104 MHz, M = 3, sigma-delta on, source pll-ddr1)
+cat > "$W/fake-devmem" <<'EOF'
+#!/bin/sh
+case "$1" in
+0x01C2004C) echo 0x80002e00 ;;
+0x01C202AC) echo 0xd1303333 ;;
+0x01C202B0) echo 0x00000000 ;;
+0x01C200F4) echo 0x00000003 ;;
+0x01C200F8) echo 0x00010000 ;;
+*) exit 1 ;;
+esac
+EOF
+chmod +x "$W/fake-devmem"
+eval "$(sed -n '/^dram_clock() {/,/^}/p' aports/lume-diag/files/usr/libexec/r36os/hwinfo)"
+has() { command -v "$1" >/dev/null 2>&1; }
+kv() { printf '%-26s %s\n' "$1:" "$2"; }
+R36OS_DEVMEM=$W/fake-devmem
+echo ga36 > "$W/board"
+BOARD_FILE=$W/board
+dram_out=$(dram_clock)
+check "hwinfo: DRAM clock is computed from the registers (1104 MHz PLL -> 552 / 276)" \
+	'printf "%s\n" "$dram_out" | grep -q "dram effective: *memory 552 MHz, controller 276 MHz (pll-ddr1 24 MHz x N=46 = 1104 MHz, M+1=4"'
+check "hwinfo: DRAM clock records the raw registers next to the clock" \
+	'printf "%s\n" "$dram_out" | grep -q "0x01c2004c = 0x80002e00" && printf "%s\n" "$dram_out" | grep -q "0x01c202ac = 0xd1303333 (sigma-delta on)" && printf "%s\n" "$dram_out" | grep -q "0x01c200f4 = 0x00000003"'
+echo r36s > "$W/board"
+check "hwinfo: DRAM clock is skipped silently on another board" '[ -z "$(dram_clock)" ]'
+echo ga36 > "$W/board"
+R36OS_DEVMEM=$W/absent-devmem
+check "hwinfo: DRAM clock is skipped silently without r36os-devmem" '[ -z "$(dram_clock)" ]'
+check "hwinfo: the snapshot has the DRAM clock block" \
+	'grep -q "^drams=\$(dram_clock)" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
+unset BOARD_FILE R36OS_DEVMEM
 
 ### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
 ### the frontend starts and the events of the choice made in the initramfs
