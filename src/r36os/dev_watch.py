@@ -7,6 +7,7 @@ is printed per cycle, and a change made while a cycle runs starts another cycle 
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from pathlib import Path
@@ -102,6 +103,31 @@ def _why(e: BaseException) -> str:
     return " ".join(str(e).split()) or type(e).__name__
 
 
+@contextlib.contextmanager
+def _output_to(log: Path):
+    """Send stdout and stderr, at the file descriptor level (so child processes too), to
+    `log` (rewritten each cycle) while the block runs."""
+    import sys
+
+    log.parent.mkdir(parents=True, exist_ok=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = os.dup(1), os.dup(2)
+    with open(log, "w", buffering=1) as f:
+        os.dup2(f.fileno(), 1)
+        os.dup2(f.fileno(), 2)
+        try:
+            with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                yield
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(saved[0], 1)
+            os.dup2(saved[1], 2)
+            os.close(saved[0])
+            os.close(saved[1])
+
+
 def cmd_watch(fragment: str, host: str | None) -> int:
     from r36os import fragment_build, push_hot
     from r36os.push import PushError, Remote
@@ -111,8 +137,15 @@ def cmd_watch(fragment: str, host: str | None) -> int:
     fragment_build.plan_fragments([fragment])      # unknown names fail before the loop
     remote = Remote(host) if host else Remote()
 
+    log = REPO_ROOT / "out" / "dev-watch" / f"{fragment}.log"
+
     def build(name: str) -> None:
-        fragment_build.build_fragments([name])
+        # one line per cycle: the build output (podman included) goes to the log
+        try:
+            with _output_to(log):
+                fragment_build.build_fragments([name])
+        except (Exception, SystemExit) as e:
+            raise RuntimeError(f"{_why(e)} (log: {log})") from e
 
     def push(name: str) -> str:
         lines: list[str] = []

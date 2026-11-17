@@ -96,6 +96,18 @@ def test_snapshot_watches_aport_and_lume_sources(tmp_path):
     assert names == ["/aports/lume-launcher/APKBUILD", "/lume/lume-ui/src/a.rs"]
 
 
+def test_build_output_of_child_processes_goes_to_the_log(tmp_path, capfd):
+    import subprocess
+
+    log = tmp_path / "w" / "lume-core.log"
+    with dev_watch._output_to(log):
+        print("from python")
+        subprocess.run(["echo", "from a child"], check=True)
+    print("after")
+    assert log.read_text() == "from python\nfrom a child\n"
+    assert capfd.readouterr().out == "after\n"
+
+
 def test_refused_fragment_does_not_start(monkeypatch):
     from r36os.push import PushError
 
