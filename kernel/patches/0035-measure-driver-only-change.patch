@@ -1,0 +1,15 @@
+From: build-speed measurement <noreply@example.invalid>
+Subject: [PATCH] power: supply: rk817: temporary code change (build-speed 11.2 R36S proof)
+
+Temporary: proves that an R36S driver patch changes only the R36S kernel and that the push
+sends only it. Removed after the proof.
+---
+diff --git a/drivers/power/supply/rk817_charger.c b/drivers/power/supply/rk817_charger.c
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -1,4 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0+
++static const char rk817_proof_11_2[] __attribute__((used)) = "build-speed 11.2 proof";
+ /*
+  * Charger Driver for Rockchip rk817
+  *
