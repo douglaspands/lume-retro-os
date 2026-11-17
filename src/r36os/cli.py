@@ -96,7 +96,13 @@ def _parser() -> argparse.ArgumentParser:
                                       "(network command; needs a running game)")
     rp.add_argument("action", choices=("record", "stop", "play"))
     rp.add_argument("slot", type=int, nargs="?", help="replay slot (play only)")
-    for action in (sh, st, ky, lg, ck, rp):     # not wait: the console may still be off
+    rc = ds.add_parser("record", help="record button events on the console "
+                                      "(--stop: bring the recording to cache/recordings/)")
+    rc.add_argument("--stop", action="store_true", help="stop recording and fetch the file")
+    pl = ds.add_parser("play", help="play a recording (.evrec) on the console, "
+                                    "printing the measured delay")
+    pl.add_argument("file", type=Path)
+    for action in (sh, st, ky, lg, ck, rp, rc, pl):     # not wait: the console may still be off
         action.add_argument("--console", choices=("ga36", "r36s"),
                             help="refuse to run when the console on the cable is the other one")
 

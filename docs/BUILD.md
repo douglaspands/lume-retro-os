@@ -260,6 +260,8 @@ Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
 | `log` | imprime o log do boot atual e os eventos desse boot do `events.log` |
 | `check` | roda o autoteste do aparelho; código 0 só se tudo passar |
 | `replay record\|stop\|play <slot>` | replay do próprio RetroArch (gravar, parar, repetir o slot) pelo comando de rede (`RECORD_REPLAY`, `HALT_REPLAY`, `PLAY_REPLAY_SLOT`); sem jogo rodando é erro. O UDP não tem confirmação: o `dev` só confere, antes e depois, que o jogo segue em `PLAYING`; confirme o replay pela tela ou captura. Imprime só o core, nunca o nome do jogo |
+| `record` / `record --stop` | liga e para o gravador `r36os-evrec` no console (botões físicos, formato `.evrec`). `--stop` traz a gravação para `cache/recordings/<console>-<AAAAMMDD-HHMMSS>.evrec` (fora do git), apaga a cópia remota e imprime o caminho e o número de eventos; gravação vazia é erro e não é salva; gravar de novo com uma em andamento é erro |
+| `play <arquivo.evrec>` | envia a gravação ao console e a toca com `r36os-evrec play`, imprimindo o atraso medido (`delay max=<ms> mean=<ms> events=<n>`); gravação de outro console é recusada antes de enviar; falha do player vira código de saída 1 |
 | `watch <fragmento>` | a cada arquivo salvo do fragmento: build do fragmento e `push --hot` (seção abaixo); Ctrl-C encerra |
 
 `sh`, `shot`, `keys`, `log` e `check` aceitam `--console ga36|r36s` (seção acima); `wait` e

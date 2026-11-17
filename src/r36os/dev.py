@@ -19,6 +19,12 @@ refuses before running anything when the cable has the other one (build-speed 3.
   PLAY_REPLAY_SLOT <slot>. A GET_STATUS before (no game = error) and after (still PLAYING);
   UDP gives no ack, so the sent command itself is unconfirmed. Only the core is printed
   (the reply is cut before the game name on the console).
+- `record` / `record --stop`: start / stop the on-device `r36os-evrec record` (detached, to
+  /run/r36os/evrec/current.evrec). `--stop` brings the recording to cache/recordings/
+  `<console>-<YYYYmmdd-HHMMSS>.evrec`, deletes the remote copy; an empty recording is an error.
+- `play <file.evrec>`: send the recording and run `r36os-evrec play`, which prints
+  `delay max=<ms> mean=<ms> events=<n>`; a recording of the other console is refused before
+  anything is sent.
 
 Key sequence syntax (tokens separated by commas, spaces ignored):
 
@@ -468,6 +474,138 @@ def cmd_replay(host: str, action: str, slot: int | None = None, run=None,
     return 0
 
 
+# --- record / play (virtual-gamepad D3) ----------------------------------------------------
+
+EVREC_DIR = "/run/r36os/evrec"
+EVREC_CURRENT = f"{EVREC_DIR}/current.evrec"
+EVREC_PID = f"{EVREC_DIR}/record.pid"
+EVREC_PLAY = f"{EVREC_DIR}/play.evrec"
+RECORDINGS_DIR = REPO_ROOT / "cache" / "recordings"
+
+
+def record_start_command() -> str:
+    """Remote script: start `r36os-evrec record` detached; print `recording` or `busy`."""
+    return (f"mkdir -p {EVREC_DIR}; "
+            f"if [ -s {EVREC_PID} ] && kill -0 $(cat {EVREC_PID}) 2>/dev/null; "
+            "then echo busy; exit 0; fi; "
+            f"rm -f {EVREC_CURRENT}; "
+            f"nohup r36os-evrec record {EVREC_CURRENT} >/dev/null 2>&1 </dev/null & "
+            f"echo $! > {EVREC_PID}; sleep 0.3; "
+            f"if kill -0 $(cat {EVREC_PID}) 2>/dev/null; then echo recording; "
+            "else echo failed; fi")
+
+
+def record_stop_command() -> str:
+    """Remote script: SIGTERM the recorder and wait (at most 5 s) for it to write `# end`;
+    print `none` (nothing recording), `stopped` or `timeout`."""
+    return (f"pid=$(cat {EVREC_PID} 2>/dev/null); "
+            "if [ -z \"$pid\" ]; then echo none; exit 0; fi; "
+            "kill -TERM $pid 2>/dev/null; n=0; "
+            "while kill -0 $pid 2>/dev/null && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done; "
+            f"rm -f {EVREC_PID}; "
+            "if kill -0 $pid 2>/dev/null; then echo timeout; else echo stopped; fi")
+
+
+def record_fetch_command() -> str:
+    return f"cat {EVREC_CURRENT}"
+
+
+def record_clean_command() -> str:
+    return f"rm -f {EVREC_CURRENT}"
+
+
+def play_upload_command() -> str:
+    return f"mkdir -p {EVREC_DIR} && cat > {EVREC_PLAY}"
+
+
+def play_command() -> str:
+    return f"r36os-evrec play {EVREC_PLAY}"
+
+
+def play_clean_command() -> str:
+    return f"rm -f {EVREC_PLAY}"
+
+
+def cmd_record(host: str, console: str, stop: bool, run=None,
+               recordings_dir: Path | None = None, now=time.localtime) -> int:
+    """`record` starts the on-device recorder; `record --stop` stops it, brings the
+    recording to cache/recordings/ and deletes the remote copy. A recording without a
+    single event is an error and is not saved."""
+    from r36os import evrec
+
+    run = run or (lambda c: run_capture(host, c))
+    if not stop:
+        answer = run(record_start_command()).strip()
+        if answer == "busy":
+            raise DevError("a recording is already running on the console "
+                           "(`r36os dev record --stop` ends it)")
+        if answer != "recording":
+            raise DevError("the recorder did not start (is r36os-evrec installed and "
+                           "is this the right image?)")
+        print(f"recording on the {console.upper()}: press buttons, then "
+              "`r36os dev record --stop`")
+        return 0
+    answer = run(record_stop_command()).strip()
+    if answer == "none":
+        raise DevError("no recording is running on the console")
+    if answer == "timeout":
+        run(record_clean_command())
+        raise DevError("the recorder did not stop within 5 s")
+    try:
+        rec = evrec.parse(run(record_fetch_command()), expect_console=console)
+    except evrec.EvrecError as e:
+        raise DevError(f"the recording from the console is not valid: {e}") from None
+    finally:
+        run(record_clean_command())
+    if not rec.events:
+        raise DevError("the recording is empty (no button event was captured); not saved")
+    out_dir = recordings_dir or RECORDINGS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{console}-{time.strftime('%Y%m%d-%H%M%S', now())}.evrec"
+    evrec.write(path, rec)
+    print(f"saved {path} ({len(rec.events)} events, {rec.end_ms} ms)")
+    return 0
+
+
+def _ssh_send(host: str):
+    def send(cmd: str, data: bytes | None = None) -> tuple[int, str]:
+        r = subprocess.run(ssh_argv(host, cmd), input=data if data is not None else b"",
+                           capture_output=True)
+        if r.returncode == 255:
+            raise DevError(f"ssh to the console failed: "
+                           f"{r.stderr.decode(errors='replace').strip() or 'no answer'}")
+        return r.returncode, (r.stdout + r.stderr).decode(errors="replace")
+    return send
+
+
+def cmd_play(host: str, console: str, file: Path, send=None) -> int:
+    """`play <file>`: send a recording to the console and play it with `r36os-evrec play`,
+    printing the measured delay line. A recording of the other console is refused before
+    anything is sent; a failing player (refusal, no permission) fails the command."""
+    from r36os import evrec
+
+    send = send or _ssh_send(host)
+    try:
+        rec = evrec.read(file, expect_console=console)
+    except (evrec.EvrecError, OSError, UnicodeDecodeError) as e:
+        raise DevError(f"cannot play {file}: {e}") from None
+    if not rec.events:
+        raise DevError(f"{file} has no events")
+    try:
+        rc, out = send(play_upload_command(), evrec.dumps(rec).encode("ascii"))
+        if rc != 0:
+            raise DevError(f"could not send the recording to the console: {out.strip()}")
+        rc, out = send(play_command())
+    finally:
+        send(play_clean_command())
+    out = out.strip()
+    if out:
+        print(out)
+    if rc != 0:
+        raise DevError(f"r36os-evrec play failed ({rc})")
+    return 0
+
+
 def which_console(host: str, wanted: str | None) -> str:
     """Say which console answered on the cable (stderr) and refuse, before anything runs,
     when `--console` names the other one (build-speed 3.4, push.console_refusal)."""
@@ -483,7 +621,11 @@ def main_dev(args) -> int:
     try:
         if args.dev_command == "wait":
             return cmd_wait(host, args.timeout)
-        which_console(host, getattr(args, "console", None))  # wait excluded: may be off
+        console_name = which_console(host, getattr(args, "console", None))  # not wait: may be off
+        if args.dev_command == "record":
+            return cmd_record(host, console_name, args.stop)
+        if args.dev_command == "play":
+            return cmd_play(host, console_name, args.file)
         if args.dev_command == "sh":
             return cmd_sh(host, args.cmd)
         if args.dev_command == "shot":
