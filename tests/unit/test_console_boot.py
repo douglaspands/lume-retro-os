@@ -339,25 +339,65 @@ def test_assemble_lists_conflicting_sectors():
 MiB = 2**20
 
 
-def _boot_sizes(ga36_system=280 * MiB, r36s_system=300 * MiB, image=45 * MiB,
-                r36s_modules=20 * MiB):
-    return {"boot.ini": 600, "ga36/SYSTEM": ga36_system, "r36s/SYSTEM": r36s_system,
-            "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
-            "ga36/zImage": 6 * MiB, "ga36/modules": 2 * MiB, "r36s/modules": r36s_modules,
-            "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000}
+def _boot_sizes(ga36_runtime=260 * MiB, r36s_runtime=262 * MiB, image=45 * MiB,
+                r36s_modules=15 * MiB):
+    sizes = {"boot.ini": 600, "r36s/Image": image, "dtbs/rk3326/rk3326-r36s-v5.dtb": 60_000,
+             "ga36/zImage": 6 * MiB, "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb": 30_000,
+             "ga36/SLOTS": 6000, "r36s/SLOTS": 6000}
+    for console, runtime, modules in (("ga36", ga36_runtime, 2 * MiB),
+                                      ("r36s", r36s_runtime, r36s_modules)):
+        sizes.update({f"{console}/slots/base-000000000000": 22 * MiB,
+                      f"{console}/slots/runtime-000000000000": runtime,
+                      f"{console}/slots/lume-000000000000": 3 * MiB,
+                      f"{console}/slots/modules-000000000000": modules})
+    return sizes
+
+
+def _slot_set(layer_out: Path, console: str) -> dict[str, Path]:
+    """A slot set in <layer>/slots/ as the build leaves it; BOOT path -> file."""
+    from r36os import manifests
+
+    sdir = layer_out / "slots"
+    sdir.mkdir(parents=True, exist_ok=True)
+    made, lower = [], ()
+    for name in manifests.REQUIRED_SLOTS:
+        data = f"{console} {name}".encode()
+        sha = hashlib.sha256(data).hexdigest()
+        slot = manifests.Slot(name=name, sha256=sha, size=len(data),
+                              lower=lower if name != "modules" else ())
+        (sdir / Path(slot.file).name).write_bytes(data)
+        if name != "modules":
+            lower = (*lower, (name, sha))
+        made.append(slot)
+    manifests.write_slots(sdir / "SLOTS", manifests.SlotSet(build="1", console=console,
+                                                             slots=tuple(made)))
+    return {f"{console}/SLOTS": sdir / "SLOTS",
+            **{f"{console}/{s.file}": sdir / Path(s.file).name for s in made}}
 
 
 def test_console_boot_files_layout(tmp_path):
     from r36os import image
 
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
-    assert {"boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
+    assert {"boot.ini", "ga36/SLOTS", "ga36/zImage", "r36s/SLOTS", "r36s/Image",
             "dtbs/rk3326/rk3326-r36s-v5.dtb"} <= set(files)
     assert files["boot.ini"] == image.REPO_ROOT / "board/r36s/boot.ini"
     assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
-    # kernel-modules-image D1: each console's modules image next to its kernel
-    assert files["ga36/modules"] == tmp_path / "ga36/kernel/modules"
-    assert files["r36s/modules"] == tmp_path / "r36s/kernel/modules"
+    # build-speed D9: the root of each console is its slot set; without one the SLOTS path
+    # is still listed, so the image build says it is missing
+    assert files["ga36/SLOTS"] == tmp_path / "ga36/slots/SLOTS"
+    # no SYSTEM and no modules image of their own on a new card: the slots replace them
+    assert not [p for p in files if p.endswith(("/SYSTEM", "/modules"))]
+    want = {**_slot_set(tmp_path / "ga36", "ga36"), **_slot_set(tmp_path / "r36s", "r36s")}
+    files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
+    assert {p: s for p, s in files.items() if p.split("/")[0] in ("ga36", "r36s")
+            and p.split("/")[1] in ("SLOTS", "slots")} == want
+    assert len([p for p in files if p.startswith("r36s/slots/")]) == 4
+    # a set of the other console in the folder of this one is refused
+    (tmp_path / "x").mkdir()
+    _slot_set(tmp_path / "x", "r36s")
+    with pytest.raises(Exception, match="not ga36"):
+        image.console_boot_files(tmp_path / "x", tmp_path / "r36s")
     (tmp_path / "ga36/kernel/dtbs").mkdir(parents=True)
     (tmp_path / "ga36/kernel/dtbs/a.dtb").write_bytes(b"d")
     (tmp_path / "r36s/kernel/dtbs").mkdir(parents=True)
@@ -443,28 +483,37 @@ def test_archived_boot_list_matches_the_build():
         pytest.skip("no console build with a BOOT list yet")
     names = [p for p, _ in image.read_boot_list(path)]
     assert names[-1] == "VERSION" and len(set(names)) == len(names)
-    for want in ("boot.ini", "ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "r36s/Image",
-                 f"dtbs/rk3326/{image.R36S_DTB}"):
+    for want in ("boot.ini", "ga36/zImage", "r36s/Image", f"dtbs/rk3326/{image.R36S_DTB}"):
         assert want in names, want
-    if "ga36/modules" not in names:
-        pytest.skip("latest console build is older than kernel-modules-image")
-    assert "r36s/modules" in names
+    if "ga36/SLOTS" not in names:
+        # a build before the slots (build-speed D9) carries the SYSTEM of each console
+        assert "ga36/SYSTEM" in names and "r36s/SYSTEM" in names
+        pytest.skip("latest console build is older than the slots")
+    for console in ("ga36", "r36s"):
+        slots = sorted(p.split("/")[2].split("-")[0] for p in names
+                       if p.startswith(f"{console}/slots/"))
+        assert slots == ["base", "lume", "modules", "runtime"], (console, slots)
+        assert f"{console}/SYSTEM" not in names
 
 
 def test_console_boot_within_limits():
     from r36os import image
 
     image.check_console_boot(_boot_sizes())
-    image.check_console_boot(_boot_sizes(ga36_system=448 * MiB, r36s_system=448 * MiB,
-                                         image=20 * MiB))
+    # both consoles with ~330 MiB of slots, counted twice (the previous sets): ~1.4 GiB
+    image.check_console_boot(_boot_sizes(ga36_runtime=300 * MiB, r36s_runtime=300 * MiB))
 
 
 @pytest.mark.parametrize("which", ["ga36", "r36s"])
-def test_console_boot_refuses_system_above_448_mib(which):
+def test_console_boot_refuses_slots_above_448_mib(which):
     from r36os import image
 
-    sizes = _boot_sizes(**{f"{which}_system": 448 * MiB + 1})
-    with pytest.raises(image.ConsoleImageError, match=f"{which}/SYSTEM.*448 MiB"):
+    sizes = _boot_sizes(**{f"{which}_runtime": 448 * MiB - 22 * MiB - 3 * MiB})
+    with pytest.raises(image.ConsoleImageError, match=f"slots of {which}.*448 MiB"):
+        image.check_console_boot(sizes)
+    sizes = _boot_sizes(**{f"{which}_runtime": 200 * MiB})
+    sizes[f"{which}/slots/core-x-000000000000"] = 300 * MiB    # every slot counts
+    with pytest.raises(image.ConsoleImageError, match=f"slots of {which}.*448 MiB"):
         image.check_console_boot(sizes)
 
 
@@ -472,18 +521,23 @@ def test_console_boot_needs_64_mib_free():
     from r36os import image
 
     with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
-        image.check_console_boot(_boot_sizes(ga36_system=440 * MiB, r36s_system=440 * MiB,
-                                             image=1110 * MiB))
+        image.check_console_boot(_boot_sizes(image=900 * MiB))
 
 
-def test_console_boot_counts_the_modules_images():
-    # kernel-modules-image: the 64 MiB free account includes both modules files
+def test_console_boot_counts_the_previous_slot_set():
+    # system-image: 64 MiB free counting the previous set a push keeps (SLOTS.old), taken
+    # as large as the new one: a slot of 60 MiB more takes 120 MiB of the free space
     from r36os import image
 
-    big = {"ga36_system": 440 * MiB, "r36s_system": 440 * MiB, "image": 1000 * MiB}
-    image.check_console_boot(_boot_sizes(**big, r36s_modules=20 * MiB))
-    with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
-        image.check_console_boot(_boot_sizes(**big, r36s_modules=100 * MiB))
+    sizes = _boot_sizes(ga36_runtime=400 * MiB, r36s_runtime=400 * MiB)
+    files = sum(-(-s // 4096) * 4096 for s in sizes.values())
+    slots = sum(-(-s // 4096) * 4096 for p, s in sizes.items() if "/slots/" in p)
+    free = 4 * 2**30 // 2 - 16 * MiB - files - slots
+    sizes["r36s/Image"] += free - 64 * MiB               # exactly 64 MiB left
+    image.check_console_boot(sizes)
+    sizes["r36s/Image"] += 4096
+    with pytest.raises(image.ConsoleImageError, match="previous slot set"):
+        image.check_console_boot(sizes)
 
 
 def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
@@ -494,12 +548,13 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     from r36os import image, version
 
     monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    for f in ("ga36/SYSTEM", "ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
-              "ga36/kernel/android-boot-panel1.img", "ga36/kernel/modules",
-              "r36s/SYSTEM", "r36s/kernel/Image", "r36s/kernel/modules",
+    for f in ("ga36/kernel/zImage", "ga36/kernel/dtbs/a.dtb",
+              "ga36/kernel/android-boot-panel1.img", "r36s/kernel/Image",
               "r36s/kernel/dtbs/rk3326-r36s-v5.dtb"):
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / f).write_bytes(b"x")
+    ga36_set = _slot_set(tmp_path / "ga36", "ga36")
+    _slot_set(tmp_path / "r36s", "r36s")
     # the build checks the lume-select node of every DTB (boot-dtb-select D3)
     from r36os import fdt
     for f, ident in (("ga36/kernel/dtbs/a.dtb", "a"),
@@ -535,7 +590,10 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
                         lambda out, files, parts: stored.update(files=files, parts=parts))
     image.build_console_image(version.current())
     # every BOOT file, VERSION and both image parts go to the objects (build-speed D10)
-    assert {"VERSION", "ga36/SYSTEM", "r36s/modules"} <= set(stored["files"])
+    assert {"VERSION", "ga36/SLOTS", "r36s/SLOTS", *ga36_set} <= set(stored["files"])
+    assert not [p for p in stored["files"] if p.endswith(("/SYSTEM", "/modules"))]
+    for path in ga36_set:                                    # slots copied to the FAT
+        assert f'"::{path}"' in captured["script"]
     assert set(stored["parts"]) == {image.AREA_PART, image.PANEL1_PART}
 
     mounts = set(captured["volumes"].values())

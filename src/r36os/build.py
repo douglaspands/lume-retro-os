@@ -1,4 +1,5 @@
-"""Build pipeline (D2): each hardware layer up to its SYSTEM, then the image.
+"""Build pipeline (D2): each hardware layer up to its root (the slot set of a console,
+build-speed D9; the SYSTEM of the vm), then the image.
 
 `build vm` builds the vm layer and its image. `build console` (design D1) builds the ga36
 and r36s layers at the same time (task 6.6: the armv7 and aarch64 pipelines, half the job
@@ -8,8 +9,8 @@ the single card image with both systems.
 
 from __future__ import annotations
 
-from r36os import (bootimg, heat, image, kernel, lang, parallel, rootfs, stage_inputs, uboot,
-                   version)
+from r36os import (bootimg, heat, image, kernel, lang, manifests, parallel, rootfs, slots,
+                   stage_inputs, uboot, version)
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import (build_noarch, build_packages, ensure_key, is_noarch_aport,
@@ -109,7 +110,7 @@ def _build_image_target(img_target: ImageTarget, rebuild_packages: bool, languag
 
 def build_layer(target: Target, v: version.BuildVersion, language: str,
                 rebuild_packages: bool = False, timer: StageTimer | None = None) -> None:
-    """Packages, kernel, initramfs and SYSTEM of one hardware layer in out/<layer>/."""
+    """Packages, kernel, initramfs and root (slots or SYSTEM) of one layer in out/<layer>/."""
     timer = timer or StageTimer()
     p = f"{target.name}: "  # prefix of the stage names in the summary
     out = rootfs.target_out(target)
@@ -132,14 +133,41 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     stage_inputs.run_stage(
         timer, p + "rootfs", tar, lambda: rootfs.stage_inputs(target, v, language),
         lambda: rootfs.build_rootfs(target, v, language), required=[out / "manifest.txt"])
+    if console:
+        # the console root is a slot set (build-speed D9): base, runtime and lume split
+        # from rootfs.tar by owner, the modules image as the modules slot, and SLOTS
+        build_console_slots(target, v, timer)
+        return
+    # the vm keeps its single SYSTEM (design D13)
     limit = rootfs.system_limit_mib(target)
     stage_inputs.run_stage(
         timer, p + "SYSTEM", out / "SYSTEM",
         lambda: stage_inputs.system_inputs(tar, rootfs.SQUASHFS_OPTIONS, limit),
         lambda: rootfs.make_system(target, tar, out / "SYSTEM", limit))
     # [4] VM: the initramfs carries modules from the rootfs
-    if not console:
-        _initramfs_stage(target, timer, p)
+    _initramfs_stage(target, timer, p)
+
+
+def build_console_slots(target: Target, v: version.BuildVersion,
+                        timer: StageTimer | None = None) -> None:
+    """out/<console>/slots/: the overlay slots (skipped when rootfs.tar holds the same
+    files, slots.toml and the options did not change) and the set of this build (SLOTS
+    with the build id, the modules slot, the 448 MiB limit)."""
+    timer = timer or StageTimer()
+    p = f"{target.name}: "
+    out = rootfs.target_out(target)
+    tar = out / "rootfs.tar"
+    sdir = slots.slots_dir(out)
+    stage_inputs.run_stage(
+        timer, p + "slots", sdir / slots.OVERLAY_RECORD,
+        lambda: stage_inputs.slots_inputs(tar, slots.SLOTS_TOML, rootfs.SQUASHFS_OPTIONS),
+        lambda: slots.build_overlay_slots(tar, sdir, rootfs.SQUASHFS_OPTIONS),
+        required=slots.overlay_files(sdir))
+    release = out / "kernel" / "release"
+    build_id = (v or version.current()).build_id
+    with timer.stage(p + "slot set"):
+        slots.write_slot_set(target.name, build_id, sdir, out / "kernel" / "modules",
+                             release.read_text().strip() if release.exists() else "")
 
 
 def noarch_fragments() -> list[str]:
@@ -184,7 +212,13 @@ def _alpine() -> str:
 
 def _layer_info(target: Target) -> dict:
     """Components of one layer for build.json."""
-    info: dict = {"system_bytes": (rootfs.target_out(target) / "SYSTEM").stat().st_size}
+    out = rootfs.target_out(target)
+    if target.name in kernel.KERNEL_TARGETS:
+        ss = manifests.read_slots(slots.slots_dir(out) / manifests.SLOTS_FILE)
+        info: dict = {"slots": {s.name: {"file": s.file, "bytes": s.size}
+                                for s in ss.slots}}
+    else:
+        info = {"system_bytes": (out / "SYSTEM").stat().st_size}
     release = rootfs.target_out(target) / "kernel" / "release"
     if target.name in kernel.KERNEL_TARGETS and release.exists():
         info["kernel"] = release.read_text().strip()
@@ -215,8 +249,8 @@ ANDROID_BOOT = {"ga36": {"panel1": "sun8i-a33-ga36-mb-v1.2-panel1.dtb",
 
 
 def build_console_kernel(target: Target, timer: StageTimer | None = None) -> None:
-    """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (BOOT
-    <console>/modules, outside SYSTEM), validated dtbs/ and boot."""
+    """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (the
+    modules slot of the console, build-speed D9), validated dtbs/ and boot."""
     timer = timer or StageTimer()
     p = f"{target.name}: "
     out = rootfs.target_out(target)

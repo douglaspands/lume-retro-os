@@ -262,6 +262,23 @@ def modules_inputs(modules_tar: Path, script: str) -> Inputs:
     return inp.text("script", script)
 
 
+def slots_inputs(rootfs_tar: Path, slots_toml: Path, squashfs_options: str) -> Inputs:
+    """The overlay slots of a console (base, runtime, lume; build-speed D9): what rootfs.tar
+    holds (not its bytes: apk writes new times on every install, and the slots are packed
+    with fixed times), the groups of slots.toml, the split rule and the mksquashfs options."""
+    from r36os import slots
+
+    inp = Inputs()
+    if rootfs_tar.is_file():
+        inp.text("rootfs.tar content", tar_content_digest(rootfs_tar))
+    else:
+        inp.unknown = f"{rootfs_tar} is missing"
+    return (inp.file("slots.toml", slots_toml)
+            .text("split-format", slots.SPLIT_FORMAT)
+            .text("script", slots.SLOT_SCRIPT)
+            .text("mksquashfs-options", squashfs_options))
+
+
 def system_inputs(rootfs_tar: Path, squashfs_options: str, limit_mib: int) -> Inputs:
     return (Inputs()
             .file("rootfs.tar", rootfs_tar)
