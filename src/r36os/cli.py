@@ -100,6 +100,17 @@ def _parser() -> argparse.ArgumentParser:
                                      "fragment build, then push --hot (Ctrl-C ends)")
     wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
 
+    pw = sub.add_parser("power", help="power profiles: report on the card's metrics and events")
+    pw.add_argument("--host", metavar="ADDR", help="console address (default: the USB cable's)")
+    ps = pw.add_subparsers(dest="power_command", required=True, metavar="<action>")
+    pr = ps.add_parser("report", help="summarise ROMS/logs by scenario and system "
+                                      "(table + CSV in cache/), no game names")
+    pr.add_argument("--since", type=int, metavar="BOOT", help="only boots numbered BOOT or later")
+    pr.add_argument("--console", choices=("ga36", "r36s"),
+                    help="refuse to run when the console on the cable is the other one")
+    pr.add_argument("--from-dir", type=Path, metavar="DIR",
+                    help="read a local copy of ROMS/logs instead of the cable")
+
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
 
@@ -250,6 +261,10 @@ def _main(args: argparse.Namespace) -> int:
             from r36os.dev import main_dev
 
             return main_dev(args)
+        if args.command == "power":
+            from r36os.power_report import main_power_report
+
+            return main_power_report(args.since, args.console, args.host, args.from_dir)
         if args.command == "eject":
             from r36os.flash import main_eject
 

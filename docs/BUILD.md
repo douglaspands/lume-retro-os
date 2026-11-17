@@ -315,6 +315,43 @@ o `lume-index` é um scan em segundo plano que sai ao terminar (o OpenRC o mostr
 `crashed`), então passa se ainda está rodando ou se a linha `lume-index: scan ... failed=0`
 está no syslog.
 
+## Relatório de energia: `r36os power report`
+
+Change `game-governor` (D14). Lê pelo cabo as métricas (`metrics/boot-<n>.csv`) e o `events.log`
+(com os rotacionados) de `ROMS/logs/` e resume por cenário, sistema e perfil de energia:
+
+```
+.venv/bin/r36os power report [--since <boot>] [--console ga36|r36s] [--from-dir <pasta>]
+```
+
+- `--since <boot>`: só os boots de número igual ou maior.
+- `--console`: recusa, antes de ler, se o console no cabo for o outro (como o `dev`).
+- `--from-dir <pasta>`: lê uma cópia local de `ROMS/logs/` (ou o cartão montado) em vez do cabo,
+  para analisar sessões antigas sem o console. `--host ADDR` (antes de `report`) troca o endereço.
+
+O cenário vem da coluna `frontend` (`menu`, `game`, `other`; `idle` quando o evento
+`power OK profile: idle -> <perfil>` está em vigor) e o perfil, do último evento
+`power OK profile: <cenário> -> <perfil>` antes da amostra (`-` sem o serviço: governor padrão
+do kernel; é o "antes" do antes e depois). Colunas, impressas e gravadas em
+`cache/power-report-<data>.csv`:
+
+| Coluna | Conteúdo |
+|---|---|
+| `scenario`, `system`, `profile` | o grupo (`system` só em jogo: a coluna `core` das métricas) |
+| `samples` | amostras do grupo |
+| `bat_ma` | corrente média (valor absoluto; amostras `Charging` ficam fora) |
+| `fps_pct` | média de `fps` / `fps_nominal`, em % |
+| `slow` | eventos `game FAIL slow` do grupo (o sistema vem da amostra de jogo mais próxima) |
+| `cpu_cores_pct` | ocupação média de cada núcleo, `cpu0/cpu1/...` |
+| `busiest_mean_pct`, `busiest_p90_pct` | média e p90 do núcleo mais ocupado |
+| `clock_mhz` | clock médio (colunas `freq_*_mhz`) |
+| `temp_max_c` | temperatura máxima |
+| `logd_cpu_pct`, `sugov_cpu_pct` | custo médio do `logd` e do `sugov` (colunas `logd*_cpu_pct` e `sugov*_cpu_pct`, quando as métricas as têm) |
+
+Coluna ausente em amostras antigas aparece como `-` (vazia no CSV). O relatório nunca lê a
+coluna `content` nem o detalhe dos eventos, e só deixa passar nomes curtos de sistema e perfil:
+nome de jogo e caminho de ROM não chegam à saída.
+
 ## Capturas de referência (`shot --compare` / `--update`)
 
 - As telas estão em `tests/device/shots/screens.toml`: cada uma tem `keys`, a sequência (a
