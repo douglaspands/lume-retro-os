@@ -1,0 +1,15 @@
+From: build-speed measurement <noreply@example.invalid>
+Subject: [PATCH] Input: ga36mb-gamepad: temporary code change (build-speed 7.3 proof)
+
+Temporary: proves that a GA36 driver patch changes only the armv7 kernel packages. Removed
+after the proof.
+---
+diff --git a/drivers/input/joystick/ga36mb-gamepad.c b/drivers/input/joystick/ga36mb-gamepad.c
+--- a/drivers/input/joystick/ga36mb-gamepad.c
++++ b/drivers/input/joystick/ga36mb-gamepad.c
+@@ -1,4 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0
++static const char ga36mb_proof_7_3[] __attribute__((used)) = "build-speed 7.3 proof";
+ /*
+  * GA36-MB gamepad: the buttons wired to GPIOs and the two analog sticks read by a
+  * secondary microcontroller over a UART, presented as one input device.
