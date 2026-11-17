@@ -121,6 +121,8 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
+| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; desligamento por bateria crítica (`OK shutdown: battery critical`) |
+
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
 
@@ -149,6 +151,96 @@ Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.
   autoteste confere que existe (`bootlog-written`).
 - `lume-index: scan ... failed=<n>` do syslog do boot: o autoteste (`lume-index-scan`) passa
   com `failed=0`, ou se o scan ainda roda.
+
+## Energia: FIFO, perfis e `power.state` (game-governor)
+
+Protocolo congelado na change `game-governor` (nó 1.1). Código: `lume/lume-core/src/power.rs`
+(escritor), `powerstate.rs` (leitor), `powerconf.rs` (editor) e
+`aports/lume-power/files/usr/libexec/r36os/power-profiles.sh` (validador em shell, `source` pelo
+`r36os-power`).
+
+### FIFO `/run/r36os/power`
+
+Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
+
+| Mensagem | Quem | Efeito |
+|---|---|---|
+| `menu` | `lume-ui` | cenário menu |
+| `idle` | `lume-ui` | cenário launcher parado |
+| `game <sistema> <core>` | `lume-run`, antes do `exec` | cenário jogo (perfil pelo `core`, depois pela classe do sistema, depois `game`) |
+| `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
+| `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
+
+O escritor abre o FIFO com `O_NONBLOCK`, sem criá-lo: sem o serviço (sem FIFO, sem leitor, pipe
+cheio) a mensagem é descartada e o chamador segue. Espaço ou caractere de controle em
+`<sistema>` e `<core>` vira `_`, vazio vira `-`. API: `lume_core::power::notify(&Message)`.
+
+### Arquivo de perfis
+
+Duas camadas: `/usr/share/lume/power/<console>.conf` (imagem) e, por cima, o
+`ROMS/system/lume/power.conf` (cartão, escrito à mão ou pela interface). Uma entrada por linha;
+linhas em branco e `#` (inclusive no fim da linha) são ignorados.
+
+```
+profile <nome> chave=valor...   governor min max cores gpu_max up_threshold
+                                sampling_down_factor rate_limit_us controller=load
+class <sistema> <perfil>        perfil da classe do sistema
+core <core> <perfil>            exceção por core
+battery warn=<%> critical=<%>
+enabled 0|1
+idle after=<segundos>           0 desliga
+limit game_min=<khz>            piso de jogo; só no arquivo da imagem
+```
+
+- `min` e `max` em kHz na tabela de `scaling_available_frequencies` (ou entre
+  `cpuinfo_min_freq` e `cpuinfo_max_freq` sem tabela), `gpu_max` em Hz na tabela do devfreq,
+  `governor` em `scaling_available_governors`, `cores` de 1 ao número de núcleos, `min` <= `max`.
+- Um perfil inválido é recusado inteiro. A linha do cartão recusada deixa a da imagem valer;
+  `class`/`core` que apontam para perfil recusado ou desconhecido são recusadas (a classe usa o
+  perfil `game`). Linha desconhecida é registrada e ignorada. O cartão vale por chave: `profile
+  <nome>`, `class <sistema>`, `core <core>`, `battery`, `idle`, `enabled`.
+- **Piso:** todo perfil usado em jogo (`game` e os alvos de `class`/`core`, de qualquer camada)
+  sem `min` recebe `min=<game_min>`; `min` ou `max` abaixo do piso recusa o perfil. Perfis só de
+  boot, menu e idle não têm piso. `limit` no `power.conf` é registrado e ignorado. Se o
+  `game_min` não é um OPP, o arquivo da imagem é recusado inteiro e o piso vira o maior OPP
+  <= 600 MHz. Sem `limit` não há piso (R36S). O serviço mantém `scaling_min_freq` no piso
+  efetivo também para um perfil de jogo recusado e com `enabled 0`.
+
+Validador (`power-profiles.sh`): `pp_load <imagem> [cartão]` imprime os registros aceitos e os
+`refused`, e sai com 0 (tudo aceito), 1 (algo recusado) ou 2 (imagem ilegível ou recusada
+inteira); `pp_floor <imagem>` imprime o piso efetivo em kHz; `pp_state <console> <imagem>
+[cartão]` imprime o `power.state`. Cada recusa vai também para `pp_log FAIL`, que o serviço liga
+ao `event power`. `PP_SYS` troca a raiz do sysfs nos testes (`tests/unit/test_power_profiles.py`).
+
+### `/run/r36os/power.state`
+
+Gravado pelo serviço a cada carga e troca de perfil (legível pelo grupo `game`), uma chave por
+linha, `<chave> <valor...>`; leitores ignoram chaves desconhecidas:
+
+```
+console ga36
+enabled default 1                       # enabled <origem> 0|1; origem image, card ou default
+cpu_freqs 120000 240000 ...             # kHz
+cpu_governors performance schedutil ...
+cpu_cores 4
+gpu_freqs 144000000 ...                 # Hz, vazio sem devfreq
+game_min 600000                         # piso efetivo; ausente sem piso
+limit image game_min=600000
+profile <origem> <nome> chave=valor...  # perfis em vigor, com o piso já em min=
+class <origem> <sistema> <perfil>
+core <origem> <core> <perfil>
+battery <origem> warn=5 critical=3
+idle default after=120                  # idle <origem> after=<s>
+scenario game                           # boot, menu, idle ou game
+current heavy                           # perfil em vigor, - se nenhum
+refused <origem> <tipo> <nome|-> <motivo...>
+```
+
+Leitor: `lume_core::powerstate::PowerState::read`. Editor do `power.conf`
+(`lume_core::powerconf`): troca ou acrescenta uma linha (`profile`, `class`, `core`, `battery`,
+`idle`, `enabled`) depois de validar contra o `power.state` (valores do console, piso), mantém
+comentários, ordem e linhas desconhecidas byte a byte e grava de forma atômica (temporário na
+mesma pasta, `fsync`, `rename`); depois a interface manda `reload`.
 
 ## `metrics/boot-<n>.csv`
 
