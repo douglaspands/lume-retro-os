@@ -698,16 +698,16 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 
 | Caso | Antes | Depois |
 |---|---|---|
-| build completo (cache frio) | 31 min 34 s (`-j16`) | |
-| build sem mudança | 12 min 04 s | |
-| patch num driver | 13 min 45 s | |
-| mudança num script | 12 min 47 s | |
-| mudança no `lume-launcher` | 8 min 24 s (só o pacote armv7) | |
-| push + boot (launcher) | GA36: push 4 min 07 s (descompacta 644 MiB, manda `SYSTEM`, `zImage`, o `Image` do R36S e `VERSION`) + boot 33,6 s; sem mudança: 35 s, sem reinício | |
-| `boot OK completed` (GA36 / R36S) | 34,2 s e 33,6 s / 24,4 s | |
-| temperatura máxima da CPU (`k10temp` Tctl) | 95,4 °C (cache frio, 1074 s acima de 85 °C); 75–82 °C nos outros | |
-| temperatura máxima do disco do build | sem leitura (o 37,9 °C medido era do NVMe que o build não usa; o SATA precisa do `drivetemp`) | |
-| tempo pausado pela proteção de calor | 0 s (só registrando) | |
+| build completo (cache frio) | 31 min 34 s (`-j16`) | 38 min 37 s (`-j8`, `nice 19`, os dois consoles em paralelo; kernel do R36S 35 min 53 s, do GA36 6 min 44 s); os dois kernels saíram idênticos aos de antes (`lume-kernel` não reempacotado) |
+| build sem mudança | 12 min 04 s | 1 min 19 s (nada compilado nem publicado; rootfs e slots pulados) |
+| patch num driver | 13 min 45 s | 1 min 53 s (comentário: 6 objetos, `zImage` idêntico); 2 min 21 s com código (só o `lume-kernel` armv7 sobe de versão) |
+| mudança num script | 12 min 47 s | `build console` 2 min 32 s; `build lume-core` ~55 s; `push --hot` 8,7 s, sem reinício |
+| mudança no `lume-launcher` | 8 min 24 s (só o pacote armv7) | 1 min 55 s (`build lume-launcher`, os dois consoles; cargo cruzado 24 s por arquitetura) |
+| push + boot (launcher) | GA36: push 4 min 07 s (descompacta 644 MiB, manda `SYSTEM`, `zImage`, o `Image` do R36S e `VERSION`) + boot 33,6 s; sem mudança: 35 s, sem reinício | GA36: 2 min 11 s no total, envio de 9 s (só o slot `lume` dos dois consoles, os `SLOTS` e `VERSION`) + boot 43 s (o boot inclui desligar e o bootloader de fábrica, D20) |
+| `boot OK completed` (GA36 / R36S) | 34,2 s e 33,6 s / 24,4 s | 20,5–21,6 s / (falta medir no R36S) |
+| temperatura máxima da CPU (`k10temp` Tctl) | 95,4 °C (cache frio, 1074 s acima de 85 °C); 75–82 °C nos outros | 85,4 °C no cache frio (2 s acima do limite); 64–74 °C nos outros |
+| temperatura máxima do disco do build | sem leitura (o 37,9 °C medido era do NVMe que o build não usa; o SATA precisa do `drivetemp`) | sem leitura: o módulo `drivetemp` ainda não está carregado no PC |
+| tempo pausado pela proteção de calor | 0 s (só registrando) | 12 s (uma pausa, no cache frio); 0 s nos outros |
 
 Medido em 2026-11-16 (1.2), com o código de antes desta change e a proteção de calor só
 registrando. "Cache frio" = sem `.cache/src`, `.cache/kbuild` e `.cache/ccache` (renomeadas para
