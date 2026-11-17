@@ -80,18 +80,31 @@ def test_every_r36s_dts_button_is_mapped():
     assert _keymap("r36s")["BTN_TRIGGER_HAPPY5"] == "BTN_MODE"
 
 
+CHORDS = {"BTN_B": "app_menu", "BTN_TR": "save_state", "BTN_TL": "load_state",
+          "BTN_Y": "screenshot", "BTN_X": "hud", "BTN_START": "quit"}
+
+
+def _chords(board: str) -> dict[str, str]:
+    return dict(re.findall(r"^chord (\w+) (\w+)$", _profile(board), re.M))
+
+
 def test_both_consoles_publish_the_same_buttons_under_the_old_names():
     for board in ("r36s", "ga36"):
         assert set(_keymap(board).values()) == GAMEPAD_KEYS, board
         assert re.search(r"^fn BTN_MODE$", _profile(board), re.M)
-        assert re.search(r"^quit BTN_START$", _profile(board), re.M)
+        # lume-hud-actions D1: the chord table of the proposal, and no older "quit" line
+        assert _chords(board) == CHORDS, board
+        assert re.search(r"^fn_hold_ms 500$", _profile(board), re.M)
+        assert not re.search(r"^quit ", _profile(board), re.M)
         assert re.findall(r"^axis (\w+)$", _profile(board), re.M) == ["ABS_X", "ABS_Y", "ABS_RX", "ABS_RY"]
     assert re.search(r"^name R36S Gamepad$", _profile("r36s"), re.M)
     assert re.search(r"^name GA36-MB Gamepad$", _profile("ga36"), re.M)
     assert all(a == b for a, b in _keymap("ga36").items())
-    # the VM keyboard: F1 is Fn, Enter is Start
+    # the VM keyboard: F1 is Fn, and the keys that play the gamepad (lume-ui's input.rs)
     vm = _profile("vm")
-    assert "passthrough" in vm and re.search(r"^fn KEY_F1$", vm, re.M) and re.search(r"^quit KEY_ENTER$", vm, re.M)
+    assert "passthrough" in vm and re.search(r"^fn KEY_F1$", vm, re.M)
+    assert _chords("vm") == {"KEY_Z": "app_menu", "KEY_W": "save_state", "KEY_Q": "load_state",
+                             "KEY_A": "screenshot", "KEY_S": "hud", "KEY_ENTER": "quit"}
 
 
 def test_autoconfig_matches_the_virtual_gamepad():
@@ -102,9 +115,11 @@ def test_autoconfig_matches_the_virtual_gamepad():
                 "r": "BTN_TR", "l2": "BTN_TL2", "r2": "BTN_TR2", "select": "BTN_SELECT",
                 "start": "BTN_START", "l3": "BTN_THUMBL", "r3": "BTN_THUMBR",
                 "up": "BTN_DPAD_UP", "down": "BTN_DPAD_DOWN", "left": "BTN_DPAD_LEFT",
-                "right": "BTN_DPAD_RIGHT", "menu_toggle": "BTN_MODE"}
+                "right": "BTN_DPAD_RIGHT"}
     for name, code in retropad.items():
         assert cfg[f"input_{name}_btn"] == str(order.index(CODES[code])), name
+    # the Fn (BTN_MODE) never reaches RetroArch: no menu button (lume-hud-actions D9)
+    assert "input_menu_toggle_btn" not in cfg
     assert cfg["input_l_x_plus_axis"] == "+0" and cfg["input_r_y_minus_axis"] == "-3"
     ga36 = dict(re.findall(r'^(input_\w+_btn) = "([^"]*)"$', GA36_AUTOCONFIG.read_text(), re.M))
     r36s = {k: v for k, v in cfg.items() if re.fullmatch(r"input_\w+_btn", k)}
@@ -143,7 +158,7 @@ def daemon_exe(tmp_path_factory):
 
 
 class Daemon:
-    def __init__(self, exe, tmp, board: str, sources: list[str]):
+    def __init__(self, exe, tmp, board: str, sources: list[str], profile=None):
         self.dir = tmp
         self.out = tmp / "out"
         self.sock = tmp / "input.sock"
@@ -173,7 +188,7 @@ class Daemon:
         self.ra.settimeout(1)
         self.colors = tmp / "level-colors"
         self.fifos = {}
-        args = [str(exe), "--profile", str(APORT / f"{board}.conf"), "--test", str(self.out),
+        args = [str(exe), "--profile", str(profile or APORT / f"{board}.conf"), "--test", str(self.out),
                 "--socket", str(self.sock)]
         for i, name in enumerate(sources):
             fifo = tmp / f"src{i}"
@@ -248,12 +263,87 @@ def test_buttons_are_translated_and_sticks_forwarded(r36s):
     assert [(c, v) for t, c, v in r36s.events() if t == EV_ABS] == [(0, 180), (3, 500)]
 
 
-def test_fn_alone_is_a_tap_on_release(r36s):
-    fn = CODES["BTN_TRIGGER_HAPPY5"]
-    r36s.press("gpio-keys", fn)
+FN = CODES["BTN_TRIGGER_HAPPY5"]   # the R36S Fn (BTN_MODE out)
+HOLD_MSG = (b"fn_hold B=app_menu R1=save_state L1=load_state Y=screenshot X=hud Start=quit "
+            b"Vol=brightness")
+
+
+def _recv_all(c: socket.socket, wait: float = 0.3) -> list[bytes]:
+    """Every message the client has, until `wait` seconds of silence."""
+    got = []
+    c.settimeout(wait)
+    try:
+        while True:
+            got.append(c.recv(512))
+    except (TimeoutError, socket.timeout):
+        pass
+    c.settimeout(1)
+    return got
+
+
+def test_fn_tap_is_a_gesture_and_never_goes_out(r36s):
+    c = r36s.client()
+    r36s.press("gpio-keys", FN)
+    r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == [b"fn_tap"]
     assert r36s.keys() == []
-    r36s.release("gpio-keys", fn)
-    assert r36s.keys() == [(CODES["BTN_MODE"], 1), (CODES["BTN_MODE"], 0)]
+    c.close()
+
+
+def test_fn_held_sends_the_chord_table_then_the_release(r36s):
+    c = r36s.client()
+    r36s.press("gpio-keys", FN)
+    time.sleep(0.6)
+    r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == [HOLD_MSG, b"fn_release"]
+    assert r36s.keys() == []
+    c.close()
+
+
+def test_fn_held_then_a_chord_takes_the_hint_away_first(r36s):
+    c = r36s.client()
+    r1 = CODES["BTN_TR"]
+    r36s.press("gpio-keys", FN)
+    time.sleep(0.6)
+    r36s.press("gpio-keys", r1)
+    r36s.release("gpio-keys", r1)
+    r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == [HOLD_MSG, b"fn_release", b"save_state"]
+    assert r36s.keys() == []
+    c.close()
+
+
+@pytest.mark.parametrize("button,action", [("BTN_TR", b"save_state"), ("BTN_TL", b"load_state"),
+                                           ("BTN_SOUTH", b"app_menu"), ("BTN_WEST", b"screenshot"),
+                                           ("BTN_NORTH", b"hud"), ("BTN_TRIGGER_HAPPY2", b"quit")])
+def test_a_quick_chord_sends_only_its_action(r36s, button, action):
+    # R36S sources: BTN_SOUTH is B, BTN_WEST is Y, BTN_NORTH is X, HAPPY2 is Start
+    c = r36s.client()
+    code = CODES[button]
+    r36s.press("gpio-keys", FN)
+    r36s.press("gpio-keys", code)
+    r36s.send("gpio-keys", (EV_KEY, code, 2), SYN)   # autorepeat: swallowed too
+    r36s.release("gpio-keys", code)
+    r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == [action]   # no fn_tap after a chord
+    assert r36s.keys() == []
+    c.close()
+
+
+def test_a_chord_out_of_the_table_is_reserved(r36s):
+    c = r36s.client()
+    for button in ("BTN_EAST", "BTN_TRIGGER_HAPPY1"):   # Fn+A, Fn+Select
+        r36s.press("gpio-keys", FN)
+        r36s.press("gpio-keys", CODES[button])
+        r36s.release("gpio-keys", CODES[button])
+        r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == []
+    assert r36s.keys() == []
+    # the keys work again after the Fn is let go
+    r36s.press("gpio-keys", CODES["BTN_EAST"])
+    r36s.release("gpio-keys", CODES["BTN_EAST"])
+    assert r36s.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
+    c.close()
 
 
 def test_fn_start_sends_quit_and_forwards_nothing(r36s):
@@ -268,14 +358,99 @@ def test_fn_start_sends_quit_and_forwards_nothing(r36s):
     c.close()
 
 
-def test_fn_with_another_key_forwards_both(r36s):
-    fn, a = CODES["BTN_TRIGGER_HAPPY5"], CODES["BTN_EAST"]
-    r36s.press("gpio-keys", fn)
+def test_tap_from_a_client_presses_and_releases_a_key(r36s):
+    c = r36s.client()
+    c.send(b"tap KEY_F2")
+    time.sleep(0.2)
+    assert r36s.keys() == [(60, 1), (60, 0)]   # KEY_F2
+    # only keyboard keys of the table: a button, an unknown name or a number are refused
+    # KEY_UP..KEY_DOWN would shift RetroArch's button indices: never declared, never tapped
+    for bad in (b"tap BTN_A", b"tap KEY_NOPE", b"tap 60", b"tap KEY_VOLUMEUP", b"tap KEY_UP"):
+        c.send(bad)
+    time.sleep(0.2)
+    assert r36s.keys() == [(60, 1), (60, 0)]
+    c.close()
+    assert "tap refused" in r36s.stop()
+
+
+def test_capture_turns_the_buttons_into_nav_and_releases_held_keys(r36s):
+    c = r36s.client()
+    a, up, b = CODES["BTN_EAST"], CODES["BTN_DPAD_UP"], CODES["BTN_SOUTH"]
+    r36s.press("gpio-keys", CODES["BTN_DPAD_RIGHT"])   # held in the game
+    c.send(b"capture on")
+    time.sleep(0.15)
+    # the held key is released at once: nothing stays stuck in the game
+    assert r36s.keys() == [(CODES["BTN_DPAD_RIGHT"], 1), (CODES["BTN_DPAD_RIGHT"], 0)]
+    for code in (up, a, b):
+        r36s.press("gpio-keys", code)
+        r36s.release("gpio-keys", code)
+    r36s.send("adc-joystick", (EV_ABS, 0, 180), SYN)   # the sticks do not reach the game
+    assert _recv_all(c) == [b"nav up", b"nav a", b"nav b"]
+    # the Fn chords keep working: Fn+Start quits, a tap is still a tap
+    r36s.press("gpio-keys", FN)
+    r36s.press("gpio-keys", CODES["BTN_TRIGGER_HAPPY2"])
+    r36s.release("gpio-keys", CODES["BTN_TRIGGER_HAPPY2"])
+    r36s.release("gpio-keys", FN)
+    r36s.press("gpio-keys", FN)
+    r36s.release("gpio-keys", FN)
+    assert _recv_all(c) == [b"quit", b"fn_tap"]
+    assert r36s.keys() == [(CODES["BTN_DPAD_RIGHT"], 1), (CODES["BTN_DPAD_RIGHT"], 0)]
+    assert [(t, cc) for t, cc, v in r36s.events() if t == EV_ABS] == []
+    # capture off: forwarding again
+    c.send(b"capture off")
+    time.sleep(0.1)
     r36s.press("gpio-keys", a)
-    r36s.release("gpio-keys", a)
-    r36s.release("gpio-keys", fn)
-    mode, ba = CODES["BTN_MODE"], CODES["BTN_A"]
-    assert r36s.keys() == [(mode, 1), (ba, 1), (ba, 0), (mode, 0)]
+    assert r36s.keys()[-1] == (CODES["BTN_A"], 1)
+    c.close()
+
+
+def test_capture_ends_when_its_client_goes_away(r36s):
+    c = r36s.client()
+    c.send(b"capture on")
+    time.sleep(0.1)
+    c.close()
+    time.sleep(0.15)
+    r36s.press("gpio-keys", CODES["BTN_EAST"])
+    assert r36s.keys() == [(CODES["BTN_A"], 1)]
+
+
+def test_capture_ends_after_two_seconds_without_a_message(r36s):
+    c = r36s.client()
+    c.send(b"capture on")
+    time.sleep(1.2)
+    c.send(b"capture on")   # the renewal of every second keeps it
+    time.sleep(1.2)
+    r36s.press("gpio-keys", CODES["BTN_EAST"])
+    r36s.release("gpio-keys", CODES["BTN_EAST"])
+    assert r36s.keys() == []
+    assert _recv_all(c) == [b"nav a"]
+    time.sleep(2.2)
+    r36s.press("gpio-keys", CODES["BTN_EAST"])
+    assert r36s.keys() == [(CODES["BTN_A"], 1)]
+    c.close()
+    assert "capture off (no message in 2 s)" in r36s.stop()
+
+
+def test_older_quit_line_is_read_as_a_chord(daemon_exe, tmp_path):
+    old = tmp_path / "old.conf"
+    old.write_text((APORT / "r36s.conf").read_text().split("# the Fn chords")[0]
+                   + "quit BTN_START\nmixer rk817int Master 5\n")
+    exe_dir = tmp_path / "d"
+    exe_dir.mkdir()
+    d = Daemon(daemon_exe, exe_dir, "r36s", ["gpio-keys", "adc-joystick", "volume-keys"], profile=old)
+    try:
+        c = d.client()
+        d.press("gpio-keys", FN)
+        d.press("gpio-keys", CODES["BTN_TRIGGER_HAPPY2"])
+        assert c.recv(16) == b"quit"
+        d.release("gpio-keys", CODES["BTN_TRIGGER_HAPPY2"])
+        d.release("gpio-keys", FN)
+        d.press("gpio-keys", FN)
+        time.sleep(0.6)
+        d.release("gpio-keys", FN)
+        assert _recv_all(c) == [b"fn_hold Start=quit Vol=brightness", b"fn_release"]
+    finally:
+        d.stop()
 
 
 def test_fn_start_without_a_client_does_nothing(r36s):
@@ -467,13 +642,19 @@ def test_vm_profile_passes_the_keyboard_through(daemon_exe, tmp_path):
         d.release(kb, CODES["KEY_A"])
         d.press(kb, CODES["KEY_F1"])
         d.release(kb, CODES["KEY_F1"])
+        assert c.recv(16) == b"fn_tap"
         d.press(kb, CODES["KEY_F1"])
         d.press(kb, CODES["KEY_ENTER"])
         assert c.recv(16) == b"quit"
         d.release(kb, CODES["KEY_ENTER"])
         d.release(kb, CODES["KEY_F1"])
-        f1, a = CODES["KEY_F1"], CODES["KEY_A"]
-        assert d.keys() == [(a, 1), (a, 0), (f1, 1), (f1, 0)]
+        # F1 never goes out; the hint names the gamepad buttons the keys play
+        a = CODES["KEY_A"]
+        assert d.keys() == [(a, 1), (a, 0)]
+        d.press(kb, CODES["KEY_F1"])
+        time.sleep(0.6)
+        d.release(kb, CODES["KEY_F1"])
+        assert _recv_all(c)[0] == HOLD_MSG
     finally:
         d.stop()
 

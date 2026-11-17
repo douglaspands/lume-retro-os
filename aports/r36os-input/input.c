@@ -8,15 +8,31 @@
  *  - grabs every source device (EVIOCGRAB), so programs only see the virtual one;
  *  - publishes through uinput the virtual gamepad with the same name as before ("GA36-MB
  *    Gamepad", "R36S Gamepad"), so the RetroArch autoconfig does not change;
- *  - Fn chord: Fn alone gives a Fn press and release when it is let go (the RetroArch menu);
- *    Fn+Start sends "quit" to the clients of /run/r36os/input.sock and neither key goes
- *    out; Fn with any other key gives both keys;
+ *  - the Fn key is the system button (lume-hud-actions D1, D13) and never goes out: alone it
+ *    is a gesture, "fn_tap" (let go before fn_hold_ms) or "fn_hold <table>" then
+ *    "fn_release" (held); Fn with a key of the profile's chord table sends that action's
+ *    name and swallows the key; Fn with any other key swallows it and sends nothing
+ *    (reserved chords). A Fn that made a chord never gives a gesture;
  *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
  *    goes to the clients of the socket (the launcher shows the level);
  *  - Fn+volume keys change the screen backlight in steps of 5% instead (never below 5%), and
- *    "brightness" goes to the clients; Fn then gives no tap on release;
+ *    "brightness" goes to the clients;
  *  - after either, "LUME_LEVEL" asks RetroArch (127.0.0.1:55355, patch 0011) to draw the
- *    launcher's level line over a running game.
+ *    launcher's level line over a running game;
+ *  - a client may send "tap KEY_<name>" (a press and, 50 ms later, a release on the virtual
+ *    device, which declares those keys) and "capture on" / "capture off" (D11: the held keys
+ *    are released, nothing is forwarded and the client gets "nav up|down|left|right|a|b";
+ *    "capture off", the end of that client's connection or 2 s without a message from it
+ *    end the capture). The Fn gestures and chords keep working during a capture.
+ *
+ * The socket protocol (SOCK_SEQPACKET, one message per packet, lume_core::input mirrors it):
+ *   daemon -> client: quit | app_menu | save_state | load_state | screenshot | hud |
+ *                     fn_tap | fn_hold <button>=<action>... | fn_release |
+ *                     volume | brightness | nav up|down|left|right|a|b
+ *   client -> daemon: tap KEY_<name> | capture on | capture off
+ *
+ * Profile lines of the chords: "fn <code>", "fn_hold_ms <ms>" (default 500) and
+ * "chord <code> <action>" in output codes; the older "quit <code>" reads as "chord <code> quit".
  *
  * usage: r36os-input --profile FILE [--socket PATH] [--timeout SECONDS]
  *        r36os-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
@@ -45,6 +61,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PROG "r36os-input"
@@ -53,7 +70,11 @@
 #define MAX_KEYS 64
 #define MAX_AXES 8
 #define MAX_CLIENTS 8
+#define MAX_CHORDS 16
 #define DEFAULT_SOCKET "/run/r36os/input.sock"
+#define FN_HOLD_MS 500		/* default of fn_hold_ms */
+#define TAP_MS 50		/* press to release of a client's "tap" */
+#define CAPTURE_IDLE_MS 2000	/* a capture ends after this long without a message */
 
 struct code_name {
 	const char *name;
@@ -73,8 +94,28 @@ static const struct code_name NAMES[] = {
 	{ "BTN_TRIGGER_HAPPY1", BTN_TRIGGER_HAPPY1 }, { "BTN_TRIGGER_HAPPY2", BTN_TRIGGER_HAPPY2 },
 	{ "BTN_TRIGGER_HAPPY3", BTN_TRIGGER_HAPPY3 }, { "BTN_TRIGGER_HAPPY4", BTN_TRIGGER_HAPPY4 },
 	{ "BTN_TRIGGER_HAPPY5", BTN_TRIGGER_HAPPY5 },
-	{ "KEY_F1", KEY_F1 },         { "KEY_ENTER", KEY_ENTER },
 	{ "KEY_VOLUMEUP", KEY_VOLUMEUP }, { "KEY_VOLUMEDOWN", KEY_VOLUMEDOWN },
+	/* keyboard keys: the VM profile, and the keys a client may "tap" (the virtual device
+	 * declares every KEY_ of this table, the volume keys aside) */
+	{ "KEY_ESC", KEY_ESC },       { "KEY_ENTER", KEY_ENTER },   { "KEY_SPACE", KEY_SPACE },
+	{ "KEY_TAB", KEY_TAB },       { "KEY_BACKSPACE", KEY_BACKSPACE },
+	{ "KEY_LEFTSHIFT", KEY_LEFTSHIFT }, { "KEY_RIGHTSHIFT", KEY_RIGHTSHIFT },
+	{ "KEY_LEFTCTRL", KEY_LEFTCTRL },   { "KEY_LEFTALT", KEY_LEFTALT },
+	{ "KEY_UP", KEY_UP },         { "KEY_DOWN", KEY_DOWN },     { "KEY_LEFT", KEY_LEFT },
+	{ "KEY_RIGHT", KEY_RIGHT },   { "KEY_MINUS", KEY_MINUS },   { "KEY_EQUAL", KEY_EQUAL },
+	{ "KEY_F1", KEY_F1 },   { "KEY_F2", KEY_F2 },   { "KEY_F3", KEY_F3 },   { "KEY_F4", KEY_F4 },
+	{ "KEY_F5", KEY_F5 },   { "KEY_F6", KEY_F6 },   { "KEY_F7", KEY_F7 },   { "KEY_F8", KEY_F8 },
+	{ "KEY_F9", KEY_F9 },   { "KEY_F10", KEY_F10 }, { "KEY_F11", KEY_F11 }, { "KEY_F12", KEY_F12 },
+	{ "KEY_0", KEY_0 }, { "KEY_1", KEY_1 }, { "KEY_2", KEY_2 }, { "KEY_3", KEY_3 },
+	{ "KEY_4", KEY_4 }, { "KEY_5", KEY_5 }, { "KEY_6", KEY_6 }, { "KEY_7", KEY_7 },
+	{ "KEY_8", KEY_8 }, { "KEY_9", KEY_9 },
+	{ "KEY_A", KEY_A }, { "KEY_B", KEY_B }, { "KEY_C", KEY_C }, { "KEY_D", KEY_D },
+	{ "KEY_E", KEY_E }, { "KEY_F", KEY_F }, { "KEY_G", KEY_G }, { "KEY_H", KEY_H },
+	{ "KEY_I", KEY_I }, { "KEY_J", KEY_J }, { "KEY_K", KEY_K }, { "KEY_L", KEY_L },
+	{ "KEY_M", KEY_M }, { "KEY_N", KEY_N }, { "KEY_O", KEY_O }, { "KEY_P", KEY_P },
+	{ "KEY_Q", KEY_Q }, { "KEY_R", KEY_R }, { "KEY_S", KEY_S }, { "KEY_T", KEY_T },
+	{ "KEY_U", KEY_U }, { "KEY_V", KEY_V }, { "KEY_W", KEY_W }, { "KEY_X", KEY_X },
+	{ "KEY_Y", KEY_Y }, { "KEY_Z", KEY_Z },
 	{ "ABS_X", ABS_X },           { "ABS_Y", ABS_Y },           { "ABS_RX", ABS_RX },
 	{ "ABS_RY", ABS_RY },         { "ABS_Z", ABS_Z },           { "ABS_RZ", ABS_RZ },
 };
@@ -89,6 +130,12 @@ struct keymap {
 	unsigned short from, to;
 };
 
+/* Fn + code (an output code) gives the action's name to the clients */
+struct chord_entry {
+	unsigned short code;
+	char action[24];
+};
+
 struct profile {
 	char name[UINPUT_MAX_NAME_SIZE];
 	unsigned short vendor, product;
@@ -99,7 +146,11 @@ struct profile {
 	unsigned short axes[MAX_AXES];
 	int naxes;
 	int passthrough;
-	int fn, quit;	/* output codes, -1 if none */
+	int fn;		/* output code, -1 if none */
+	int fn_hold_ms;
+	struct chord_entry chords[MAX_CHORDS];
+	int nchords;
+	char hold_msg[320];	/* "fn_hold B=app_menu ... Vol=brightness" */
 	char mixer_card[64], mixer_ctl[64];
 	int mixer_step;
 	int mixer_max;	/* raw ceiling of the control (0: none), e.g. 0 dB of a digital DAC */
@@ -109,6 +160,20 @@ struct profile {
 static volatile sig_atomic_t stop;
 static int clients[MAX_CLIENTS];
 static int nclients;
+/* D11: the client that holds the capture (-1: none) and when it last spoke */
+static int capture_fd = -1;
+static long long capture_seen;
+/* a client's "tap": the release still to send (-1: none) and when */
+static int tap_code = -1;
+static long long tap_at;
+
+static long long now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
 
 static void on_signal(int sig)
 {
@@ -149,6 +214,98 @@ static int parse_code(const char *s)
 	return -1;
 }
 
+static const char *code_name(int code)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(NAMES); i++)
+		if (NAMES[i].code == code)
+			return NAMES[i].name;
+	return NULL;
+}
+
+/* A key a client may "tap": a keyboard key of the table, not a volume key, and none of
+ * KEY_UP..KEY_DOWN: RetroArch's udev joypad driver numbers that range before BTN_MISC, so
+ * declaring it would shift every button index of the autoconfig. */
+static int tappable(int code)
+{
+	const char *n = code_name(code);
+
+	return n && !strncmp(n, "KEY_", 4) && code != KEY_VOLUMEUP && code != KEY_VOLUMEDOWN &&
+	       (code < KEY_UP || code > KEY_DOWN);
+}
+
+/* The short name of a button for the chord hint (the glyph on the screen): the gamepad
+ * buttons, and the VM keyboard keys that play them (lume-ui's input.rs layout). */
+static const char *button_label(int code, char *buf, size_t size)
+{
+	static const struct code_name LABELS[] = {
+		{ "A", BTN_A }, { "A", KEY_X }, { "B", BTN_B }, { "B", KEY_Z },
+		{ "X", BTN_X }, { "X", KEY_S }, { "Y", BTN_Y }, { "Y", KEY_A },
+		{ "L1", BTN_TL }, { "L1", KEY_Q }, { "R1", BTN_TR }, { "R1", KEY_W },
+		{ "L2", BTN_TL2 }, { "R2", BTN_TR2 }, { "L3", BTN_THUMBL }, { "R3", BTN_THUMBR },
+		{ "Select", BTN_SELECT }, { "Select", KEY_RIGHTSHIFT },
+		{ "Start", BTN_START }, { "Start", KEY_ENTER },
+		{ "Up", BTN_DPAD_UP }, { "Down", BTN_DPAD_DOWN },
+		{ "Left", BTN_DPAD_LEFT }, { "Right", BTN_DPAD_RIGHT },
+	};
+	const char *n;
+
+	for (size_t i = 0; i < ARRAY_SIZE(LABELS); i++)
+		if (LABELS[i].code == code)
+			return LABELS[i].name;
+	n = code_name(code);
+	if (n && strchr(n, '_'))
+		return strchr(n, '_') + 1;
+	snprintf(buf, size, "0x%x", code);
+	return buf;
+}
+
+static int valid_action(const char *s)
+{
+	size_t n = strlen(s);
+
+	if (!n || n >= sizeof(((struct chord_entry *)0)->action))
+		return 0;
+	return strspn(s, "abcdefghijklmnopqrstuvwxyz_") == n;
+}
+
+static int add_chord(struct profile *p, int code, const char *action)
+{
+	for (int i = 0; i < p->nchords; i++)
+		if (p->chords[i].code == code) {
+			snprintf(p->chords[i].action, sizeof(p->chords[i].action), "%s", action);
+			return 0;
+		}
+	if (p->nchords == MAX_CHORDS || !valid_action(action))
+		return -1;
+	p->chords[p->nchords].code = (unsigned short)code;
+	snprintf(p->chords[p->nchords++].action, sizeof(p->chords[0].action), "%s", action);
+	return 0;
+}
+
+static const char *chord_action(const struct profile *p, int code)
+{
+	for (int i = 0; i < p->nchords; i++)
+		if (p->chords[i].code == code)
+			return p->chords[i].action;
+	return NULL;
+}
+
+/* "fn_hold B=app_menu R1=save_state ... Vol=brightness": the chord table, so the hint on
+ * the screen never keeps a second copy of it (D13). */
+static void build_hold_msg(struct profile *p)
+{
+	size_t len = (size_t)snprintf(p->hold_msg, sizeof(p->hold_msg), "fn_hold");
+
+	for (int i = 0; i < p->nchords && len < sizeof(p->hold_msg); i++) {
+		char buf[16];
+
+		len += (size_t)snprintf(p->hold_msg + len, sizeof(p->hold_msg) - len, " %s=%s",
+					button_label(p->chords[i].code, buf, sizeof(buf)), p->chords[i].action);
+	}
+	if (len < sizeof(p->hold_msg))
+		snprintf(p->hold_msg + len, sizeof(p->hold_msg) - len, " Vol=brightness");
+}
+
 static char *trim(char *s)
 {
 	char *e;
@@ -169,7 +326,8 @@ static int load_profile(const char *path, struct profile *p)
 	int n = 0;
 
 	memset(p, 0, sizeof(*p));
-	p->fn = p->quit = -1;
+	p->fn = -1;
+	p->fn_hold_ms = FN_HOLD_MS;
 	p->vendor = 0x1209;	/* pid.codes */
 	if (!f) {
 		perror(path);
@@ -217,7 +375,19 @@ static int load_profile(const char *path, struct profile *p)
 		} else if (!strcmp(s, "fn") && (a = parse_code(arg)) >= 0) {
 			p->fn = a;
 		} else if (!strcmp(s, "quit") && (a = parse_code(arg)) >= 0) {
-			p->quit = a;
+			/* the line of older profiles on the card */
+			if (add_chord(p, a, "quit") < 0)
+				goto bad;
+		} else if (!strcmp(s, "chord")) {
+			char code[64], action[64];
+
+			if (sscanf(arg, "%63s %63s", code, action) != 2 || (a = parse_code(code)) < 0 ||
+			    add_chord(p, a, action) < 0)
+				goto bad;
+		} else if (!strcmp(s, "fn_hold_ms") && sscanf(arg, "%d", &a) == 1) {
+			if (a < 100 || a > 5000)
+				goto bad;
+			p->fn_hold_ms = a;
 		} else if (!strcmp(s, "mixer") &&
 			   sscanf(arg, "%63s %63[^0-9] %d %d", p->mixer_card, p->mixer_ctl, &p->mixer_step,
 				  &p->mixer_max) >= 3) {
@@ -238,6 +408,7 @@ static int load_profile(const char *path, struct profile *p)
 		fprintf(stderr, PROG ": %s: needs name, a source and keys (or passthrough)\n", path);
 		return -1;
 	}
+	build_hold_msg(p);
 	return 0;
 bad:
 	fprintf(stderr, PROG ": %s:%d: bad line\n", path, n);
@@ -350,6 +521,10 @@ static int create_device(const struct profile *p)
 				ioctl(fd, UI_SET_KEYBIT, c);
 	for (int i = 0; i < p->nkeys; i++)
 		ioctl(fd, UI_SET_KEYBIT, p->keys[i].to);
+	/* the keys a client may tap (a runner action "key:KEY_F2", D3) */
+	for (size_t i = 0; i < ARRAY_SIZE(NAMES); i++)
+		if (tappable(NAMES[i].code))
+			ioctl(fd, UI_SET_KEYBIT, NAMES[i].code);
 	if (p->naxes)
 		ioctl(fd, UI_SET_EVBIT, EV_ABS);
 	for (int i = 0; i < p->naxes; i++) {
@@ -379,10 +554,15 @@ static int create_device(const struct profile *p)
 	return fd;
 }
 
+/* the keys the virtual device shows as held (a capture releases them) */
+static unsigned char out_down[KEY_MAX + 1];
+
 static void emit(int out, unsigned short type, unsigned short code, int value)
 {
 	struct input_event ev = { .type = type, .code = code, .value = value };
 
+	if (type == EV_KEY && code <= KEY_MAX)
+		out_down[code] = value != 0;
 	if (write(out, &ev, sizeof(ev)) != (ssize_t)sizeof(ev))
 		return;	/* a full uinput queue drops the event, like the kernel would */
 }
@@ -433,15 +613,26 @@ static void accept_client(int lfd)
 	clients[nclients++] = c;
 }
 
+static void capture_end(const char *why)
+{
+	if (capture_fd < 0)
+		return;
+	capture_fd = -1;
+	logline("capture off (%s)", why);
+}
+
 static void drop_client(int i)
 {
+	if (clients[i] == capture_fd)
+		capture_end("client gone");
 	close(clients[i]);
 	clients[i] = clients[--nclients];
 }
 
-/* A message to every client: "quit" for Fn+Start (with no client the combo does nothing),
- * "volume" after a volume key. Clients ignore what they do not know. A client that cannot
- * take it is dropped (only in the main process: a child just skips it). */
+/* A message to every client: an action of a chord ("quit" for Fn+Start; with no client the
+ * chord does nothing), a Fn gesture, "volume" after a volume key. Clients ignore what they
+ * do not know. A client that cannot take it is dropped (only in the main process: a child
+ * just skips it). */
 static void send_all(const char *msg, int drop)
 {
 	size_t len = strlen(msg);
@@ -731,23 +922,79 @@ static void brightness(const struct profile *p, int up)
 	send_all("brightness", 1);
 }
 
-/* ---- the Fn chord ---- */
+/* ---- the Fn key: gestures and chords (D1, D13) ---- */
 
 struct chord {
-	int fn_down;		/* Fn held, not forwarded yet */
-	int fn_forwarded;	/* Fn went out (another key came with it) */
-	int fn_used;		/* something happened while Fn was held */
-	unsigned char swallow[KEY_MAX + 1];	/* releases to drop */
+	int fn_down;		/* Fn held */
+	int fn_used;		/* a chord or Fn+volume happened: no gesture on release */
+	int fn_held;		/* "fn_hold" went out: "fn_release" is due */
+	long long fn_since;	/* when Fn went down */
+	unsigned char swallow[KEY_MAX + 1];	/* keys whose repeats and release are dropped */
 };
+
+/* Milliseconds until "fn_hold" is due; -1 when no gesture is pending. */
+static long long hold_due(const struct profile *p, const struct chord *c, long long now)
+{
+	long long left;
+
+	if (!c->fn_down || c->fn_used || c->fn_held)
+		return -1;
+	left = c->fn_since + p->fn_hold_ms - now;
+	return left > 0 ? left : 0;
+}
+
+/* Fn held long enough without another key: the hint of the chords. */
+static void hold_check(const struct profile *p, struct chord *c, long long now)
+{
+	if (hold_due(p, c, now) == 0) {
+		c->fn_held = 1;
+		send_all(p->hold_msg, 1);
+	}
+}
+
+/* Fn was used in a chord: the hint goes away first, and no gesture follows. */
+static void fn_used(struct chord *c)
+{
+	c->fn_used = 1;
+	if (c->fn_held) {
+		c->fn_held = 0;
+		send_all("fn_release", 1);
+	}
+}
+
+/* The "nav" word of a key during a capture (the gamepad codes and the VM keyboard of
+ * lume-ui's input.rs); NULL for a key that navigates nothing. */
+static const char *nav_word(int code)
+{
+	switch (code) {
+	case BTN_DPAD_UP: case KEY_UP: return "nav up";
+	case BTN_DPAD_DOWN: case KEY_DOWN: return "nav down";
+	case BTN_DPAD_LEFT: case KEY_LEFT: return "nav left";
+	case BTN_DPAD_RIGHT: case KEY_RIGHT: return "nav right";
+	case BTN_A: case KEY_X: return "nav a";
+	case BTN_B: case KEY_Z: case KEY_ESC: case KEY_BACKSPACE: return "nav b";
+	}
+	return NULL;
+}
+
+static void capture_send(const char *msg)
+{
+	size_t len = strlen(msg);
+
+	if (capture_fd >= 0 && send(capture_fd, msg, len, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)len)
+		logline("nav not delivered: %s", strerror(errno));
+}
 
 static void key_event(const struct profile *p, struct chord *c, int out, int code, int value)
 {
+	const char *action;
+
 	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN) {
 		if (value != 1)
 			return;
 		if (c->fn_down) {
-			/* Fn+volume: the backlight; Fn was used, so no tap on its release */
-			c->fn_used = 1;
+			/* Fn+volume: the backlight */
+			fn_used(c);
 			brightness(p, code == KEY_VOLUMEUP);
 		} else {
 			volume(p, code == KEY_VOLUMEUP);
@@ -755,40 +1002,130 @@ static void key_event(const struct profile *p, struct chord *c, int out, int cod
 		return;
 	}
 	if (p->fn >= 0 && code == p->fn) {
+		/* the Fn key never goes out; repeats are dropped */
 		if (value == 1) {
 			c->fn_down = 1;
-			c->fn_forwarded = c->fn_used = 0;
-		} else if (value == 0) {
-			if (c->fn_forwarded)
-				emit_key(out, code, 0);
-			else if (!c->fn_used) {
-				/* Fn alone: a tap on release (the RetroArch menu) */
-				emit_key(out, code, 1);
-				emit_key(out, code, 0);
-			}
-			c->fn_down = c->fn_forwarded = c->fn_used = 0;
+			c->fn_used = c->fn_held = 0;
+			c->fn_since = now_ms();
+		} else if (value == 0 && c->fn_down) {
+			if (c->fn_held)
+				send_all("fn_release", 1);
+			else if (!c->fn_used)
+				send_all("fn_tap", 1);
+			c->fn_down = c->fn_used = c->fn_held = 0;
 		}
-		return;	/* repeats of Fn are dropped */
+		return;
 	}
-	if (value == 0 && c->swallow[code]) {
-		c->swallow[code] = 0;
+	if (value != 1 && c->swallow[code]) {
+		/* the repeats and the release of a chord's key */
+		if (value == 0)
+			c->swallow[code] = 0;
 		return;
 	}
 	if (c->fn_down && value == 1) {
-		c->fn_used = 1;
-		if (code == p->quit && !c->fn_forwarded) {
-			send_all("quit", 1);
-			c->swallow[code] = 1;
+		/* hold_check runs first: a Fn held past fn_hold_ms shows the hint, then the
+		 * chord takes it away */
+		hold_check(p, c, now_ms());
+		fn_used(c);
+		c->swallow[code] = 1;
+		action = chord_action(p, code);
+		if (action)
+			send_all(action, 1);
+		return;	/* a chord out of the table is reserved: nothing */
+	}
+	if (capture_fd >= 0) {
+		/* D11: nothing reaches the game; the menu gets the navigation */
+		const char *nav = nav_word(code);
+
+		if (nav && value != 0)
+			capture_send(nav);
+		return;
+	}
+	emit(out, EV_KEY, code, value);
+}
+
+/* ---- the client messages: tap and capture (D2, D11) ---- */
+
+static void capture_start(int fd, int out)
+{
+	int released = 0;
+
+	capture_seen = now_ms();
+	if (capture_fd == fd)
+		return;	/* the renewal of every second */
+	/* nothing stays held in the game */
+	for (int k = 0; k <= KEY_MAX; k++)
+		if (out_down[k]) {
+			emit(out, EV_KEY, (unsigned short)k, 0);
+			released++;
+		}
+	if (released)
+		emit(out, EV_SYN, SYN_REPORT, 0);
+	capture_fd = fd;
+	logline("capture on (%d key(s) released)", released);
+}
+
+static void client_message(int fd, char *msg, int out)
+{
+	char *m = trim(msg);
+	int code;
+
+	if (fd == capture_fd)
+		capture_seen = now_ms();
+	if (!strcmp(m, "capture on")) {
+		capture_start(fd, out);
+	} else if (!strcmp(m, "capture off")) {
+		if (fd == capture_fd)
+			capture_end("asked");
+	} else if (!strncmp(m, "tap ", 4)) {
+		code = parse_code(trim(m + 4));
+		if (strncmp(trim(m + 4), "KEY_", 4) || code < 0 || !tappable(code)) {
+			logline("tap refused: \"%s\"", m + 4);
 			return;
 		}
-		if (!c->fn_forwarded) {
-			emit_key(out, p->fn, 1);
-			c->fn_forwarded = 1;
-		}
+		if (tap_code >= 0)
+			emit_key(out, (unsigned short)tap_code, 0);
+		emit_key(out, (unsigned short)code, 1);
+		tap_code = code;
+		tap_at = now_ms() + TAP_MS;
 	}
-	if (value == 2 && c->swallow[code])
-		return;
-	emit(out, EV_KEY, code, value);
+	/* anything else: a newer client, ignored */
+}
+
+/* The timers of the loop: fn_hold, the release of a tap, the idle end of a capture. */
+static void timers(const struct profile *p, struct chord *c, int out)
+{
+	long long now = now_ms();
+
+	hold_check(p, c, now);
+	if (tap_code >= 0 && now >= tap_at) {
+		emit_key(out, (unsigned short)tap_code, 0);
+		tap_code = -1;
+	}
+	if (capture_fd >= 0 && now - capture_seen >= CAPTURE_IDLE_MS)
+		capture_end("no message in 2 s");
+}
+
+/* The poll timeout in ms (-1: none) for the next timer. */
+static int next_timer(const struct profile *p, const struct chord *c, int base)
+{
+	long long now = now_ms(), t = base, d;
+
+	d = hold_due(p, c, now);
+	if (d >= 0 && (t < 0 || d < t))
+		t = d;
+	if (tap_code >= 0) {
+		d = tap_at > now ? tap_at - now : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
+	if (capture_fd >= 0) {
+		d = capture_seen + CAPTURE_IDLE_MS - now;
+		d = d > 0 ? d : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
+	return (int)t;
 }
 
 /* Forward the events of one source; -1 when the device is gone (or a file ended). */
@@ -811,7 +1148,7 @@ static int forward(const struct profile *p, struct chord *c, int src, int out)
 				key_event(p, c, out, code, ev[i].value);
 			break;
 		case EV_ABS:
-			if (is_axis(p, ev[i].code))
+			if (is_axis(p, ev[i].code) && capture_fd < 0)
 				emit(out, EV_ABS, ev[i].code, ev[i].value);
 			break;
 		case EV_SYN:
@@ -900,7 +1237,7 @@ int main(int argc, char **argv)
 			ioctl(p.src[s].fd, EVIOCGRAB, 1);
 	lfd = open_socket(sock_path);
 	if (lfd < 0)
-		logline("no socket at %s: Fn+Start does nothing", sock_path);
+		logline("no socket at %s: the Fn chords do nothing", sock_path);
 	clamp_backlight(&p);
 	{
 		int found = 0;
@@ -927,12 +1264,14 @@ int main(int argc, char **argv)
 		fds[n++] = (struct pollfd){ .fd = lfd, .events = POLLIN };
 		for (int i = 0; i < nclients; i++)
 			fds[n++] = (struct pollfd){ .fd = clients[i], .events = POLLIN };
-		if (poll(fds, n, test_out ? 50 : -1) < 0) {
+		/* a timeout only while a timer runs (Fn held, a tap, a capture) */
+		if (poll(fds, n, next_timer(&p, &chord, test_out ? 50 : -1)) < 0) {
 			if (errno == EINTR)
 				continue;
 			rc = 1;
 			break;
 		}
+		timers(&p, &chord, out);
 		for (int i = 0; i < live; i++) {
 			struct source *src = &p.src[src_idx[i]];
 
@@ -951,15 +1290,20 @@ int main(int argc, char **argv)
 		}
 		if (lfd >= 0 && (fds[live].revents & POLLIN))
 			accept_client(lfd);
-		/* a client that hung up (lume-run between two games) */
+		/* the clients' messages; a client that hung up (lume-run between two games) */
 		for (int i = nclients - 1; i >= 0; i--) {
 			int at = live + 1 + i;
 
 			if (at < n && (fds[at].revents & (POLLHUP | POLLERR | POLLIN))) {
-				char buf[16];
+				char buf[128];
+				ssize_t got = recv(clients[i], buf, sizeof(buf) - 1, MSG_DONTWAIT);
 
-				if (recv(clients[i], buf, sizeof(buf), MSG_DONTWAIT) <= 0)
+				if (got <= 0) {
 					drop_client(i);
+					continue;
+				}
+				buf[got] = 0;
+				client_message(clients[i], buf, out);
 			}
 		}
 	}
