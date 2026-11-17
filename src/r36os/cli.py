@@ -89,6 +89,10 @@ def _parser() -> argparse.ArgumentParser:
     ck.add_argument("--console", choices=("ga36", "r36s"),
                     help="refuse to run when the console on the cable is the other one")
 
+    wt = ds.add_parser("watch", help="on every saved file of a lume-*/r36os-* fragment: "
+                                     "fragment build, then push --hot (Ctrl-C ends)")
+    wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
+
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
 
