@@ -329,7 +329,9 @@ PC; os dois respondem em `10.55.0.1`. Use `.venv/bin/r36os dev wait`, `dev sh <c
 `dev check --console r36s` (recusa o GA36 com "the console on the cable is the GA36, not the
 R36S"), além de `dev shot --compare <tela>` para as capturas de referência (ver
 [BUILD.md](BUILD.md)). O `r36os push` espera o console voltar e confere o boot novo
-(`ok: boot N completed with build X (...)`); `--no-wait` só reinicia.
+(`ok: boot N completed with build X (...)`); `--no-wait` só reinicia. Para mudar só um
+fragmento `lume-*`/`r36os-*` sem reboot (só na RAM): `r36os push --hot <fragmento>` ou
+`r36os dev watch <fragmento>` (ver "Testar no console pelo cabo" em [BUILD.md](BUILD.md)).
 
 **Espaço da `BOOT` no `push` (change `push-boot-swap`):** o `push` renomeia o
 `r36s/SYSTEM` e o `r36s/modules` em uso para `.old` (apagados no `push` seguinte), para não

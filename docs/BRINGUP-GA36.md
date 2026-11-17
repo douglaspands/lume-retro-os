@@ -137,7 +137,9 @@ aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funç�
   `README.md`). Para o dia a dia use o `r36os dev` (esperar, comando, tela, botões, log e
   autoteste, em [BUILD.md](BUILD.md)); o ssh direto fica para o que ele não cobre. O cartão
   vai de um console ao outro e só um deles fica no PC; ambos respondem em `10.55.0.1`, e
-  `r36os dev check --console ga36` recusa o R36S.
+  `r36os dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `r36os push --hot
+  <fragmento>` e `r36os dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
+  em [BUILD.md](BUILD.md)).
 
 **Como funciona no GA36:** o papel da porta vem só do pino ID (PH8): sem adaptador, o MUSB
 fica pronto como device. Uma medição anterior de 2026-11-13 dizia que o VBUS da porta OTG não

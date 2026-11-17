@@ -121,6 +121,18 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
+Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
+próprio console e é descarregada no cartão na hora):
+
+```
+2026-11-17T10:22:41 47 push OK hot lume-audio 0.3.1-r4
+2026-11-17T10:22:44 47 push FAIL hot lume-audio 0.3.1-r4 restart r36os-mixer
+```
+
+O `dev watch` grava uma linha dessas a cada ciclo bem-sucedido; o build dele fica no PC, em
+`out/dev-watch/<fragmento>.log`, não nos logs do console. O `r36os dev log` mostra essas linhas
+junto com as do boot atual.
+
 ### O que o `r36os push` e o `r36os dev` leem
 
 Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.

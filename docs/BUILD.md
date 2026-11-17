@@ -259,8 +259,11 @@ Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
 | `keys <sequência> [--hold MS] [--gap MS]` | aperta botões (sintaxe abaixo) |
 | `log` | imprime o log do boot atual e os eventos desse boot do `events.log` |
 | `check` | roda o autoteste do aparelho; código 0 só se tudo passar |
+| `watch <fragmento>` | a cada arquivo salvo do fragmento: build do fragmento e `push --hot` (seção abaixo); Ctrl-C encerra |
 
-Todas as ações menos `wait` aceitam `--console ga36|r36s` (seção acima).
+`sh`, `shot`, `keys`, `log` e `check` aceitam `--console ga36|r36s` (seção acima); `wait` e
+`watch` não têm essa opção (o `watch` confere o console como o `push --hot`, sem poder
+escolher).
 
 Exemplos:
 
@@ -339,7 +342,7 @@ está no syslog.
 
 ## `r36os push` e a verificação depois do reboot
 
-`r36os push [--build CARIMBO] [--yes] [--no-wait] [--console ga36|r36s]` atualiza o `BOOT` do console pelo cabo (ver
+`r36os push [--build CARIMBO] [--yes] [--no-wait] [--console ga36|r36s] [--hot FRAGMENTO] [--jobs N]` atualiza o `BOOT` do console pelo cabo (ver
 o `README.md`). Depois do reboot ele **espera e confere** o boot novo, a menos que se passe
 `--no-wait`, que só reinicia e volta:
 
@@ -375,7 +378,8 @@ linha do `events.log`.
 
 1. pergunta ao console a arquitetura (`uname -m`: `armv7l` → `armv7`, `aarch64`; o mesmo
    cartão roda no GA36 e no R36S), se `/` é o overlay com a camada em RAM e o espaço livre
-   nela (`df /rw/upper`);
+   nela, lido com `df /` (o `/rw`, o tmpfs, fica dentro do overlay: `df /rw/upper` não acha
+   o ponto de montagem);
 2. pega a versão mais nova do fragmento em `out/repo/<arch>/hashes.json` (os noarch estão em
    todas as arquiteturas);
 3. monta no PC um tar só com os arquivos de dados do `.apk` (sem `.PKGINFO`, assinaturas,
@@ -386,7 +390,12 @@ linha do `events.log`.
 5. reinicia os serviços do fragmento que estão rodando: os de `_lume_restart="a b"` no
    `APKBUILD`, quando ele tem a variável (vazia: nenhum), senão os `init.d` que ele traz.
    Reiniciar o `frontend` reinicia a sessão do launcher (a saída avisa). Uma falha grava
-   `push FAIL hot <fragmento> <versão> restart <serviços>` e sai com código 1.
+   `push FAIL hot <fragmento> <versão> restart <serviços>` e sai com código 1. Um serviço
+   que não estava rodando fica parado (`restart: <nome> not running, left stopped`).
+
+A saída mostra, em ordem: `console: ...` (placa, arquitetura, KiB livres na camada), `hot: ...`
+(pacote, versão, arquivos, tamanho), `sent: ...`, `event: push OK hot ...`, uma linha
+`restart: <serviço>` por serviço e `ok: <pacote> <versão> is live until the next reboot`.
 
 Recusados, com a indicação do `push` normal: `lume-kernel`, `lume-modules`, `lume-dtbs`, os
 pacotes do slot `base` (`rootfs/slots.toml`), todo pacote que não seja `lume-*` ou `r36os-*`
@@ -394,3 +403,42 @@ e todo fragmento com arquivos em `/boot` ou `/lib/modules`. Também recusa um co
 não é o overlay em RAM (escreveria no cartão), um fragmento fora do `out/repo/<arch>` e falta
 de espaço na camada em RAM (o reboot a esvazia). Um arquivo que a versão nova deixou de trazer
 continua lá até o reboot.
+
+### Quais serviços cada fragmento reinicia (`_lume_restart`)
+
+Cada `aports/lume-*/APKBUILD` declara `_lume_restart="<serviços>"`, os serviços do OpenRC que o
+`push --hot` reinicia (só os que estão rodando). Vazio (`""`) é "nenhum". Sem a variável, valem
+os `init.d` que o próprio pacote traz (ex.: `r36os-input`).
+
+| Fragmento | Reinicia |
+| :--- | :--- |
+| `lume-audio` | `r36os-mixer`, `r36os-jack` |
+| `lume-games` | `lume-index`, `r36os-playlists` |
+| `lume-net` | `bluetooth`, `r36os-hostshare`; o NetworkManager **não** é reiniciado, então um ajuste dele só vale no reboot |
+| `lume-saves` | `r36os-persist`, `r36os-savesync` |
+| `lume-usb` | nenhum: reiniciar o gadget cortaria o próprio cabo do `push` |
+| `lume-diag`, `lume-launcher-data`, `lume-retroarch-cfg`, `lume-shaders`, `lume-power` | nenhum (`""`) |
+
+Um fragmento novo com serviço declara a variável no `APKBUILD`; o `frontend` na lista reinicia
+a sessão do launcher.
+
+### `r36os dev watch <fragmento>`: build e `push --hot` a cada arquivo salvo
+
+Change `build-speed` (D19). `r36os dev watch lume-core` (rode na raiz do repositório, com o
+console no cabo) fica olhando os arquivos de entrada do fragmento (o `aports/<fragmento>/` e,
+no `lume-launcher`, a árvore `lume/`, sem `target`, `vendor` e `.git`) e, a cada mudança, faz o
+build do fragmento e o `push --hot` dele.
+
+- **Sondagem e agrupamento:** olha mtime e tamanho a cada 0,5 s (sem dependência extra); o
+  ciclo começa quando passa 1 s sem mudança nova. Uma mudança durante um ciclo inicia outro
+  depois dele.
+- **Uma linha por ciclo**, por exemplo `watch lume-core: changed 2 files, build 14s, hot push ok
+  (restart r36os-input)` ou `..., build failed: <motivo> (log: ...)` e `..., hot push failed:
+  <motivo>`. Uma falha não encerra o `watch`: ele espera a próxima mudança.
+- **Saída do build** (podman incluso) em `out/dev-watch/<fragmento>.log`, reescrito a cada
+  ciclo.
+- **Recusas**, antes de entrar no laço, com as mesmas regras do `push --hot` (kernel, módulos,
+  dtbs, pacotes do slot `base`, o que não é `lume-*` ou `r36os-*`) e para nome de fragmento
+  desconhecido.
+- Ctrl-C imprime `watch stopped` e sai com código 0. O que foi enviado continua na RAM do
+  console até o reboot.
