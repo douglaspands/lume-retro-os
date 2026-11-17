@@ -79,14 +79,14 @@ fn main() -> ExitCode {
             break;
         }
         let Some(st) = draw::parse(&line) else { continue };
-        let Some(map) = ov.map.as_mut() else { break };
-        let buf = map.bytes_mut();
+        // drawn off the screen, then swapped in: no blink on a change of the focus
+        let buf = ov.back_pixels();
         for y in 0..h {
             buf[y * pitch..y * pitch + w * 4].copy_from_slice(&frame[y * w * 4..(y + 1) * w * 4]);
         }
         let mut img = draw::Image { px: buf, w, h, pitch };
         draw::draw(&mut img, &fonts, &st, (&hints.0, &hints.1), warn.as_deref());
-        if let Err(e) = ov.show() {
+        if let Err(e) = ov.present() {
             return fail(&format!("SETPLANE: {e}"));
         }
         if !ok_sent {

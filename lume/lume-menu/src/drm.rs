@@ -289,42 +289,75 @@ impl Screen {
     }
 }
 
-/// Our buffer on the game's plane. `release` puts the game's framebuffer back and frees
-/// everything we made in the game's open file (the CMA ran out in the J1 without it).
-pub struct Overlay<'a> {
-    screen: &'a Screen,
+/// One dumb buffer of ours with its framebuffer and mapping.
+struct Buf {
     handle: u32,
     fb: u32,
+    map: Option<Map>,
+}
+
+/// Our two buffers on the game's plane: each change is drawn into the one off the screen and
+/// then put on the plane, so the screen never shows a half-drawn menu (it blinked on every
+/// move of the focus with one buffer, J2 on the GA36). Dropping it puts the game's
+/// framebuffer back and frees everything we made in the game's open file (the CMA ran out in
+/// the J1 without that).
+pub struct Overlay<'a> {
+    screen: &'a Screen,
+    bufs: Vec<Buf>,
+    /// the buffer on the screen (None: the game's)
+    front: Option<usize>,
     pub pitch: usize,
-    pub map: Option<Map>,
-    shown: bool,
 }
 
 impl<'a> Overlay<'a> {
     pub fn new(screen: &'a Screen) -> io::Result<Overlay<'a>> {
-        let fd = screen.fd.as_raw_fd();
-        let mut cd = CreateDumb { width: screen.fb.width, height: screen.fb.height, bpp: 32, ..Default::default() };
+        let mut ov = Overlay { screen, bufs: Vec::new(), front: None, pitch: 0 };
+        for _ in 0..2 {
+            ov.add_buffer()?;
+        }
+        Ok(ov)
+    }
+
+    fn add_buffer(&mut self) -> io::Result<()> {
+        let fd = self.screen.fd.as_raw_fd();
+        let mut cd = CreateDumb { width: self.screen.fb.width, height: self.screen.fb.height, bpp: 32, ..Default::default() };
         ioctl(fd, CREATE_DUMB, &mut cd)?;
-        let mut ov = Overlay { screen, handle: cd.handle, fb: 0, pitch: cd.pitch as usize, map: None, shown: false };
+        // kept at once, so a failure below still frees it on drop
+        self.bufs.push(Buf { handle: cd.handle, fb: 0, map: None });
+        let b = self.bufs.last_mut().unwrap();
+        self.pitch = cd.pitch as usize;
         let mut md = MapDumb { handle: cd.handle, ..Default::default() };
         ioctl(fd, MAP_DUMB, &mut md)?;
-        ov.map = Map::new(fd, cd.size as usize, md.offset as i64, true);
-        if ov.map.is_none() {
+        b.map = Map::new(fd, cd.size as usize, md.offset as i64, true);
+        if b.map.is_none() {
             return Err(io::Error::last_os_error());
         }
         let mut add = FbCmd2 { width: cd.width, height: cd.height, pixel_format: XRGB8888, ..Default::default() };
         add.handles[0] = cd.handle;
         add.pitches[0] = cd.pitch;
         ioctl(fd, ADDFB2, &mut add)?;
-        ov.fb = add.fb_id;
-        Ok(ov)
+        b.fb = add.fb_id;
+        Ok(())
     }
 
-    pub fn show(&mut self) -> io::Result<()> {
-        if !self.shown {
-            self.screen.set_plane(self.fb)?;
-            self.shown = true;
+    fn back(&self) -> usize {
+        match self.front {
+            Some(0) => 1,
+            _ => 0,
         }
+    }
+
+    /// The pixels of the buffer off the screen, to draw the next state into.
+    pub fn back_pixels(&mut self) -> &mut [u8] {
+        let i = self.back();
+        self.bufs[i].map.as_mut().expect("mapped").bytes_mut()
+    }
+
+    /// Puts the buffer just drawn on the screen.
+    pub fn present(&mut self) -> io::Result<()> {
+        let i = self.back();
+        self.screen.set_plane(self.bufs[i].fb)?;
+        self.front = Some(i);
         Ok(())
     }
 }
@@ -332,16 +365,18 @@ impl<'a> Overlay<'a> {
 impl Drop for Overlay<'_> {
     fn drop(&mut self) {
         let fd = self.screen.fd.as_raw_fd();
-        if self.shown {
+        if self.front.is_some() {
             let _ = self.screen.set_plane(self.screen.fb.fb_id);
         }
-        self.map = None;
-        if self.fb != 0 {
-            let mut id = self.fb;
-            let _ = ioctl(fd, RMFB, &mut id);
+        for b in &mut self.bufs {
+            b.map = None;
+            if b.fb != 0 {
+                let mut id = b.fb;
+                let _ = ioctl(fd, RMFB, &mut id);
+            }
+            let mut h = b.handle;
+            let _ = ioctl(fd, DESTROY_DUMB, &mut h);
         }
-        let mut h = self.handle;
-        let _ = ioctl(fd, DESTROY_DUMB, &mut h);
     }
 }
 
