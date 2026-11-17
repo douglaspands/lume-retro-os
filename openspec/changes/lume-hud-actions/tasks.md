@@ -87,8 +87,8 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 ## 1. Interfaces congeladas e protótipo
 
-- [ ] 1.1 Congelar o protocolo do `/run/r36os/input.sock` (D2, D11) e o formato `chord <código> <ação>` dos perfis (D1): do daemon `quit`, `app_menu`, `save_state`, `load_state`, `screenshot`, `hud`, `fn_tap`, `fn_hold <tabela>` (D13), `fn_release`, `volume`, `brightness` e `nav up|down|left|right|a|b`; do cliente `tap <KEY_*>`, `capture on` e `capture off`; uma mensagem por linha; a linha antiga `quit <código>` lida como `chord <código> quit`; `fn_hold_ms` no perfil (padrão 500). Um módulo Rust no `lume-core` com o parser das mensagens e o comentário do cabeçalho do `input.c` atualizados juntos. Verificação: testes de unidade em Rust (mensagens válidas, `fn_hold` com a tabela lida em pares botão=ação, desconhecidas ignoradas, `tap` com código fora de `KEY_*` recusado) e um teste do parser de perfis do `r36os-input` em modo `--test` com `chord` e com `quit` antigo.
-- [ ] 1.2 Congelar as ações do runner (D3): `[runner.actions]` com `pause`, `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, valores `retroarch-cmd:<CMD>`, `key:<KEY_*>` e `signal:<NOME>`, e `retroarch-pause` só para `pause`, e o campo `overlay = "retroarch"`, validados no `lume-core/src/runner.rs`; linhas `action=<ação> <forma>` e `overlay=` no arquivo de lançamento, lidas pelo `lume-run/src/launch.rs`; `docs/LAUNCHER.md` com o formato. Verificação: testes de unidade (runner sem ações válido, valor inválido recusado com a mensagem, ação ou `overlay` desconhecidos recusados, arquivo de lançamento com e sem as linhas novas).
+- [x] 1.1 Congelar o protocolo do `/run/r36os/input.sock` (D2, D11) e o formato `chord <código> <ação>` dos perfis (D1): do daemon `quit`, `app_menu`, `save_state`, `load_state`, `screenshot`, `hud`, `fn_tap`, `fn_hold <tabela>` (D13), `fn_release`, `volume`, `brightness` e `nav up|down|left|right|a|b`; do cliente `tap <KEY_*>`, `capture on` e `capture off`; uma mensagem por linha; a linha antiga `quit <código>` lida como `chord <código> quit`; `fn_hold_ms` no perfil (padrão 500). Um módulo Rust no `lume-core` com o parser das mensagens e o comentário do cabeçalho do `input.c` atualizados juntos. Verificação: testes de unidade em Rust (mensagens válidas, `fn_hold` com a tabela lida em pares botão=ação, desconhecidas ignoradas, `tap` com código fora de `KEY_*` recusado) e um teste do parser de perfis do `r36os-input` em modo `--test` com `chord` e com `quit` antigo.
+- [x] 1.2 Congelar as ações do runner (D3): `[runner.actions]` com `pause`, `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, valores `retroarch-cmd:<CMD>`, `key:<KEY_*>` e `signal:<NOME>`, e `retroarch-pause` só para `pause`, e o campo `overlay = "retroarch"`, validados no `lume-core/src/runner.rs`; linhas `action=<ação> <forma>` e `overlay=` no arquivo de lançamento, lidas pelo `lume-run/src/launch.rs`; `docs/LAUNCHER.md` com o formato. Verificação: testes de unidade (runner sem ações válido, valor inválido recusado com a mensagem, ação ou `overlay` desconhecidos recusados, arquivo de lançamento com e sem as linhas novas).
 - [ ] 1.3 Telas do menu do Lume e da dica dos acordes sobre o jogo no protótipo (`docs/lume-launcher/prototipo/`, D10, D13), na família do menu do jogo do launcher: lista (Voltar ao jogo, Reiniciar, Menu do RetroArch, Encerrar jogo), confirmação com Não em foco, a dica com uma linha por acorde (glifo do botão e nome da ação), sobre uma imagem de jogo de exemplo, nos temas do protótipo e nos três idiomas; as medidas a 640x480 (posições, tamanhos, fontes, cores dos tokens) anotadas numa tabela no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova a tela no navegador a 640x480 (a aprovação é anotada na tabela com a data).
 
 ## 2. Acordes e captura no daemon de entrada
@@ -123,6 +123,31 @@ Modelos aprovados pelo usuário em 2026-11-17.
 - [ ] 6.1 Build dos pacotes mudados (`r36os-input`, `lume-launcher`, `retroarch`, `lume-retroarch-cfg`, `lume-games`) nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push` para o cartão. Verificação: os `.apk` novos com o `pkgrel` novo no repositório local e o `push` terminando com `ok`.
 - [ ] 6.2 Janela J2 no GA36: Fn+A e Fn+Select não fazem nada; segurar o Fn mostra a dica com os acordes e o jogo continua, soltar fecha a dica sem abrir menu, R1 com a dica na tela grava o estado; um acorde solto rápido não abre o menu; o `fn_hold_ms` ajustado com o usuário (anotar o valor); Fn+B abre e fecha o menu do RetroArch com o jogo pausado; Start + Select chega ao jogo; o toque no Fn abre o menu do Lume com o jogo pausado pelo RetroArch e sem som, B ou outro toque volta e despausa; com o jogo já pausado antes, fechar o menu o mantém pausado; num Port, o menu aparece e o Port continua de onde parou ao voltar; com o RetroArch travado de propósito, o toque mostra o menu com "Forçar fechamento" em até 2 s e ele volta ao launcher; Reiniciar e Encerrar pedem confirmação com Não em foco, Sim reinicia ou encerra (SRAM gravada), "Menu do RetroArch" abre o menu dele; com o menu do Lume aberto, os botões não chegam ao jogo, e matar o `lume-run` devolve o controle em até 2 s; Fn+R1, mais jogo, Fn+L1 volta ao ponto salvo; aberto pelo slot 3, Fn+R1 grava no slot 3; depois de sair, "Save states" mostra a foto e o core certo; Fn+Y grava duas fotos diferentes em `ROMS/screenshots/`, sem a barra; Fn+X mostra e esconde a barra com os cinco campos, e ela continua ligada no jogo seguinte; carregador ligado aparece em até 5 s; Fn+Start continua saindo direto, também com o menu do Lume aberto; num jogo LÖVE ou num Port, segurar o Fn, Fn+R1 e Fn+Y só registram no log e Fn+Start encerra; `events.log` e log do `lume-run` sem erro; com a barra visível 5 min, o `lume-run` abaixo de 2% de um núcleo e o RSS dele anotado. Verificação: resultado anotado no `docs/BRINGUP-GA36.md`, sem nome de jogo.
 - [ ] 6.3 Janela J3 no R36S, com o mesmo cartão: as mesmas provas da 6.2, mais a GPU com número na barra. Verificação: resultado anotado no `docs/BRINGUP-R36S.md`, sem nome de jogo; P-62 movido para "Concluídas" no `docs/PENDENCIAS.md` com o nome desta change, e o P-57 atualizado (atalho Fn+Y feito no RetroArch; a captura do sistema para qualquer programa continua aberta).
+
+## Andamento (2026-11-17, sessão principal, sem subagentes, na branch `feature/virtual-gamepad` a pedido do usuário)
+
+**Código feito, com testes de unidade passando** (nada marcado sem a prova no aparelho):
+1.1 e 1.2 (marcadas); 2.1, 2.2 (`input.c`, perfis, `tests/unit/test_r36os_input.py`); 3.1, 3.3
+e 4.2 (`lume-run`: `actions.rs`, `menu.rs`, `hud.rs`, `tests/run.rs` com RetroArch falso); 3.2
+(`lume-ui`, `retroarch.toml`, catálogo); 4.3 e 4.5 num patch só (`0012-lume-hud-hint-menu.patch`:
+`LUME_HUD`, `LUME_HINT` e `LUME_MENU`); 5.1 (cfg, autoconfigs, self-test da vm). 1.3: tela no
+protótipo (`prototipo/jogo.html`) e tabela no `design-das-telas.md`; falta a aprovação do usuário.
+
+**Prova na vm, só vm** (imagem `vm` com `r36os-input` r14, `retroarch` r115, `lume-launcher`
+r30; QEMU sem virgl com display VNC num socket unix, capturas pelo QMP; o `lume-ui` não ajusta o
+modo de vídeo nesse modo, então o jogo é aberto às cegas pelo `dev run`): barra com Fn+X e
+continua no jogo seguinte; dica ao segurar o Fn, some ao soltar; toque abre o menu com o
+RetroArch pausado pelo `PAUSE_TOGGLE` e fecha despausando (`GET_STATUS PLAYING`); confirmação
+com Não em foco; Reiniciar com Sim reinicia e despausa; Fn+B abre e fecha o menu do RetroArch;
+Fn+Y grava `ROMS/screenshots/<jogo>-<data>.png`; Fn+R1 grava `<jogo>.state` (slot 0) com a
+foto `.state.png`; Fn+L1 carrega; Fn+Start encerra; textos em en, pt e es; RetroArch congelado
+de propósito: o `lume-run` detecta o silêncio em 1 s, congela o grupo e "Forçar fechamento"
+encerra (`end=force-close`), mas o menu não aparece (o widget é desenhado pelo próprio
+RetroArch: limite do caminho de reserva, o D14 resolve). Capturas em `cache/tmp/shots/vm/`.
+
+**Pendente:** 1.3 (aprovação), 4.1 e 4.6 (J1), 3.4 (depende da 4.6), 4.4 (depende da 4.1),
+6.1 a 6.3 (build do console e janelas J2/J3). As tarefas 2.1, 2.2, 3.1, 3.2, 3.3, 4.2, 4.3,
+4.5 e 5.1 só são marcadas depois da J2/J3.
 
 ## Workflow follow-up
 

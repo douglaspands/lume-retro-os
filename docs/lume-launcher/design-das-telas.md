@@ -51,6 +51,33 @@ Regras desenhadas e conferidas:
 | Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-17 (raio 9,5x11,5 px no ícone, cheia sem raio, temas Material, aviso de 4 s) |
 | :--- | :--- |
 
+## Sobre o jogo: menu do Lume, dica dos acordes e barra de status (change `lume-hud-actions`, D6, D10, D13)
+
+Protótipo: `prototipo/jogo.html` (telas do sistema sobre um jogo de exemplo desenhado com blocos, sem arte de terceiros). Parâmetros: `?tema=lume|material-escuro|material-claro&idioma=pt|en|es&tela=menu|confirm|confirm-reset|silent|native|hint|hud|hud-charging|game&barra&foco=N&limpo` (`limpo` deixa só a tela de 640x480, para a captura). No navegador: F1 tocado abre e fecha o menu, F1 segurado 500 ms mostra a dica, setas, Enter = A, Esc = B, como a máquina de estados do `lume-run` (`menu.rs`). O tema `lume` é o da imagem (`themes/base.toml`, os `DEFAULTS` de `src/themes.js`).
+
+Medido nas capturas de 640x480 (Chromium headless, `?limpo`), em 2026-11-17, origem no canto superior esquerdo; 1em = 16 px. O widget do RetroArch (patch 0012) usa as cores dos tokens e estas proporções; os tamanhos de fonte dele vêm das fontes de widget do RetroArch e são comparados com esta tabela pela captura (`r36os dev shot`), na VM e depois no aparelho.
+
+| Elemento | x | y | largura | altura | Fonte / cor |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Fundo do menu (jogo pausado) | 0 | 0 | 640 | 480 | `overlay` (`#000000aa`) |
+| Painel do menu, 4 itens (pt) | 163 | 102 | 313 | 276 | `panel-bg-opaque`, raio `radius-panel`, largura mínima 300 px, padding 0 / 8 / 20 px |
+| Título (nome do jogo ou pergunta) | 175 | 102 | 290 | 58 | 22,4 px (`--fs-m`) peso 600, `fg`; linha de 1 px `muted` a 35% embaixo |
+| Item em foco | 171 | 170 | 298 | 46 | 20 px, fundo `sel-bg`, texto `sel-fg`, raio `radius-item` |
+| Demais itens (passo) | 171 | +47,6 | 298 | 46 | 20 px, `fg` |
+| "Forçar fechamento" | idem | idem | idem | idem | texto `#ff8a80` fora do foco |
+| Dicas A/B no rodapé | centrado | 443 | — | 24 | 19,2 px, como o rodapé do launcher |
+| Painel da dica, 6 acordes (pt) | 176 | 104 | 287 | 272 | `panel-bg` (transparente: o jogo continua), borda de cima 3 px `accent`, padding 16 px |
+| Linha da dica | 192 | +39,6 | — | 39,6 | botão 17,6 px negrito `accent`, ação 17,6 px `fg`, 20 px entre as colunas |
+| Barra de status | 0 | 0 | 640 | 28 | 16 px, números tabulares, fundo preto a 60%, `fg`, padding 8 px |
+
+Regras desenhadas:
+- **Menu:** confirmação com Não em foco (Não à esquerda, Sim à direita na ordem da lista); o título vira a pergunta. App sem resposta: o título diz "RetroArch não responde" e "Forçar fechamento" entra por último, já em foco. Port: só Voltar ao jogo e Encerrar jogo.
+- **Dica:** uma linha por acorde que o runner declara, mais Fn+Start; some ao soltar o Fn. O jogo segue rodando por baixo, por isso o painel é transparente e não há fundo escurecido.
+- **Barra:** só texto, sem ícones, em uma linha; com o menu aberto ela continua visível por cima do fundo escurecido.
+
+| Aprovação do usuário no navegador a 640x480 | pendente (capturas enviadas em 2026-11-17 para avaliação) |
+| :--- | :--- |
+
 ## Pontos técnicos a verificar
 - **Save states**: dependem do emulador. No RetroArch os estados ficam em slots; é preciso confirmar como iniciar já carregando um slot (opção de linha de comando ou configuração) e como o dArkOS organiza os arquivos. Emuladores standalone podem não ter isso.
 - **Capas**: vêm do `gamelist.xml` do ES (`<image>`), não do formato do RetroArch. Detalhes em [Gamelist e capas](gamelist-e-capas.md).

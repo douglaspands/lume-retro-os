@@ -353,6 +353,17 @@ def test_without_launcher_keys_nothing_changes(tmp_path):
     assert "quit=launcher" in out.splitlines()
 
 
+def test_start_select_opens_the_menu_only_as_the_reserve_frontend(tmp_path):
+    # lume-hud-actions D9: under the launcher Start + Select is the game's (lume-run opens the
+    # menu with Fn+B); as the reserve frontend nothing else could open it in a game
+    _, cfg, _ = _frontend(tmp_path, "ga36", "", env_extra={"LUME_LAUNCHER": "1"})
+    assert 'input_menu_toggle_gamepad_combo = "0"' in cfg.splitlines()
+    _, cfg, _ = _frontend(tmp_path, "ga36")
+    lines = cfg.splitlines()
+    assert 'input_menu_toggle_gamepad_combo = "4"' in lines
+    assert sum(1 for line in lines if line.startswith("input_menu_toggle_gamepad_combo")) == 1
+
+
 def test_menu_has_no_transparency():
     # simple hardware: no blending of the menu over the game, as a factory default (cards
     # with a saved config already have these values: RetroArch saved them)

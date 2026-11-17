@@ -415,6 +415,31 @@ largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação
 3. As chaves do RetroArch são reaplicadas a cada início pelo script do frontend; voltar à
    versão anterior pelo `push` restaura o comportamento antigo.
 
+## Notas da implementação (2026-11-17)
+
+- **Estado da barra:** `$XDG_RUNTIME_DIR/lume/hud` no lugar de `/run/r36os/hud`. O
+  `/run/r36os` é do root e o `lume-run` roda como `game`; a pasta de runtime também é apagada no
+  boot, então o efeito do D6 é o mesmo (começa escondida, vale entre jogos).
+- **Ordem da 4.5:** o widget `LUME_MENU` (caminho de reserva) entrou já no patch 0012, antes da
+  prova da 4.6, para o menu poder ser visto e avaliado na vm. Se a 4.6 passar, o `lume-menu`
+  (3.4) desenha o menu e o `LUME_MENU` sai do patch, como o D8 pede. Até lá, o toque no Fn num
+  runner sem `overlay` só registra no log.
+- **Esconder um widget:** o `lume-run` manda `LUME_HUD -` (e `LUME_HINT -`, `LUME_MENU -`). Um
+  comando sem argumento faz o RetroArch 1.22.2 apontar o argumento para depois do fim da string
+  (`command_get_arg`), então o "vazio" do D8 virou `-`.
+- **Teclas do `tap`:** o controle virtual declara as teclas `KEY_*` da tabela do daemon, menos
+  `KEY_UP`..`KEY_DOWN`: o driver udev de joypad do RetroArch numera essa faixa antes de
+  `BTN_MISC`, e declarar as setas deslocaria todos os índices dos autoconfigs.
+- **Frontend de reserva:** sem `lume-run` (`FRONTEND="retroarch"`), nada abriria o menu do
+  RetroArch dentro de um jogo depois do D9; o script do frontend devolve `input_menu_toggle_gamepad_combo = "4"`
+  quando `LUME_LAUNCHER` não está definido.
+- **Pausa:** o RetroArch alterna a pausa no quadro seguinte; a conferência depois do
+  `PAUSE_TOGGLE` tenta 5 vezes, com 40 ms entre elas, antes de registrar o aviso.
+- **Cores do widget:** os tokens do tema padrão da imagem (`themes/base.toml`): `panel_bg`,
+  `accent`/`sel_bg`, `accent_fg`/`sel_fg`, `fg`, `muted`, `overlay`. As fontes são as dos
+  widgets do RetroArch (menores que as do protótipo a 640x480: título ~16 px contra 22,4 px,
+  itens ~16 px contra 20 px), a decidir na aprovação da 1.3.
+
 ## Open Questions
 
 - Largura real do texto da barra na fonte dos widgets a 640x480: decide só a ordem de corte.

@@ -100,6 +100,7 @@ EDITED_AFTER_MOVE = {
     "usr/libexec/r36os/logd",       # game-governor 1.2: the sample without external processes
     "usr/libexec/r36os/logs.sh",
     "usr/libexec/r36os/selftest",   # lume-hud-actions D9: Start + Select stays in the game
+    "usr/libexec/r36os/frontends/retroarch",  # lume-hud-actions D9: Start + Select as reserve
     "usr/share/lume/runners.d/retroarch.toml",  # lume-hud-actions D3: actions and overlay
     # lume-hud-actions D5, D9: the pictures and the menu keys of RetroArch
     "usr/share/r36os/retroarch-lume.cfg",

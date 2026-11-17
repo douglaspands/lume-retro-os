@@ -16,9 +16,33 @@ ao mesmo lugar. Durante o jogo, a interface sai da memória. Planejamento e deci
 | Y | — | opções do console | — |
 | L1 / R1 | — | salta uma parte da lista (mais longe se repetir rápido) | — |
 | **Fn+Start** | nada | nada | **encerra o jogo aberto e volta ao launcher** |
-| Fn sozinho | — | — | abre o menu do RetroArch, dentro de um jogo do RetroArch |
 | Volume + / − | volume do sistema, em qualquer tela e em qualquer jogo | | |
 | Fn + Volume + / − | brilho da tela, em passos de 5%, em qualquer tela e em qualquer jogo | | |
+
+### Atalhos dentro do jogo (o Fn é o botão do sistema)
+
+O Fn funciona como o botão Steam do SteamOS: **tocar** abre o menu do Lume, **segurar** mostra
+os atalhos e **segurar + outro botão** faz o atalho. Um atalho nunca vira toque.
+
+| Gesto | O que faz |
+|---|---|
+| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Reiniciar, Menu do RetroArch, Encerrar jogo (Reiniciar e Encerrar pedem confirmação, com Não em foco). Com o menu aberto, os botões não chegam ao jogo |
+| Segurar o Fn (meio segundo) | mostra a lista dos atalhos que valem neste jogo; soltar a esconde |
+| Fn+B | menu do RetroArch (abre e fecha) |
+| Fn+R1 / Fn+L1 | salva / carrega o estado no slot rápido (o slot com que o jogo abriu; pela grade, o 0) |
+| Fn+Y | foto do jogo em `ROMS/screenshots/`, com data e hora no nome, sem a barra nem os menus |
+| Fn+X | mostra e esconde a barra de status no topo (continua ligada no jogo seguinte) |
+| Fn+Start | encerra o jogo na hora, também com o menu aberto (saída de emergência) |
+
+Os outros Fn + botão (Fn+A, Fn+Select...) ficam reservados e não fazem nada. Start + Select
+voltou a ser do jogo. Se o programa do jogo travar, o toque no Fn mostra "Forçar fechamento".
+A barra, a lista de atalhos e o menu aparecem nos jogos do RetroArch; num Port ou num jogo LÖVE,
+só Fn+Start vale nesta versão (os outros atalhos só deixam uma linha no log).
+
+A barra mostra `CPU 47% 1008MHz  GPU 62%  MEM 124/1006/200  BAT 74% 1.9W 2:40`: uso e clock da
+CPU, uso da GPU, memória usada/total/swap em MiB e bateria (nível, potência e tempo restante;
+carregando, `BAT 74% + 0:50`, o tempo até encher). `--` é um valor que o aparelho não informa e
+`--:--` aparece nos primeiros 30 s, até haver uma estimativa.
 
 Fora das Configurações, o volume aparece como uma linha na borda direita da tela e o brilho
 como uma linha branca na borda esquerda; as duas somem logo depois do último aperto.
@@ -142,6 +166,20 @@ timeout = 3                         # segundos até o encerramento forçado
 - O primeiro item é o caminho absoluto de um executável. Um arquivo com erro, ou que cite um
   executável que não existe, é ignorado e o log diz qual foi; os outros runners continuam.
 - Com o mesmo `id` de um runner da imagem (`retroarch`, `love`, `sh`), o do cartão vence.
+- Os atalhos do Fn chegam ao emulador pela tabela opcional `[runner.actions]`: `pause`,
+  `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, cada uma como
+  `retroarch-cmd:<COMANDO>` (comando de rede do RetroArch), `key:<KEY_*>` (uma tecla apertada e
+  solta no controle virtual, por exemplo `key:KEY_F2`) ou `signal:<NOME>` (sinal ao programa,
+  por exemplo `signal:SIGUSR1`); `pause` aceita também `retroarch-pause`. Sem `pause`, o menu do
+  Lume congela o programa enquanto está aberto. Uma ação que o runner não declara só deixa uma
+  linha no log. `overlay = "retroarch"` diz que o runner desenha a barra e a lista de atalhos.
+
+```toml
+[runner.actions]
+save_state = "key:KEY_F2"
+load_state = "key:KEY_F4"
+screenshot = "signal:SIGUSR1"
+```
 
 Depois, cite o runner num console, em `ROMS/system/lume/systems.d/*.toml`:
 

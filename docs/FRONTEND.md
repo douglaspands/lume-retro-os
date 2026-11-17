@@ -72,6 +72,14 @@ Durante o jogo, só o `lume-run` e o daemon de entrada (`r36os-input`) ficam na 
 **Fn+Start** encerra o jogo e volta ao launcher. Sair pelo menu do RetroArch também volta ao
 launcher; com o launcher, o item do menu se chama "Sair", não "Desligar".
 
+Atalhos do jogo (lume-hud-actions): o Fn nunca chega ao programa. O `r36os-input` manda ao
+`lume-run` o gesto (`fn_tap`, `fn_hold`, `fn_release`) ou a ação do acorde (`app_menu`,
+`save_state`, `load_state`, `screenshot`, `hud`, `quit`), e o `lume-run` a executa pelo runner
+(tabela em `docs/LAUNCHER.md`). O menu do RetroArch abre por **Fn+B** ou pelo item do menu do
+Lume (toque no Fn); Start + Select é do jogo. Como frontend de reserva (`FRONTEND="retroarch"`,
+sem `lume-run`), o script do frontend devolve o Start + Select ao menu, o único caminho até ele
+dentro de um jogo.
+
 ## RetroArch (reserva)
 
 Com `FRONTEND="retroarch"`, o boot cai direto no menu do RetroArch, como antes do launcher. O

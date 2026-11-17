@@ -129,7 +129,7 @@ index 1879687..c854659 100644
  extern const gfx_widget_t gfx_widget_libretro_message;
  extern const gfx_widget_t gfx_widget_progress_message;
 diff --git a/gfx/widgets/gfx_widget_volume.c b/gfx/widgets/gfx_widget_volume.c
-index bfad70c..2ae56a5 100644
+index bfad70c..b181b2f 100644
 --- a/gfx/widgets/gfx_widget_volume.c
 +++ b/gfx/widgets/gfx_widget_volume.c
 @@ -15,8 +15,14 @@
@@ -147,7 +147,7 @@ index bfad70c..2ae56a5 100644
  #include "../gfx_widgets.h"
  #include "../gfx_animation.h"
  #include "../gfx_display.h"
-@@ -484,3 +490,271 @@ const gfx_widget_t gfx_widget_lume_level = {
+@@ -484,3 +490,275 @@ const gfx_widget_t gfx_widget_lume_level = {
     NULL, /* iterate */
     gfx_widget_lume_level_frame
  };
@@ -166,12 +166,15 @@ index bfad70c..2ae56a5 100644
 +#define LUME_WIDGET_TIMEOUT 3000
 +#define LUME_TEXT_MAX       1024
 +#define LUME_ROWS_MAX       12
-+/* the launcher's dark theme (Lume tokens): surface, accent, text, muted */
-+#define LUME_SURFACE        0x1c1b1f
-+#define LUME_ACCENT         0x4db3ff
-+#define LUME_ON_ACCENT      0x0b1a26
-+#define LUME_TEXT           0xeeeeee
++/* the tokens of the launcher's default theme (lume themes/base.toml): panel_bg,
++ * accent (sel_bg), accent_fg (sel_fg), fg, muted, overlay */
++#define LUME_SURFACE        0x1b1f25
++#define LUME_SURFACE_ALPHA  0.90f
++#define LUME_ACCENT         0x4cc2ff
++#define LUME_ON_ACCENT      0x001018
++#define LUME_TEXT           0xf0f0f0
 +#define LUME_MUTED          0x9aa0aa
++#define LUME_OVERLAY_ALPHA  0.67f
 +
 +struct gfx_widget_lume_state
 +{
@@ -299,7 +302,7 @@ index bfad70c..2ae56a5 100644
 +   ph = pad * 2 + row_h * n;
 +   px = (vw - pw) / 2.0f;
 +   py = (vh - ph) / 2.0f;
-+   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, 0.92f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, LUME_SURFACE_ALPHA);
 +   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, 3.0f * s, LUME_ACCENT, 1.0f);
 +   for (i = 0; i < n; i++)
 +   {
@@ -352,8 +355,8 @@ index bfad70c..2ae56a5 100644
 +   py = (vh - ph) / 2.0f;
 +
 +   /* the game stays visible, dimmed: the menu belongs to the system */
-+   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, vh, 0x000000, 0.45f);
-+   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, 0.96f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, vh, 0x000000, LUME_OVERLAY_ALPHA);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, LUME_SURFACE_ALPHA);
 +   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py + title_h - 1.0f * s,
 +         pw, 1.0f * s, LUME_MUTED, 0.35f);
 +   gfx_widget_lume_quad(p_disp, userdata, vw, vh,
@@ -387,15 +390,16 @@ index bfad70c..2ae56a5 100644
 +   p_disp     = (gfx_display_t*)video_info->disp_userdata;
 +   s          = video_info->height / 480.0f;
 +
-+   if (state->visible[GFX_WIDGET_LUME_HUD])
-+      gfx_widget_lume_hud(w, p_disp, video_info->userdata,
-+            video_info->width, video_info->height, s);
 +   /* the menu covers the hint: never both */
 +   if (state->visible[GFX_WIDGET_LUME_MENU])
 +      gfx_widget_lume_menu(w, p_disp, video_info->userdata,
 +            video_info->width, video_info->height, s);
 +   else if (state->visible[GFX_WIDGET_LUME_HINT])
 +      gfx_widget_lume_hint(w, p_disp, video_info->userdata,
++            video_info->width, video_info->height, s);
++   /* the bar last: it stays bright over the dimmed game of the menu */
++   if (state->visible[GFX_WIDGET_LUME_HUD])
++      gfx_widget_lume_hud(w, p_disp, video_info->userdata,
 +            video_info->width, video_info->height, s);
 +}
 +

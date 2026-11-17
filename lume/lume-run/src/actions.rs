@@ -9,6 +9,9 @@ use lume_core::runner::ActionForm;
 
 /// How long the pause waits for RetroArch's GET_STATUS (D10)
 pub const STATUS_WAIT: Duration = Duration::from_secs(1);
+/// Checks of the PAUSED state after PAUSE_TOGGLE, and the gap before each one
+const PAUSE_CHECKS: usize = 5;
+const PAUSE_CHECK_GAP: Duration = Duration::from_millis(40);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -66,7 +69,13 @@ pub fn pause(pause: Option<&ActionForm>, port: u16, pgid: libc::pid_t, log: &dyn
         Some(ActionForm::RetroarchPause) => match ra_status(port, STATUS_WAIT) {
             Some(Status::Playing) => {
                 ra_send(port, "PAUSE_TOGGLE");
-                if ra_status(port, STATUS_WAIT) != Some(Status::Paused) {
+                // RetroArch toggles on its next frame: a few short checks before the warning
+                // (one answer right after the toggle still said PLAYING in the vm)
+                let paused = (0..PAUSE_CHECKS).any(|_| {
+                    std::thread::sleep(PAUSE_CHECK_GAP);
+                    ra_status(port, STATUS_WAIT) == Some(Status::Paused)
+                });
+                if !paused {
                     log("pause: RetroArch did not report PAUSED after PAUSE_TOGGLE");
                 }
                 PauseResult { paused: Paused::Toggle, unresponsive: false }

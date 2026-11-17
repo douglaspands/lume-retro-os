@@ -76,6 +76,13 @@ if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
 fi
 [ -n "${R36OS_MERGE_ONLY:-}" ] && exit 0
 [ -n "${LUME_LAUNCHER:-}" ] && export LUME_RETROARCH_QUIT=launcher
+# As the reserve frontend there is no lume-run to open the menu (Fn+B or the Lume menu, and
+# the Fn never reaches RetroArch): Start + Select opens it again (lume-hud-actions D9)
+if [ -z "${LUME_LAUNCHER:-}" ]; then
+	RESERVE_KEYS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-reserve.cfg
+	printf 'input_menu_toggle_gamepad_combo = "4"\n' > "$RESERVE_KEYS"
+	merge_fixed "$USER_CFG" "$RESERVE_KEYS"
+fi
 
 # keys of this run only
 RUN_KEYS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-run.cfg
