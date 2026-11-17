@@ -1,13 +1,15 @@
 //! The status bar over a game (lume-hud-actions D6, D7): lume-run reads a few small files
 //! once a second while the bar is on and sends `LUME_HUD <text>` to RetroArch (patch 0012).
-//! Off, nothing is read. The text is language-neutral:
+//! Off, nothing is read. The text is language-neutral, one group per field separated by `|`;
+//! the widget draws the first word of each group (the label) in the theme's accent, the rest
+//! in white, and a thin divider between groups (the user's choice, 2026-11-17):
 //!
 //! ```text
-//! CPU 47% 1008MHz  GPU 62%  MEM 124/1006/200  BAT 74% 1.9W 2:40
+//! CPU 47% 1008MHz|GPU 62%|MEM 124/1006M sw 200M|BAT 74% 1.9W 2:40
 //! ```
 //!
 //! `--` stands for a value that cannot be read and `--:--` for no estimate yet; charging,
-//! `BAT 74% + 0:50` (the time until full). MEM is used/total/swap in MiB.
+//! `BAT 74% + 0:50` (the time until full). MEM is used/total and the swap in use, in MiB.
 //!
 //! Every path hangs from `root` (`/` on the console), so the tests use fake trees.
 
@@ -256,9 +258,9 @@ impl Hud {
             Some(g) => format!("{g}%"),
             None => self.gpu_mhz().map(|m| format!("{m}MHz")).unwrap_or_else(|| "--".into()),
         };
-        let mem = self.mem().map(|(u, t, s)| format!("{u}/{t}/{s}")).unwrap_or_else(|| "--".into());
+        let mem = self.mem().map(|(u, t, s)| format!("{u}/{t}M sw {s}M")).unwrap_or_else(|| "--".into());
         let bat = self.battery_text(elapsed);
-        format!("CPU {cpu} {mhz}  GPU {gpu}  MEM {mem}  {bat}")
+        format!("CPU {cpu} {mhz}|GPU {gpu}|MEM {mem}|{bat}")
     }
 }
 
@@ -343,10 +345,10 @@ mod tests {
         gpu(&d, &[("gp", 0), ("pp", 0)]);
         let mut h = Hud::new(&d, 42);
         // the first sample has no difference yet
-        assert_eq!(h.sample(0.0), "CPU -- 1008MHz  GPU --  MEM 124/1006/200  BAT --");
+        assert_eq!(h.sample(0.0), "CPU -- 1008MHz|GPU --|MEM 124/1006M sw 200M|BAT --");
         stat(&d, 147, 953); // 47 busy of 100
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
-        assert_eq!(h.sample(1.0), "CPU 47% 1008MHz  GPU 62%  MEM 124/1006/200  BAT --");
+        assert_eq!(h.sample(1.0), "CPU 47% 1008MHz|GPU 62%|MEM 124/1006M sw 200M|BAT --");
     }
 
     #[test]

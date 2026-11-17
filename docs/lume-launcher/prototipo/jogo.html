@@ -107,9 +107,13 @@
       [92, 290, 32, 12, '#d02818'], [100, 306, 16, 10, '#f8c890']];
     g.innerHTML = blocks.map(([x, y, w, h, c]) => `<i style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${c}"></i>`).join('');
 
+    /* grupos separados por "|" (o texto do LUME_HUD): rótulo na cor de destaque, divisória fina */
     function hud(charging) {
       const bat = charging ? 'BAT 74% + 0:50' : 'BAT 74% 1.9W 2:40';
-      return `CPU 47% 1008MHz&nbsp;&nbsp;GPU 62%&nbsp;&nbsp;MEM 124/1006/200&nbsp;&nbsp;${bat}`;
+      return ['CPU 47% 1008MHz', 'GPU 62%', 'MEM 124/1006M sw 200M', bat].map(g => {
+        const [l, ...v] = g.split(' ');
+        return `<b style="color:var(--accent)">${l}</b>&nbsp;${v.join(' ')}`;
+      }).join('<i style="display:inline-block;width:1px;height:1em;margin:0 .55em;background:var(--muted);opacity:.6"></i>');
     }
     function items() {
       if (st.view === 'native') return [t('back'), t('end')];

@@ -39,8 +39,10 @@ voltou a ser do jogo. Se o programa do jogo travar, o toque no Fn mostra "Força
 A barra, a lista de atalhos e o menu aparecem nos jogos do RetroArch; num Port ou num jogo LÖVE,
 só Fn+Start vale nesta versão (os outros atalhos só deixam uma linha no log).
 
-A barra mostra `CPU 47% 1008MHz  GPU 62%  MEM 124/1006/200  BAT 74% 1.9W 2:40`: uso e clock da
-CPU, uso da GPU, memória usada/total/swap em MiB e bateria (nível, potência e tempo restante;
+A barra mostra `CPU 47% 1008MHz │ GPU 62% │ MEM 124/1006M sw 200M │ BAT 74% 1.9W 2:40`, com os
+rótulos na cor de destaque e uma divisória entre os grupos: uso e clock da CPU, uso da GPU (no
+GA36, que não informa o uso, o clock dela), memória usada/total e o swap em uso, em MiB, e
+bateria (nível, potência e tempo restante;
 carregando, `BAT 74% + 0:50`, o tempo até encher). `--` é um valor que o aparelho não informa e
 `--:--` aparece nos primeiros 30 s, até haver uma estimativa.
 

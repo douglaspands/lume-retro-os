@@ -7,8 +7,10 @@ screen. Three network commands draw what lume-run sends, as graphics widgets
 (gfx_widget_lume, kept in gfx_widget_volume.c so the build files do not
 change, like 0011):
 
-  LUME_HUD  <text>                  a strip along the top, semi-transparent,
-                                    the game's viewport untouched
+  LUME_HUD  <group|group|...>       a strip along the top, semi-transparent,
+                                    the game's viewport untouched; the first
+                                    word of each group (the label) in the
+                                    accent, a thin divider between groups
   LUME_HINT <button\tname|...>      a centred panel, one row per Fn chord
   LUME_MENU <title|item|...|focus>  the Lume menu: the game dimmed, a panel
                                     with a title and the focused row filled
@@ -129,7 +131,7 @@ index 1879687..c854659 100644
  extern const gfx_widget_t gfx_widget_libretro_message;
  extern const gfx_widget_t gfx_widget_progress_message;
 diff --git a/gfx/widgets/gfx_widget_volume.c b/gfx/widgets/gfx_widget_volume.c
-index bfad70c..b181b2f 100644
+index bfad70c..0b256c7 100644
 --- a/gfx/widgets/gfx_widget_volume.c
 +++ b/gfx/widgets/gfx_widget_volume.c
 @@ -15,8 +15,14 @@
@@ -147,7 +149,7 @@ index bfad70c..b181b2f 100644
  #include "../gfx_widgets.h"
  #include "../gfx_animation.h"
  #include "../gfx_display.h"
-@@ -484,3 +490,275 @@ const gfx_widget_t gfx_widget_lume_level = {
+@@ -484,3 +490,306 @@ const gfx_widget_t gfx_widget_lume_level = {
     NULL, /* iterate */
     gfx_widget_lume_level_frame
  };
@@ -256,15 +258,46 @@ index bfad70c..b181b2f 100644
 +         vw, vh, (rgb << 8) | 0xff, align, false);
 +}
 +
++/* The bar: groups separated by '|' ("CPU 47% 1008MHz|GPU 62%|..."); the first word of
++ * each group (the label) in the accent, the rest in the text color, a thin muted divider
++ * between groups (the user's choice, 2026-11-17). */
 +static void gfx_widget_lume_hud(dispgfx_widget_t *w, gfx_display_t *p_disp,
 +      void *userdata, unsigned vw, unsigned vh, float s)
 +{
++   char copy[LUME_TEXT_MAX];
++   char *groups[LUME_ROWS_MAX];
 +   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
++   gfx_widget_font_data_t *bold = &w->gfx_widget_fonts.bold;
 +   float h                      = font->line_height + 8.0f * s;
++   float pen                    = 8.0f * s;
++   float gap                    = 9.0f * s;
++   unsigned n, i;
 +
 +   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, h, 0x000000, 0.6f);
-+   gfx_widget_lume_text(font, p_w_lume_st.text[GFX_WIDGET_LUME_HUD],
-+         8.0f * s, 0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++   strlcpy(copy, p_w_lume_st.text[GFX_WIDGET_LUME_HUD], sizeof(copy));
++   n = gfx_widget_lume_split(copy, groups, LUME_ROWS_MAX);
++   for (i = 0; i < n; i++)
++   {
++      char *value = strchr(groups[i], ' ');
++      if (i > 0)
++      {
++         gfx_widget_lume_quad(p_disp, userdata, vw, vh, pen, 6.0f * s, 1.0f * s,
++               h - 12.0f * s, LUME_MUTED, 0.6f);
++         pen += gap;
++      }
++      if (value)
++         *value++ = '\0';
++      gfx_widget_lume_text(bold, groups[i], pen, 0, h, vw, vh, LUME_ACCENT, TEXT_ALIGN_LEFT);
++      pen += gfx_widget_lume_width(bold, groups[i]);
++      if (value && *value)
++      {
++         pen += 5.0f * s;
++         gfx_widget_lume_text(font, value, pen, 0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++         pen += gfx_widget_lume_width(font, value);
++      }
++      pen += gap;
++   }
++   gfx_widgets_flush_text(vw, vh, bold);
 +   gfx_widgets_flush_text(vw, vh, font);
 +}
 +

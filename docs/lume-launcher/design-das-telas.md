@@ -68,7 +68,7 @@ Medido nas capturas de 640x480 (Chromium headless, `?limpo`), em 2026-11-17, ori
 | Dicas A/B no rodapé | centrado | 443 | — | 24 | 19,2 px, como o rodapé do launcher |
 | Painel da dica, 6 acordes (pt) | 176 | 104 | 287 | 272 | `panel-bg` (transparente: o jogo continua), borda de cima 3 px `accent`, padding 16 px |
 | Linha da dica | 192 | +39,6 | — | 39,6 | botão 17,6 px negrito `accent`, ação 17,6 px `fg`, 20 px entre as colunas |
-| Barra de status | 0 | 0 | 640 | 28 | 16 px, números tabulares, fundo preto a 60%, `fg`, padding 8 px |
+| Barra de status | 0 | 0 | 640 | 28 | 16 px, fundo preto a 60%, padding 8 px; por grupo (`CPU`, `GPU`, `MEM`, `BAT`): rótulo em negrito na cor `accent`, valores em `fg`, divisória de 1 px `muted` a 60% entre os grupos (escolha do usuário, 2026-11-17) |
 
 Regras desenhadas:
 - **Menu:** confirmação com Não em foco (Não à esquerda, Sim à direita na ordem da lista); o título vira a pergunta. App sem resposta: o título diz "RetroArch não responde" e "Forçar fechamento" entra por último, já em foco. Port: só Voltar ao jogo e Encerrar jogo.
