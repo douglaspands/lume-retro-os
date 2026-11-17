@@ -63,7 +63,7 @@ def test_share_missing_dir_fails(tmp_path):
 def test_hostshare_only_on_vm():
     from r36os.paths import REPO_ROOT
 
-    svc = (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-hostshare").read_text()
+    svc = (REPO_ROOT / "aports/lume-net/files/etc/init.d/r36os-hostshare").read_text()
     assert '= vm ] || return 0' in svc
     assert "-o ro," in svc
     assert "before r36os-playlists frontend" in svc

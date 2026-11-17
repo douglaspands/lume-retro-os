@@ -87,6 +87,18 @@ def apkbuild_packages(text: str, source: str = "APKBUILD") -> list[str] | None:
     return out
 
 
+def runtime_deps(text: str) -> list[str]:
+    """Package names in `depends` (version constraints and shell variables dropped)."""
+    out = []
+    for tok in (_assignment(text, "depends") or "").split():
+        if tok.startswith(("!", "$")) or ":" in tok:
+            continue
+        name = re.split(r"[<>=~]", tok, maxsplit=1)[0]
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def build_deps(text: str) -> list[str]:
     """Package names in the build-time dependency variables (version constraints and
     shell variables dropped)."""

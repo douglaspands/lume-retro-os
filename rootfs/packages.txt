@@ -55,6 +55,19 @@ bluez-openrc
 # service, hostname/issue/motd
 lume-core
 
+# The rest of the former overlay (noarch fragments, build-speed D2): USB, network, audio, saves,
+# diagnostics, power, game catalog, launcher data, RetroArch settings, shaders
+lume-usb
+lume-net
+lume-audio
+lume-saves
+lume-diag
+lume-power
+lume-games
+lume-launcher-data
+lume-retroarch-cfg
+lume-shaders
+
 # Frontend
 retroarch
 libretro-core-info

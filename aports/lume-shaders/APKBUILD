@@ -1,0 +1,30 @@
+# Lume Retro OS: the shaders fragment (build-speed D2, node 8.1). usr/share/libretro/shaders/lume-shaders.
+# The files live in files/ at the same paths and modes they have in the image, and the package
+# ships them as they are.
+#
+# noarch: built once in the x86_64 builder and published as the same .apk for every
+# architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
+pkgname=lume-shaders
+pkgver=1.0
+pkgrel=0
+pkgdesc="Libretro shaders of Lume Retro OS"
+url="https://example.invalid"
+arch="noarch"
+license="GPL-2.0-or-later"
+depends="lume-core"
+options="!check" # tested on the host (tests/unit and the shell suites)
+# services `r36os push --hot` restarts when they are running (empty: none)
+_lume_restart=""
+builddir="$srcdir"
+
+build() {
+	:
+}
+
+package() {
+	mkdir -p "$pkgdir"
+	cp -a "$startdir"/files/. "$pkgdir"/
+	# a checkout may have any umask: pin the directories (the files keep the git modes)
+	find "$pkgdir" -type d -exec chmod 755 {} +
+	chown -R 0:0 "$pkgdir"
+}

@@ -4,7 +4,7 @@
 # regular file in place of the jack input device (each 24-byte record is one event).
 set -u
 cd "$(dirname "$0")/../.."
-JACK="busybox sh rootfs/overlay/usr/libexec/r36os/jack"
+JACK="busybox sh aports/lume-audio/files/usr/libexec/r36os/jack"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }

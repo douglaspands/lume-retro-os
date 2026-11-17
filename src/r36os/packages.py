@@ -197,25 +197,34 @@ def _local_repo(arch_dir: str) -> str:
             "apk update -q\n")
 
 
-def _abuild_step(name: str, commit: str = "") -> str:
+def _abuild_step(name: str, commit: str = "", nodeps: bool = False) -> str:
+    """`nodeps`: no dependency install or check (-d instead of -r). For the noarch fragments,
+    which only copy files: their `depends` (other fragments, built in the same call and not
+    yet published) are runtime dependencies, nothing to build with."""
     env = f"ABUILD_LAST_COMMIT={commit} " if commit else ""
-    return f"(cd /aports/{REPO_NAME}/{name} && {env}abuild -F -r -P /repodest)\n"
+    deps = "-d" if nodeps else "-r"
+    return f"(cd /aports/{REPO_NAME}/{name} && {env}abuild -F {deps} -P /repodest)\n"
 
 
-def _fragment_script(arch_dir: str, name: str) -> str:
+def _fragment_script(arch_dir: str, name: str, nodeps: bool = False) -> str:
     """The build script of one fragment, as hashed into its inputs (no commit, no distcc:
     neither changes what is built)."""
-    return _KEY + _local_repo(arch_dir) + _abuild_step(name)
+    return _KEY + _local_repo(arch_dir) + _abuild_step(name, nodeps=nodeps)
 
 
 def _order(aports: Path, names: list[str]) -> list[str]:
     from r36os import fragments as frag
-    deps = {n: frag.build_deps((aports / n / "APKBUILD").read_text()) for n in names}
+    # abuild -r installs `depends` too before building, so a fragment depending on another
+    # local one (lume-net on lume-core) is built after it; only the order, not the inputs
+    deps = {}
+    for n in names:
+        text = (aports / n / "APKBUILD").read_text()
+        deps[n] = list(dict.fromkeys(frag.build_deps(text) + frag.runtime_deps(text)))
     return frag.build_order(names, deps)
 
 
 def _inputs(aports: Path, name: str, arch_dir: str, dep_arch: str,
-            built_now: dict[str, str] | None = None) -> str:
+            built_now: dict[str, str] | None = None, nodeps: bool = False) -> str:
     """The inputs hash of `name`. Local build deps count by content: from hashes.json of
     `dep_arch`, or `built_now` for those built earlier in the same call."""
     from r36os import fragments as frag
@@ -231,7 +240,7 @@ def _inputs(aports: Path, name: str, arch_dir: str, dep_arch: str,
                                                          f"{n}-0-r0.apk")
     deps = frag.local_dep_contents(frag.build_deps(text), hashes, local_names)
     return manifests.inputs_hash(frag.fragment_inputs(
-        aports / name, _fragment_script(arch_dir, name), _builder_identity(), deps))
+        aports / name, _fragment_script(arch_dir, name, nodeps), _builder_identity(), deps))
 
 
 def _up_to_date(name: str, inputs: str, arches: list[str] | tuple[str, ...]) -> bool:
@@ -600,7 +609,7 @@ def build_noarch(names: list[str], aports: Path | None = None,
     out: list[Path] = []
     built_now: dict[str, str] = {}
     for n in _order(aports, names):
-        inputs = _inputs(aports, n, build_arch, build_arch, built_now)
+        inputs = _inputs(aports, n, build_arch, build_arch, built_now, nodeps=True)
         if not force and _up_to_date(n, inputs, REPO_ARCHES):
             print(f"pkg {n} (noarch): inputs unchanged, not built", flush=True)
             continue
@@ -614,7 +623,7 @@ def build_noarch(names: list[str], aports: Path | None = None,
         # earlier in this call (the staging repository, which abuild -r also reads)
         c.volumes[ensure_dir(out_dir() / "repo")] = "/localrepo"
         c.sh(_KEY + _local_repo(build_arch)
-             + _abuild_step(n, manifests.commit_of_inputs(inputs)))
+             + _abuild_step(n, manifests.commit_of_inputs(inputs), nodeps=True))
         built = sorted(set((staging / build_arch).glob("*.apk")) - before)
         origins = {dict(read_apk_pkginfo(apk)).get("origin", "") for apk in built}
         if not built or origins != {n}:

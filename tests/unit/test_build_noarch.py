@@ -41,19 +41,21 @@ def test_lume_core_is_a_noarch_fragment():
 
 def test_a_changed_fragment_is_built_once_and_published(calls):
     build.build_noarch_fragments()
-    assert calls[0] == ("build_noarch", ["lume-core"], False)
-    assert calls[1] == ("publish_noarch", ["lume-core-1.0-r0.apk"])
+    every = build.noarch_fragments()
+    assert "lume-core" in every and "lume-usb" in every
+    assert calls[0] == ("build_noarch", every, False)
+    assert calls[1] == ("publish_noarch", [f"{n}-1.0-r0.apk" for n in every])
 
 
 def test_an_unchanged_fragment_is_not_published(calls):
     calls.changed["names"] = []          # build_noarch found the same inputs or content
     build.build_noarch_fragments()
-    assert calls == [("build_noarch", ["lume-core"], False)]
+    assert calls == [("build_noarch", build.noarch_fragments(), False)]
 
 
 def test_rebuild_packages_forces_the_build(calls):
     build.build_noarch_fragments(rebuild_packages=True)
-    assert calls[0] == ("build_noarch", ["lume-core"], True)
+    assert calls[0] == ("build_noarch", build.noarch_fragments(), True)
 
 
 def test_the_noarch_stage_comes_before_every_layer(calls, monkeypatch):

@@ -3,7 +3,7 @@
 # with a fake amixer that records its arguments.
 set -u
 cd "$(dirname "$0")/../.."
-MIXER="busybox sh rootfs/overlay/usr/libexec/r36os/mixer"
+MIXER="busybox sh aports/lume-audio/files/usr/libexec/r36os/mixer"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }

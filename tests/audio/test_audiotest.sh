@@ -4,7 +4,7 @@
 # busybox with fake aplay, speaker-test and uptime.
 set -u
 cd "$(dirname "$0")/../.."
-AT="busybox sh rootfs/overlay/usr/libexec/r36os/audiotest"
+AT="busybox sh aports/lume-audio/files/usr/libexec/r36os/audiotest"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }

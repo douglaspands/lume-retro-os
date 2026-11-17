@@ -8,10 +8,10 @@ import pytest
 
 from r36os.paths import REPO_ROOT
 
-SHADERS = REPO_ROOT / "rootfs/overlay/usr/share/libretro/shaders"
+SHADERS = REPO_ROOT / "aports/lume-shaders/files/usr/share/libretro/shaders"
 LUME = SHADERS / "lume-shaders"
-CFG = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
-FACTORY = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/retroarch-lume.cfg").read_text()
+FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
 
 # SHA256 of the files of "R36S GA36-MB V1.2-20260416" (features 54-shaders-gba and
 # 55-shaders-gb-gbc), copied without changes on 2026-11-11
@@ -55,7 +55,7 @@ def test_no_shader_on_by_default():
         assert not re.search(r'^video_shader = ', text, re.M)
         assert not re.search(r'^video_shader_enable = "true"', text, re.M)
     # no preset dropped into the user's config (auto presets) by the image
-    factory_dir = REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch"
+    factory_dir = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory/retroarch"
     assert not [p for p in factory_dir.rglob("*") if p.suffix in (".glslp", ".slangp")]
 
 

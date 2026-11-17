@@ -5,10 +5,10 @@ import re
 
 from r36os.paths import REPO_ROOT
 
-INIT_PATH = REPO_ROOT / "rootfs/overlay/etc/init.d/lume-index"
+INIT_PATH = REPO_ROOT / "aports/lume-games/files/etc/init.d/lume-index"
 INIT = INIT_PATH.read_text()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
-GADGET = (REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/usb-gadget").read_text()
+GADGET = (REPO_ROOT / "aports/lume-usb/files/usr/libexec/r36os/usb-gadget").read_text()
 
 
 def test_runs_in_the_background_as_the_game_user():

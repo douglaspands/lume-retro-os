@@ -5,7 +5,7 @@ import re
 from r36os.paths import REPO_ROOT
 from r36os.selftest import KEY_PREFIX, KEYS, expected_checks
 
-SELFTEST_SH = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/selftest"
+SELFTEST_SH = REPO_ROOT / "aports/lume-diag/files/usr/libexec/r36os/selftest"
 # decided by the host from the serial, not by the guest script
 HOST_ONLY = {"poweroff-on-quit"}
 

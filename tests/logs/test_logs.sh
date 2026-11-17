@@ -499,7 +499,7 @@ FE_STATE=stopped
 export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/aports/lume-core/files/usr/libexec/r36os/lib.sh" PERSIST_MOUNT=/
 export PERSIST_RAM=$W/p/ram PERSIST_SYS=$W/p/sys PERSIST_FACTORY=$W/p/factory
 mkdir -p "$PERSIST_RAM" "$PERSIST_SYS" "$PERSIST_FACTORY"
-. rootfs/overlay/usr/libexec/r36os/persist
+. aports/lume-saves/files/usr/libexec/r36os/persist
 echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
 restore >/dev/null 2>&1
 check "language: a new card gets the factory (build) language" 'grep -q "^user_language = \"7\"$" $PERSIST_SYS/retroarch/retroarch.cfg && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg'
@@ -508,7 +508,7 @@ echo 'user_language = "0"' > "$PERSIST_FACTORY/retroarch.cfg"
 rm -rf "$PERSIST_RAM"
 restore >/dev/null 2>&1
 check "language: a build with another language keeps the menu choice" 'grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg && grep -q "^user_language = \"3\"$" $PERSIST_SYS/retroarch/retroarch.cfg'
-check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" rootfs/overlay/usr/libexec/r36os/persist'
+check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" aports/lume-saves/files/usr/libexec/r36os/persist'
 
 ### Single card (r36s-single-card, task 7.1): boots on the GA36, the R36S and the GA36
 ### again share ROMS/logs/ with one boot sequence, and each boot names its console
@@ -523,7 +523,7 @@ check "single card: the counter is shared on ROMS" '[ "$(cat "$LOGS_DIR/.boot")"
 check "single card: the boot log header names the console" \
 	'grep -q "echo \"== console: \$(board)\"" aports/lume-core/files/usr/libexec/r36os/bootlog'
 check "single card: the hardware snapshot names the board" \
-	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
+	'grep -q "^kv board " aports/lume-diag/files/usr/libexec/r36os/hwinfo'
 
 ### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
 ### the frontend starts and the events of the choice made in the initramfs
@@ -576,7 +576,7 @@ dtb_confirm
 check "dtb: a pending one that is not running is left to lume-bootsel" \
 	'grep -qx pending=r36s-v6 $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf'
 check "dtb: the hardware snapshot has the device tree in use and the state file" \
-	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" rootfs/overlay/usr/libexec/r36os/hwinfo'
+	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
 rm -rf "$DT_ROOT/lume-select"
 dtb_confirm
 check "dtb: without the node nothing is written" '[ "$(dtb_in_use)" = "no lume-select node" ]'
