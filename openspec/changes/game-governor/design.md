@@ -166,10 +166,15 @@ serve aos leves. Valores iniciais do `ga36.conf` (antes da medição, D5):
   a 600–912 MHz no meio do jogo;
 - classe `heavy` (N64, PSP, NDS) com `min=1008000`.
 
-A medição da J1 compara no GBA: `min=1008000` com schedutil, `min=1008000` com o controlador
-pela carga (D12) e `performance` (1200 MHz fixo); vence pela regra do D5, com a ressalva de que
-um `slow` a mais que o `performance` desclassifica o candidato no GBA. Se o piso de 1008 MHz ainda
-oscilar, o próximo é 1104 MHz. A cena 0 da DRAM
+**Correção (2.2, 2026-11-17):** no kernel mainline a tabela de OPP do A33
+(`sun8i-a33.dtsi`) vai de 120 a **1008 MHz**; os 1104 e 1200 MHz eram do kernel 4.9 do
+EmuELEC. Logo `min=1008000` é o clock travado no máximo do mainline (o mesmo que
+`performance`), e o GA36 no mainline joga o GBA com no máximo 84% do clock que o EmuELEC usava
+nos 66% das amostras em 1200 MHz. A medição da J1 compara no GBA os pisos de 816, 912 e
+1008 MHz (este o máximo) e o padrão do kernel como referência; vence pela regra do D5, com a
+ressalva de que um `slow` a mais que o travado em 1008 MHz desclassifica o candidato. Se o GBA
+tiver `slow` mesmo travado em 1008 MHz, o limite é a tabela de OPP (P-20/P-23, overclock fora
+desta change). A cena 0 da DRAM
 que o EmuELEC usava em jogo não existe no kernel mainline (sem devfreq da DRAM do A33): o P-23
 só mede.
 
@@ -191,8 +196,8 @@ Pré-requisito: o `logd` barato (D8), senão ele falseia a corrente e a ocupaç�
   mínimo 600 MHz), `S+rate` (schedutil com `rate_limit_us` maior, hipótese do P-60) e, no GA36,
   cada um com 2 núcleos e com 4. No GA36 todo candidato de jogo tem mínimo de pelo menos
   600 MHz (D3, piso dos jogos); o `K` sem piso é medido só como referência e não pode ser
-  escolhido; no GBA e nos pesados os candidatos partem de 1008 MHz (D3, revisão pelo GBA), com
-  1104 MHz e o `performance` como próximos degraus.
+  escolhido; no GBA e nos pesados os candidatos são os pisos de 816, 912 e 1008 MHz (o máximo
+  do mainline no A33; D3, revisão pelo GBA e correção).
 - **Sessão:** o mesmo ponto de cada jogo de teste por save state, 10 minutos por candidato, sem
   carregador, bateria entre 40% e 90% (a rodada 1 do `snes9x2005_plus` foi descartada por
   bateria baixa), console já aquecido.
