@@ -38,13 +38,21 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 4.2 | — | — | AG | sonnet | 0 | J1 |
 | 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 5.2 | 1.3, 5.1 | GA36, USUARIO | PR | — | 4 | J1 |
-| 5.3 | 5.2 | R36S, USUARIO | PR | — | 5 | J2 |
-| 5.4 | 5.2, 5.3 | — | AG | sonnet | 6 | |
-| 6.1 | 5.4 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 7 | |
-| 6.2 | 6.1 | GA36, USUARIO | PR | — | 8 | J3 |
-| 6.3 | 6.2 | R36S, USUARIO | PR | — | 9 | J4 |
+| 5.3 | 5.2 | — | AG | sonnet | 5 | |
+| 5.4 | 5.3 | CPU, ARCH:armv7 | PR | — | 6 | |
+| 5.5 | 5.4 | GA36, USUARIO | PR | — | 7 | J3 |
+| 6.1 | 5.1 | R36S, USUARIO | PR | — | 8 | J2 |
+| 6.2 | 6.1, 5.3 | — | AG | sonnet | 9 | |
+| 6.3 | 6.2, 5.4 | CPU, ARCH:aarch64 | PR | — | 10 | |
+| 6.4 | 6.3, 5.5 | R36S, USUARIO | PR | — | 11 | J4 |
 
-Modelos: propostos, aguardando aprovação do usuário.
+Modelos: onda 0 aprovada pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
+outras ondas aguardam aprovação antes de começar.
+
+**GA36 primeiro (pedido do usuário, 2026-11-17):** o usuário vai levar o GA36 e ficar fora;
+o GA36 fecha o ciclo inteiro (J1, perfis, build, J3) antes de qualquer janela do R36S, que
+fica para o fim (J2, perfis, build, J4). O cartão único segue passando de um console ao outro
+só depois que o GA36 terminar.
 
 **Trilhas e caminho crítico:**
 
@@ -57,24 +65,25 @@ Modelos: propostos, aguardando aprovação do usuário.
   2.1 (kernel GA36: governors) ---------------------------------------------------------------+         |
   4.1 (DRAM no hwinfo, P-23) -----------------------------------------------------------------+         |
   4.2 (core do SNES: snes9x2005_plus do upstream) --------------------------------------------+         v
-  1.3 (r36os power report) ---------------------------------------------> 5.2 medir GA36 (J1) --> 5.3 medir R36S (J2)
-                                                                                                        |
-                                                                           5.4 valores dos perfis <-----+
+  1.3 (r36os power report) ---------------------------------------------> 5.2 medir GA36 (J1)
                                                                                 |
-                                                                           6.1 build final --> 6.2 GA36 (J3) --> 6.3 R36S (J4)
+        GA36: 5.3 ga36.conf --> 5.4 build armv7 --> 5.5 provas GA36 (J3) -------+
+                                                                                v
+        R36S: 6.1 medir R36S (J2) --> 6.2 r36s.conf --> 6.3 build aarch64 --> 6.4 provas R36S (J4)
 
-  caminho crítico: 1.1 -> 2.2 -> 2.3 -> 5.1 -> 5.2 -> 5.3 -> 5.4 -> 6.1 -> 6.2 -> 6.3
+  caminho crítico: 1.1 -> 2.2 -> 2.3 -> 5.1 -> 5.2 -> 5.3 -> 5.4 -> 5.5 -> 6.1 -> 6.2 -> 6.3 -> 6.4
 ```
 
 **Ondas:**
 - Onda 0: 1.1, 1.2, 1.3, 2.1, 3.0, 4.1, 4.2 (AG, em paralelo; a 3.0 termina com a aprovação do usuário).
 - Onda 1: 2.2, 3.1, 3.2.
 - Onda 2: 2.3, 2.4 (os dois mexem no `r36os-power`: em worktrees separadas, mesclados um por vez).
-- Onda 3: 5.1 (build de medição, fila única de CPU, com o kernel do GA36).
-- Onda 4: 5.2 (J1). Onda 5: 5.3 (J2). Onda 6: 5.4. Onda 7: 6.1. Onda 8: 6.2 (J3). Onda 9: 6.3 (J4).
+- Onda 3: 5.1 (build de medição, as duas arquiteturas, fila única de CPU, com o kernel do GA36).
+- GA36: Onda 4: 5.2 (J1). Onda 5: 5.3. Onda 6: 5.4. Onda 7: 5.5 (J3).
+- R36S, depois do GA36: Onda 8: 6.1 (J2). Onda 9: 6.2. Onda 10: 6.3. Onda 11: 6.4 (J4).
 
 **Janelas de aparelho** (depois das provas da `build-speed` e da `card-health`, na fila única do
-cartão):
+cartão; ordem J1, J3, J2, J4):
 - **J1** (GA36, build de medição): primeiro o custo do `logd` e do `sugov:0` e a DRAM no
   retrato; depois as sessões de 10 minutos por candidato e por classe (D5), sem carregador,
   com a bateria entre 40% e 90%. O usuário joga as sessões e liga o carregador entre elas.
@@ -112,22 +121,24 @@ cartão):
 
 - [ ] 4.2 Core do SNES (D15, spec `game-library`): `aports/libretro-snes9x2005-plus` no commit mais novo do upstream `libretro/snes9x2005` (`a79dfe9`, `pkgver` pela data), `USE_BLARGG_APU=1`, build padrão do upstream sem flags por CPU, `arch="all"`, `sha512sums` refeito; `aports/libretro-snes9x` removido e as referências a ele em `lume/`, `docs/` (`LAUNCHER.md`, `aports/README.md`) e nos testes trocadas pelo `snes9x2005_plus` ou retiradas; o `systems.json` continua com `snes9x2005_plus` padrão, sem alternativos nem troca por arquitetura, e um teste de catálogo passa a exigir isso. Verificação: o `sha512` confere com o tarball do upstream; testes de unidade e de catálogo verdes; nenhuma referência ao `libretro-snes9x` fora do arquivo de changes; na J1, um jogo de SNES abre no `snes9x2005_plus` novo no GA36 e no R36S e um save state antigo abre.
 
-## 5. Medição e valores
+## 5. GA36: medição, perfis, build final e provas
 
 - [ ] 5.1 Build de medição: pacotes da onda 0 e 1 e o kernel do GA36, nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push`. Verificação: os `.apk` e o kernel novos no repositório local e o `push` terminando com `ok`.
 - [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual, com e sem o controlador nos pesados. Verificação: tabela do `r36os power report` (1.3) no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5; o CSV do relatório, com a versão de cada core (build padrão, linha de base do P-10), em `docs/referencia/medicoes/game-governor/`.
-- [ ] 5.3 Janela J2 no R36S, com o mesmo cartão: o mesmo da 5.2 (sem a DRAM do A33). Verificação: a tabela do R36S no `design.md` e o candidato escolhido por classe.
-- [ ] 5.4 Escrever `ga36.conf` e `r36s.conf` com os perfis escolhidos na 5.2 e na 5.3 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria). Verificação: os testes do validador da 1.1 com os arquivos reais contra as tabelas de OPP de cada console (copiadas do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
+- [ ] 5.3 Escrever `ga36.conf` com os perfis escolhidos na 5.2 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria); o `r36s.conf` continua igual ao padrão do kernel. Verificação: os testes do validador da 1.1 com o arquivo real contra a tabela de OPP do GA36 (copiada do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
+- [ ] 5.4 Build final do GA36 com os perfis da 5.3 (armv7) e `r36os push`. Verificação: `.apk` novos e `push` com `ok`.
+- [ ] 5.5 Janela J3 no GA36: os eventos `power` do boot ao menu, ao jogo de cada classe e de volta; o tempo do boot com o perfil `boot` comparado com o de antes (anotado no P-58); a tela escurece em 2 minutos parada e o primeiro botão só devolve a luz; a marca de carga aparece e some em até 5 s; numa sessão longa sem carregador, o aviso aparece uma vez no jogo e o console desliga sozinho no nível crítico com o save interno gravado e o boot seguinte com `previous clean`; numa sessão de cada classe, nenhum `slow` a mais que na tabela da 5.2; o controlador num jogo pesado (frequência variando, linha `power OK controller`); Fn+Start encerra um jogo travado (2.4); `enabled 0` no `power.conf` devolve o padrão do kernel depois do reboot. Verificação: resultado no `docs/BRINGUP-GA36.md`, sem nome de jogo, e o `r36os power report` antes e depois lado a lado no `design.md`.
 
-## 6. Build final e provas
+## 6. R36S (depois do GA36): medição, perfis, build final e provas
 
-- [ ] 6.1 Build final com os perfis da 5.4, nas duas arquiteturas, e `r36os push`. Verificação: `.apk` novos e `push` com `ok`.
-- [ ] 6.2 Janela J3 no GA36: os eventos `power` do boot ao menu, ao jogo de cada classe e de volta; o tempo do boot com o perfil `boot` comparado com o de antes (anotado no P-58); a tela escurece em 2 minutos parada e o primeiro botão só devolve a luz; a marca de carga aparece e some em até 5 s; numa sessão longa sem carregador, o aviso aparece uma vez no jogo e o console desliga sozinho no nível crítico com o save interno gravado e o boot seguinte com `previous clean`; numa sessão de cada classe, nenhum `slow` a mais que na tabela da 5.2; o controlador num jogo pesado (frequência variando, linha `power OK controller`); Fn+Start encerra um jogo travado (2.4); `enabled 0` no `power.conf` devolve o padrão do kernel depois do reboot. Verificação: resultado no `docs/BRINGUP-GA36.md`, sem nome de jogo, e o `r36os power report` antes e depois lado a lado no `design.md`.
-- [ ] 6.3 Janela J4 no R36S, com o mesmo cartão: as mesmas provas da 6.2. Verificação: resultado no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, P-20 (etapa 1), P-60, P-78 e P-83 movidos para "Concluídas", P-23 com a medição anotada e o item 3 do P-64 marcado como feito.
+- [ ] 6.1 Janela J2 no R36S, com o mesmo cartão: o mesmo da 5.2 (sem a DRAM do A33). Verificação: a tabela do R36S no `design.md` e o candidato escolhido por classe.
+- [ ] 6.2 Escrever `r36s.conf` com os perfis escolhidos na 6.1 (mesmas regras da 5.3). Verificação: os testes do validador da 1.1 com o arquivo real contra a tabela de OPP do R36S (copiada do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
+- [ ] 6.3 Build final do R36S com os perfis da 6.2 (aarch64) e `r36os push`. Verificação: `.apk` novos e `push` com `ok`.
+- [ ] 6.4 Janela J4 no R36S, com o mesmo cartão: as mesmas provas da 5.5. Verificação: resultado no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, P-20 (etapa 1), P-60, P-78 e P-83 movidos para "Concluídas", P-23 com a medição anotada e o item 3 do P-64 marcado como feito.
 
 ## Workflow follow-up
 
-- Arquivar a change depois das provas da J3 e da J4.
+- Arquivar a change depois das provas da J3 (5.5) e da J4 (6.4).
 - Com os perfis medidos, decidir se o modo escolhido pelo usuário (Desempenho, Equilibrado,
   Economia) e o controlador por FPS (P-20, etapa 3) viram pendências novas.
 - As tabelas da 5.2, 5.3 e 6.2/6.3 (cores no build padrão) são a linha de base do P-10: anotar
