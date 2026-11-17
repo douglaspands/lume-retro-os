@@ -267,7 +267,7 @@ mod tests {
     use super::*;
 
     fn share() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rootfs/overlay/usr/share/lume")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/lume-launcher-data/files/usr/share/lume")
     }
 
     fn image_themes() -> Themes {

@@ -197,7 +197,7 @@ mod tests {
 
     fn snes() -> System {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../rootfs/overlay/usr/share/r36os/systems.json");
+            .join("../../aports/lume-games/files/usr/share/r36os/systems.json");
         let mut cat = Catalog::load(&path).unwrap();
         let mut s = cat.systems.remove(cat.systems.iter().position(|s| s.id == "snes").unwrap());
         s.alt_cores = vec!["snes9x".into(), "bsnes".into()];

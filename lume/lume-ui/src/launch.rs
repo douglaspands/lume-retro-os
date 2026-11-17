@@ -185,8 +185,8 @@ mod tests {
 
     fn setup() -> (Dirs, Catalog, Runner) {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let cat = Catalog::load(&repo.join("rootfs/overlay/usr/share/r36os/systems.json")).unwrap();
-        let (runners, _) = lume_core::runner::load(&[repo.join("rootfs/overlay/usr/share/lume/runners.d")], false);
+        let cat = Catalog::load(&repo.join("aports/lume-games/files/usr/share/r36os/systems.json")).unwrap();
+        let (runners, _) = lume_core::runner::load(&[repo.join("aports/lume-games/files/usr/share/lume/runners.d")], false);
         (Dirs { storage: "/storage".into(), cores: "/usr/lib/libretro".into() }, cat, runners["retroarch"].clone())
     }
 

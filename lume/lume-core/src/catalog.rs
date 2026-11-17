@@ -337,13 +337,13 @@ mod tests {
 
     fn image_catalog() -> Catalog {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../rootfs/overlay/usr/share/r36os/systems.json");
+            .join("../../aports/lume-games/files/usr/share/r36os/systems.json");
         Catalog::load(&path).unwrap()
     }
 
     fn image_runners() -> BTreeMap<String, Runner> {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../rootfs/overlay/usr/share/lume/runners.d");
+            .join("../../aports/lume-games/files/usr/share/lume/runners.d");
         let (runners, errors) = crate::runner::load(&[dir], false);
         assert!(errors.is_empty(), "{errors:?}");
         runners

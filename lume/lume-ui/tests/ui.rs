@@ -49,19 +49,19 @@ fn card(name: &str, snes_games: usize, covers: bool) -> Card {
     fs::write(roms.join("snes/gamelist.xml"), gl).unwrap();
     fs::create_dir_all(roms.join("ports")).unwrap();
     fs::write(roms.join("ports/Tool.sh"), "echo").unwrap();
-    let catalog = Catalog::load(&repo().join("rootfs/overlay/usr/share/r36os/systems.json")).unwrap();
+    let catalog = Catalog::load(&repo().join("aports/lume-games/files/usr/share/r36os/systems.json")).unwrap();
     let ctx = lume_index::Ctx { storage: root.join("storage"), catalog: catalog.clone(), tile: lume_index::DEFAULT_TILE };
     for (_, r) in lume_index::update_all(&ctx, &[], false, |_, _, _| {}) {
         r.unwrap();
     }
-    let (runners, _) = lume_core::runner::load(&[repo().join("rootfs/overlay/usr/share/lume/runners.d")], false);
+    let (runners, _) = lume_core::runner::load(&[repo().join("aports/lume-games/files/usr/share/lume/runners.d")], false);
     Card { root, catalog, runners }
 }
 
 fn app(c: &Card, sys: FakeSystem) -> App<FakeSystem> {
     let p = Paths {
         storage: c.root.join("storage"),
-        share: repo().join("rootfs/overlay/usr/share/lume"),
+        share: repo().join("aports/lume-launcher-data/files/usr/share/lume"),
         cores: "/usr/lib/libretro".into(),
         runtime: c.root.join("run"),
         ra_cfg: c.root.join("home/.config/retroarch/retroarch.cfg"),
