@@ -7,7 +7,7 @@ then the single card image with both systems.
 
 from __future__ import annotations
 
-from r36os import bootimg, image, kernel, lang, rootfs, uboot, version
+from r36os import bootimg, image, kernel, lang, rootfs, stage_inputs, uboot, version
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
@@ -78,19 +78,30 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
         timer.skip(p + "local packages", "all in the repository")
     if console:
         # on the consoles the initramfs is built into the kernel: it comes before stage 1
-        with timer.stage(p + "initramfs"):
-            build_initramfs(target)
+        _initramfs_stage(target, timer, p)
         # [1] kernel, modules, DTBs and boot image, cross-compiled
         build_console_kernel(target, timer)
     # [3] rootfs (with the stage 1 modules), manifest and SYSTEM
-    with timer.stage(p + "rootfs"):
-        tar = rootfs.build_rootfs(target, v, language)
-    with timer.stage(p + "SYSTEM"):
-        rootfs.make_system(target, tar, out / "SYSTEM", rootfs.system_limit_mib(target))
+    tar = out / "rootfs.tar"
+    stage_inputs.run_stage(
+        timer, p + "rootfs", tar, lambda: rootfs.stage_inputs(target, v, language),
+        lambda: rootfs.build_rootfs(target, v, language), required=[out / "manifest.txt"])
+    limit = rootfs.system_limit_mib(target)
+    stage_inputs.run_stage(
+        timer, p + "SYSTEM", out / "SYSTEM",
+        lambda: stage_inputs.system_inputs(tar, rootfs.SQUASHFS_OPTIONS, limit),
+        lambda: rootfs.make_system(target, tar, out / "SYSTEM", limit))
     # [4] VM: the initramfs carries modules from the rootfs
     if not console:
-        with timer.stage(p + "initramfs"):
-            build_initramfs(target)
+        _initramfs_stage(target, timer, p)
+
+
+def _initramfs_stage(target: Target, timer: StageTimer, prefix: str) -> None:
+    out = rootfs.target_out(target)
+    stage_inputs.run_stage(
+        timer, prefix + "initramfs", out / "initramfs",
+        lambda: stage_inputs.initramfs_inputs(target, out / "rootfs.tar"),
+        lambda: build_initramfs(target))
 
 
 def _alpine() -> str:
@@ -142,8 +153,10 @@ def build_console_kernel(target: Target, timer: StageTimer | None = None) -> Non
         zimage = kernel.build_kernel(target.name, kdir, initramfs_dir=out)
         rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules")
     arch, vendor = DTS_VENDOR[target.name]
-    with timer.stage(p + "DTBs + validation"):
-        kernel.build_dtbs(target.name, arch, vendor, kdir / "dtbs")
+    stage_inputs.run_stage(
+        timer, p + "DTBs + validation", kdir / "dtbs",
+        lambda: stage_inputs.dtb_inputs(target.name, arch, vendor),
+        lambda: kernel.build_dtbs(target.name, arch, vendor, kdir / "dtbs"))
     if target.name in uboot.UBOOT_TARGETS:
         with timer.stage(p + "u-boot"):
             uboot.build_uboot(target.name, kdir)
