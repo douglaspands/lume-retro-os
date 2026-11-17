@@ -71,6 +71,10 @@ def _roots():
 # files created in a fragment after the move (they have no base commit entry)
 ADDED_AFTER_MOVE = {
     "usr/libexec/r36os/power-profiles.sh",  # game-governor 1.1: profile validator (lume-power)
+    "usr/bin/r36os-power",                  # game-governor 2.2: the power service (lume-power)
+    "etc/init.d/r36os-power",
+    "usr/share/lume/power/ga36.conf",
+    "usr/share/lume/power/r36s.conf",
 }
 
 

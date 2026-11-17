@@ -1,0 +1,569 @@
+#!/bin/sh
+# r36os-power: the power profile of each scenario and the low battery shutdown
+# (openspec game-governor D1-D7 and D16; docs/LOGS.md, "Energia").
+#
+#   r36os-power run              the service (OpenRC r36os-power, boot runlevel, as root)
+#   r36os-power set <profile>    manual mode for the measurement (D5): applies <profile> (a
+#                                profile of power.state, or "default" for the kernel default)
+#                                now, in every scenario, until `auto` or a reboot
+#   r36os-power auto             back to the profile of each scenario
+#   r36os-power reload           reads the profile files again (the FIFO message `reload`)
+#   r36os-power status           prints /run/r36os/power.state
+#
+# The service:
+# - creates the FIFO $PW_RUN/power (group game, 0620) and keeps it open read-write itself, so
+#   `read -t` sleeps until a message or the timeout and never sees an end of file (no busy
+#   loop when no writer is connected);
+# - wakes up on each message and at most every $PW_TICK s (60) to read the battery (D7);
+# - applies a profile on top of the kernel default captured at its first start in this boot
+#   (governor, cpuinfo_min/max, every core, the GPU devfreq max_freq), in the D4 order, never
+#   taking cpu0 offline; a game always gets scaling_min_freq >= game_min (D3), also with a
+#   refused profile and with `enabled 0`;
+# - a profile change only happens at a scenario boundary: `reload` during a game only takes
+#   effect at the next message (D16), the manual mode is the only exception;
+# - writes $PW_RUN/power.state at each load and change (D16).
+#
+# Hook points for the load controller (node 2.3) and the game priority (node 2.4):
+# controller_start, controller_stop and priority_apply below.
+#
+# Environment for the tests: PP_SYS (sysfs root), PW_RUN, PW_SHARE, PW_CARD, PW_TICK,
+# PW_LIBDIR, PW_RA_PORT, PW_POWEROFF, PW_GROUP, PW_TRACE (file that receives one line
+# "<path under PP_SYS> <value>" per sysfs write), BOARD_FILE, LOGS_RAM, RA_USER_CFG.
+
+PW_LIBDIR=${PW_LIBDIR:-/usr/libexec/r36os}
+PW_RUN=${PW_RUN:-/run/r36os}
+PW_SHARE=${PW_SHARE:-/usr/share/lume/power}
+PW_CARD=${PW_CARD:-/storage/system/lume/power.conf}
+PW_TICK=${PW_TICK:-60}
+PW_RA_PORT=${PW_RA_PORT:-55355}
+PW_POWEROFF=${PW_POWEROFF:-poweroff}
+PW_GROUP=${PW_GROUP:-game}
+PW_TRACE=${PW_TRACE:-}
+PW_FIFO=$PW_RUN/power
+PW_STATE=$PW_RUN/power.state
+PW_MANUAL_FILE=$PW_RUN/power.manual
+PW_DEFAULT_FILE=$PW_RUN/power.default
+PW_EARLY=$PW_RUN/power.early
+PW_NL='
+'
+
+# lib.sh creates /run/r36os when sourced (silenced for the tests, which have no /run access)
+. "$PW_LIBDIR/lib.sh" 2>/dev/null
+. "$PW_LIBDIR/logs.sh"
+
+# --- events ----------------------------------------------------------------------------------
+
+# Before r36os-logd numbers the boot (default runlevel) the events wait in $PW_EARLY with their
+# time, so they do not go to the log as boot 0. A file, not a variable: pp_log runs in subshells.
+pw_events_flush() {
+	local n t r d
+	[ -s "$PW_EARLY" ] || { rm -f "$PW_EARLY"; return 0; }
+	n=$(boot_n)
+	mkdir -p "$LOGS_RAM"
+	events_file
+	while read -r t r d; do
+		printf '%s %s power %s %s\n' "$t" "$n" "$r" "$d" >>"$LOGS_RAM/events.pending"
+	done <"$PW_EARLY"
+	rm -f "$PW_EARLY"
+}
+
+# pw_event <OK|FAIL> <detail>
+pw_event() {
+	if [ -e "$LOGS_RAM/boot-n" ]; then
+		[ ! -e "$PW_EARLY" ] || pw_events_flush
+		event power "$1" "$2"
+	else
+		printf '%s %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" >>"$PW_EARLY"
+	fi
+	return 0
+}
+
+# the validator reports each refused line through pp_log
+pp_log() { pw_event "$1" "$2"; }
+
+. "$PW_LIBDIR/power-profiles.sh"
+
+# --- hook points (nodes 2.3 and 2.4) ---------------------------------------------------------
+
+# controller_start <profile args...>: after a game profile with controller=load was applied.
+controller_start() { :; }
+# controller_stop: before any other profile is applied after such a game profile.
+controller_stop() { :; }
+# priority_apply: after the profile of a `game` message was applied (the game is not running
+# yet: lume-run sends the message before the exec).
+priority_apply() { :; }
+
+# --- sysfs -----------------------------------------------------------------------------------
+
+# pw_read <file>: first line in PW_V (empty if unreadable)
+pw_read() {
+	PW_V=
+	[ -r "$1" ] || return 0
+	read -r PW_V <"$1" 2>/dev/null
+	return 0
+}
+
+# pw_write <file> <value>: skipped when the value is already there
+pw_write() {
+	pw_read "$1"
+	[ "$PW_V" != "$2" ] || return 0
+	[ -z "$PW_TRACE" ] || echo "${1#"$PP_SYS"/} $2" >>"$PW_TRACE"
+	if ! { echo "$2" >"$1"; } 2>/dev/null; then
+		pw_event FAIL "write ${1#"$PP_SYS"/} $2 failed"
+		return 1
+	fi
+	return 0
+}
+
+# kernel default, captured once per boot before the first profile (a respawn reuses it)
+pw_defaults() {
+	local g
+	g=$(pp_gpu_file)
+	PW_GPU_DIR=${g%/available_frequencies}
+	if [ -r "$PW_DEFAULT_FILE" ]; then
+		read -r PW_D_GOV PW_D_MIN PW_D_MAX PW_D_GPU <"$PW_DEFAULT_FILE"
+	else
+		pw_read "$PW_CF/scaling_governor"
+		PW_D_GOV=${PW_V:--}
+		pw_read "$PW_CF/cpuinfo_min_freq"
+		PW_D_MIN=${PW_V:--}
+		pw_read "$PW_CF/cpuinfo_max_freq"
+		PW_D_MAX=${PW_V:--}
+		PW_D_GPU=-
+		if [ -n "$PW_GPU_DIR" ]; then
+			pw_read "$PW_GPU_DIR/max_freq"
+			PW_D_GPU=${PW_V:--}
+		fi
+		echo "$PW_D_GOV $PW_D_MIN $PW_D_MAX $PW_D_GPU" >"$PW_DEFAULT_FILE"
+	fi
+	[ "$PW_D_GOV" != - ] || PW_D_GOV=
+	[ "$PW_D_MIN" != - ] || PW_D_MIN=
+	[ "$PW_D_MAX" != - ] || PW_D_MAX=
+	[ "$PW_D_GPU" != - ] || PW_D_GPU=
+}
+
+# pw_param <governor> <key> <value>: per-policy tunables when the governor has them, else global
+pw_param() {
+	if [ -d "$PW_CF/$1" ]; then
+		pw_write "$PW_CF/$1/$2" "$3"
+	else
+		pw_write "$PW_CPU/cpufreq/$1/$2" "$3"
+	fi
+}
+
+# pw_apply <is_game 0|1> <key=value...>: the profile over the kernel default, in the D4 order
+pw_apply() {
+	local game=$1 kv gov min max cores gpu params ctl i
+	shift
+	gov=$PW_D_GOV min=$PW_D_MIN max=$PW_D_MAX cores=$PW_NCPU gpu=$PW_D_GPU params= ctl=
+	for kv in "$@"; do
+		case $kv in
+		governor=*) gov=${kv#*=} ;;
+		min=*) min=${kv#*=} ;;
+		max=*) max=${kv#*=} ;;
+		cores=*) cores=${kv#*=} ;;
+		gpu_max=*) gpu=${kv#*=} ;;
+		controller=*) ctl=${kv#*=} ;;
+		*=*) params="$params $kv" ;;
+		esac
+	done
+	# game floor (D3): the default and a refused profile keep it too
+	if [ "$game" = 1 ] && [ -n "$PW_FLOOR" ] && { [ -z "$min" ] || [ "$min" -lt "$PW_FLOOR" ]; }; then
+		min=$PW_FLOOR
+	fi
+	PW_CTL=$ctl
+	[ "$PW_HAS_CPUFREQ" = 1 ] || return 0
+	# 1. the cores that are missing
+	i=1
+	while [ "$i" -lt "$cores" ]; do
+		[ ! -e "$PW_CPU/cpu$i/online" ] || pw_write "$PW_CPU/cpu$i/online" 1
+		i=$((i + 1))
+	done
+	# 2. min and max, never min > max on the way: lowering writes min first, raising max first
+	pw_read "$PW_CF/scaling_max_freq"
+	if [ -n "$min" ] && [ -n "$PW_V" ] && [ "$min" -gt "$PW_V" ]; then
+		[ -z "$max" ] || pw_write "$PW_CF/scaling_max_freq" "$max"
+		pw_write "$PW_CF/scaling_min_freq" "$min"
+	else
+		[ -z "$min" ] || pw_write "$PW_CF/scaling_min_freq" "$min"
+		[ -z "$max" ] || pw_write "$PW_CF/scaling_max_freq" "$max"
+	fi
+	# 3. governor, 4. its parameters
+	[ -z "$gov" ] || pw_write "$PW_CF/scaling_governor" "$gov"
+	for kv in $params; do
+		pw_param "$gov" "${kv%%=*}" "${kv#*=}"
+	done
+	# 5. the extra cores, never cpu0
+	i=$cores
+	[ "$i" -ge 1 ] || i=1
+	while [ "$i" -lt "$PW_NCPU" ]; do
+		[ ! -e "$PW_CPU/cpu$i/online" ] || pw_write "$PW_CPU/cpu$i/online" 0
+		i=$((i + 1))
+	done
+	# 6. GPU (only at the boundaries: every profile change is one)
+	[ -z "$PW_GPU_DIR" ] || [ -z "$gpu" ] || pw_write "$PW_GPU_DIR/max_freq" "$gpu"
+	return 0
+}
+
+# --- records ---------------------------------------------------------------------------------
+
+# pw_rec <kind> [key]: the accepted record "<kind> <origin> [key] <rest...>" -> PW_F=<rest>
+pw_rec() {
+	local k=$1 n=${2:-} l o=$IFS
+	PW_F=
+	set -f
+	IFS=$PW_NL
+	for l in $PW_RECS; do
+		IFS=$o
+		# shellcheck disable=SC2086
+		set -- $l
+		IFS=$PW_NL
+		[ "$1" = "$k" ] || continue
+		if [ -z "$n" ]; then
+			shift 2
+		elif [ "${3:-}" = "$n" ]; then
+			shift 3
+		else
+			continue
+		fi
+		PW_F=$*
+		IFS=$o
+		set +f
+		return 0
+	done
+	IFS=$o
+	set +f
+	return 1
+}
+
+# pw_head <key>: a header line "<key> <value>" of power.state -> PW_F=<value>
+pw_head() {
+	local l
+	PW_F=
+	case "$PW_NL$PW_HEAD$PW_NL" in
+	*"$PW_NL$1 "*)
+		l="$PW_NL$PW_HEAD"
+		l=${l#*"$PW_NL$1 "}
+		PW_F=${l%%"$PW_NL"*}
+		return 0
+		;;
+	esac
+	return 1
+}
+
+# pw_load: reads the image and card files (pp_state, which reports every refusal once)
+pw_load() {
+	local img=$PW_SHARE/$PW_CONSOLE.conf kv
+	if [ -r "$img" ]; then
+		PW_HEAD=$(pp_state "$PW_CONSOLE" "$img" "$PW_CARD")
+	else
+		PW_HEAD=$(
+			pp_log() { :; }
+			pp_state "$PW_CONSOLE" "$img" "$PW_CARD"
+		)
+		pw_event OK "no profiles file for $PW_CONSOLE: kernel default"
+	fi
+	PW_HEAD=${PW_HEAD%"$PW_NL"scenario *}
+	PW_RECS=$PW_HEAD
+	PW_ENABLED=1
+	! pw_rec enabled || PW_ENABLED=$PW_F
+	PW_FLOOR=
+	! pw_head game_min || PW_FLOOR=$PW_F
+	PW_WARN=5
+	PW_CRITICAL=3
+	if pw_rec battery; then
+		for kv in $PW_F; do
+			case $kv in
+			warn=*) PW_WARN=${kv#warn=} ;;
+			critical=*) PW_CRITICAL=${kv#critical=} ;;
+			esac
+		done
+	else
+		PW_HEAD="$PW_HEAD${PW_NL}battery default warn=$PW_WARN critical=$PW_CRITICAL"
+	fi
+	[ "$PW_ENABLED" = 1 ] || pw_event OK "disabled: enabled 0"
+}
+
+# --- scenarios -------------------------------------------------------------------------------
+
+# pw_resolve: profile of the current scenario -> PW_NAME (default = kernel default), PW_ARGS,
+# PW_GAME (1 when the game floor applies)
+pw_resolve() {
+	local p
+	PW_NAME=default
+	PW_ARGS=
+	PW_GAME=0
+	if [ -n "$PW_MANUAL" ]; then
+		# measurement (D5): exactly the named profile, the reference K has no floor
+		[ "$PW_MANUAL" = default ] || ! pw_rec profile "$PW_MANUAL" || {
+			PW_NAME=$PW_MANUAL
+			PW_ARGS=$PW_F
+		}
+		return 0
+	fi
+	[ "$PW_SCENARIO" != game ] || PW_GAME=1
+	[ "$PW_ENABLED" = 1 ] || return 0
+	p=$PW_SCENARIO
+	if [ "$PW_GAME" = 1 ]; then
+		p=game
+		if pw_rec core "$PW_CORE"; then
+			p=$PW_F
+		elif pw_rec class "$PW_SYSTEM"; then
+			p=$PW_F
+		fi
+	fi
+	if pw_rec profile "$p"; then
+		PW_NAME=$p
+		PW_ARGS=$PW_F
+	fi
+	return 0
+}
+
+pw_state_write() {
+	local cur=$PW_NAME
+	[ "$cur" != default ] || cur=-
+	{
+		printf '%s\n' "$PW_HEAD"
+		printf 'scenario %s\ncurrent %s\n' "$PW_SCENARIO" "$cur"
+		[ -z "$PW_MANUAL" ] || printf 'manual %s\n' "$PW_MANUAL"
+	} >"$PW_STATE.tmp"
+	chgrp "$PW_GROUP" "$PW_STATE.tmp" 2>/dev/null
+	chmod 0640 "$PW_STATE.tmp"
+	mv -f "$PW_STATE.tmp" "$PW_STATE"
+}
+
+# pw_switch <log 0|1>: applies the profile of the scenario; the event is written when the
+# scenario or the profile changed, or always with 1
+pw_switch() {
+	local rec
+	pw_resolve
+	rec="$PW_SCENARIO|$PW_NAME|$PW_GAME|$PW_ARGS"
+	[ "$PW_CTL" != load ] || controller_stop
+	# shellcheck disable=SC2086
+	pw_apply "$PW_GAME" $PW_ARGS
+	[ "$PW_CTL" != load ] || [ "$PW_SCENARIO" != game ] || controller_start $PW_ARGS
+	if [ "$1" = 1 ] || [ "$rec" != "$PW_REC" ]; then
+		pw_event OK "profile: $PW_SCENARIO -> $PW_NAME${PW_MANUAL:+ (manual)}"
+	fi
+	PW_REC=$rec
+	pw_state_write
+}
+
+pw_message() {
+	case $1 in
+	menu | idle)
+		[ "$PW_SCENARIO" != "$1" ] || return 0
+		PW_SCENARIO=$1 PW_SYSTEM= PW_CORE=
+		pw_switch 0
+		;;
+	game)
+		PW_SCENARIO=game PW_SYSTEM=${2:--} PW_CORE=${3:--}
+		pw_switch 1
+		priority_apply
+		;;
+	end)
+		PW_SCENARIO=menu PW_SYSTEM= PW_CORE=
+		pw_switch 1
+		;;
+	reload)
+		pw_load
+		if [ "$PW_SCENARIO" = game ] && [ -z "$PW_MANUAL" ]; then
+			pw_state_write # the new profile counts from the next boundary
+		else
+			pw_switch 0
+		fi
+		;;
+	manual)
+		pw_read "$PW_MANUAL_FILE"
+		[ "$PW_V" != "$PW_MANUAL" ] || return 0
+		PW_MANUAL=$PW_V
+		if [ -n "$PW_MANUAL" ]; then
+			pw_event OK "manual: $PW_MANUAL"
+		else
+			pw_event OK "auto"
+		fi
+		pw_switch 1
+		;;
+	esac
+}
+
+# --- battery (D7) ----------------------------------------------------------------------------
+
+pw_battery_find() {
+	local d t
+	PW_BAT=
+	for d in "$PP_SYS"/class/power_supply/*; do
+		[ -r "$d/type" ] || continue
+		read -r t <"$d/type"
+		if [ "$t" = Battery ]; then
+			PW_BAT=$d
+			return 0
+		fi
+	done
+	return 1
+}
+
+pw_show_msg() {
+	local m
+	case $(ui_lang) in
+	pt) m="Bateria fraca ($1%): ligue o carregador" ;;
+	es) m="Batería baja ($1%): conecte el cargador" ;;
+	*) m="Low battery ($1%): connect the charger" ;;
+	esac
+	printf 'SHOW_MSG %s' "$m" | nc -u -w1 127.0.0.1 "$PW_RA_PORT" >/dev/null 2>&1 3>&-
+}
+
+pw_battery() {
+	local cap st
+	[ "$PW_DOWN" != 1 ] || return 0
+	if [ -z "$PW_BAT" ] || [ ! -r "$PW_BAT/capacity" ]; then
+		pw_battery_find || return 0
+	fi
+	pw_read "$PW_BAT/capacity"
+	cap=$PW_V
+	pw_read "$PW_BAT/status"
+	st=$PW_V
+	pp_is_uint "$cap" || return 0
+	case $st in
+	Discharging) ;;
+	Charging | Full)
+		PW_WARNED=0 PW_CRITN=0
+		return 0
+		;;
+	*)
+		PW_CRITN=0
+		return 0
+		;;
+	esac
+	if [ "$cap" -le "$PW_CRITICAL" ]; then
+		PW_CRITN=$((PW_CRITN + 1))
+		if [ "$PW_CRITN" -ge 2 ]; then
+			PW_DOWN=1
+			pw_event OK "shutdown: battery critical"
+			$PW_POWEROFF 3>&-
+			return 0
+		fi
+	else
+		PW_CRITN=0
+	fi
+	if [ "$cap" -le "$PW_WARN" ] && [ "$PW_WARNED" != 1 ]; then
+		PW_WARNED=1
+		pw_event OK "warning: battery $cap%"
+		# in the launcher lume-ui shows its own warning (D9)
+		[ "$PW_SCENARIO" != game ] || pw_show_msg "$cap"
+	fi
+}
+
+# --- service ---------------------------------------------------------------------------------
+
+# uptime in centiseconds -> PW_UP
+pw_uptime() {
+	local u
+	read -r u _ </proc/uptime
+	PW_UP=$((${u%.*} * 100 + 1${u#*.} - 100))
+}
+
+pw_open_fifo() {
+	rm -f "$PW_FIFO"
+	mkfifo -m 0620 "$PW_FIFO" || exit 1
+	chgrp "$PW_GROUP" "$PW_FIFO" 2>/dev/null
+	# read-write: never blocks on open, and the service is always a writer of its own FIFO
+	exec 3<>"$PW_FIFO"
+}
+
+cmd_run() {
+	local w1 w2 w3 rest rc t0
+	mkdir -p "$PW_RUN"
+	PW_CONSOLE=$(board)
+	[ -n "$PW_CONSOLE" ] || PW_CONSOLE=unknown
+	PW_CPU=$PP_SYS/devices/system/cpu
+	PW_CF=$PW_CPU/cpu0/cpufreq
+	PW_HAS_CPUFREQ=0
+	[ ! -d "$PW_CF" ] || PW_HAS_CPUFREQ=1
+	PW_NCPU=$(pp_cpu_count)
+	PW_SCENARIO=boot PW_SYSTEM= PW_CORE= PW_REC= PW_CTL= PW_BAT= PW_WARNED=0 PW_CRITN=0 PW_DOWN=0
+	pw_defaults
+	pw_read "$PW_MANUAL_FILE"
+	PW_MANUAL=$PW_V
+	pw_open_fifo
+	pw_load
+	[ "$PW_HAS_CPUFREQ" = 1 ] || pw_event OK "no cpufreq: kernel default"
+	pw_switch 1
+	pw_battery
+	while :; do
+		pw_uptime
+		t0=$PW_UP
+		w1= w2= w3=
+		read -t "$PW_TICK" -r w1 w2 w3 rest <&3
+		rc=$?
+		if [ -n "$w1" ]; then
+			pw_message "$w1" "$w2" "$w3"
+		elif [ "$rc" -ne 0 ]; then
+			# a timeout takes PW_TICK s; returning at once means the FIFO broke: never spin
+			pw_uptime
+			if [ $((PW_UP - t0)) -lt 50 ]; then
+				pw_event FAIL "fifo read failed, reopening"
+				sleep 1
+				pw_open_fifo
+			fi
+		fi
+		[ ! -e "$PW_EARLY" ] || [ ! -e "$LOGS_RAM/boot-n" ] || pw_events_flush
+		pw_battery
+	done
+}
+
+# --- command line ----------------------------------------------------------------------------
+
+pw_send() {
+	if [ ! -p "$PW_FIFO" ]; then
+		echo "r36os-power: the service is not running (no $PW_FIFO)" >&2
+		exit 1
+	fi
+	# read-write: the open never blocks, even with the FIFO left behind by a dead service
+	exec 4<>"$PW_FIFO"
+	printf '%s\n' "$1" >&4
+	exec 4>&-
+}
+
+cmd_set() {
+	local l found=0
+	case ${1:-} in
+	'' | *[!A-Za-z0-9_.-]*) usage ;;
+	esac
+	if [ "$1" != default ]; then
+		while read -r l; do
+			case "$l " in
+			"profile image $1 "* | "profile card $1 "*) found=1 ;;
+			esac
+		done <"$PW_STATE"
+		if [ "$found" != 1 ]; then
+			echo "r36os-power: unknown profile $1 (see r36os-power status)" >&2
+			exit 1
+		fi
+	fi
+	echo "$1" >"$PW_MANUAL_FILE.tmp"
+	mv -f "$PW_MANUAL_FILE.tmp" "$PW_MANUAL_FILE"
+	pw_send manual
+}
+
+cmd_auto() {
+	rm -f "$PW_MANUAL_FILE"
+	pw_send manual
+}
+
+usage() {
+	echo "usage: r36os-power run | set <profile|default> | auto | reload | status" >&2
+	exit 2
+}
+
+case ${1:-} in
+run) cmd_run ;;
+set)
+	shift
+	cmd_set "$@"
+	;;
+auto) cmd_auto ;;
+reload) pw_send reload ;;
+status) cat "$PW_STATE" ;;
+*) usage ;;
+esac

@@ -55,6 +55,8 @@ add() { rc-update add "$1" "$2" >/dev/null; }
 # sysfs pulled in later cgroups found no /sys/fs/cgroup, did nothing and still said started.
 for s in sysfs devfs dmesg cgroups udev udev-trigger udev-settle; do add "$s" sysinit; done
 for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done
+# Power profile of each scenario (game-governor D2, D6): early in boot, with the `boot` profile
+add r36os-power boot
 # Before the frontend: what a game or the cable uses (audio, input, saves, the USB network
 # for push/dev) and the hardware summary on the screen.
 for s in seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb r36os-savesync r36os-hostshare \

@@ -1,4 +1,5 @@
 # Lume Retro OS: the power fragment (build-speed D2, node 8.1). The zram service and script, the sysctl settings and the backlight udev rule.
+# The r36os-power service, its profile validator and the console profile files (game-governor).
 # The files live in files/ at the same paths and modes they have in the image, and the package
 # ships them as they are.
 #
@@ -7,7 +8,7 @@
 pkgname=lume-power
 pkgver=1.0
 pkgrel=0
-pkgdesc="Power and memory settings: ZRAM swap, sysctl, backlight rule"
+pkgdesc="Power and memory settings: power profiles, ZRAM swap, sysctl, backlight rule"
 url="https://example.invalid"
 arch="noarch"
 license="GPL-2.0-or-later"

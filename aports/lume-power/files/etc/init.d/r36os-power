@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# Power profile of each scenario (boot, menu, idle, game) and the low battery shutdown
+# (openspec game-governor D2, D6, D7). Boot runlevel, early: the `boot` profile holds from here
+# to the first launcher screen. lume-ui and lume-run write to the FIFO /run/r36os/power.
+
+description="Power profiles per scenario and low battery shutdown"
+supervisor="supervise-daemon"
+command="/usr/bin/r36os-power"
+command_args="run"
+respawn_delay=2
+respawn_max=5
+
+depend() {
+	after modules
+	before bootmisc
+}
+
+stop_post() {
+	# writers find no FIFO and drop their messages (they never wait for the service)
+	rm -f /run/r36os/power
+	return 0
+}
