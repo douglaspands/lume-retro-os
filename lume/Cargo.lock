@@ -208,6 +208,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lume-menu"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "libc",
+]
+
+[[package]]
 name = "lume-run"
 version = "0.1.0"
 dependencies = [

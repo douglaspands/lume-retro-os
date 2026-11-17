@@ -722,6 +722,93 @@ fn hint_and_bar_go_to_retroarch() {
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
 }
 
+/// A fake lume-menu: "ok", then every stdin line into `menu.lines`, "closed" at the end.
+fn fake_lume_menu(e: &Env, answer: &str) -> PathBuf {
+    let p = e.dir.join("lume-menu");
+    let d = e.dir.display().to_string();
+    fs::write(
+        &p,
+        format!("#!/bin/sh\necho \"$*\" > \"{d}/menu.args\"\nread first\necho \"$first\" >> \"{d}/menu.lines\"\necho {answer}\n\
+                 while read l; do echo \"$l\" >> \"{d}/menu.lines\"; done\necho closed >> \"{d}/menu.lines\"\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+    p
+}
+
+#[test]
+fn system_drawn_menu_on_a_runner_without_overlay() {
+    // D14: lume-menu draws the menu over any runner; the group stays stopped while it is open
+    let e = setup("sysmenu", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "sigterm", "");
+    let bin = fake_lume_menu(&e, "ok");
+    let mut c = Command::new(env!("CARGO_BIN_EXE_lume-run"));
+    c.env("FAKE", &e.dir)
+        .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
+        .env("LUME_UI", e.dir.join("ui"))
+        .env("LUME_INDEX", "/bin/true")
+        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
+        .env("LUME_CGROUP", e.dir.join("no-cgroup"))
+        .env("LUME_STORAGE", e.dir.join("storage"))
+        .env("LUME_RA_PORT", ra.port.to_string())
+        .env("LUME_MENU_BIN", &bin)
+        .stdin(Stdio::null());
+    let mut run = c.spawn().unwrap();
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(proc_state(pid), 'T', "the group is stopped while lume-menu draws");
+    let args = fs::read_to_string(e.dir.join("menu.args")).unwrap();
+    assert!(args.starts_with(&format!("{pid} --hints Select|Back --warn Force close")), "{args}");
+    d.send("nav down");
+    // B: back to the game, lume-menu gets the end of its stdin, the group continues
+    d.send("nav b");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_ne!(proc_state(pid), 'T');
+    let lines = fs::read_to_string(e.dir.join("menu.lines")).unwrap();
+    assert_eq!(lines, "Secret Name|Back to game|End game|0\nSecret Name|Back to game|End game|1\nclosed\n");
+    assert!(!ra.cmds().iter().any(|c| c.starts_with("LUME_MENU")), "no widget: {:?}", ra.cmds());
+    assert_eq!(d.received(), ["capture on", "capture off"]);
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn failing_lume_menu_falls_back_to_the_widget() {
+    let e = setup("sysmenufail", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let bin = fake_lume_menu(&e, "fail no screen");
+    let mut c = Command::new(env!("CARGO_BIN_EXE_lume-run"));
+    c.env("FAKE", &e.dir)
+        .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
+        .env("LUME_UI", e.dir.join("ui"))
+        .env("LUME_INDEX", "/bin/true")
+        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
+        .env("LUME_CGROUP", e.dir.join("no-cgroup"))
+        .env("LUME_STORAGE", e.dir.join("storage"))
+        .env("LUME_RA_PORT", ra.port.to_string())
+        .env("LUME_MENU_BIN", &bin)
+        .stdin(Stdio::null());
+    let mut run = c.spawn().unwrap();
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    ra.wait_for("LUME_MENU");
+    // the group continues (only RetroArch's pause holds the game), the widget draws
+    assert_ne!(proc_state(pid), 'T');
+    d.send("fn_tap");
+    assert_eq!(*ra.state.lock().unwrap(), "PLAYING");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
 #[test]
 fn session_sigterm_ends_the_game_and_the_supervisor() {
     let e = setup("session", false);

@@ -37,7 +37,7 @@ TRIPLES = {
     "armv7": "armv7-alpine-linux-musleabihf",
     "aarch64": "aarch64-alpine-linux-musl",
 }
-BINARIES = ("lume-run", "lume-ui", "lume-index")
+BINARIES = ("lume-run", "lume-ui", "lume-index", "lume-menu")
 GUEST_PREBUILT = "/lume-prebuilt"   # where the abuild container sees the binaries
 PREBUILT_ENV = "LUME_PREBUILT"      # read by aports/lume-launcher/APKBUILD
 WORKSPACE_GUEST = "/aports/r36os/lume-launcher/stage/lume"

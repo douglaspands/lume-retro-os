@@ -46,8 +46,12 @@ def test_aport_builds_offline_from_the_stage():
     assert 'builddir="$startdir/stage/lume"' in APKBUILD
     assert "cargo build --release --offline --frozen" in APKBUILD
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', APKBUILD, re.M)
-    for b in ("lume-run", "lume-ui", "lume-index"):
+    for b in ("lume-run", "lume-ui", "lume-index", "lume-menu"):
         assert f"{b}" in APKBUILD
+    # lume-hud-actions D14: the menu drawn by the system, built and packaged on every target
+    from r36os import lume_cross
+    assert "lume-menu" in lume_cross.BINARIES
+    assert "lume-run lume-ui lume-index lume-menu" in APKBUILD
     # the prototype's font, in the three weights the launcher draws with
     for face in ("Roboto-Regular", "Roboto-Medium", "Roboto-Bold"):
         assert face in APKBUILD

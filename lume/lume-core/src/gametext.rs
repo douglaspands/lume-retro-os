@@ -21,6 +21,9 @@ pub enum Text {
     LoadState,
     Screenshot,
     StatusBar,
+    /// the footer hints of the menu: A, B
+    HintSelect,
+    HintBack,
 }
 
 /// The display name of a runner for "<App> menu" and "<App> is not responding".
@@ -54,6 +57,8 @@ pub fn text(lang: &str, t: Text, app: &str) -> String {
             LoadState => "Carregar estado",
             Screenshot => "Capturar a tela",
             StatusBar => "Barra de status",
+            HintSelect => "Escolher",
+            HintBack => "Voltar",
         },
         "es" => match t {
             BackToGame => "Volver al juego",
@@ -70,6 +75,8 @@ pub fn text(lang: &str, t: Text, app: &str) -> String {
             LoadState => "Cargar estado",
             Screenshot => "Capturar la pantalla",
             StatusBar => "Barra de estado",
+            HintSelect => "Elegir",
+            HintBack => "Volver",
         },
         _ => match t {
             BackToGame => "Back to game",
@@ -86,6 +93,8 @@ pub fn text(lang: &str, t: Text, app: &str) -> String {
             LoadState => "Load state",
             Screenshot => "Screenshot",
             StatusBar => "Status bar",
+            HintSelect => "Select",
+            HintBack => "Back",
         },
     };
     s.into()
@@ -104,7 +113,7 @@ mod tests {
     fn every_text_in_the_three_languages() {
         use Text::*;
         let all = [BackToGame, Reset, AppMenu, EndGame, ForceClose, ConfirmReset, ConfirmEnd, No, Yes,
-                   NotResponding, SaveState, LoadState, Screenshot, StatusBar];
+                   NotResponding, SaveState, LoadState, Screenshot, StatusBar, HintSelect, HintBack];
         for lang in crate::settings::LANGUAGES {
             for t in all {
                 let s = text(lang, t, "RetroArch");

@@ -29,6 +29,7 @@ mod launch;
 mod menu;
 mod proc;
 mod states;
+mod sysmenu;
 
 use std::net::UdpSocket;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
@@ -107,6 +108,10 @@ struct Overlay {
     hint: Option<String>,
     hud: Option<(hud::Hud, Instant)>,
     lang: String,
+    /// the menu drawn by the system (lume-menu, D14), while it is open
+    sysmenu: Option<sysmenu::SysMenu>,
+    /// the group was stopped for the system-drawn menu (SIGCONT when it closes)
+    stopped_for_menu: bool,
 }
 
 /// The game's title for the menu: the ROM's name without folder and extension.
@@ -244,6 +249,8 @@ impl Run {
             hint: None,
             hud: None,
             lang,
+            sysmenu: None,
+            stopped_for_menu: false,
         };
         // the bar stays on from one game to the next (D6)
         if l.overlay && !l.menu && hud::load_shown(&self.hud_file()) {
@@ -375,9 +382,63 @@ impl Run {
         }
     }
 
-    fn draw_menu(&self, ov: &Overlay) {
+    /// lume-menu (D14): LUME_MENU_BIN, else /usr/bin/lume-menu; None when it is not there.
+    fn menu_bin(&self) -> Option<PathBuf> {
+        let p = env_path("LUME_MENU_BIN", "/usr/bin/lume-menu");
+        p.exists().then_some(p)
+    }
+
+    /// The menu's state on the screen: to lume-menu when it draws, else RetroArch's widget.
+    fn draw_menu(&self, ov: &mut Overlay) {
         let t = ov.menu.draw_text();
+        if let Some(m) = ov.sysmenu.as_mut() {
+            if !t.is_empty() && !m.update(&t) {
+                log("lume-menu gone: the menu falls back to RetroArch's widget");
+                ov.sysmenu = None;
+            } else {
+                return;
+            }
+        }
         self.ra(&if t.is_empty() { "LUME_MENU -".to_string() } else { format!("LUME_MENU {t}") });
+    }
+
+    /// Opens the system-drawn menu (D14): the group stopped, lume-menu on the game's screen.
+    /// False when it could not (lume-menu missing or failing): the caller uses the widget.
+    fn open_sysmenu(&self, pid: libc::pid_t, ov: &mut Overlay) -> bool {
+        let Some(bin) = self.menu_bin() else { return false };
+        if ov.paused != Some(actions::Paused::Stopped) {
+            // a paused RetroArch still presents frames and would cover the menu
+            proc::kill_group(pid, libc::SIGSTOP);
+            ov.stopped_for_menu = true;
+        }
+        use lume_core::gametext::{text, Text};
+        let hints = (text(&ov.lang, Text::HintSelect, ""), text(&ov.lang, Text::HintBack, ""));
+        let warn = text(&ov.lang, Text::ForceClose, "");
+        match sysmenu::SysMenu::start(&bin, pid, (&hints.0, &hints.1), &warn, &ov.menu.draw_text()) {
+            Ok(m) => {
+                ov.sysmenu = Some(m);
+                true
+            }
+            Err(why) => {
+                log(&format!("lume-menu: {why}: the menu falls back to RetroArch's widget"));
+                if ov.stopped_for_menu {
+                    proc::kill_group(pid, libc::SIGCONT);
+                    ov.stopped_for_menu = false;
+                }
+                false
+            }
+        }
+    }
+
+    /// Closes the system-drawn menu: the game's screen back, then the group continues.
+    fn close_sysmenu(&self, pid: libc::pid_t, ov: &mut Overlay) {
+        if let Some(m) = ov.sysmenu.take() {
+            m.close();
+        }
+        if ov.stopped_for_menu {
+            proc::kill_group(pid, libc::SIGCONT);
+            ov.stopped_for_menu = false;
+        }
     }
 
     fn hide_hint(&self, ov: &mut Overlay) {
@@ -405,7 +466,10 @@ impl Run {
         }
         if ov.menu.is_open() {
             actions::to_daemon(input, lume_core::input::CAPTURE_ON);
-            self.draw_menu(ov);
+            // the widget vanishes after 3 s without a renewal; lume-menu keeps its picture
+            if ov.sysmenu.is_none() {
+                self.draw_menu(ov);
+            }
         }
         if let Some(h) = &ov.hint {
             self.ra(&format!("LUME_HINT {h}"));
@@ -440,9 +504,8 @@ impl Run {
             }
             Message::FnTap => {
                 self.hide_hint(ov);
-                if !l.overlay {
-                    // the menu is drawn by RetroArch's widget until the system-drawn menu
-                    // (lume-menu, D14) passes its proof on the consoles
+                if !l.overlay && self.menu_bin().is_none() {
+                    // no lume-menu (D14) and no widget to draw the menu with
                     log(&format!("fn_tap ignored: runner {} draws no overlay", l.runner));
                 } else {
                     for e in ov.menu.tap() {
@@ -492,12 +555,28 @@ impl Run {
                 if r.unresponsive {
                     ov.menu.set_unresponsive();
                 }
+                // D14: drawn by the system on any runner, frozen or not; the widget otherwise
+                if !self.open_sysmenu(pid, ov) && !l.overlay {
+                    log(&format!("menu not shown: no lume-menu and runner {} draws no overlay", l.runner));
+                    ov.menu.state = menu::State::Closed;
+                    if let Some(p) = ov.paused.take() {
+                        actions::resume(p, self.ra_port, pid);
+                    }
+                    return;
+                }
                 actions::to_daemon(input, lume_core::input::CAPTURE_ON);
-                self.draw_menu(ov);
+                if ov.sysmenu.is_none() {
+                    // lume-menu got the first state when it started
+                    self.draw_menu(ov);
+                }
             }
             Effect::Close => {
                 actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
-                self.draw_menu(ov);
+                if ov.sysmenu.is_some() || ov.stopped_for_menu {
+                    self.close_sysmenu(pid, ov);
+                } else {
+                    self.draw_menu(ov);
+                }
                 if let Some(p) = ov.paused.take() {
                     actions::resume(p, self.ra_port, pid);
                 }
@@ -519,7 +598,14 @@ impl Run {
             }
             Effect::ForceClose => {
                 actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
-                self.draw_menu(ov);
+                // the game's screen back before the kill (the plane keeps our buffer otherwise)
+                if ov.sysmenu.is_some() {
+                    if let Some(m) = ov.sysmenu.take() {
+                        m.close();
+                    }
+                } else {
+                    self.draw_menu(ov);
+                }
                 self.pending_end.set(Some(End::ForceClose));
             }
         }

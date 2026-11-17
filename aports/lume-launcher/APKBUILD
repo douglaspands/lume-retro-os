@@ -26,7 +26,7 @@ prepare() {
 
 build() {
 	if [ -n "${LUME_PREBUILT:-}" ]; then
-		for b in lume-run lume-ui lume-index; do
+		for b in lume-run lume-ui lume-index lume-menu; do
 			[ -x "$LUME_PREBUILT/$b" ] || die "$LUME_PREBUILT/$b: missing (r36os.lume_cross)"
 		done
 		return 0
@@ -35,7 +35,9 @@ build() {
 }
 
 package() {
-	for b in lume-run lume-ui lume-index; do
+	# lume-menu: the Lume menu over a game, drawn by the system (lume-hud-actions D14); it
+	# runs as the games user with no capability (pidfd_getfd of its own user's game)
+	for b in lume-run lume-ui lume-index lume-menu; do
 		if [ -n "${LUME_PREBUILT:-}" ]; then
 			install -Dm755 "$LUME_PREBUILT"/$b "$pkgdir"/usr/bin/$b
 		else

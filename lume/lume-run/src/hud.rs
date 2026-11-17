@@ -114,6 +114,16 @@ impl Hud {
         best
     }
 
+    /// The GPU's clock from devfreq (`/sys/class/devfreq/*gpu*/cur_freq`), in MHz: the field
+    /// on the GA36, whose `lima` has no per-client time in the fdinfo (J1, 2026-11-17).
+    fn gpu_mhz(&self) -> Option<u64> {
+        let dir = self.path("/sys/class/devfreq");
+        let mut entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        let gpu = entries.into_iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().contains("gpu")))?;
+        Some(read_num(&gpu.join("cur_freq"))? as u64 / 1_000_000)
+    }
+
     /// GPU % from the busiest engine's time (ns) in the game's fdinfo, over `elapsed` seconds.
     fn gpu(&mut self, elapsed: f64) -> Option<u32> {
         if self.drm_fd.is_none() {
@@ -168,7 +178,9 @@ impl Hud {
             voltage_uv: read_num(&d.join("voltage_now")),
             current_ua: read_num(&d.join("current_now")),
             charge_now: read_num(&d.join("charge_now")),
-            charge_full: read_num(&d.join("charge_full")),
+            // the AXP223 of the GA36 has only the design capacity (J1): the estimate from
+            // the first 30 s, with the error of a worn battery
+            charge_full: read_num(&d.join("charge_full")).or_else(|| read_num(&d.join("charge_full_design"))),
         })
     }
 
@@ -239,7 +251,11 @@ impl Hud {
     pub fn sample(&mut self, elapsed: f64) -> String {
         let cpu = self.cpu().map(|c| format!("{c}%")).unwrap_or_else(|| "--".into());
         let mhz = self.mhz().map(|m| format!("{m}MHz")).unwrap_or_else(|| "--MHz".into());
-        let gpu = self.gpu(elapsed).map(|g| format!("{g}%")).unwrap_or_else(|| "--".into());
+        // the use when the driver reports it (panfrost), else the clock (lima), else --
+        let gpu = match self.gpu(elapsed) {
+            Some(g) => format!("{g}%"),
+            None => self.gpu_mhz().map(|m| format!("{m}MHz")).unwrap_or_else(|| "--".into()),
+        };
         let mem = self.mem().map(|(u, t, s)| format!("{u}/{t}/{s}")).unwrap_or_else(|| "--".into());
         let bat = self.battery_text(elapsed);
         format!("CPU {cpu} {mhz}  GPU {gpu}  MEM {mem}  {bat}")
@@ -377,6 +393,26 @@ mod tests {
         h.sample(0.0);
         battery(&d, "Discharging", 79, 3_700_000, 0, None);
         assert!(h.sample(60.0).ends_with("BAT 79% 0.0W 1:19"), "{}", h.sample(60.0));
+    }
+
+    #[test]
+    fn ga36_lima_clock_and_design_capacity() {
+        // J1 (2026-11-17): no drm-engine lines from lima, the devfreq clock instead; the AXP223
+        // has only charge_full_design, so the estimate starts from the capacity percent
+        let d = tree("ga36");
+        let link = d.join("proc/42/fd/5");
+        std::os::unix::fs::symlink("/dev/dri/card0", &link).unwrap();
+        fs::write(d.join("proc/42/fdinfo/5"), "pos:\t0\nflags:\t0400002\n").unwrap();
+        fs::create_dir_all(d.join("sys/class/devfreq/1c40000.gpu")).unwrap();
+        fs::write(d.join("sys/class/devfreq/1c40000.gpu/cur_freq"), "240000000\n").unwrap();
+        battery(&d, "Discharging", 50, 4_000_000, -500_000, None);
+        fs::write(d.join("sys/class/power_supply/battery/charge_full_design"), "3000000\n").unwrap();
+        let mut h = Hud::new(&d, 42);
+        h.sample(0.0);
+        let s = h.sample(31.0);
+        assert!(s.contains("GPU 240MHz"), "{s}");
+        // 50% of 3000 mAh at 500 mA: 3:00
+        assert!(s.ends_with("BAT 50% 2.0W 3:00"), "{s}");
     }
 
     #[test]
