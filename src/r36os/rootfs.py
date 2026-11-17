@@ -184,7 +184,7 @@ def make_system(target: Target, rootfs_tar: Path, dest: Path,
 # The modules image of a console (kernel-modules-image D1, D2): the content of lib/modules/
 # at the root (one <release>/ folder), owned by root, with no build times, so the same
 # modules.tar always gives the same file. Same compression as SYSTEM.
-_MODULES_SCRIPT = """
+MODULES_SCRIPT = """
 rm -rf /tmp/m
 mkdir -p /tmp/m
 tar -C /tmp/m -xf {src}
@@ -207,5 +207,5 @@ def make_modules_image(modules_tar: Path, dest: Path) -> Path:
         src = f"/in/{modules_tar.name}"
     # mksquashfs does not depend on the target arch: always the x86_64 builder.
     Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(
-        _MODULES_SCRIPT.format(src=src, dest=dest.name, jobs=jobs.jobs()))
+        MODULES_SCRIPT.format(src=src, dest=dest.name, jobs=jobs.jobs()))
     return dest

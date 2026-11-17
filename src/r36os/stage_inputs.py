@@ -230,6 +230,12 @@ def initramfs_inputs(target, rootfs_tar: Path) -> Inputs:
     return inp
 
 
+def modules_inputs(modules_tar: Path, script: str) -> Inputs:
+    """The console modules image (BOOT <console>/modules): the kernel modules.tar and the
+    script that packs it (compression included)."""
+    return Inputs().file("modules.tar", modules_tar).text("script", script)
+
+
 def system_inputs(rootfs_tar: Path, squashfs_options: str, limit_mib: int) -> Inputs:
     return (Inputs()
             .file("rootfs.tar", rootfs_tar)

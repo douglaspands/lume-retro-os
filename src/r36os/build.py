@@ -152,7 +152,10 @@ def build_console_kernel(target: Target, timer: StageTimer | None = None) -> Non
     kdir = out / "kernel"
     with timer.stage(p + "kernel"):
         zimage = kernel.build_kernel(target.name, kdir, initramfs_dir=out)
-        rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules")
+    stage_inputs.run_stage(
+        timer, p + "modules image", kdir / "modules",
+        lambda: stage_inputs.modules_inputs(kdir / "modules.tar", rootfs.MODULES_SCRIPT),
+        lambda: rootfs.make_modules_image(kdir / "modules.tar", kdir / "modules"))
     arch, vendor = DTS_VENDOR[target.name]
     stage_inputs.run_stage(
         timer, p + "DTBs + validation", kdir / "dtbs",
