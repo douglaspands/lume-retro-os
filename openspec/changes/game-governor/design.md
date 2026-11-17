@@ -230,6 +230,22 @@ corrente média (`bat_ma`), FPS contra o nominal, eventos `game FAIL slow`, CPU 
 clock médio, temperatura máxima e o custo do `logd` e da `sugov`. Saída em tabela e em CSV em
 `cache/`, sem nome de jogo. É a ferramenta das tabelas do D5 (antes e depois).
 
+### D15. Core do SNES
+
+Pedido do usuário (2026-11-17): um único core de SNES, o `snes9x2005_plus`, padrão em todas as
+arquiteturas, sem versão otimizada. Entra nesta change porque os perfis são medidos jogo a jogo
+com o core da imagem: trocar o core depois invalidaria a classe e a exceção por core do SNES.
+- **Versão:** o aport `aports/libretro-snes9x2005-plus` sai do commit de 2022 da fábrica do GA36
+  (`fd45b0e`, `0_git20220725`) para o mais novo do upstream `libretro/snes9x2005` (`a79dfe9`, de
+  2026-09-26; `pkgver` pela data do commit), com o `sha512sums` refeito.
+- **Build:** o padrão do upstream (`make -f Makefile USE_BLARGG_APU=1`, `-O2`), em `arch="all"`;
+  nenhuma flag por CPU (o build otimizado para o A33 do P-10 fica para a change de cores, P-80).
+- **Repositório:** o Alpine 3.24 não tem `snes9x` (só `bsnes` e `beetle-bsnes`, pesados para o
+  A33), então o pacote continua no nosso `aports/`. O aport `libretro-snes9x` (desligado desde
+  2026-11-11) sai, com as referências a ele em `lume/`, `docs/` e nos testes.
+- **Catálogo:** o `systems.json` já tem `snes9x2005_plus` como padrão, sem alternativos nem
+  troca por arquitetura; um teste passa a garantir isso (spec `game-library`).
+
 ## Risks / Trade-offs
 
 - [Desligar núcleos com o jogo esperando mais threads] → Os perfis só desligam núcleos onde a
@@ -248,6 +264,10 @@ clock médio, temperatura máxima e o custo do `logd` e da `sugov`. Saída em ta
   `build-speed` e `card-health`, na fila única do cartão.
 - [O `logd` em C muda o formato] → O formato é congelado pelos testes de `tests/logs/` antes da
   troca.
+- [O commit novo do `snes9x2005` muda o comportamento de um jogo de teste ou o formato dos save
+  states] → A 4.2 abre um jogo de SNES nos dois consoles antes da medição (J1), e um save state
+  antigo é aberto para conferir; se não abrir, o resultado fica anotado aqui e o usuário decide
+  entre manter o commit novo ou voltar ao de 2022.
 - [O controlador cai com o governor em `userspace` e o clock baixo] → O `r36os-power` vigia o
   filho e, se ele sair antes do `end`, reaplica o perfil do jogo sem o controlador e registra
   o evento.

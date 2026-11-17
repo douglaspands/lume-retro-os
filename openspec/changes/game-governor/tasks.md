@@ -35,7 +35,8 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 3.1 | 1.1 | — | AG | sonnet | 1 | J1 |
 | 3.2 | 1.1, 3.0 | — | AG | sonnet | 1 | J1 |
 | 4.1 | — | — | AG | sonnet | 0 | J1 |
-| 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 4.2 | — | — | AG | sonnet | 0 | J1 |
+| 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 5.2 | 1.3, 5.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 5.3 | 5.2 | R36S, USUARIO | PR | — | 5 | J2 |
 | 5.4 | 5.2, 5.3 | — | AG | sonnet | 6 | |
@@ -54,7 +55,8 @@ Modelos: propostos, aguardando aprovação do usuário.
   3.0 (protótipo, USUARIO) --------+--> 3.2 (lume-ui) ----------------------------------------+
   1.2 (logd barato, P-60) --------------------------------------------------------------------+--> 5.1 build de medição
   2.1 (kernel GA36: governors) ---------------------------------------------------------------+         |
-  4.1 (DRAM no hwinfo, P-23) -----------------------------------------------------------------+         v
+  4.1 (DRAM no hwinfo, P-23) -----------------------------------------------------------------+         |
+  4.2 (core do SNES: snes9x2005_plus do upstream) --------------------------------------------+         v
   1.3 (r36os power report) ---------------------------------------------> 5.2 medir GA36 (J1) --> 5.3 medir R36S (J2)
                                                                                                         |
                                                                            5.4 valores dos perfis <-----+
@@ -65,7 +67,7 @@ Modelos: propostos, aguardando aprovação do usuário.
 ```
 
 **Ondas:**
-- Onda 0: 1.1, 1.2, 1.3, 2.1, 3.0, 4.1 (AG, em paralelo; a 3.0 termina com a aprovação do usuário).
+- Onda 0: 1.1, 1.2, 1.3, 2.1, 3.0, 4.1, 4.2 (AG, em paralelo; a 3.0 termina com a aprovação do usuário).
 - Onda 1: 2.2, 3.1, 3.2.
 - Onda 2: 2.3, 2.4 (os dois mexem no `r36os-power`: em worktrees separadas, mesclados um por vez).
 - Onda 3: 5.1 (build de medição, fila única de CPU, com o kernel do GA36).
@@ -104,9 +106,11 @@ cartão):
 - [ ] 3.1 `lume-run` (D1): `game <sistema> <core>` antes do `exec` do jogo e `end` depois de o cgroup esvaziar, pelo escritor da 1.1. Verificação: testes em `lume/lume-run/tests/run.rs` com um FIFO de teste (ordem das mensagens; sem leitor, o jogo abre igual) e o RSS do supervisor sem mudança (requisito do `game-runners`); no aparelho, os eventos `power` no `events.log` (J1).
 - [ ] 3.2 `lume-ui` (D9): `menu` na primeira tela e ao voltar do ocioso; depois de 2 minutos sem botão (ou do `idle after=` do `power.conf`; `0` desliga), `idle` e luz em `min(10%, brilho do usuário)` sem gravar, o primeiro botão devolve o brilho e é consumido; bateria lida a cada 5 s, marca de carga desenhada pela régua da 3.0, aviso de bateria fraca no mesmo limite do serviço, textos en/pt/es. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` (escurecer, botão consumido, brilho salvo intacto, marca de carga, aviso uma vez por descarga) e o teste de régua da marca; o uso de CPU do launcher parado continua abaixo de 1% (requisito "Parado não consome CPU"); no aparelho, J3 e J4.
 
-## 4. DRAM do A33
+## 4. DRAM do A33 e core do SNES
 
 - [ ] 4.1 `hwinfo` (D11, P-23): no GA36, ler com o `r36os-devmem` os registradores da DRAM e gravar o clock efetivo no `hw/boot-<n>.txt`. Verificação: teste do `hwinfo` com o `r36os-devmem` falso; no GA36, o clock no retrato e a conta anotada no P-23 (J1).
+
+- [ ] 4.2 Core do SNES (D15, spec `game-library`): `aports/libretro-snes9x2005-plus` no commit mais novo do upstream `libretro/snes9x2005` (`a79dfe9`, `pkgver` pela data), `USE_BLARGG_APU=1`, build padrão do upstream sem flags por CPU, `arch="all"`, `sha512sums` refeito; `aports/libretro-snes9x` removido e as referências a ele em `lume/`, `docs/` (`LAUNCHER.md`, `aports/README.md`) e nos testes trocadas pelo `snes9x2005_plus` ou retiradas; o `systems.json` continua com `snes9x2005_plus` padrão, sem alternativos nem troca por arquitetura, e um teste de catálogo passa a exigir isso. Verificação: o `sha512` confere com o tarball do upstream; testes de unidade e de catálogo verdes; nenhuma referência ao `libretro-snes9x` fora do arquivo de changes; na J1, um jogo de SNES abre no `snes9x2005_plus` novo no GA36 e no R36S e um save state antigo abre.
 
 ## 5. Medição e valores
 

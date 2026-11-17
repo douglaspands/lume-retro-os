@@ -34,6 +34,11 @@ pendências (P-20, P-83, P-23), com o P-60, o P-78 e o item 3 do P-64.
   cartão por cenário e por sistema (corrente média, FPS contra o nominal, eventos `slow`, CPU
   por núcleo, clock médio, temperatura máxima, custo do `logd` e da `sugov`), sem nome de jogo,
   para comparar antes e depois.
+- **Core do SNES** (pedido do usuário, 2026-11-17): o `snes9x2005_plus` é o único core de SNES
+  e o padrão em todas as arquiteturas, atualizado do commit de 2022 da fábrica para o mais novo
+  do upstream, com o build padrão do upstream (sem flags otimizadas; o Alpine não tem `snes9x`,
+  então o pacote continua no nosso repositório). O aport `libretro-snes9x`, hoje desligado,
+  sai do repositório. Entra aqui porque os perfis são medidos com o core que vai na imagem.
 - **Coletor de métricas barato** (P-60): o `logd` sem processos externos por amostra, abaixo de
   1% de um núcleo no GA36, antes de qualquer medição de perfil.
 - **Bateria fraca**: aviso no launcher e por cima do jogo num nível baixo, e desligamento limpo
@@ -68,6 +73,7 @@ etapa 3, exige patch no RetroArch) e a barra de status sobre o jogo
 - `game-launcher`: indicador de carga na barra de status e tela escurecida com o launcher parado.
 - `game-runners`: o supervisor avisa o sistema no início e no fim de cada jogo, sem atrasar nem
   impedir o jogo, e os processos do jogo têm prioridade acima dos serviços de fundo.
+- `game-library`: o SNES tem um único core, o `snes9x2005_plus`, igual em todas as arquiteturas.
 
 ## Impact
 
@@ -79,6 +85,8 @@ etapa 3, exige patch no RetroArch) e a barra de status sobre o jogo
 - Binário pequeno em C do controlador pela carga (`r36os-powerctl`, um aport por arquitetura,
   como o `r36os-input`) e o init do `r36os-input` (prioridade acima do jogo).
 - `src/r36os/power_report.py` e o comando `r36os power report` no PC.
+- `aports/libretro-snes9x2005-plus` (commit novo do upstream, build padrão) e a remoção de
+  `aports/libretro-snes9x`, com as referências a ele em `lume/`, `docs/` e nos testes.
 - `board/ga36/kernel.config` (governors) e o build do kernel do GA36.
 - `docs/LOGS.md`, `docs/BRINGUP-GA36.md`, `docs/BRINGUP-R36S.md`, `docs/PENDENCIAS.md` (P-20,
   P-23, P-60, P-64, P-78, P-83).
