@@ -344,6 +344,38 @@ recebe o uid (os dois são 1000).
   parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `r36os-input` (500 KB) sem CPU.
   Detalhes em [orcamento-de-performance.md](lume-launcher/orcamento-de-performance.md).
 
+### Janela J1 da `lume-hud-actions` (2026-11-17, build atual, boot 168)
+
+**Fontes da barra de status (tarefa 4.1):**
+
+| Campo | GA36 (AXP223, `lima`) |
+|---|---|
+| Uso da GPU por cliente (`drm-engine-*` no `fdinfo`) | **não existe**: o `lima` do kernel 6.18 não tem `show_fdinfo` (o `fdinfo` dos fds do `renderD128` e do `card1` só traz `pos`, `flags`, `mnt_id`, `ino`) |
+| devfreq da GPU (`/sys/class/devfreq/1c40000.gpu`) | `simple_ondemand`, 144/240/384 MHz, `cur_freq` e `trans_stat` legíveis; `load` vazio |
+| `status` | `Charging` com o cabo USB, `Discharging` sem ele |
+| `current_now` | positivo carregando (+100 a +346 mA), **negativo** descarregando (−371 a −390 mA num jogo LÖVE) |
+| `voltage_now` | 4,25 V carregando a 100%; 4,18 a 4,17 V descarregando |
+| `charge_now`, `charge_full` | ausentes |
+| `charge_full_design` | 3000000 (3000 mAh) |
+| `capacity` | 100 durante toda a prova |
+
+**Menu pelo sistema (tarefa 4.6, D14):** passou nos três casos, com o programa de prova
+rodando como `game` (o mesmo usuário do `lume-run`), sem `setcap`; o kernel não tem o Yama.
+O usuário viu o retângulo sobre o último quadro e a volta normal do jogo, sem tela preta nem
+quadro trocado, nos três:
+
+| Caso | Pausa | Formato do quadro | Retângulo na tela em | Volta |
+|---|---|---|---|---|
+| RetroArch num jogo | `PAUSE_TOGGLE` (PLAYING → PAUSED) | XRGB8888 640x480 | 239 ms | quadro do jogo na 1ª tentativa, despausado |
+| RetroArch travado de propósito (`SIGSTOP` antes) | sem resposta ao `GET_STATUS` em 1 s | XRGB8888 | 1143 ms (1 s de espera + 0,14 s) | quadro do jogo na 1ª tentativa |
+| Jogo LÖVE | só o `SIGSTOP` | ARGB8888 | 79 a 86 ms | quadro do jogo na 1ª tentativa |
+
+O fd do DRM duplicado pelo `pidfd_getfd` é o `card0` (`sun4i-drm`) do jogo; o `GETFB2` entrega
+o handle do plano primário (33, CRTC 49) porque o fd é o mesmo arquivo aberto, master. O
+`SETPLANE` nunca deu `EBUSY`. **Regra achada:** tudo o que o desenho cria vive no arquivo
+aberto da aplicação; sem `RMFB`, `DESTROY_DUMB` e `GEM_CLOSE` ao fechar, os buffers ficam até o
+jogo acabar, e a CMA acabou na terceira rodada (`CREATE_DUMB: Out of memory`).
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |

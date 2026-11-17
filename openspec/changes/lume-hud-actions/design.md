@@ -440,6 +440,23 @@ largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação
   widgets do RetroArch (menores que as do protótipo a 640x480: título ~16 px contra 22,4 px,
   itens ~16 px contra 20 px), a decidir na aprovação da 1.3.
 
+## Resultados da J1 no GA36 (2026-11-17; o R36S ainda falta)
+
+- **D14 (4.6):** passou no GA36 nos três casos (RetroArch, RetroArch travado, LÖVE), como
+  `game`, sem `CAP_SYS_PTRACE` (não há Yama); 79 ms a 1,1 s até o menu. Se o R36S também
+  passar, o `lume-menu` (3.4) desenha o menu e o `LUME_MENU` sai do patch 0012. Regra para o
+  `lume-menu`: liberar no fd da aplicação tudo o que criar (`RMFB`, `DESTROY_DUMB`,
+  `GEM_CLOSE` do handle do `GETFB2`), ou a CMA acaba (visto na terceira rodada).
+- **D6/D7, GPU no GA36:** o `lima` do kernel 6.18 não publica `drm-engine-*` no `fdinfo`; o
+  campo de uso da GPU não tem fonte por cliente. O devfreq dá o clock atual (144/240/384 MHz)
+  e o tempo em cada clock; o `load` vem vazio. **A decidir com o usuário:** `GPU 240MHz` (só o
+  clock) ou `GPU --` no GA36.
+- **D7, bateria do GA36 (AXP223):** `current_now` negativo descarregando e positivo carregando
+  (o `status` decide, como previsto); sem `charge_now` nem `charge_full`, com
+  `charge_full_design` (3000 mAh). Ramo: a estimativa pela queda da `capacity` (o que o
+  `hud.rs` faz sem `charge_full`); usar o `charge_full_design` daria tempo desde os primeiros
+  30 s, com o erro do desgaste da bateria. Detalhes no `docs/BRINGUP-GA36.md`.
+
 ## Open Questions
 
 - Largura real do texto da barra na fonte dos widgets a 640x480: decide só a ordem de corte.
