@@ -75,7 +75,7 @@ Regras desenhadas:
 - **Dica:** uma linha por acorde que o runner declara, mais Fn+Start; some ao soltar o Fn. O jogo segue rodando por baixo, por isso o painel é transparente e não há fundo escurecido.
 - **Barra:** só texto, sem ícones, em uma linha; com o menu aberto ela continua visível por cima do fundo escurecido.
 
-| Aprovação do usuário no navegador a 640x480 | pendente (capturas enviadas em 2026-11-17 para avaliação) |
+| Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-17 (capturas do protótipo e da vm; ordem do menu: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch) |
 | :--- | :--- |
 
 ## Pontos técnicos a verificar

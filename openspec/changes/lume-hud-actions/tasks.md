@@ -89,7 +89,7 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 - [x] 1.1 Congelar o protocolo do `/run/r36os/input.sock` (D2, D11) e o formato `chord <código> <ação>` dos perfis (D1): do daemon `quit`, `app_menu`, `save_state`, `load_state`, `screenshot`, `hud`, `fn_tap`, `fn_hold <tabela>` (D13), `fn_release`, `volume`, `brightness` e `nav up|down|left|right|a|b`; do cliente `tap <KEY_*>`, `capture on` e `capture off`; uma mensagem por linha; a linha antiga `quit <código>` lida como `chord <código> quit`; `fn_hold_ms` no perfil (padrão 500). Um módulo Rust no `lume-core` com o parser das mensagens e o comentário do cabeçalho do `input.c` atualizados juntos. Verificação: testes de unidade em Rust (mensagens válidas, `fn_hold` com a tabela lida em pares botão=ação, desconhecidas ignoradas, `tap` com código fora de `KEY_*` recusado) e um teste do parser de perfis do `r36os-input` em modo `--test` com `chord` e com `quit` antigo.
 - [x] 1.2 Congelar as ações do runner (D3): `[runner.actions]` com `pause`, `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, valores `retroarch-cmd:<CMD>`, `key:<KEY_*>` e `signal:<NOME>`, e `retroarch-pause` só para `pause`, e o campo `overlay = "retroarch"`, validados no `lume-core/src/runner.rs`; linhas `action=<ação> <forma>` e `overlay=` no arquivo de lançamento, lidas pelo `lume-run/src/launch.rs`; `docs/LAUNCHER.md` com o formato. Verificação: testes de unidade (runner sem ações válido, valor inválido recusado com a mensagem, ação ou `overlay` desconhecidos recusados, arquivo de lançamento com e sem as linhas novas).
-- [ ] 1.3 Telas do menu do Lume e da dica dos acordes sobre o jogo no protótipo (`docs/lume-launcher/prototipo/`, D10, D13), na família do menu do jogo do launcher: lista (Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch: ordem pedida pelo usuário em 2026-11-17), confirmação com Não em foco, a dica com uma linha por acorde (glifo do botão e nome da ação), sobre uma imagem de jogo de exemplo, nos temas do protótipo e nos três idiomas; as medidas a 640x480 (posições, tamanhos, fontes, cores dos tokens) anotadas numa tabela no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova a tela no navegador a 640x480 (a aprovação é anotada na tabela com a data).
+- [x] 1.3 Telas do menu do Lume e da dica dos acordes sobre o jogo no protótipo (`docs/lume-launcher/prototipo/`, D10, D13), na família do menu do jogo do launcher: lista (Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch: ordem pedida pelo usuário em 2026-11-17), confirmação com Não em foco, a dica com uma linha por acorde (glifo do botão e nome da ação), sobre uma imagem de jogo de exemplo, nos temas do protótipo e nos três idiomas; as medidas a 640x480 (posições, tamanhos, fontes, cores dos tokens) anotadas numa tabela no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova a tela no navegador a 640x480 (a aprovação é anotada na tabela com a data).
 
 ## 2. Acordes e captura no daemon de entrada
 
@@ -130,8 +130,10 @@ Modelos aprovados pelo usuário em 2026-11-17.
 1.1 e 1.2 (marcadas); 2.1, 2.2 (`input.c`, perfis, `tests/unit/test_r36os_input.py`); 3.1, 3.3
 e 4.2 (`lume-run`: `actions.rs`, `menu.rs`, `hud.rs`, `tests/run.rs` com RetroArch falso); 3.2
 (`lume-ui`, `retroarch.toml`, catálogo); 4.3 e 4.5 num patch só (`0012-lume-hud-hint-menu.patch`:
-`LUME_HUD`, `LUME_HINT` e `LUME_MENU`); 5.1 (cfg, autoconfigs, self-test da vm). 1.3: tela no
-protótipo (`prototipo/jogo.html`) e tabela no `design-das-telas.md`; falta a aprovação do usuário.
+`LUME_HUD`, `LUME_HINT` e `LUME_MENU`); 5.1 (cfg, autoconfigs, self-test da vm). 1.3 (marcada):
+tela no protótipo (`prototipo/jogo.html`) e tabela no `design-das-telas.md`, aprovadas pelo
+usuário em 2026-11-17, com a ordem do menu trocada por ele (Voltar ao jogo, Encerrar jogo,
+Reiniciar, Menu do RetroArch).
 
 **Prova na vm, só vm** (imagem `vm` com `r36os-input` r14, `retroarch` r115, `lume-launcher`
 r30; QEMU sem virgl com display VNC num socket unix, capturas pelo QMP; o `lume-ui` não ajusta o
@@ -145,7 +147,7 @@ de propósito: o `lume-run` detecta o silêncio em 1 s, congela o grupo e "Forç
 encerra (`end=force-close`), mas o menu não aparece (o widget é desenhado pelo próprio
 RetroArch: limite do caminho de reserva, o D14 resolve). Capturas em `cache/tmp/shots/vm/`.
 
-**Pendente:** 1.3 (aprovação), 4.1 e 4.6 (J1), 3.4 (depende da 4.6), 4.4 (depende da 4.1),
+**Pendente:** 4.1 e 4.6 (J1), 3.4 (depende da 4.6), 4.4 (depende da 4.1),
 6.1 a 6.3 (build do console e janelas J2/J3). As tarefas 2.1, 2.2, 3.1, 3.2, 3.3, 4.2, 4.3,
 4.5 e 5.1 só são marcadas depois da J2/J3.
 
