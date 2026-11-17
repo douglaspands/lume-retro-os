@@ -28,6 +28,7 @@ sessão principal (merge, build, aparelho, aprovação do usuário).
 | 3.3 | — | — | AG | opus | 3 | VM |
 | 3.4 | 2.1, 2.2, 3.2 | — | AG | sonnet | 3 | VM |
 | 3.5 | 3.3, 3.4 | CPU | PR | — | 4 | VM |
+| 3.6 | 3.3 | — | AG | sonnet | 5 | V1 |
 | 4.1 | 2.1, 2.2, 2.3, 3.1, 3.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | V1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | V2 |
@@ -35,7 +36,8 @@ sessão principal (merge, build, aparelho, aprovação do usuário).
 Modelos aprovados pelo usuário em 2026-11-17 ("crie e execute", como na tabela, ondas em
 paralelo). Nós 3.3 a 3.5 (suporte à vm) acrescentados e aprovados em 2026-11-17: o usuário
 pediu o teste do controle virtual no emulador x86 enquanto o GA36 está fora (só o controle
-virtual; a prova na vm vale só para a vm, e as V1/V2 continuam).
+virtual; a prova na vm vale só para a vm, e as V1/V2 continuam). Nó 3.6 (SSH multiplexado)
+acrescentado e aprovado pelo usuário em 2026-11-17, sonnet.
 
 **Trilhas e caminho crítico:**
 
@@ -86,6 +88,7 @@ virtual; a prova na vm vale só para a vm, e as V1/V2 continuam).
   `open_game` e o `dev replay` (a vm do `r36os vm` não tem jogos; as ROMs livres só vão no disco
   do `test-vm`) e a captura de tela (no `--headless` o `lume-ui` não liga o vídeo: `Could not
   set videomode on CRTC`). A tarefa fica aberta até decidir como levar jogos de teste à vm.
+- [ ] 3.6 SSH multiplexado no `r36os` (pedido do usuário, 2026-11-17): todos os comandos que falam com o console pelo `ssh` (`r36os dev`, `r36os push`, o `dev run` e as consultas de 1 s dele) passam por um canal mestre do OpenSSH do PC (`ControlMaster=auto`, `ControlPath` em `cache/ssh/`, `ControlPersist` de 60 s), sem nada novo no console; o canal guarda qual console e qual boot atende e é descartado quando o console reinicia (`push`, `wait`) ou quando o console no cabo muda; uma opção (`R36OS_SSH_MUX=0`) desliga. Verificação: testes de unidade dos argumentos do `ssh` com e sem a opção, do descarte do canal (boot novo, console trocado, `push`) e de que o `dev run` usa o canal; na vm (só vm), 20 `dev sh true` seguidos com e sem o canal, tempos anotados; na V1, o mesmo no GA36 e a CPU do `dropbear` num `dev run`, antes e depois.
 
 ## 4. Build e provas
 
