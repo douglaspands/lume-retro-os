@@ -187,6 +187,24 @@ impl PowerConf {
         }
     }
 
+    /// The value of `key` on the last `<kind>` line of the file (`idle after=N`,
+    /// `battery warn=N critical=N`), `None` when the line or the value is missing.
+    fn value(&self, kind: &str, key: &str) -> Option<u32> {
+        let line = self.lines.iter().rev().find(|l| Self::line_key(l).as_deref() == Some(kind))?;
+        let code = line.split('#').next().unwrap_or("");
+        code.split_whitespace().find_map(|w| w.strip_prefix(key)?.strip_prefix('=')?.parse().ok())
+    }
+
+    /// Seconds of the `idle after=` line (`0` switches the idle state off).
+    pub fn idle_after(&self) -> Option<u32> {
+        self.value("idle", "after")
+    }
+
+    /// Percent of the `battery warn=` line.
+    pub fn battery_warn(&self) -> Option<u32> {
+        self.value("battery", "warn")
+    }
+
     /// Key of a raw line (`profile x`, `class x`, `battery`...), `None` for comments, blanks
     /// and anything that is not a setting line.
     fn line_key(line: &str) -> Option<String> {
@@ -362,6 +380,16 @@ mod tests {
         // a missing directory fails without creating anything
         assert!(PowerConf::parse("x\n").save(&d.join("no/such/power.conf")).is_err());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn idle_and_battery_values_are_read_back() {
+        let c = PowerConf::parse("# x\nidle after=45 # note\nbattery warn=8 critical=3\n");
+        assert_eq!((c.idle_after(), c.battery_warn()), (Some(45), Some(8)));
+        let c = PowerConf::parse("idle after=0\n");
+        assert_eq!((c.idle_after(), c.battery_warn()), (Some(0), None));
+        assert_eq!(PowerConf::parse("idle after=x\n").idle_after(), None);
+        assert_eq!(PowerConf::parse("").idle_after(), None);
     }
 
     #[test]
