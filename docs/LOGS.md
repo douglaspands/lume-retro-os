@@ -121,7 +121,7 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
-| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; desligamento por bateria crítica (`OK shutdown: battery critical`) |
+| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`) |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
@@ -170,10 +170,31 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 | `game <sistema> <core>` | `lume-run`, antes do `exec` | cenário jogo (perfil pelo `core`, depois pela classe do sistema, depois `game`) |
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
+| `manual` | `r36os-power set`/`auto` (root, pelo cabo) | relê `/run/r36os/power.manual` (só o root grava): com um nome, aplica esse perfil já e em todo cenário (medição, D5); sem o arquivo, volta ao perfil do cenário |
 
 O escritor abre o FIFO com `O_NONBLOCK`, sem criá-lo: sem o serviço (sem FIFO, sem leitor, pipe
 cheio) a mensagem é descartada e o chamador segue. Espaço ou caractere de controle em
 `<sistema>` e `<core>` vira `_`, vazio vira `-`. API: `lume_core::power::notify(&Message)`.
+
+### Serviço `r36os-power`
+
+`/usr/bin/r36os-power` (pacote `lume-power`), serviço do OpenRC no runlevel `boot` sob o
+`supervise-daemon`. Ao subir guarda o padrão do kernel em `/run/r36os/power.default`
+(governor, `cpuinfo_min_freq`, `cpuinfo_max_freq`, `max_freq` do devfreq; um respawn o reusa),
+cria o FIFO (grupo `game`, `0620`), mantém o FIFO aberto para leitura e escrita (o `read -t 60`
+dorme até chegar mensagem e nunca vê fim de arquivo) e aplica o perfil `boot`. Cada perfil é
+aplicado por cima do padrão do kernel (chave ausente = valor do kernel), na ordem do D4:
+núcleos que faltam, `scaling_min_freq`/`scaling_max_freq` (descendo, o mínimo primeiro;
+subindo, o máximo primeiro), governor, parâmetros do governor, núcleos a mais (nunca o `cpu0`),
+`max_freq` da GPU; só escreve o que muda. Cenário sem perfil, perfil recusado e `enabled 0`
+ficam no padrão do kernel; no jogo, sempre com `scaling_min_freq` no `game_min`. A bateria (a
+fonte `power_supply` do tipo `Battery`) é lida a cada mensagem e a cada 60 s, sem processo novo.
+Eventos gravados antes de o `r36os-logd` numerar o boot esperam em `/run/r36os/power.early` e
+entram no `events.log` com o número certo.
+
+Linha de comando (root, pelo cabo): `r36os-power set <perfil|default>` (modo manual da
+medição: aplica já e mantém até `auto` ou reboot), `r36os-power auto`, `r36os-power reload`,
+`r36os-power status` (imprime o `power.state`).
 
 ### Arquivo de perfis
 
@@ -229,10 +250,11 @@ limit image game_min=600000
 profile <origem> <nome> chave=valor...  # perfis em vigor, com o piso já em min=
 class <origem> <sistema> <perfil>
 core <origem> <core> <perfil>
-battery <origem> warn=5 critical=3
+battery <origem> warn=5 critical=3     # battery default ... sem linha battery
 idle default after=120                  # idle <origem> after=<s>
 scenario game                           # boot, menu, idle ou game
 current heavy                           # perfil em vigor, - se nenhum
+manual heavy                            # só no modo manual (r36os-power set)
 refused <origem> <tipo> <nome|-> <motivo...>
 ```
 
