@@ -285,6 +285,52 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   a sysroot da arquitetura instalada por `apk --root --arch <arch> --no-scripts` (sem emulação) e o
   mesmo Rust do Alpine (1.96). O `abuild` só empacota o binário. Verificação: o binário roda no
   aparelho e os testes do `lume-ui` passam.
+- **Segundo passo (9.2), como ficou** (`src/r36os/lume_cross.py`): o cargo roda no container
+  x86_64 com o `rust` do Alpine 3.24 (1.96.1-r0). Provas curtas:
+  1. O rustc x86_64 do Alpine já traz embutidos todos os alvos `*-alpine-linux-musl*`
+     (`armv7-alpine-linux-musleabihf`, `aarch64-alpine-linux-musl`), com o mesmo target spec
+     do rustc nativo (`--print target-spec-json` idêntico). A std do alvo sai do pacote
+     `rust` da própria arquitetura, mesma versão e release, extraída só em
+     `usr/lib/rustlib/<triple>`: o rustc x86 a carrega sem queixa. O plano B (std oficial de
+     `*-unknown-linux-musl*`) não foi preciso. Se a versão do `rust` x86_64 e a do alvo
+     divergirem (espelho no meio de uma atualização), o build para com a mensagem e
+     `R36OS_LUME_CROSS=0` volta ao build nativo.
+  2. Ligador: o `clang` do Alpine como driver (`--target`, `--sysroot`) com o GNU ld do
+     `binutils-<arch>` do Alpine x86_64 (2.45.1-r1, o mesmo binutils do build nativo), e
+     crt, libgcc, musl e SDL2 de uma sysroot instalada por `apk --root --arch <arch>
+     --initdb --no-scripts` (`musl-dev gcc sdl2-dev`, chaves do Alpine da arquitetura mais
+     a chave do repositório local), guardada em `.cache/lume-cross/<arch>/` e atualizada com
+     `add -u` a cada build. O `lld` também liga, mas o GNU ld deu os mesmos tamanhos do
+     pacote publicado; ficou o GNU ld. O link line do clang é o do gcc do Alpine (Scrt1,
+     crtbeginS, `-z now -z relro --hash-style=gnu --build-id`, `--as-needed -lgcc_s`).
+  3. O `sdl2-sys` (sem `use-pkgconfig`) só emite `-lSDL2`; mesmo assim o script exporta
+     `PKG_CONFIG_SYSROOT_DIR`/`PKG_CONFIG_LIBDIR` da sysroot para um `-sys` futuro.
+  4. Caminhos: o workspace é montado em `/aports/r36os/lume-launcher/stage/lume`, o mesmo do
+     `abuild`; os binários só trazem `/rustc/<hash>/...` da std, como antes. As flags vêm do
+     `default.conf` do `abuild` do alvo (o aarch64 liga com `pack-relative-relocs`, o armv7
+     não). ELF igual ao publicado: interpretador, `NEEDED`, `BIND_NOW`/`PIE`, atributos ARM
+     (v7, VFPv3-D16, hard-float) e tamanhos (aarch64: os 3 iguais; armv7: `lume-run` e
+     `lume-index` iguais, `lume-ui` com uma página a mais). Os bytes não são iguais: o hash
+     de metadados de cada crate no cargo inclui o host do rustc e o `--target`, então os
+     nomes de símbolo e a ordem das funções mudam (o código é o mesmo onde se comparou). Dois
+     builds cruzados seguidos dão o mesmo conteúdo. Lista de arquivos, modos e dependências
+     (`so:libSDL2`, `so:libgcc_s`, `so:libc.musl-*`, sdl2, retroarch, love) do `.apk` iguais
+     às do r27 publicado.
+- **Como roda:** `_build_fragment` do `lume-launcher` em armv7/aarch64 chama
+  `lume_cross.build()` (container x86_64; `target/` em `.cache/cargo/<arch>-cross`, separado
+  do nativo porque os build scripts são x86) e monta os binários em `/lume-prebuilt` no
+  container da arquitetura com `LUME_PREBUILT`; o APKBUILD então só confere e instala os
+  binários. O empacotamento usa `abuild -d` com `apk add sdl2 font-roboto` (o `sdl2` é o
+  que o `abuild` usa para achar o `so:libSDL2`): com `-r` ele instalava sob qemu os ~160
+  pacotes das dependências de execução (retroarch, love, mesa) só para empacotar. O script
+  cruzado entra no hash de entradas: trocar de modo recompila e o conteúdo novo ganha
+  pkgrel novo. `R36OS_LUME_CROSS=0` volta ao build de antes (cargo sob qemu com o cache da
+  9.1). O x86_64 continua nativo.
+- **Tempos medidos** (`build_packages(..., force=True)` com `-j 4`, num `out/` e `.cache/`
+  de rascunho): com uma linha mudada no `lume-core` (recompila core, index e ui), armv7
+  60 s e aarch64 55 s, do início à publicação (cargo 31 s / 29 s, empacotamento 13 s / 5 s);
+  sem mudança no código (`--force`), 38 s; primeira vez (sysroot, downloads e tudo
+  compilado), aarch64 127 s. Linhas de base: 8m24s sob qemu, 3m55s com o cache da 9.1.
 - **Cores e RetroArch: fora desta change** (decisão do usuário, 2026-11-16, durante a prova da
   9.3: "vamos deixar os cores para uma change só de cores"). Nesta change os cores continuam os
   pacotes de hoje, sem recompilar. O que segue fica como registro e ponto de partida da change de

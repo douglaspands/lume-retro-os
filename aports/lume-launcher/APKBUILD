@@ -2,6 +2,8 @@
 # lume/ and its crates are staged in stage/ by r36os.lume.stage() before abuild runs (the
 # crates come from a distfiles tarball checked by SHA512 and pinned by Cargo.lock), so the
 # build is offline: cargo --offline --frozen.
+# On armv7 and aarch64, cargo runs on the PC (r36os.lume_cross, build-speed D7) and
+# $LUME_PREBUILT is the folder with its binaries: this APKBUILD only packages them.
 pkgname=lume-launcher
 pkgver=0.1.0
 pkgrel=27
@@ -11,6 +13,8 @@ arch="x86_64 armv7 aarch64"
 license="GPL-2.0-only AND Apache-2.0"
 depends="sdl2 retroarch love"
 makedepends="cargo sdl2-dev font-roboto"
+# prebuilt: only the fonts; the so: dependencies are traced against sdl2 (in depends)
+[ -z "${LUME_PREBUILT:-}" ] || makedepends="font-roboto"
 options="!check" # cargo tests run on the host (cargo test --manifest-path lume/Cargo.toml)
 source=""
 builddir="$startdir/stage/lume"
@@ -21,12 +25,22 @@ prepare() {
 }
 
 build() {
+	if [ -n "${LUME_PREBUILT:-}" ]; then
+		for b in lume-run lume-ui lume-index; do
+			[ -x "$LUME_PREBUILT/$b" ] || die "$LUME_PREBUILT/$b: missing (r36os.lume_cross)"
+		done
+		return 0
+	fi
 	cargo build --release --offline --frozen
 }
 
 package() {
 	for b in lume-run lume-ui lume-index; do
-		install -Dm755 target/release/$b "$pkgdir"/usr/bin/$b
+		if [ -n "${LUME_PREBUILT:-}" ]; then
+			install -Dm755 "$LUME_PREBUILT"/$b "$pkgdir"/usr/bin/$b
+		else
+			install -Dm755 target/release/$b "$pkgdir"/usr/bin/$b
+		fi
 	done
 	# Roboto, the prototype's font (Apache-2.0), in its three weights: 400, 500 and 700
 	for f in Roboto-Regular Roboto-Medium Roboto-Bold; do

@@ -200,16 +200,40 @@ def _local_repo(arch_dir: str) -> str:
 def _abuild_step(name: str, commit: str = "", nodeps: bool = False) -> str:
     """`nodeps`: no dependency install or check (-d instead of -r). For the noarch fragments,
     which only copy files: their `depends` (other fragments, built in the same call and not
-    yet published) are runtime dependencies, nothing to build with."""
+    yet published) are runtime dependencies, nothing to build with. For the cross-built
+    lume-launcher: its script installed the few packages it needs."""
     env = f"ABUILD_LAST_COMMIT={commit} " if commit else ""
-    deps = "-d" if nodeps else "-r"
-    return f"(cd /aports/{REPO_NAME}/{name} && {env}abuild -F {deps} -P /repodest)\n"
+    flag = "-d" if nodeps else "-r"
+    return f"(cd /aports/{REPO_NAME}/{name} && {env}abuild -F {flag} -P /repodest)\n"
+
+
+def _lume_cross(name: str, arch_dir: str) -> bool:
+    from r36os import lume_cross
+    return name == "lume-launcher" and lume_cross.enabled(arch_dir)
+
+
+def _package_script(arch_dir: str, name: str, commit: str = "") -> str:
+    """The script of the arch container. lume-launcher cross-built (build-speed D7): only
+    packaging, with the few packages it needs instead of every build and run dependency
+    (retroarch and love would be installed under qemu for nothing)."""
+    if _lume_cross(name, arch_dir):
+        from r36os import lume_cross
+        return (_KEY + _local_repo(arch_dir) + lume_cross.PACKAGE_DEPS_STEP
+                + _abuild_step(name, commit, nodeps=True))
+    return _KEY + _local_repo(arch_dir) + _abuild_step(name, commit)
 
 
 def _fragment_script(arch_dir: str, name: str, nodeps: bool = False) -> str:
     """The build script of one fragment, as hashed into its inputs (no commit, no distcc:
-    neither changes what is built)."""
-    return _KEY + _local_repo(arch_dir) + _abuild_step(name, nodeps=nodeps)
+    neither changes what is built). The lume-launcher cross build adds its own script:
+    the cross and the native build make different binaries."""
+    if nodeps:
+        return _KEY + _local_repo(arch_dir) + _abuild_step(name, nodeps=True)
+    script = _package_script(arch_dir, name)
+    if _lume_cross(name, arch_dir):
+        from r36os import lume_cross
+        script += lume_cross.script(arch_dir)
+    return script
 
 
 def _order(aports: Path, names: list[str]) -> list[str]:
@@ -425,13 +449,24 @@ def _build_fragment(target: Target, name: str, aports: Path, force: bool,
     commit = manifests.commit_of_inputs(inputs)
     staging = staging_dir()
     shutil.rmtree(staging / arch, ignore_errors=True)
-    c = _container(target, aports, cargo_target=cargo, repodest=staging, distcc=distcc)
+    # build-speed D7: lume-launcher compiles on the PC, abuild only packages it
+    from r36os import lume_cross
+    prebuilt = (lume_cross.build(arch, aports)
+                if cargo and lume_cross.enabled(arch) else None)
+    c = _container(target, aports, cargo_target=cargo and prebuilt is None,
+                   repodest=staging, distcc=distcc)
+    if prebuilt is not None:
+        c.volumes[prebuilt] = lume_cross.GUEST_PREBUILT
+        c.env[lume_cross.PREBUILT_ENV] = lume_cross.GUEST_PREBUILT
     c.volumes[_generated_apkbuild(aports, name, pkgrel, arch)] = (
         f"/aports/{REPO_NAME}/{name}/APKBUILD")
     c.volumes[ensure_dir(out_dir() / "repo")] = "/localrepo"
-    # abuild -r installs the dependencies (Alpine and the published local ones)
-    script = (_KEY + _local_repo(arch) + ("apk add -q distcc\n" if distcc else "")
-              + _abuild_step(name, commit))
+    if prebuilt is not None:
+        script = _package_script(arch, name, commit)
+    else:
+        # abuild -r installs the dependencies (Alpine and the published local ones)
+        script = (_KEY + _local_repo(arch) + ("apk add -q distcc\n" if distcc else "")
+                  + _abuild_step(name, commit))
     if distcc:
         from r36os import distcc as dcc
         with dcc.distccd(arch):
