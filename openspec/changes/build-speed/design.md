@@ -69,6 +69,28 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 - **Noarch montado no x86:** `abuild` no container `builder` x86_64, sem qemu; o mesmo arquivo
   `.apk` é copiado para `out/repo/armv7/` e `out/repo/aarch64/` (e `x86_64/`) e cada índice é
   refeito.
+- **Campo de arquitetura (provado na tarefa 4.1, 2026-11-16):** o `abuild` 3.17 grava
+  `arch = noarch` no `.PKGINFO` do pacote, e o índice é que leva a arquitetura do repositório: o
+  próprio `abuild` refaz o `APKINDEX` com `apk index --rewrite-arch $CARCH`, e é por isso que o
+  banco instalado dos consoles mostra `A:armv7`/`A:aarch64` para pacotes noarch do Alpine. O
+  `apk` 3 busca o arquivo em `<repositório>/<arch do índice>/`; com um índice sem
+  `--rewrite-arch` (`A:noarch`) o `apk add` do armv7 falha com "package mentioned in index not
+  found". A assinatura do `.apk` (`.SIGN.RSA.r36os.rsa.pub`, sobre o segmento de controle) não
+  depende da arquitetura, então o mesmo arquivo assinado serve a todas.
+- **Método escolhido:** o `.apk` sai do `abuild` x86_64 numa área de preparo (`out/noarch/`),
+  passa pela checagem de ELF e é copiado byte a byte (SHA256 conferido; nome igual com conteúdo
+  diferente é recusado) para `out/repo/<arch>/` das três arquiteturas. Cada índice é refeito com
+  `apk index --rewrite-arch <arch>` e assinado com `abuild-sign` e a chave local de sempre
+  (`.cache/abuild/r36os.rsa`), no container x86_64, sem qemu. Assim `.PKGINFO` diz `noarch`, o
+  `APKINDEX` diz `A:<arch>` e o `apk add --root` do armv7, do aarch64 e do x86_64 instala sem
+  `--allow-untrusted` (`tests/integration/test_noarch_publish.py`). API em
+  `src/r36os/packages.py`: `build_noarch(nomes)` → `.apk` conferidos, `publish_noarch(apks)`,
+  `reindex(arches)` (usa o recurso `ARCH:<arch>`).
+- **Checagem de ELF:** antes do build, `check_noarch_aport` exige `arch="noarch"` e nenhum
+  arquivo ELF no diretório do aport; depois, `check_noarch_apk` lê o `.apk` e exige
+  `arch = noarch` e nenhum arquivo de dados ELF. A falha nomeia o fragmento e os arquivos. O
+  `archcheck` do `abuild` também recusa ELF em noarch, mas não diz qual arquivo e pode ser
+  desligado com `options="!archcheck"`.
 - **Corte inicial do `rootfs/overlay/`** (cada um vira `aports/<nome>/`, com os arquivos dentro):
 
 | Fragmento | Conteúdo hoje |
