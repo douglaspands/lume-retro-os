@@ -7,6 +7,7 @@ the cable, no known-hosts key); the address is CONSOLE_ADDR of r36os.push, overr
 - `wait`: wait until the console answers over the cable (`--timeout` seconds).
 - `sh <cmd...>`: run a command as root, stream its output, pass its exit code through.
 - `shot <file.png>`: screen capture of the console with the on-device `r36os-shot`.
+  `shot --compare <screen>` / `--update <screen>`: reference captures (r36os.shots).
 - `keys <sequence>`: press buttons through input_event writes (syntax below).
 - `log`: the boot log of the current boot.
 
@@ -280,6 +281,47 @@ def cmd_shot(host: str, out: Path) -> int:
     return 0
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SHOTS_DIR = REPO_ROOT / "tests" / "device" / "shots"
+DIFF_DIR = REPO_ROOT / "cache" / "shots"
+
+
+def cmd_shot_screen(host: str, screen: str, update: bool, shots_dir: Path = SHOTS_DIR,
+                    diff_dir: Path = DIFF_DIR) -> int:
+    """`shot --compare|--update <screen>`: press the screen's keys, capture, compare/store."""
+    from r36os import shots
+    try:
+        screens = shots.load_screens(shots_dir)
+        if screen not in screens:
+            raise shots.ShotError(f"unknown screen `{screen}` (known: {' '.join(screens)})")
+        board = shots.board_from_machine(run_capture(host, "uname -m"))
+        keys = screens[screen]
+        if keys.strip():
+            cmd_keys(host, keys, HOLD_MS, GAP_MS)
+            time.sleep(1.0)
+        tmp = REPO_ROOT / "cache" / "tmp" / f"shot-{screen}.png"
+        cmd_shot(host, tmp)
+        current = tmp.read_bytes()
+        ref = shots.reference_path(shots_dir, board, screen)
+        if update:
+            ref.parent.mkdir(parents=True, exist_ok=True)
+            ref.write_bytes(current)
+            print(f"reference updated: {ref}")
+            return 0
+        result = shots.compare_screen(ref, current, diff_dir / f"{board}-{screen}-diff.png")
+    except shots.ShotError as e:
+        raise DevError(str(e))
+    pct = result.ratio * 100
+    if result.ok:
+        print(f"{board}/{screen}: ok ({result.differing} of {result.total} pixels differ, "
+              f"{pct:.3f}%)")
+        return 0
+    print(f"{board}/{screen}: FAILED ({result.differing} of {result.total} pixels differ, "
+          f"{pct:.3f}%); diff image: {diff_dir / f'{board}-{screen}-diff.png'}",
+          file=sys.stderr)
+    return 1
+
+
 def cmd_keys(host: str, sequence: str, hold_ms: int, gap_ms: int) -> int:
     steps = parse_sequence(sequence)
     info = run_capture(host, "uname -m; cat /proc/bus/input/devices")
@@ -302,6 +344,13 @@ def main_dev(args) -> int:
         if args.dev_command == "sh":
             return cmd_sh(host, args.cmd)
         if args.dev_command == "shot":
+            screen = args.compare or args.update
+            if screen:
+                if args.compare and args.update:
+                    raise DevError("use --compare or --update, not both")
+                return cmd_shot_screen(host, screen, update=bool(args.update))
+            if args.file is None:
+                raise DevError("give a file, or --compare/--update <screen>")
             return cmd_shot(host, args.file)
         if args.dev_command == "keys":
             return cmd_keys(host, args.sequence, args.hold, args.gap)
