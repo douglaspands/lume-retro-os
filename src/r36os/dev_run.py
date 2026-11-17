@@ -13,13 +13,16 @@ against the script's `consoles` BEFORE the first step, so no button reaches the 
 Step types:
 - keys: `dev keys` (cmd_keys); fails on a console error or when it overran its timeout.
 - play: replays a `.evrec` (node 2.2 `dev play`); handler hook `ctx.play`.
-- wait_event: polls ROMS/logs/events.log (every ~1 s) for a line written after the run
+- wait_event: polls events.log (past the start offset) plus the RAM events.pending (every
+  ~1 s, deduplicated by cut line) for a line written after the run
   started, matching `pattern` (regex, search) and `category` (3rd field) if given.
 - wait_process: polls `pidof` until the process is present/absent.
 - shot: `dev shot --compare <screen>` (reference capture within tolerance).
 - sh: command as root; passes on exit 0 (its output is not printed).
 - open_game / close_game: hooks `ctx.open_game` / `ctx.close_game` (r36os.dev_game: the
-  button sequence), then wait for `game OK opened` / `game OK closed` within the step timeout.
+  button sequence), then wait for the lume-run lines within the step timeout: open = `game OK <system> ...
+  start` (fails fast on `game FAIL <system> ... start-failed`), close = `game OK|FAIL
+  <system> ... end=` (either means the game ended).
 
 Privacy: a game name only exists in events.log after `content=`. The filter that cuts every
 line at ` content=` runs ON THE CONSOLE (awk), and again locally as a second guard, so the
@@ -44,8 +47,24 @@ EVENTS_LOG = "/storage/logs/events.log"
 POLL_S = 1.0
 COUNT_MARK = "@@count "
 GAME_CATEGORY = "game"
-OPENED_PATTERN = r"\bOK opened\b"
-CLOSED_PATTERN = r"\bOK closed\b"
+EVENTS_PENDING = "/run/r36os/logs/events.pending"
+
+
+# lume-run lines (lume/lume-run/src/events.rs), after the PC-side cut at ` content=`:
+#   <time> <boot> game OK <system> <runner> <core> start
+#   <time> <boot> game OK|FAIL <system> <runner> <core> exit=<..> end=<..> secs=<n>
+#   <time> <boot> game FAIL <system> <runner> <core> start-failed ...
+def opened_pattern(system: str) -> str:
+    return rf"\bOK {re.escape(system)} .*\bstart$"
+
+
+def start_failed_pattern(system: str) -> str:
+    return rf"\bFAIL {re.escape(system)} .*\bstart-failed\b"
+
+
+def closed_pattern(system: str | None) -> str:
+    sysre = re.escape(system) if system else r"\S+"
+    return rf"\b(OK|FAIL) {sysre} .*\bend="
 
 
 class StepFailed(Exception):
@@ -62,6 +81,12 @@ def events_command(skip: int) -> str:
     console, then a closing `@@count <total lines>` marker."""
     return (f"awk -v s={int(skip)} 'NR > s {{ sub(/ ?content=.*/, \"\"); print }} "
             f"END {{ print \"{COUNT_MARK}\" NR }}' {EVENTS_LOG} 2>/dev/null")
+
+
+def pending_command() -> str:
+    """Remote command: the RAM events.pending lines (not yet drained to the card log), cut at
+    ` content=` on the console. The file may be absent or shrink between polls."""
+    return f"awk '{{ sub(/ ?content=.*/, \"\"); print }}' {EVENTS_PENDING} 2>/dev/null"
 
 
 def count_command() -> str:
@@ -88,6 +113,9 @@ class Context:
     console: str | None = None    # ga36 | r36s, the console that answered (for play)
     start_lines: int = 0          # events.log line count when the run started
     seen: int = field(default=0)  # lines already read by wait_event
+    seen_lines: set = field(default_factory=set)   # cut lines already processed or baseline
+    last_system: str | None = None   # system of the last open_game (close_game matches it)
+    game_end: str | None = None      # OK | FAIL of the last close_game
 
     def __post_init__(self):
         host = self.host
@@ -155,8 +183,17 @@ def do_play(ctx: Context, step) -> None:
         raise StepFailed(f"timeout after {step.timeout:g}s")
 
 
+def read_pending(ctx: Context) -> list[str]:
+    """The current RAM events.pending lines, each cut at `content=` on the console."""
+    out = ctx.run(pending_command())
+    return [ln for ln in (cut_content(x) for x in out.splitlines()) if ln.strip()]
+
+
 def read_new_events(ctx: Context) -> list[str]:
-    """The events.log lines written since the last read, each cut at `content=`."""
+    """The events not seen yet: events.log lines past the start offset plus the current
+    events.pending, each cut at `content=`. A line already processed (or present in
+    events.pending when the run started) is never returned again: it is deduplicated by its
+    full cut line, which carries a timestamp and the boot number."""
     out = ctx.run(events_command(ctx.seen))
     lines = [cut_content(ln) for ln in out.splitlines()]
     if lines and lines[-1].startswith(COUNT_MARK):
@@ -165,16 +202,25 @@ def read_new_events(ctx: Context) -> list[str]:
         except ValueError:
             total = ctx.seen
         ctx.seen = total if total >= ctx.seen else 0     # the log rotated: start over
-    return [ln for ln in lines if ln.strip()]
+    fresh = []
+    for ln in lines + read_pending(ctx):
+        if not ln.strip() or ln in ctx.seen_lines:
+            continue
+        ctx.seen_lines.add(ln)
+        fresh.append(ln)
+    return fresh
 
 
 def do_wait_event(ctx: Context, step) -> None:
     wait_event(ctx, step, step.fields["pattern"], step.fields.get("category"))
 
 
-def wait_event(ctx: Context, step, pattern_text: str, category: str | None) -> None:
-    """Poll the new events.log lines until one matches, within the step timeout."""
+def wait_event(ctx: Context, step, pattern_text: str, category: str | None,
+               fail_pattern: str | None = None) -> str:
+    """Poll the new events until one matches, within the step timeout; returns the matching
+    (cut) line. A line matching `fail_pattern` fails the step at once."""
     pattern = re.compile(pattern_text)
+    failing = re.compile(fail_pattern) if fail_pattern else None
     end = _deadline(ctx, step)
     while True:
         try:
@@ -182,8 +228,10 @@ def wait_event(ctx: Context, step, pattern_text: str, category: str | None) -> N
                 parts = line.split()
                 if category and (len(parts) < 3 or parts[2] != category):
                     continue
+                if failing and failing.search(line):
+                    raise StepFailed("the launcher reported start-failed")
                 if pattern.search(line):
-                    return
+                    return line
         except dev.DevError as e:
             raise StepFailed(str(e)) from None
         if ctx.now() >= end:
@@ -235,7 +283,9 @@ def do_open_game(ctx: Context, step) -> None:
         ctx.open_game(step.fields["system"], step.fields["position"])
     except dev.DevError as e:
         raise StepFailed(str(e)) from None
-    wait_event(ctx, step, OPENED_PATTERN, GAME_CATEGORY)
+    system = step.fields["system"]
+    ctx.last_system = system
+    wait_event(ctx, step, opened_pattern(system), GAME_CATEGORY, start_failed_pattern(system))
 
 
 def do_close_game(ctx: Context, step) -> None:
@@ -243,7 +293,8 @@ def do_close_game(ctx: Context, step) -> None:
         ctx.close_game()
     except dev.DevError as e:
         raise StepFailed(str(e)) from None
-    wait_event(ctx, step, CLOSED_PATTERN, GAME_CATEGORY)
+    line = wait_event(ctx, step, closed_pattern(ctx.last_system), GAME_CATEGORY)
+    ctx.game_end = "FAIL" if re.search(r"\bFAIL\b", line) else "OK"   # either way it ended
 
 
 HANDLERS = {
@@ -268,6 +319,10 @@ def run_script(script: scripts.Script, ctx: Context, console: str, out=None) -> 
         ctx.start_lines = ctx.seen = int(ctx.run(count_command()).strip() or 0)
     except (dev.DevError, ValueError):
         ctx.start_lines = ctx.seen = 0
+    try:                                  # events.pending lines of before the run never match,
+        ctx.seen_lines = set(read_pending(ctx))   # not even once drained into events.log
+    except dev.DevError:
+        ctx.seen_lines = set()
     for n, step in enumerate(script.steps, 1):
         try:
             HANDLERS[step.type](ctx, step)

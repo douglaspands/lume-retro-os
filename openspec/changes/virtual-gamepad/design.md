@@ -16,8 +16,12 @@ Ver `proposal.md` (Why). O que já existe e molda o caminho:
 - O RetroArch 1.22.2 aceita pela rede (`127.0.0.1:55355`, patch 0009) `RECORD_REPLAY`,
   `HALT_REPLAY` e `PLAY_REPLAY_SLOT <n>`: o replay grava a entrada a partir de um estado salvo
   embutido e a repete quadro a quadro.
-- O `events.log` traz `game OK opened: core=... content=<nome>`: o nome do jogo está na linha,
-  e o PC não pode copiá-la para a saída nem para o repositório.
+- O `events.log` traz as linhas de jogo do `lume-run` (`game OK <sistema> <runner> <core> start`
+  e `... exit=<..> end=<..> secs=<n>`; corrigido em 2026-11-17, antes constava o antigo
+  `game OK opened: core=... content=<nome>` do frontend RetroArch). Um `content=<nome>` pode
+  aparecer em linhas do `logd`: o nome do jogo pode estar na linha, e o PC não pode copiá-la
+  para a saída nem para o repositório. Os eventos entram primeiro em `events.pending` (RAM) e
+  só depois no `events.log`: o leitor olha os dois.
 - Os nós `/dev/input/event*` pertencem ao root e ao grupo `input`; o usuário dos jogos não
   escreve neles.
 
@@ -96,8 +100,8 @@ nome e um tipo:
 | `wait_process` | espera um processo existir ou sumir | idem |
 | `shot` | `dev shot --compare <tela>` | a diferença fica abaixo do limiar |
 | `sh` | um comando como root | sai com 0 |
-| `open_game` | abre o jogo `posição` do `sistema` pelo launcher (D5) | aparece `game OK opened` |
-| `close_game` | Fn+Start | aparece `game OK closed` |
+| `open_game` | abre o jogo `posição` do `sistema` pelo launcher (D5) | aparece `game OK <sistema> ... start` (falha logo em `game FAIL <sistema> ... start-failed`; corrigido em 2026-11-17) |
+| `close_game` | Fn+Start | aparece `game OK\|FAIL <sistema> ... end=` (corrigido em 2026-11-17) |
 
 O `wait_event` casa o padrão na linha inteira, mas a saída do roteiro mostra só a categoria, o
 resultado e o começo da mensagem até `content=` (o nome do jogo nunca sai do console). A cada

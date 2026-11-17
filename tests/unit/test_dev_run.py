@@ -26,12 +26,15 @@ class FakeConsole:
 
     def __init__(self, lines=(), processes=()):
         self.lines = list(lines)
+        self.pending = []             # the RAM events.pending content
         self.processes = set(processes)
         self.cmds = []
         self.keys = []
 
     def __call__(self, cmd):
         self.cmds.append(cmd)
+        if cmd == dev_run.pending_command():
+            return "\n".join(self.pending) + "\n"
         if cmd == dev_run.count_command():
             return f"{len(self.lines)}\n"
         m = re.search(r"-v s=(\d+)", cmd)
@@ -148,6 +151,80 @@ def test_cut_content_and_remote_command_filter():
     assert "content=" in dev_run.events_command(5) and "NR > s" in dev_run.events_command(5)
 
 
+def _wait(pattern, timeout=2, category=None):
+    cat = f'category = "{category}"\n' if category else ""
+    return hdr(f'''
+[[step]]
+name = "w"
+type = "wait_event"
+pattern = "{pattern}"
+timeout = {timeout}
+{cat}''')
+
+
+def test_event_only_in_pending_is_seen_and_cut(capsys):
+    class Appending(FakeConsole):
+        def __call__(self, cmd):
+            if "awk -v" in cmd and not self.pending:
+                self.pending.append("2026-11-17T10:00:00 4 game OK nes retroarch fceumm "
+                                    "start content=" + SECRET)
+            return super().__call__(cmd)
+
+    script, ctx, _, _ = make(_wait("nes retroarch fceumm start$", category="game"),
+                             console=Appending())
+    assert dev_run.run_script(script, ctx, "ga36") == 0
+    cap = capsys.readouterr()
+    assert SECRET not in cap.out + cap.err
+
+
+def test_event_in_pending_then_drained_is_counted_once():
+    line = "2026-11-17T10:00:00 4 game OK nes retroarch fceumm start"
+    console = FakeConsole()
+    script, ctx, _, _ = make(_wait("x", timeout=1), console=console)
+    assert dev_run.run_script(script, ctx, "ga36") == 1
+    console.pending.append(line)
+    assert dev_run.read_new_events(ctx) == [line]
+    console.pending.clear()                 # drained to the card log
+    console.lines.append(line)
+    assert dev_run.read_new_events(ctx) == []
+    assert dev_run.read_new_events(ctx) == []
+
+
+def test_lines_before_the_start_in_either_file_never_match():
+    old_log = "2026-11-17T09:00:00 4 game OK nes retroarch fceumm start"
+    old_pend = "2026-11-17T09:59:00 4 game OK nes retroarch fceumm exit=0 end=normal secs=3"
+    console = FakeConsole(lines=[old_log])
+    console.pending.append(old_pend)
+    script, ctx, _, _ = make(_wait("game OK", timeout=2), console=console)
+    assert dev_run.run_script(script, ctx, "ga36") == 1
+    # the pending line is drained into the log after the start: still the baseline
+    console.pending.clear()
+    console.lines.append(old_pend)
+    assert dev_run.read_new_events(ctx) == []
+
+
+def test_pending_command_cuts_content_on_the_console():
+    cmd = dev_run.pending_command()
+    assert "content=" in cmd and dev_run.EVENTS_PENDING in cmd
+
+
+def test_patterns_of_the_lume_run_lines():
+    import re as _re
+    start = "2026-11-17T10:00:00 4 game OK nes retroarch fceumm start"
+    end_ok = "2026-11-17T10:05:00 4 game OK nes retroarch fceumm exit=0 end=quit-combo secs=9"
+    end_fail = "2026-11-17T10:05:00 4 game FAIL nes retroarch - exit=1 end=normal secs=2"
+    bad = "2026-11-17T10:00:00 4 game FAIL nes retroarch fceumm start-failed no core"
+    o = _re.compile(dev_run.opened_pattern("nes"))
+    assert o.search(start) and not o.search(end_ok) and not o.search(bad)
+    assert not _re.search(dev_run.opened_pattern("snes"), start)
+    assert not _re.search(dev_run.opened_pattern("gb"), start.replace("nes", "gba"))
+    assert _re.search(dev_run.start_failed_pattern("nes"), bad)
+    c = _re.compile(dev_run.closed_pattern("nes"))
+    assert c.search(end_ok) and c.search(end_fail) and not c.search(start)
+    assert not _re.search(dev_run.closed_pattern("snes"), end_ok)
+    assert _re.search(dev_run.closed_pattern(None), end_ok)
+
+
 def test_failure_reason_never_carries_a_log_line(capsys):
     console = FakeConsole()
     script, ctx, _, _ = make(hdr('''
@@ -234,7 +311,8 @@ screen = "home"
 
     def open_game(s, p):
         opened.append((s, p))
-        console.lines.append("2026-11-09T21:10:00 4 game OK opened: core=X content=" + SECRET)
+        console.lines.append("2026-11-09T21:10:00 4 game OK nes retroarch fceumm start "
+                             "content=" + SECRET)
 
     script, ctx, _, _ = make(hdr('''
 [[step]]

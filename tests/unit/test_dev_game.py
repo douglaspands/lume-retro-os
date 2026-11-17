@@ -131,9 +131,12 @@ class FakeConsole:
         self.info = info
         self.events_on_keys = events_on_keys
         self.lines = []
+        self.pending = []
         self.keys = []
 
     def __call__(self, cmd):
+        if cmd == dev_run.pending_command():
+            return "\n".join(self.pending) + "\n"
         if cmd == dev_run.count_command():
             return f"{len(self.lines)}\n"
         if cmd.startswith("n=0; di=0"):
@@ -181,13 +184,39 @@ def run_script(console, capsys):
 def test_open_then_close_script_passes_and_never_prints_the_game(capsys):
     opened_seq = dev_game.open_sequence(0, 2, 9, 1)
     console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
-        opened_seq: f"2026-11-09T21:10:00 4 game OK opened: core=X content={SECRET}",
-        "fn+start": f"2026-11-09T21:11:00 4 game OK closed: core=X content={SECRET}",
+        opened_seq: f"2026-11-09T21:10:00 4 game OK gba retroarch mgba start content={SECRET}",
+        "fn+start": "2026-11-09T21:11:00 4 game OK gba retroarch mgba exit=0 "
+                    f"end=quit-combo secs=60 content={SECRET}",
     })
     rc, out = run_script(console, capsys)
     assert rc == 0
     assert out.splitlines() == ["passo 1 open one: ok", "passo 2 close it: ok"]
     assert SECRET not in out
+
+
+def test_open_ignores_another_system_and_close_accepts_fail(capsys):
+    opened_seq = dev_game.open_sequence(0, 2, 9, 1)
+    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+        opened_seq: "2026-11-09T21:10:00 4 game OK nes retroarch fceumm start",
+    })
+    rc, out = run_script(console, capsys)
+    assert rc == 1 and out.startswith("passo 1 open one: FALHOU (timeout")
+    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+        opened_seq: "2026-11-09T21:10:00 4 game OK gba retroarch mgba start",
+        "fn+start": "2026-11-09T21:11:00 4 game FAIL gba retroarch mgba exit=1 end=normal secs=2",
+    })
+    rc, out = run_script(console, capsys)
+    assert rc == 0
+
+
+def test_open_fails_fast_on_start_failed(capsys):
+    opened_seq = dev_game.open_sequence(0, 2, 9, 1)
+    console = FakeConsole("dock_index=2 dock_count=9 games=5\n", {
+        opened_seq: "2026-11-09T21:10:00 4 game FAIL gba retroarch mgba start-failed no core",
+    })
+    rc, out = run_script(console, capsys)
+    assert rc == 1
+    assert out.startswith("passo 1 open one: FALHOU (the launcher reported start-failed)")
 
 
 def test_open_fails_when_the_game_never_opens(capsys):

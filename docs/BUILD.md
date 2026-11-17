@@ -450,8 +450,10 @@ passo 2 esperar o jogo: FALHOU (timeout after 30s waiting for an event (pattern 
 
 A execução **para no primeiro passo que falha** (os seguintes dependem dele); o código de saída
 é 0 só se todos passaram. Por tipo: `keys` usa o `dev keys`; `wait_event` consulta o
-`/storage/logs/events.log` a cada ~1 s e só vê as linhas escritas depois do início do roteiro
-(`category` é o 3o campo da linha, `pattern` é uma regex); `wait_process` usa `pidof`;
+`/storage/logs/events.log` **e** o `/run/r36os/logs/events.pending` (RAM, ainda não drenado
+para o cartão) a cada ~1 s, e só vê as linhas escritas depois do início do roteiro (o PC
+deduplica pela linha cortada inteira, que tem hora e boot; o que já estava em qualquer dos dois
+arquivos no início nunca casa) (`category` é o 3o campo da linha, `pattern` é uma regex); `wait_process` usa `pidof`;
 `shot` faz o `dev shot --compare`; `sh` passa com saída 0 (a saída não é impressa); `play`
 usa o `dev play`; `open_game`/`close_game` estão descritos abaixo. **Privacidade:** o filtro que corta cada linha do `events.log` em
 ` content=` roda no próprio console e de novo no PC, e nenhuma linha do log é impressa; o nome
@@ -471,8 +473,12 @@ do jogo nunca sai do console. Código em `src/r36os/dev_run.py`.
    pelo caminho mais curto até o ladrilho (o Dock dá a volta), `a` (entra na grade, foco no
    primeiro jogo), `down*L,right*C` até a posição (grade de 4 colunas), `a` (abre o menu do
    jogo, "Iniciar" é a primeira linha) e `a` (inicia).
-3. O passo espera `game OK opened` no `events.log` (o `timeout` do passo). `close_game` manda
-   `fn+start` e espera `game OK closed`.
+3. O passo espera a linha do `lume-run` (o `timeout` do passo): abrir espera
+   `game OK <sistema> <runner> <core> start` e falha logo com
+   `game FAIL <sistema> ... start-failed`. `close_game` manda `fn+start` e espera
+   `game OK|FAIL <sistema> ... end=` (OK ou FAIL, o jogo terminou de qualquer jeito). Corrigido
+   em 2026-11-17: os padrões antigos (`game OK opened`/`closed`) eram do frontend RetroArch e
+   nunca casavam com o launcher lume.
 
 Premissas a confirmar no aparelho: o foco do Dock é lido de fora? Não: o driver parte de
 Favoritos (o launcher recém-iniciado) e depois lembra o ladrilho do último jogo aberto (o
