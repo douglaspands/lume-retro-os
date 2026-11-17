@@ -97,6 +97,37 @@ BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null); echo \"${{n:--}}\"; "
                f"awk -v n=\"$n\" '$2 == n && /{BOOT_OK}/' {EVENTS_LOG} 2>/dev/null | tail -n 1")
 
 
+# Which console is on the cable (build-speed 3.4, D18): one card moves between the GA36 and
+# the R36S and both answer at CONSOLE_ADDR, so `push`, `push --hot` and `dev` ask the console.
+CONSOLES = ("ga36", "r36s")
+MACHINE_CONSOLE = {"armv7l": "ga36", "aarch64": "r36s"}    # `uname -m` when there is no board
+IDENTIFY = 'b=$(cat /etc/r36os/board 2>/dev/null); echo "${b:--}"; uname -m'
+
+
+def console_name(board: str, machine: str = "") -> str:
+    """ga36 or r36s from /etc/r36os/board, else from `uname -m`; "" when neither says."""
+    board, machine = board.strip(), machine.strip()
+    if board in CONSOLES:
+        return board
+    return MACHINE_CONSOLE.get(machine, "")
+
+
+def identify_console(run: Callable[[str], str]) -> str:
+    """The console on the cable (ga36, r36s or "" if unknown); `run` runs a remote command."""
+    lines = run(IDENTIFY).splitlines() + ["", ""]
+    return console_name(lines[0], lines[1])
+
+
+def console_refusal(name: str, wanted: str | None) -> str | None:
+    """The refusal when `--console wanted` was given and the console on the cable is another
+    one (or unknown); None when it may go on."""
+    if not wanted or name == wanted:
+        return None
+    return (f"the console on the cable is the {name.upper()}, not the {wanted.upper()}"
+            if name else f"the console on the cable did not say which one it is, so it may "
+                         f"not be the {wanted.upper()}")
+
+
 def running_files(board: str) -> tuple[str, ...]:
     """BOOT files the running console keeps open by a loop device until it powers off: they
     are swapped through <name>.old and their old size stays taken until the next push."""
@@ -659,7 +690,8 @@ def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
 
 def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
          extractor=extract_boot, out=print, wait: bool = True, sleep=time.sleep,
-         now=time.monotonic, checks: list[AfterBootCheck] | None = None) -> int:
+         now=time.monotonic, checks: list[AfterBootCheck] | None = None,
+         console_wanted: str | None = None) -> int:
     build_dir = (images_dir(IMAGES["console"]) / build).resolve()
     list_path = build_dir / image.BOOT_LIST
     if not list_path.exists():
@@ -673,6 +705,8 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     console = read_console(remote)
     out(f"console: {console.board}, build {console.build or '?'}, battery "
         f"{'?' if console.battery is None else f'{console.battery}%'}, card {console.device}")
+    if refusal := console_refusal(console_name(console.board), console_wanted):
+        raise PushError(f"{refusal}: nothing was sent")
     out(f"push:    build {build_dir.name}")
     if warning := lost_clusters_warning(console):
         out(warning)                    # only a warning: the push goes on (D3)
@@ -839,9 +873,9 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     return 0
 
 
-def main_push(build: str, yes: bool, wait: bool = True) -> int:
+def main_push(build: str, yes: bool, wait: bool = True, console: str | None = None) -> int:
     try:
-        return push(build, Remote(), yes, wait=wait)
+        return push(build, Remote(), yes, wait=wait, console_wanted=console)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

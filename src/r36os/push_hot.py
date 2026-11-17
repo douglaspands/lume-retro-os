@@ -39,7 +39,7 @@ from r36os import fragments as frag
 from r36os import manifests
 from r36os.packages import arch_repo_dir, read_repo_hashes
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
-from r36os.push import PushError, Remote
+from r36os.push import PushError, Remote, console_name, console_refusal
 
 # the fragments that only change with a reboot (normal `r36os push`)
 REFUSED = frozenset({"lume-kernel", "lume-modules", "lume-dtbs"})
@@ -210,13 +210,16 @@ def event_command(result: str, detail: str) -> str:
             f"event push {result} {shlex.join(detail.split())} && {{ logs_flush; true; }}")
 
 
-def push_hot(fragment: str, remote=None, out=print, aports: Path | None = None) -> int:
+def push_hot(fragment: str, remote=None, out=print, aports: Path | None = None,
+             console_wanted: str | None = None) -> int:
     if reason := refusal(fragment):
         raise PushError(reason)
     remote = remote or Remote()
     console = read_hot_console(remote)
     out(f"console: {console.board}, {console.machine} (repo {console.arch}), RAM layer "
         f"{console.ram_free >> 10} KiB free")
+    if reason := console_refusal(console_name(console.board, console.machine), console_wanted):
+        raise PushError(f"{reason}: nothing was sent")
     if not console.overlay:
         raise PushError(f"/ is not the overlay with its upper layer in RAM ({UPPER}): --hot "
                         "would write to the card; use the normal `r36os push`")
@@ -258,9 +261,9 @@ def push_hot(fragment: str, remote=None, out=print, aports: Path | None = None) 
     return 0
 
 
-def main_push_hot(fragment: str) -> int:
+def main_push_hot(fragment: str, console: str | None = None) -> int:
     try:
-        return push_hot(fragment)
+        return push_hot(fragment, console_wanted=console)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

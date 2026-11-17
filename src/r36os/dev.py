@@ -2,7 +2,9 @@
 
 Every command reaches the console the way `r36os push` does (root over ssh, no password on
 the cable, no known-hosts key); the address is CONSOLE_ADDR of r36os.push, overridable with
-`--host` (per-console subnets come later, build-speed 3.4).
+`--host`. One card moves between the GA36 and the R36S and both answer at that address, so
+every action but `wait` first says which console answered and, with `--console ga36|r36s`,
+refuses before running anything when the cable has the other one (build-speed 3.4).
 
 - `wait`: wait until the console answers over the cable (`--timeout` seconds).
 - `sh <cmd...>`: run a command as root, stream its output, pass its exit code through.
@@ -42,7 +44,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from r36os.push import CONSOLE_ADDR, PushError, Remote
+from r36os.push import (CONSOLE_ADDR, PushError, Remote, console_refusal,
+                        identify_console)
 
 HOLD_MS = 80
 GAP_MS = 120
@@ -408,11 +411,22 @@ def cmd_check(host: str, console: str | None) -> int:
     return 1
 
 
+def which_console(host: str, wanted: str | None) -> str:
+    """Say which console answered on the cable (stderr) and refuse, before anything runs,
+    when `--console` names the other one (build-speed 3.4, push.console_refusal)."""
+    name = identify_console(lambda cmd: run_capture(host, cmd))
+    print(f"console: {name.upper() or 'unknown'} ({host})", file=sys.stderr)
+    if reason := console_refusal(name, wanted):
+        raise DevError(reason)
+    return name
+
+
 def main_dev(args) -> int:
     host = args.host or CONSOLE_ADDR
     try:
         if args.dev_command == "wait":
             return cmd_wait(host, args.timeout)
+        which_console(host, getattr(args, "console", None))  # wait excluded: may be off
         if args.dev_command == "sh":
             return cmd_sh(host, args.cmd)
         if args.dev_command == "shot":
