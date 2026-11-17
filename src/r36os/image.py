@@ -353,6 +353,49 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     return out / "console.img"
 
 
+def write_console_set(v: version.BuildVersion, language: str = "en",
+                      ga36_out: Path | None = None, r36s_out: Path | None = None,
+                      out: Path | None = None, area_writer=None) -> Path:
+    """A console build without its image (fragment build, build-speed 6.2): the BOOT list
+    out/console/boot-files.sha256 of every file the card's BOOT would hold (kernels, DTBs,
+    the slot sets of both consoles, the R36S factory files, VERSION last), each file and the
+    two image parts stored in objects/, and image-parts.sha256. No FAT and no 2 GiB image:
+    the sha256 comes from the sources, which is what mcopy writes to the FAT. `r36os push`
+    compares the whole card with this list; `r36os flash` assembles the image from it.
+    Returns the BOOT list."""
+    from r36os import manifests, r36s_vendor
+    from r36os.archive import objects_dir
+    from r36os.paths import ensure_dir
+    from r36os.targets import IMAGES
+
+    out = ensure_dir(out or target_out(IMAGES["console"]))
+    ga36_out = ga36_out or target_out(TARGETS["ga36"])
+    r36s_out = r36s_out or target_out(TARGETS["r36s"])
+    files = console_boot_files(ga36_out, r36s_out, r36s_vendor.factory_boot_files())
+    panel1 = ga36_out / "kernel" / PANEL1_SOURCE
+    missing = [str(src) for src in [*files.values(), panel1] if not src.exists()]
+    if missing:
+        raise ConsoleImageError("a fragment build reuses the kernel, DTBs and slot sets of "
+                                "the last `r36os build console`; missing: " + ", ".join(missing))
+    check_soc_dtbs(files)
+    check_console_boot({path: src.stat().st_size for path, src in files.items()})
+    (out / VERSION_FILE).write_text(
+        version.boot_version_file("console", v) + f"language: {language}\n")
+    files = {**files, VERSION_FILE: out / VERSION_FILE}
+    objects = objects_dir()
+    # one read of each file: store_object hashes it and copies it only when it is new
+    shas = {p: manifests.store_object(objects, src) for p, src in files.items()}
+    area = (area_writer or bootarea.write_console_area)(out / "console-boot-area.bin")
+    try:
+        parts = {AREA_PART: manifests.store_object(objects, area),
+                 PANEL1_PART: manifests.store_object(objects, panel1)}
+    finally:
+        area.unlink(missing_ok=True)
+    manifests._write_atomic(out / IMAGE_PARTS, format_image_parts(parts))
+    manifests.write_boot_list(out / BOOT_LIST, shas)
+    return out / BOOT_LIST
+
+
 def _console_script(files: dict[str, Path], volumes: dict[Path, str], version_src: str,
                     area_src: str, panel1_src: str) -> str:
     """The script that makes console.img and its BOOT list in /out (paths in the container)."""

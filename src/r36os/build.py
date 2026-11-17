@@ -9,6 +9,8 @@ the single card image with both systems.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from r36os import (bootimg, heat, image, kernel, kernel_packages, lang, manifests, parallel,
                    rootfs, slots, stage_inputs, uboot, version)
 from r36os.archive import archive_image
@@ -129,10 +131,7 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
         # [1] kernel, modules, DTBs and boot image, cross-compiled
         build_console_kernel(target, timer)
     # [3] rootfs (with the stage 1 modules), manifest and SYSTEM
-    tar = out / "rootfs.tar"
-    stage_inputs.run_stage(
-        timer, p + "rootfs", tar, lambda: rootfs.stage_inputs(target, v, language),
-        lambda: rootfs.build_rootfs(target, v, language), required=[out / "manifest.txt"])
+    tar = rootfs_stage(target, v, language, timer)
     if console:
         # the console root is a slot set (build-speed D9): base, runtime and lume split
         # from rootfs.tar by owner, the modules image as the modules slot, and SLOTS
@@ -148,16 +147,28 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     _initramfs_stage(target, timer, p)
 
 
+def rootfs_stage(target: Target, v: version.BuildVersion, language: str,
+                 timer: StageTimer) -> Path:
+    """out/<layer>/rootfs.tar and manifest.txt (skipped when the inputs did not change)."""
+    out = rootfs.target_out(target)
+    tar = out / "rootfs.tar"
+    stage_inputs.run_stage(
+        timer, f"{target.name}: rootfs", tar, lambda: rootfs.stage_inputs(target, v, language),
+        lambda: rootfs.build_rootfs(target, v, language), required=[out / "manifest.txt"])
+    return tar
+
+
 def build_console_slots(target: Target, v: version.BuildVersion,
                         timer: StageTimer | None = None,
                         level: int = slots.LEVEL_FULL) -> None:
     """out/<console>/slot/: the overlay slots (skipped when rootfs.tar holds the same
-    files, slots.toml and the options did not change) and the set of this build (SLOTS
-    with the build id, the modules slot, the 448 MiB limit).
+    files, slots.toml and the options did not change; otherwise only the slots whose
+    content changed are packed again, task 6.2) and the set of this build (SLOTS with the
+    build id, the modules slot, the 448 MiB limit).
 
     `level` is the zstd level of the slots (D16) and part of the stage inputs: a fast slot
-    is never taken for a full one. A fast set above the limit is made again at the full
-    level, with a warning."""
+    is never taken for a full one (a fragment build may keep an unchanged full-level slot).
+    A fast set above the limit is made again at the full level, with a warning."""
     timer = timer or StageTimer()
     p = f"{target.name}: "
     out = rootfs.target_out(target)
@@ -168,10 +179,13 @@ def build_console_slots(target: Target, v: version.BuildVersion,
 
     def stage(lvl: int) -> None:
         options = slots.with_level(rootfs.SQUASHFS_OPTIONS, lvl)
+        # a fragment build (fast level) keeps every slot whose content did not change, at
+        # whatever level it was packed; the full build packs at its own level (D16)
+        reuse = {"reuse_any_options": True} if lvl != slots.LEVEL_FULL else {}
         stage_inputs.run_stage(
             timer, p + "slots", sdir / slots.OVERLAY_RECORD,
             lambda: stage_inputs.slots_inputs(tar, slots.SLOTS_TOML, options),
-            lambda: slots.build_overlay_slots(tar, sdir, options),
+            lambda: slots.build_overlay_slots(tar, sdir, options, **reuse),
             required=slots.overlay_files(sdir))
 
     stage(level)
@@ -187,6 +201,28 @@ def build_console_slots(target: Target, v: version.BuildVersion,
     with timer.stage(p + "slot set"):
         slots.write_slot_set(target.name, build_id, sdir, modules,
                              release.read_text().strip() if release.exists() else "")
+
+
+def build_fragment_layer(target: Target, v: version.BuildVersion, language: str,
+                         packages: list[str], stage1: bool = False,
+                         timer: StageTimer | None = None) -> None:
+    """One console of a fragment build (task 6.2): its arch `packages` of the plan (the
+    noarch ones were built before), stage 1 again only when the plan says so (a fragment
+    the initramfs installs; the kernel fragments of 7.3), then the rootfs, the slots that
+    changed (fast compression) and the slot set with this build id."""
+    timer = timer or StageTimer()
+    p = f"{target.name}: "
+    ensure_key(target)
+    if packages:
+        with timer.stage(p + "local packages"):
+            build_packages(target, packages)
+    else:
+        timer.skip(p + "local packages", "only noarch fragments in the plan")
+    if stage1:
+        _initramfs_stage(target, timer, p)
+        build_console_kernel(target, timer)
+    rootfs_stage(target, v, language, timer)
+    build_console_slots(target, v, timer, level=slots.LEVEL_FAST)
 
 
 def noarch_fragments() -> list[str]:
