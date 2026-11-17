@@ -73,13 +73,13 @@ def _read(path: Path) -> str:
 #   lume-slots 1
 #   build 20261116-214233
 #   console ga36
-#   slot base slots/base-0123456789ab <sha256> <bytes> -
+#   slot base slot/base-0123456789ab <sha256> <bytes> -
 #   pkg base musl 1.2.5-r10
-#   slot runtime slots/runtime-... <sha256> <bytes> base=<sha256>
-#   slot lume slots/lume-... <sha256> <bytes> base=<sha256>,runtime=<sha256>
+#   slot runtime slot/runtime-... <sha256> <bytes> base=<sha256>
+#   slot lume slot/lume-... <sha256> <bytes> base=<sha256>,runtime=<sha256>
 #   pkg lume lume-core 1.0-r3
-#   slot modules slots/modules-... <sha256> <bytes> -
-#   slot core-snes9x slots/core-snes9x-... <sha256> <bytes> base=<sha256>,runtime=<sha256>
+#   slot modules slot/modules-... <sha256> <bytes> -
+#   slot core-snes9x slot/core-snes9x-... <sha256> <bytes> base=<sha256>,runtime=<sha256>
 #   end 5 2
 #
 # Fields are separated by one space and never hold whitespace. The order of the slots is
@@ -92,7 +92,7 @@ SLOTS_FORMAT = 1
 SLOTS_FILE = "SLOTS"
 SLOTS_OLD = "SLOTS.old"
 SLOTS_NEW = "SLOTS.new"
-SLOTS_DIR = "slots"
+SLOTS_DIR = "slot"  # not "slots": FAT is case-insensitive and <console>/SLOTS is the manifest
 OVERLAY_SLOTS = ("base", "runtime", "lume")          # mount order, bottom to top
 REQUIRED_SLOTS = (*OVERLAY_SLOTS, "modules")
 _FIXED_RANK = {"base": 0, "runtime": 1, "lume": 2, "modules": 3}
@@ -103,7 +103,7 @@ _CONSOLE = re.compile(r"^[a-z0-9]+$")
 
 
 def slot_file(name: str, sha256: str) -> str:
-    """File of a slot, relative to <console>/: slots/<name>-<sha12>."""
+    """File of a slot, relative to <console>/: slot/<name>-<sha12>."""
     return f"{SLOTS_DIR}/{name}-{sha256[:12]}"
 
 

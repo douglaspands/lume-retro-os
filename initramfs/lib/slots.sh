@@ -5,7 +5,7 @@
 #   lume-slots 1
 #   build <build id>
 #   console <console>
-#   slot <name> slots/<name>-<sha12> <sha256> <bytes> <lower|->
+#   slot <name> slot/<name>-<sha12> <sha256> <bytes> <lower|->
 #   pkg <slot> <package> <version>          (0 or more, right after their slot line)
 #   ...
 #   end <number of slot lines> <number of pkg lines>
@@ -41,7 +41,7 @@ $1 == "slot" && NF == 6 && $0 == $1 " " $2 " " $3 " " $4 " " $5 " " $6 {
 	n = $2
 	if (n !~ /^(base|runtime|lume|modules|core-[a-z0-9][a-z0-9_.+-]*)$/) bad("line " NR ": bad slot name")
 	if (!hex64($4)) bad("line " NR ": bad sha256 of slot " n)
-	if ($3 != "slots/" n "-" substr($4, 1, 12)) bad("line " NR ": slot " n " has file " $3)
+	if ($3 != "slot/" n "-" substr($4, 1, 12)) bad("line " NR ": slot " n " has file " $3)
 	if ($5 !~ /^[0-9]+$/) bad("line " NR ": bad size of slot " n)
 	if (last != "" && !(rank(n) > rank(last))) bad("line " NR ": slot " n " out of order")
 	if ($6 != "-") {

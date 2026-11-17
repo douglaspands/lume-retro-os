@@ -106,7 +106,7 @@ na change do governor); voltar a VM ao ciclo (pendência nova).
   proteção de calor; a ordem dos serviços do OpenRC (`rc.conf`, dependências dos `init.d`).
 - Repositório: `rootfs/overlay/` vira aports noarch em `aports/lume-*`; novos pacotes
   `lume-kernel`, `lume-modules`, `lume-dtbs` em `out/repo/<arch>/`.
-- Cartão: a `BOOT` de cada console ganha `<console>/SLOTS` e `<console>/slots/`; o `push` e o
+- Cartão: a `BOOT` de cada console ganha `<console>/SLOTS` e `<console>/slot/`; o `push` e o
   `flash --update` migram cartões antigos.
 - Testes: unidade (hashes, versão pelo conteúdo, separação em slots, manifesto, push, argumentos
   do podman) e provas nos dois consoles; o `test-vm` sai do ciclo desta change.

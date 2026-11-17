@@ -343,7 +343,7 @@ para qualquer aparelho cujo painel responda o mesmo ID.
 
 ## Raiz do sistema (slots) no `boot/boot-<n>.log`
 
-Nos consoles, o sistema é um conjunto de slots squashfs em `BOOT/<console>/slots/`, descrito
+Nos consoles, o sistema é um conjunto de slots squashfs em `BOOT/<console>/slot/`, descrito
 pelo manifesto `BOOT/<console>/SLOTS` (change `build-speed`, D9). O initramfs monta `lume`,
 `runtime` e `base` como `lowerdir` do overlay (o de cima prevalece), embaixo da camada de 32 MiB
 na RAM, e o slot `modules` em `/lib/modules`. As linhas `core-<nome>` do manifesto são
@@ -362,7 +362,7 @@ ganha linha nova: monta o `SYSTEM` exatamente como antes. Linhas, com o prefixo 
 | Linha | Significado |
 | :--- | :--- |
 | `slots: <manifest> (build <id>)` | conjunto montado: `<manifest>` é `<console>/SLOTS` ou `<console>/SLOTS.old`, `<id>` o build dele |
-| `slot <name>: <file> (packages: <n>)` | um slot do conjunto (`base`, `runtime`, `lume`, `modules`), o arquivo na `BOOT` (`<console>/slots/<name>-<sha12>`) e quantos pacotes ele traz |
+| `slot <name>: <file> (packages: <n>)` | um slot do conjunto (`base`, `runtime`, `lume`, `modules`), o arquivo na `BOOT` (`<console>/slot/<name>-<sha12>`) e quantos pacotes ele traz |
 | `slot <name> packages: <package>-<version> …` | os pacotes do slot com a versão, em linhas de até ~400 caracteres (cabem num registro do `dmesg`) |
 | `root: <manifest> (lume, runtime, base; read-only) + 32 MiB RAM layer` | raiz montada pelos slots |
 | `root: <file> (read-only) + 32 MiB RAM layer` | raiz montada pelo `SYSTEM` antigo (cartão antigo ou depois das falhas abaixo) |
@@ -381,7 +381,7 @@ ganha linha nova: monta o `SYSTEM` exatamente como antes. Linhas, com o prefixo 
 | `ERROR: <console>/SLOTS.old could not be mounted; trying the old <console>/SYSTEM` | só havia o `SLOTS.old` e ele não montou |
 
 Com os slots, a linha de módulos (seção abaixo) traz o slot: `modules:
-<console>/slots/modules-<sha12> (<release>)`, com a mesma conferência de versão. Na VM não há
+<console>/slot/modules-<sha12> (<release>)`, com a mesma conferência de versão. Na VM não há
 slots: ela monta o `BOOT/SYSTEM` como antes.
 
 ## Módulos do kernel no `boot/boot-<n>.log`

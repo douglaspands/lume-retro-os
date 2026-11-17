@@ -150,7 +150,7 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
 
 def build_console_slots(target: Target, v: version.BuildVersion,
                         timer: StageTimer | None = None) -> None:
-    """out/<console>/slots/: the overlay slots (skipped when rootfs.tar holds the same
+    """out/<console>/slot/: the overlay slots (skipped when rootfs.tar holds the same
     files, slots.toml and the options did not change) and the set of this build (SLOTS
     with the build id, the modules slot, the 448 MiB limit)."""
     timer = timer or StageTimer()

@@ -387,15 +387,15 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
     v = version.current()
     timer = StageTimer()
     build.build_console_slots(TARGETS["ga36"], v, timer)
-    first = manifests.read_slots(out / "slots" / "SLOTS")
+    first = manifests.read_slots(out / manifests.SLOTS_DIR / "SLOTS")
     _rootfs(out / "rootfs.tar", mtime=5)                 # same files, new times
     build.build_console_slots(TARGETS["ga36"], v, timer)
     assert len(runs) == 1
     assert any("ga36: slots" in line and "skipped (inputs unchanged" in line
                for line in timer.summary())
-    assert manifests.read_slots(out / "slots" / "SLOTS") == first
+    assert manifests.read_slots(out / manifests.SLOTS_DIR / "SLOTS") == first
     # a slot file gone: the stage runs again
-    (out / "slots" / Path(first.get("lume").file).name).unlink()
+    (out / manifests.SLOTS_DIR / Path(first.get("lume").file).name).unlink()
     build.build_console_slots(TARGETS["ga36"], v, timer)
     assert len(runs) == 2
 

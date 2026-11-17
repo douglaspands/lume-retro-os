@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Sistema como arquivo squashfs
-O sistema de arquivos raiz de cada sistema MUST ser entregue como arquivos squashfs dentro da `BOOT`. Na `vm`, ele MUST ser um único arquivo `SYSTEM` de no máximo 768 MiB. Na `console`, o sistema de cada console MUST ser um conjunto de slots em `<console>/slots/`, com nomes pelo conteúdo, descrito pelo manifesto `<console>/SLOTS` (ver `system-update`); a soma dos slots de um console MUST ter no máximo 448 MiB, e a soma de todos os arquivos da `BOOT`, contando o conjunto anterior que o `push` guarda, MUST deixar ao menos 64 MiB livres.
+O sistema de arquivos raiz de cada sistema MUST ser entregue como arquivos squashfs dentro da `BOOT`. Na `vm`, ele MUST ser um único arquivo `SYSTEM` de no máximo 768 MiB. Na `console`, o sistema de cada console MUST ser um conjunto de slots em `<console>/slot/`, com nomes pelo conteúdo, descrito pelo manifesto `<console>/SLOTS` (ver `system-update`); a soma dos slots de um console MUST ter no máximo 448 MiB, e a soma de todos os arquivos da `BOOT`, contando o conjunto anterior que o `push` guarda, MUST deixar ao menos 64 MiB livres.
 
 #### Scenario: SYSTEM dentro do limite
 - **WHEN** uma imagem é gerada

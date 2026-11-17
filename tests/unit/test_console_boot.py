@@ -346,18 +346,18 @@ def _boot_sizes(ga36_runtime=260 * MiB, r36s_runtime=262 * MiB, image=45 * MiB,
              "ga36/SLOTS": 6000, "r36s/SLOTS": 6000}
     for console, runtime, modules in (("ga36", ga36_runtime, 2 * MiB),
                                       ("r36s", r36s_runtime, r36s_modules)):
-        sizes.update({f"{console}/slots/base-000000000000": 22 * MiB,
-                      f"{console}/slots/runtime-000000000000": runtime,
-                      f"{console}/slots/lume-000000000000": 3 * MiB,
-                      f"{console}/slots/modules-000000000000": modules})
+        sizes.update({f"{console}/slot/base-000000000000": 22 * MiB,
+                      f"{console}/slot/runtime-000000000000": runtime,
+                      f"{console}/slot/lume-000000000000": 3 * MiB,
+                      f"{console}/slot/modules-000000000000": modules})
     return sizes
 
 
 def _slot_set(layer_out: Path, console: str) -> dict[str, Path]:
-    """A slot set in <layer>/slots/ as the build leaves it; BOOT path -> file."""
+    """A slot set in <layer>/slot/ as the build leaves it; BOOT path -> file."""
     from r36os import manifests
 
-    sdir = layer_out / "slots"
+    sdir = layer_out / manifests.SLOTS_DIR
     sdir.mkdir(parents=True, exist_ok=True)
     made, lower = [], ()
     for name in manifests.REQUIRED_SLOTS:
@@ -385,14 +385,14 @@ def test_console_boot_files_layout(tmp_path):
     assert files["ga36/zImage"] == tmp_path / "ga36/kernel/zImage"
     # build-speed D9: the root of each console is its slot set; without one the SLOTS path
     # is still listed, so the image build says it is missing
-    assert files["ga36/SLOTS"] == tmp_path / "ga36/slots/SLOTS"
+    assert files["ga36/SLOTS"] == tmp_path / "ga36/slot/SLOTS"
     # no SYSTEM and no modules image of their own on a new card: the slots replace them
     assert not [p for p in files if p.endswith(("/SYSTEM", "/modules"))]
     want = {**_slot_set(tmp_path / "ga36", "ga36"), **_slot_set(tmp_path / "r36s", "r36s")}
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
     assert {p: s for p, s in files.items() if p.split("/")[0] in ("ga36", "r36s")
-            and p.split("/")[1] in ("SLOTS", "slots")} == want
-    assert len([p for p in files if p.startswith("r36s/slots/")]) == 4
+            and p.split("/")[1] in ("SLOTS", "slot")} == want
+    assert len([p for p in files if p.startswith("r36s/slot/")]) == 4
     # a set of the other console in the folder of this one is refused
     (tmp_path / "x").mkdir()
     _slot_set(tmp_path / "x", "r36s")
@@ -491,7 +491,7 @@ def test_archived_boot_list_matches_the_build():
         pytest.skip("latest console build is older than the slots")
     for console in ("ga36", "r36s"):
         slots = sorted(p.split("/")[2].split("-")[0] for p in names
-                       if p.startswith(f"{console}/slots/"))
+                       if p.startswith(f"{console}/slot/"))
         assert slots == ["base", "lume", "modules", "runtime"], (console, slots)
         assert f"{console}/SYSTEM" not in names
 
@@ -512,7 +512,7 @@ def test_console_boot_refuses_slots_above_448_mib(which):
     with pytest.raises(image.ConsoleImageError, match=f"slots of {which}.*448 MiB"):
         image.check_console_boot(sizes)
     sizes = _boot_sizes(**{f"{which}_runtime": 200 * MiB})
-    sizes[f"{which}/slots/core-x-000000000000"] = 300 * MiB    # every slot counts
+    sizes[f"{which}/slot/core-x-000000000000"] = 300 * MiB    # every slot counts
     with pytest.raises(image.ConsoleImageError, match=f"slots of {which}.*448 MiB"):
         image.check_console_boot(sizes)
 
@@ -531,7 +531,7 @@ def test_console_boot_counts_the_previous_slot_set():
 
     sizes = _boot_sizes(ga36_runtime=400 * MiB, r36s_runtime=400 * MiB)
     files = sum(-(-s // 4096) * 4096 for s in sizes.values())
-    slots = sum(-(-s // 4096) * 4096 for p, s in sizes.items() if "/slots/" in p)
+    slots = sum(-(-s // 4096) * 4096 for p, s in sizes.items() if "/slot/" in p)
     free = 4 * 2**30 // 2 - 16 * MiB - files - slots
     sizes["r36s/Image"] += free - 64 * MiB               # exactly 64 MiB left
     image.check_console_boot(sizes)

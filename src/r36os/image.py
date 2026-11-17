@@ -85,7 +85,7 @@ _VM_RAW = ("dd if=/usr/share/syslinux/mbr.bin of=$W/disk.img bs=440 count=1 "
 
 # Console (design D5; boot-dtb-select D8): BOOT with one folder per console, one folder of
 # DTBs per SoC (dtbs/<soc>/, read by lume-bootsel) and, at the root, the boot.ini that the
-# R36S U-Boot reads. Only what the consoles read: the GA36 slot set (SLOTS, slots/; build-
+# R36S U-Boot reads. Only what the consoles read: the GA36 slot set (SLOTS, slot/; build-
 # speed D9) and the zImage without an appended DTB (reloaded by kexec; the kernel with the
 # built-in initramfs and the appended DTB is the Android boot image at sector 172032,
 # outside BOOT, and the images of both panels are archived next to the card image for a dd
@@ -153,7 +153,7 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
              f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
         # the root of each console is its slot set (build-speed D9): <console>/SLOTS and
-        # <console>/slots/<name>-<sha12>, the kernel modules among them; no SYSTEM and no
+        # <console>/slot/<name>-<sha12>, the kernel modules among them; no SYSTEM and no
         # <console>/modules on a new card (an old one keeps them until the push of 4.6)
         files.update(console_slot_files(board, out))
         for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
@@ -252,15 +252,16 @@ def _clusters(size: int) -> int:
 
 def check_console_boot(sizes: dict[str, int]) -> None:
     """Limits of the console BOOT (system-image, build-speed D9): the slots of each console
-    (<console>/slots/*) within 448 MiB together, and at least 64 MiB free on the 2 GiB BOOT
+    (<console>/slot/*) within 448 MiB together, and at least 64 MiB free on the 2 GiB BOOT
     counting the previous set a push keeps (SLOTS.old): every slot is counted twice, the
     previous set taken as large as the new one. `sizes` maps the BOOT path to the size."""
+    from r36os.manifests import SLOTS_DIR
     from r36os.slots import CONSOLE_SLOTS_LIMIT_MIB
 
     per_console: dict[str, int] = {}
     for path, size in sizes.items():
         parts = path.split("/")
-        if len(parts) == 3 and parts[1] == "slots":
+        if len(parts) == 3 and parts[1] == SLOTS_DIR:
             per_console[parts[0]] = per_console.get(parts[0], 0) + size
     for console, total in sorted(per_console.items()):
         if total > CONSOLE_SLOTS_LIMIT_MIB * 2**20:
@@ -269,7 +270,7 @@ def check_console_boot(sizes: dict[str, int]) -> None:
                 f"{CONSOLE_SLOTS_LIMIT_MIB} MiB limit of each console on the image")
     used = sum(_clusters(size) for size in sizes.values())
     previous = sum(_clusters(size) for path, size in sizes.items()
-                   if path.split("/")[1:2] == ["slots"])
+                   if path.split("/")[1:2] == [SLOTS_DIR])
     free = boot_sectors("console") * 512 - _FAT_OVERHEAD - used - previous
     if free < BOOT_MIN_FREE:
         raise ConsoleImageError(

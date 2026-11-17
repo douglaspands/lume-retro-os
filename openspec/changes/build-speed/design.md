@@ -308,10 +308,10 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
    Image | zImage            (nome fixo: o U-Boot de fabrica le)
    SLOTS                      manifesto do conjunto: nome, arquivo, sha256, versoes dos fragmentos
    SLOTS.old                  o conjunto anterior
-   slots/base-<sha12>         base do Alpine (bibliotecas, busybox, OpenRC)
-   slots/runtime-<sha12>      RetroArch e os cores, mesa/drivers de video, SDL
-   slots/lume-<sha12>         fragmentos do projeto + banco do apk + saidas de triggers
-   slots/modules-<sha12>      modulos do kernel
+   slot/base-<sha12>         base do Alpine (bibliotecas, busybox, OpenRC)
+   slot/runtime-<sha12>      RetroArch e os cores, mesa/drivers de video, SDL
+   slot/lume-<sha12>         fragmentos do projeto + banco do apk + saidas de triggers
+   slot/modules-<sha12>      modulos do kernel
  BOOT/dtbs/<soc>/...          (como hoje)
 ```
 
@@ -335,13 +335,13 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   nenhum grupo cita cai no `default` (`base`), e o teste lista os de `packages.txt` e
   `hw-packages.txt` que caíram assim. Etapa `slots` do build (pulada quando o conteúdo do
   `rootfs.tar`, sem os tempos, o `slots.toml` e as opções não mudam) grava
-  `out/<console>/slots/{base,runtime,lume}-<sha12>` e `overlay.json`; a etapa `slot set`, em
+  `out/<console>/slot/{base,runtime,lume}-<sha12>` e `overlay.json`; a etapa `slot set`, em
   todo build, copia `kernel/modules` para `modules-<sha12>`, confere os 448 MiB e escreve o
   `SLOTS` com o build. Medido em 2026-11-17 (rootfs atuais): GA36 base 19,6 + runtime 259,0 +
   lume 2,3 + modules 1,3 = 282,2 MiB; R36S 21,5 + 262,2 + 2,3 + 15,0 = 301,0 MiB (o `SYSTEM`
   tinha 280,9 e 286,0 MiB). A união dos três slots é igual ao `SYSTEM` (nomes, tipos, modos,
   donos, tamanhos e conteúdo).
-- **BOOT da imagem nova:** o `build console` grava só `<console>/SLOTS` e `<console>/slots/`
+- **BOOT da imagem nova:** o `build console` grava só `<console>/SLOTS` e `<console>/slot/`
   (sem `SYSTEM` e sem `<console>/modules`, que o slot `modules` substitui). A conta dos 64 MiB
   livres soma cada slot duas vezes (o conjunto anterior que o push guarda, tomado do tamanho
   do novo); com os tamanhos acima (mais kernels, DTBs e arquivos de fábrica, ~65 MiB), a
@@ -360,20 +360,20 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   lume-slots 1
   build 20261116-214233
   console ga36
-  slot base slots/base-<sha12> <sha256> <bytes> -
+  slot base slot/base-<sha12> <sha256> <bytes> -
   pkg base musl 1.2.5-r10
-  slot runtime slots/runtime-<sha12> <sha256> <bytes> base=<sha256>
-  slot lume slots/lume-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
+  slot runtime slot/runtime-<sha12> <sha256> <bytes> base=<sha256>
+  slot lume slot/lume-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
   pkg lume lume-core 1.0-r3
-  slot modules slots/modules-<sha12> <sha256> <bytes> -
-  slot core-snes9x slots/core-snes9x-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
+  slot modules slot/modules-<sha12> <sha256> <bytes> -
+  slot core-snes9x slot/core-snes9x-<sha12> <sha256> <bytes> base=<sha256>,runtime=<sha256>
   end 5 2
   ```
 
   - Cabeçalho fixo: `lume-slots <formato>` (hoje 1), `build <id>`, `console <nome>` (o leitor
     recusa o manifesto de outro console).
   - `slot <nome> <arquivo> <sha256> <bytes> <de baixo>`: o arquivo é relativo a
-    `<console>/` e é sempre `slots/<nome>-<12 primeiros dígitos do sha256>`; `<de baixo>` é `-`
+    `<console>/` e é sempre `slot/<nome>-<12 primeiros dígitos do sha256>`; `<de baixo>` é `-`
     ou `<slot>=<sha256>,...`, os slots contra os quais este foi montado, que têm de estar
     acima dele no arquivo e com o mesmo sha256 (conjunto coerente).
   - Ordem fixa: `base`, `runtime`, `lume`, `modules` (os quatro obrigatórios) e os `core-<nome>`
@@ -580,7 +580,7 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 2. O `rootfs/overlay/` vira aports noarch; a imagem gerada continua com os mesmos arquivos nos
    mesmos caminhos (conferido pelo manifesto).
 3. O cartão: o initramfs novo aceita os dois layouts; o primeiro `push` ou `flash --update` grava
-   `SLOTS` e `slots/`, e o `SYSTEM` antigo é apagado no push seguinte.
+   `SLOTS` e `slot/`, e o `SYSTEM` antigo é apagado no push seguinte.
 4. Reversão: um cartão com `SLOTS` não inicia com o initramfs antigo; voltar exige `flash
    --update` com uma imagem antiga (a `ROMS` fica intacta).
 

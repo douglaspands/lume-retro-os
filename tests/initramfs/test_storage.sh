@@ -265,27 +265,27 @@ SL2=$(sha 9); SM2=$(sha 8)    # lume and modules of the new set (SLOTS)
 # manifest of ga36 with lume $1, modules $2 and build id $3 (a reserved core line too)
 manifest() {
 	printf '%s\n' "lume-slots 1" "build $3" "console ga36" \
-		"slot base slots/base-$(s12 $SB) $SB 1000 -" \
+		"slot base slot/base-$(s12 $SB) $SB 1000 -" \
 		"pkg base musl 1.2.5-r10" "pkg base busybox 1.37.0-r20" \
-		"slot runtime slots/runtime-$(s12 $SR) $SR 2000 base=$SB" \
+		"slot runtime slot/runtime-$(s12 $SR) $SR 2000 base=$SB" \
 		"pkg runtime retroarch 1.22.2-r0" \
-		"slot lume slots/lume-$(s12 $1) $1 3000 base=$SB,runtime=$SR" \
+		"slot lume slot/lume-$(s12 $1) $1 3000 base=$SB,runtime=$SR" \
 		"pkg lume lume-core 1.0-r3" \
-		"slot modules slots/modules-$(s12 $2) $2 4000 -" \
-		"slot core-snes9x slots/core-snes9x-$(s12 $SC) $SC 5000 base=$SB,runtime=$SR" \
+		"slot modules slot/modules-$(s12 $2) $2 4000 -" \
+		"slot core-snes9x slot/core-snes9x-$(s12 $SC) $SC 5000 base=$SB,runtime=$SR" \
 		"end 5 4"
 }
 # BOOT at $W/sb: both slot sets, both manifests, and the old SYSTEM + modules of an old card
 mkcard() {
 	local f
 	rm -rf "$W/sb"
-	mkdir -p "$W/sb/ga36/slots"
+	mkdir -p "$W/sb/ga36/slot"
 	for f in base-$(s12 $SB) runtime-$(s12 $SR) lume-$(s12 $SL) lume-$(s12 $SL2) \
 		core-snes9x-$(s12 $SC); do
-		: > "$W/sb/ga36/slots/$f"
+		: > "$W/sb/ga36/slot/$f"
 	done
-	echo "$RUNNING" > "$W/sb/ga36/slots/modules-$(s12 $SM)"
-	echo "$RUNNING" > "$W/sb/ga36/slots/modules-$(s12 $SM2)"
+	echo "$RUNNING" > "$W/sb/ga36/slot/modules-$(s12 $SM)"
+	echo "$RUNNING" > "$W/sb/ga36/slot/modules-$(s12 $SM2)"
 	manifest "$SL2" "$SM2" 20261117-010000 > "$W/sb/ga36/SLOTS"
 	manifest "$SL" "$SM" 20261116-214233 > "$W/sb/ga36/SLOTS.old"
 	: > "$W/sb/ga36/SYSTEM"
@@ -303,12 +303,12 @@ run_root() {
 # expected calls of a whole slot set: lume $1, modules $2
 set_calls() {
 	printf '%s\n' \
-		"mount -t squashfs -o ro,loop $W/sb/ga36/slots/base-$(s12 $SB) $W/s/base" \
-		"mount -t squashfs -o ro,loop $W/sb/ga36/slots/runtime-$(s12 $SR) $W/s/runtime" \
-		"mount -t squashfs -o ro,loop $W/sb/ga36/slots/lume-$(s12 $1) $W/s/lume" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/base-$(s12 $SB) $W/s/base" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/runtime-$(s12 $SR) $W/s/runtime" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/lume-$(s12 $1) $W/s/lume" \
 		"mount -t tmpfs -o size=32m,mode=0755 tmpfs $W/rw" \
 		"mount -t overlay overlay -o lowerdir=$W/s/lume:$W/s/runtime:$W/s/base,upperdir=$W/rw/upper,workdir=$W/rw/work $W/root" \
-		"mount -t squashfs -o ro,loop $W/sb/ga36/slots/modules-$(s12 $2) $W/mod" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/modules-$(s12 $2) $W/mod" \
 		"mount --move $W/mod $W/root/lib/modules"
 }
 # expected calls of the old card: the same commands as the init before build-speed 4.5, with
@@ -332,25 +332,25 @@ check "set: modules of the slot on /lib/modules" '[ -d "$W/root/lib/modules/$RUN
 check "set: no core slot mounted" '! grep -q core- "$MLOG"'
 printf '%s\n' \
 	"lume: slots: ga36/SLOTS (build 20261117-010000)" \
-	"lume: slot base: ga36/slots/base-$(s12 $SB) (packages: 2)" \
+	"lume: slot base: ga36/slot/base-$(s12 $SB) (packages: 2)" \
 	"lume: slot base packages: musl-1.2.5-r10 busybox-1.37.0-r20" \
-	"lume: slot runtime: ga36/slots/runtime-$(s12 $SR) (packages: 1)" \
+	"lume: slot runtime: ga36/slot/runtime-$(s12 $SR) (packages: 1)" \
 	"lume: slot runtime packages: retroarch-1.22.2-r0" \
-	"lume: slot lume: ga36/slots/lume-$(s12 $SL2) (packages: 1)" \
+	"lume: slot lume: ga36/slot/lume-$(s12 $SL2) (packages: 1)" \
 	"lume: slot lume packages: lume-core-1.0-r3" \
-	"lume: slot modules: ga36/slots/modules-$(s12 $SM2) (packages: 0)" \
+	"lume: slot modules: ga36/slot/modules-$(s12 $SM2) (packages: 0)" \
 	"lume: root: ga36/SLOTS (lume, runtime, base; read-only) + 32 MiB RAM layer" \
-	"lume: modules: ga36/slots/modules-$(s12 $SM2) ($RUNNING)" > "$W/want"
+	"lume: modules: ga36/slot/modules-$(s12 $SM2) ($RUNNING)" > "$W/want"
 check "set: boot log lists each slot and its versions" 'same "$W/rlog" "$W/want"'
 
 # SLOTS cites a missing file: SLOTS.old picked before any mount
 mkcard
-rm "$W/sb/ga36/slots/lume-$(s12 $SL2)"
+rm "$W/sb/ga36/slot/lume-$(s12 $SL2)"
 run_root
 set_calls "$SL" "$SM" > "$W/want"
 check "missing file: SLOTS.old mounted" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
 check "missing file: ERROR then the old set in the log" \
-	'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slots/lume-$(s12 $SL2); using ga36/SLOTS.old from the previous build" "$W/rlog" && grep -qx "lume: slots: ga36/SLOTS.old (build 20261116-214233)" "$W/rlog"'
+	'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slot/lume-$(s12 $SL2); using ga36/SLOTS.old from the previous build" "$W/rlog" && grep -qx "lume: slots: ga36/SLOTS.old (build 20261116-214233)" "$W/rlog"'
 
 # SLOTS missing (push cut between its renames): SLOTS.old
 mkcard
@@ -360,7 +360,7 @@ check "SLOTS missing: SLOTS.old mounted" '[ $RC -eq 0 ] && grep -qx "lume: root:
 
 # SLOTS and SLOTS.old both cite missing files: the old SYSTEM, as on an old card
 mkcard
-rm "$W/sb/ga36/slots/lume-$(s12 $SL2)" "$W/sb/ga36/slots/lume-$(s12 $SL)"
+rm "$W/sb/ga36/slot/lume-$(s12 $SL2)" "$W/sb/ga36/slot/lume-$(s12 $SL)"
 run_root
 system_calls > "$W/want"
 check "both bad: the old SYSTEM mounted" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
@@ -380,7 +380,7 @@ FAIL_ON=""
 } > "$W/want"
 check "slot fails: undone, then SLOTS.old" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
 check "slot fails: ERROR lines" \
-	'grep -qx "lume: ERROR: failed to mount slot lume (ga36/slots/lume-$(s12 $SL2)) of ga36/SLOTS" "$W/rlog" && grep -qx "lume: ERROR: ga36/SLOTS could not be mounted; using ga36/SLOTS.old from the previous build" "$W/rlog"'
+	'grep -qx "lume: ERROR: failed to mount slot lume (ga36/slot/lume-$(s12 $SL2)) of ga36/SLOTS" "$W/rlog" && grep -qx "lume: ERROR: ga36/SLOTS could not be mounted; using ga36/SLOTS.old from the previous build" "$W/rlog"'
 
 # the modules slot of SLOTS fails: overlay, RAM layer and slots undone, then SLOTS.old
 mkcard

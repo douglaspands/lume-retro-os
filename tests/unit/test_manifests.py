@@ -11,6 +11,15 @@ from r36os.manifests import ManifestError, PackageHashes, RepoHashes, Slot, Slot
 B, R, L, MO, C = ("b" * 64, "c" * 64, "d" * 64, "e" * 64, "f" * 64)
 
 
+def test_console_folder_names_differ_on_a_case_insensitive_fat():
+    # BOOT is FAT32: <console>/SLOTS and a <console>/slots/ folder were the same name, and
+    # the first console image with slots failed reading SLOTS back (2026-11-17)
+    names = [m.SLOTS_FILE, m.SLOTS_OLD, m.SLOTS_NEW, m.SLOTS_DIR, "SYSTEM", "SYSTEM.old",
+             "modules", "Image", "zImage"]
+    assert len({n.lower() for n in names}) == len(names)
+    assert m.slot_file("lume", L).startswith(m.SLOTS_DIR + "/")
+
+
 def slot_set(console="ga36") -> SlotSet:
     return SlotSet(build="20261116-214233", console=console, slots=(
         # given out of order on purpose: the set keeps the canonical order
@@ -27,14 +36,14 @@ def slot_set(console="ga36") -> SlotSet:
 GOOD = f"""lume-slots 1
 build 20261116-214233
 console ga36
-slot base slots/base-{B[:12]} {B} 1000 -
+slot base slot/base-{B[:12]} {B} 1000 -
 pkg base musl 1.2.5-r10
 pkg base busybox 1.37.0-r20
-slot runtime slots/runtime-{R[:12]} {R} 2000 base={B}
-slot lume slots/lume-{L[:12]} {L} 3000 base={B},runtime={R}
+slot runtime slot/runtime-{R[:12]} {R} 2000 base={B}
+slot lume slot/lume-{L[:12]} {L} 3000 base={B},runtime={R}
 pkg lume lume-core 1.0-r3
-slot modules slots/modules-{MO[:12]} {MO} 4000 -
-slot core-snes9x slots/core-snes9x-{C[:12]} {C} 5000 base={B},runtime={R}
+slot modules slot/modules-{MO[:12]} {MO} 4000 -
+slot core-snes9x slot/core-snes9x-{C[:12]} {C} 5000 base={B},runtime={R}
 end 5 3
 """
 
@@ -52,21 +61,21 @@ def test_slots_round_trip(tmp_path):
     assert back == slot_set()
     assert [s.name for s in back.overlay()] == ["base", "runtime", "lume"]
     assert [s.name for s in back.cores()] == ["core-snes9x"]
-    assert back.get("lume").file == f"slots/lume-{L[:12]}"
+    assert back.get("lume").file == f"slot/lume-{L[:12]}"
     assert back.get("base").packages == (("musl", "1.2.5-r10"), ("busybox", "1.37.0-r20"))
     assert not list(p.parent.glob("*.tmp"))
 
 
 def test_slot_file_name():
-    assert m.slot_file("core-fbneo", "0123456789abcdef" * 4) == "slots/core-fbneo-0123456789ab"
+    assert m.slot_file("core-fbneo", "0123456789abcdef" * 4) == "slot/core-fbneo-0123456789ab"
 
 
 def test_missing_slot_files(tmp_path):
     ss = slot_set()
-    (tmp_path / "slots").mkdir()
+    (tmp_path / m.SLOTS_DIR).mkdir()
     for f in ss.files()[:-1]:
         (tmp_path / f).touch()
-    assert m.missing_slot_files(tmp_path, ss) == [f"slots/core-snes9x-{C[:12]}"]
+    assert m.missing_slot_files(tmp_path, ss) == [f"slot/core-snes9x-{C[:12]}"]
 
 
 @pytest.mark.parametrize("text, why", [
@@ -77,7 +86,7 @@ def test_missing_slot_files(tmp_path):
     (GOOD.replace("pkg lume lume-core 1.0-r3\n", ""), "end counts"),
     (GOOD.replace(f" {R} 2000", f" {R.upper()} 2000"), "bad sha256 of slot runtime"),
     (GOOD.replace(f"runtime={R}", f"runtime={'a' * 64}"), "incoherent set"),
-    (GOOD.replace(f"slots/lume-{L[:12]}", f"slots/lume-{B[:12]}"), "is not"),
+    (GOOD.replace(f"slot/lume-{L[:12]}", f"slot/lume-{B[:12]}"), "is not"),
     (GOOD.replace("slot base ", "slot  base "), "unknown line"),
     (GOOD.replace("slot base ", "slot\tbase "), "unknown line"),
     (GOOD + "slot extra\n", "after the `end` line"),
@@ -127,7 +136,7 @@ def test_read_slots_missing(tmp_path):
 # ---- boot-files.sha256 and objects -------------------------------------------------------
 
 BOOT = {"ga36/zImage": "1" * 64, "VERSION": "2" * 64, "dtbs/rk3326/a.dtb": "3" * 64,
-        "ga36/slots/base-bbbbbbbbbbbb": B}
+        "ga36/slot/base-bbbbbbbbbbbb": B}
 
 
 def test_boot_list_round_trip(tmp_path):

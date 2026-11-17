@@ -77,7 +77,7 @@ def test_android_boot_is_ga36_panel1():
 
 def test_boot_contents():
     listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/console.img@@{START * S} -b -/ ::/")
-    sets = {b: manifests.read_slots(target_out(get_target(b)) / "slots/SLOTS")
+    sets = {b: manifests.read_slots(target_out(get_target(b)) / manifests.SLOTS_DIR / "SLOTS")
             for b in ("ga36", "r36s")}
     slot_files = [f"{b}/{f}" for b, ss in sets.items() for f in ss.files()]
     for name in ("VERSION", "boot.ini", "ga36/SLOTS", "ga36/zImage", *slot_files,
@@ -106,7 +106,7 @@ def test_modules_outside_system(board):
     # with one folder named after the kernel release, and the overlay slots have nothing
     # under lib/modules/ (base, runtime, lume: only the mount point)
     out = target_out(get_target(board))
-    ss = manifests.read_slots(out / "slots/SLOTS")
+    ss = manifests.read_slots(out / manifests.SLOTS_DIR / "SLOTS")
     want = hashlib.sha256((out / "kernel/modules").read_bytes()).hexdigest()
     assert ss.get("modules").sha256 == want
     got = _sh(f"MTOOLS_SKIP_CHECK=1 mtype -i /out/console.img@@{START * S} "

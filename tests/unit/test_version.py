@@ -80,7 +80,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         set_ = manifests.SlotSet(build=v.build_id, console=target.name, slots=(
             manifests.Slot("base", sha, size), manifests.Slot("runtime", sha, 1),
             manifests.Slot("lume", sha, 1), manifests.Slot("modules", sha, 1)))
-        manifests.write_slots(out / "slots" / "SLOTS", set_)
+        manifests.write_slots(out / manifests.SLOTS_DIR / "SLOTS", set_)
         (out / "manifest.txt").write_text(f"# arch: {target.alpine_arch}\n")
         if target.name == "ga36":
             (out / "kernel").mkdir(exist_ok=True)
@@ -106,7 +106,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     assert info["target"] == "console" and info["build_id"] == _V.build_id
     for console, size in (("ga36", 10), ("r36s", 20)):
         base = info["layers"][console]["slots"]["base"]
-        assert base["bytes"] == size and base["file"].startswith("slots/base-")
+        assert base["bytes"] == size and base["file"].startswith("slot/base-")
         assert set(info["layers"][console]["slots"]) == {"base", "runtime", "lume",
                                                          "modules"}
         assert "system_bytes" not in info["layers"][console]

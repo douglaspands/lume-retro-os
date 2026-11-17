@@ -1,7 +1,7 @@
 """The console root as slots (build-speed D9): rootfs.tar split by owner into base, runtime
 and lume, plus the kernel modules image as the modules slot, and the SLOTS manifest.
 
-    out/<console>/slots/
+    out/<console>/slot/
       base-<sha12> runtime-<sha12> lume-<sha12>   squashfs, from rootfs.tar (stage "slots")
       modules-<sha12>                              copy of kernel/modules (stage 1)
       overlay.json                                 the three overlay slots of the last run
@@ -309,7 +309,7 @@ def _squash(slots_dir: Path, names: list[str], options: str) -> None:
 
 
 def slots_dir(layer_out: Path) -> Path:
-    """out/<console>/slots/"""
+    """out/<console>/slot/"""
     return layer_out / manifests.SLOTS_DIR
 
 
@@ -378,7 +378,7 @@ def write_slot_set(console: str, build_id: str, slots_dir: Path, modules_image: 
                    kernel_release: str = "",
                    limit_mib: int = CONSOLE_SLOTS_LIMIT_MIB) -> SlotSet:
     """The set of this build: the overlay slots of the last run and the modules image
-    (copied to modules-<sha12>), in slots/SLOTS; slot files of older sets are removed from
+    (copied to modules-<sha12>), in slot/SLOTS; slot files of older sets are removed from
     slots_dir (the archive keeps them as objects). Fails above `limit_mib` in all."""
     overlay = read_overlay(slots_dir)
     sha = manifests.sha256_file(modules_image)
@@ -412,7 +412,7 @@ def write_slot_set(console: str, build_id: str, slots_dir: Path, modules_image: 
 
 def boot_files(console: str, slots_dir: Path) -> dict[str, Path]:
     """BOOT path -> source of the slot set of a console: <console>/SLOTS and
-    <console>/slots/<name>-<sha12>."""
+    <console>/slot/<name>-<sha12>."""
     ss = manifests.read_slots(slots_dir / manifests.SLOTS_FILE)
     if ss.console != console:
         raise SlotsError(f"{slots_dir}/SLOTS is the set of {ss.console}, not {console}")

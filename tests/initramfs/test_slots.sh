@@ -24,22 +24,22 @@ good() {
 		"lume-slots 1" \
 		"build 20261116-214233" \
 		"console $1" \
-		"slot base slots/base-$b12 $B 1000 -" \
+		"slot base slot/base-$b12 $B 1000 -" \
 		"pkg base musl 1.2.5-r10" \
 		"pkg base busybox 1.37.0-r20" \
-		"slot runtime slots/runtime-$r12 $R 2000 base=$B" \
-		"slot lume slots/lume-$l12 $L 3000 base=$B,runtime=$R" \
+		"slot runtime slot/runtime-$r12 $R 2000 base=$B" \
+		"slot lume slot/lume-$l12 $L 3000 base=$B,runtime=$R" \
 		"pkg lume lume-core 1.0-r3" \
-		"slot modules slots/modules-$m12 $M 4000 -" \
-		"slot core-snes9x slots/core-snes9x-$c12 $C 5000 base=$B,runtime=$R" \
+		"slot modules slot/modules-$m12 $M 4000 -" \
+		"slot core-snes9x slot/core-snes9x-$c12 $C 5000 base=$B,runtime=$R" \
 		"end 5 3"
 }
 # BOOT with the slot files of the good manifest for console $1
 mkboot() {
 	rm -rf "$W/boot"
-	mkdir -p "$W/boot/$1/slots"
+	mkdir -p "$W/boot/$1/slot"
 	for f in base-$b12 runtime-$r12 lume-$l12 modules-$m12 core-snes9x-$c12; do
-		: > "$W/boot/$1/slots/$f"
+		: > "$W/boot/$1/slot/$f"
 	done
 }
 D=$W/boot/ga36
@@ -50,9 +50,9 @@ good ga36 > "$D/SLOTS"
 check "good: check passes" 'slots_check "$W/boot" ga36 SLOTS >/dev/null'
 check "good: picks SLOTS, nothing logged" '[ "$(slots_pick "$W/boot" ga36 2>"$W/l1")" = ga36/SLOTS ] && [ ! -s "$W/l1" ]'
 check "good: overlay in mount order" '[ "$(slots_list "$W/boot" ga36/SLOTS overlay | cut -d" " -f1 | tr "\n" " ")" = "base runtime lume " ]'
-check "good: overlay paths" 'slots_list "$W/boot" ga36/SLOTS overlay | grep -qx "lume ga36/slots/lume-$l12 $l12"'
+check "good: overlay paths" 'slots_list "$W/boot" ga36/SLOTS overlay | grep -qx "lume ga36/slot/lume-$l12 $l12"'
 check "good: lowerdir top first" '[ "$(slots_lowerdir "$W/boot" ga36/SLOTS /slots)" = /slots/lume:/slots/runtime:/slots/base ]'
-check "good: modules slot" '[ "$(slots_list "$W/boot" ga36/SLOTS modules)" = "modules ga36/slots/modules-$m12 $m12" ]'
+check "good: modules slot" '[ "$(slots_list "$W/boot" ga36/SLOTS modules)" = "modules ga36/slot/modules-$m12 $m12" ]'
 check "good: cores" '[ "$(slots_list "$W/boot" ga36/SLOTS cores | cut -d" " -f1)" = core-snes9x ]'
 check "good: all slots" '[ "$(slots_list "$W/boot" ga36/SLOTS | wc -l)" -eq 5 ]'
 check "good: packages of a slot" '[ "$(slots_packages "$W/boot" ga36/SLOTS base)" = "musl-1.2.5-r10 busybox-1.37.0-r20" ]'
@@ -82,7 +82,7 @@ good ga36 | sed "s/ $R 2000 / $(sha C) 2000 /" > "$D/SLOTS"
 check "garbled: bad sha256" 'slots_check "$W/boot" ga36 SLOTS | grep -q "line 7: bad sha256 of slot runtime"'
 good ga36 | sed "s/runtime=$R/runtime=$(sha a)/" > "$D/SLOTS"
 check "garbled: incoherent lower slot" 'slots_check "$W/boot" ga36 SLOTS | grep -q "incoherent set"'
-good ga36 | sed "s|slots/lume-$l12|slots/lume-$b12|" > "$D/SLOTS"
+good ga36 | sed "s|slot/lume-$l12|slot/lume-$b12|" > "$D/SLOTS"
 check "garbled: file not named by its sha" 'slots_check "$W/boot" ga36 SLOTS | grep -q "slot lume has file"'
 good ga36 | sed 's/^lume-slots 1$/lume-slots 2/' > "$D/SLOTS"
 check "garbled: other format" '[ "$(slots_check "$W/boot" ga36 SLOTS)" = "is not a SLOTS manifest of format 1" ]'
@@ -97,16 +97,16 @@ check "garbled: text after end" 'slots_check "$W/boot" ga36 SLOTS | grep -q "tex
 
 ### 5. SLOTS cites a missing slot file: falls back to SLOTS.old
 good ga36 > "$D/SLOTS"
-mv "$D/slots/runtime-$r12" "$W/runtime"
-check "missing file: reason" '[ "$(slots_check "$W/boot" ga36 SLOTS)" = "cites a missing file ga36/slots/runtime-$r12" ]'
+mv "$D/slot/runtime-$r12" "$W/runtime"
+check "missing file: reason" '[ "$(slots_check "$W/boot" ga36 SLOTS)" = "cites a missing file ga36/slot/runtime-$r12" ]'
 check "missing file: no set usable (old one shares it)" '! slots_pick "$W/boot" ga36 >/dev/null 2>"$W/l5"'
-check "missing file: ERROR names both" 'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slots/runtime-$r12 and ga36/SLOTS.old cites a missing file ga36/slots/runtime-$r12; no slot set to mount" "$W/l5"'
-mv "$W/runtime" "$D/slots/runtime-$r12"
+check "missing file: ERROR names both" 'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slot/runtime-$r12 and ga36/SLOTS.old cites a missing file ga36/slot/runtime-$r12; no slot set to mount" "$W/l5"'
+mv "$W/runtime" "$D/slot/runtime-$r12"
 # the new set has a new lume slot that was not copied; the old set is whole
 N=$(sha 9); n12=$(echo "$N" | cut -c1-12)
 good ga36 | sed "s/$L/$N/; s/lume-$l12/lume-$n12/" > "$D/SLOTS"
 check "missing file: picks SLOTS.old" '[ "$(slots_pick "$W/boot" ga36 2>"$W/l6")" = ga36/SLOTS.old ]'
-check "missing file: ERROR logged" 'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slots/lume-$n12; using ga36/SLOTS.old from the previous build" "$W/l6"'
+check "missing file: ERROR logged" 'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slot/lume-$n12; using ga36/SLOTS.old from the previous build" "$W/l6"'
 
 ### 6. Old card: neither SLOTS nor SLOTS.old, the caller mounts <console>/SYSTEM
 mkboot ga36
