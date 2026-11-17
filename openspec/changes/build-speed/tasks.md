@@ -73,7 +73,10 @@ apoio, nunca para um nó.
 | 11.2 | todos | CPU, GA36, R36S, USUARIO | PR | — | 7 | J4 |
 
 **Modelos aprovados pelo usuário em 2026-11-16** (com a troca da 10.1 para `opus`). Antes de
-cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
+cada onda, os modelos dela são mostrados de novo para aprovação ou troca. **Em 2026-11-17** o
+usuário autorizou rodar as ondas restantes sem nova aprovação ("execute todas as implementações e
+tarefas possíveis e deixa o R36S para validar por último"), com os modelos desta tabela e
+subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim.
 
 **Trilhas e caminho crítico:**
 
