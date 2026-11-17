@@ -18,8 +18,8 @@ Step types:
 - wait_process: polls `pidof` until the process is present/absent.
 - shot: `dev shot --compare <screen>` (reference capture within tolerance).
 - sh: command as root; passes on exit 0 (its output is not printed).
-- open_game / close_game: hook `ctx.open_game` / `ctx.close_game` (node 3.2); until it is
-  plugged in the step fails with "not implemented yet".
+- open_game / close_game: hooks `ctx.open_game` / `ctx.close_game` (r36os.dev_game: the
+  button sequence), then wait for `game OK opened` / `game OK closed` within the step timeout.
 
 Privacy: a game name only exists in events.log after `content=`. The filter that cuts every
 line at ` content=` runs ON THE CONSOLE (awk), and again locally as a second guard, so the
@@ -38,11 +38,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from r36os import dev, scripts
+from r36os import dev, dev_game, scripts
 
 EVENTS_LOG = "/storage/logs/events.log"
 POLL_S = 1.0
 COUNT_MARK = "@@count "
+GAME_CATEGORY = "game"
+OPENED_PATTERN = r"\bOK opened\b"
+CLOSED_PATTERN = r"\bOK closed\b"
 
 
 class StepFailed(Exception):
@@ -94,8 +97,9 @@ class Context:
         self.sh = self.sh or self._default_sh
         self.shot = self.shot or self._default_shot
         self.play = self.play or self._default_play
-        self.open_game = self.open_game or self._not_implemented("open_game")
-        self.close_game = self.close_game or self._not_implemented("close_game")
+        games = dev_game.GameDriver(self.run, lambda seq: self.keys(seq))
+        self.open_game = self.open_game or games.open
+        self.close_game = self.close_game or games.close
         self.seen = self.start_lines
 
     def _default_sh(self, command: str, timeout: float) -> int:
@@ -123,12 +127,6 @@ class Context:
                 raise StepFailed(str(e)) from None
         if rc != 0:
             raise StepFailed((err.getvalue() or out.getvalue()).strip() or f"exit {rc}")
-
-    @staticmethod
-    def _not_implemented(kind: str):
-        def hook(*_a):
-            raise StepFailed(f"{kind} is not implemented yet (node 3.2)")
-        return hook
 
 
 # --- step handlers -----------------------------------------------------------------------
@@ -171,8 +169,12 @@ def read_new_events(ctx: Context) -> list[str]:
 
 
 def do_wait_event(ctx: Context, step) -> None:
-    pattern = re.compile(step.fields["pattern"])
-    category = step.fields.get("category")
+    wait_event(ctx, step, step.fields["pattern"], step.fields.get("category"))
+
+
+def wait_event(ctx: Context, step, pattern_text: str, category: str | None) -> None:
+    """Poll the new events.log lines until one matches, within the step timeout."""
+    pattern = re.compile(pattern_text)
     end = _deadline(ctx, step)
     while True:
         try:
@@ -187,7 +189,7 @@ def do_wait_event(ctx: Context, step) -> None:
         if ctx.now() >= end:
             what = f"category {category}, " if category else ""
             raise StepFailed(f"timeout after {step.timeout:g}s waiting for an event "
-                             f"({what}pattern {step.fields['pattern']})")
+                             f"({what}pattern {pattern_text})")
         ctx.sleep(POLL_S)
 
 
@@ -229,11 +231,19 @@ def do_sh(ctx: Context, step) -> None:
 
 
 def do_open_game(ctx: Context, step) -> None:
-    ctx.open_game(step.fields["system"], step.fields["position"])
+    try:
+        ctx.open_game(step.fields["system"], step.fields["position"])
+    except dev.DevError as e:
+        raise StepFailed(str(e)) from None
+    wait_event(ctx, step, OPENED_PATTERN, GAME_CATEGORY)
 
 
 def do_close_game(ctx: Context, step) -> None:
-    ctx.close_game()
+    try:
+        ctx.close_game()
+    except dev.DevError as e:
+        raise StepFailed(str(e)) from None
+    wait_event(ctx, step, CLOSED_PATTERN, GAME_CATEGORY)
 
 
 HANDLERS = {

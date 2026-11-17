@@ -1,0 +1,17 @@
+description = "Opens the first Game Boy Color game from the launcher, lets it run a few seconds and closes it (no game is named)."
+consoles = ["ga36", "r36s"]
+
+[[step]]
+name = "open the first gbc game"
+type = "open_game"
+system = "gbc"
+position = 1
+
+[[step]]
+name = "let it run"
+type = "sh"
+command = "sleep 3"
+
+[[step]]
+name = "close the game"
+type = "close_game"

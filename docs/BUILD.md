@@ -405,10 +405,35 @@ A execução **para no primeiro passo que falha** (os seguintes dependem dele); 
 `/storage/logs/events.log` a cada ~1 s e só vê as linhas escritas depois do início do roteiro
 (`category` é o 3o campo da linha, `pattern` é uma regex); `wait_process` usa `pidof`;
 `shot` faz o `dev shot --compare`; `sh` passa com saída 0 (a saída não é impressa); `play`
-usa o `dev play`; `open_game`/`close_game` dependem do nó 3.2 (até lá o passo falha com
-"not implemented yet"). **Privacidade:** o filtro que corta cada linha do `events.log` em
+usa o `dev play`; `open_game`/`close_game` estão descritos abaixo. **Privacidade:** o filtro que corta cada linha do `events.log` em
 ` content=` roda no próprio console e de novo no PC, e nenhuma linha do log é impressa; o nome
 do jogo nunca sai do console. Código em `src/r36os/dev_run.py`.
+
+**Abrir e fechar um jogo (`open_game`, `close_game`):** o roteiro diz `system` e `position`
+(1 = o primeiro da grade, ordenada por nome). Código em `src/r36os/dev_game.py`.
+
+1. Um comando de shell no console lê o índice do launcher e imprime só números:
+   `dock_index=<n> dock_count=<n> games=<n>` (`dock_index` é a posição do ladrilho do sistema
+   no Dock, 0 = Favoritos; `dock_count` são todos os ladrilhos; `games` vem do campo `count`
+   do cabeçalho de `/storage/system/lume/cache/index/<sistema>.bin`). A ordem do Dock é a do
+   catálogo `/usr/share/r36os/systems.json`, só com sistemas que têm jogos. Sistema sem jogos
+   (ou `position` maior que `games`) falha **antes de qualquer botão**.
+2. O PC monta a sequência a partir do código do `lume-ui` (`app.rs`: `dock_input`,
+   `grid_input`, `overlay_input`): `b*4` (volta ao Dock de qualquer tela), Esquerda/Direita
+   pelo caminho mais curto até o ladrilho (o Dock dá a volta), `a` (entra na grade, foco no
+   primeiro jogo), `down*L,right*C` até a posição (grade de 4 colunas), `a` (abre o menu do
+   jogo, "Iniciar" é a primeira linha) e `a` (inicia).
+3. O passo espera `game OK opened` no `events.log` (o `timeout` do passo). `close_game` manda
+   `fn+start` e espera `game OK closed`.
+
+Premissas a confirmar no aparelho: o foco do Dock é lido de fora? Não: o driver parte de
+Favoritos (o launcher recém-iniciado) e depois lembra o ladrilho do último jogo aberto (o
+launcher volta a ele); a grade tem 4 colunas (todos os temas entregues); o Dock não lista
+sistemas só do cartão (`systems.d`), que ficam fora da conta.
+
+Roteiros prontos em `tests/device/scripts/`: `open-close-<sistema>.toml` (nes, snes, gb, gbc,
+gba, megadrive, psx; o primeiro jogo de cada um) e `launcher-screens.toml` (as telas de
+referência do `dev shot`). Ex.: `r36os dev run open-close-gba`.
 
 ## Relatório de energia: `r36os power report`
 

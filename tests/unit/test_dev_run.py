@@ -229,25 +229,23 @@ screen = "home"
 '''), shot=lambda s: (False, "12 of 100 pixels differ"))
     assert dev_run.run_script(script, ctx, "ga36") == 1
     assert "FALHOU (12 of 100 pixels differ)" in capsys.readouterr().out
-    script, ctx, _, _ = make(hdr('''
-[[step]]
-name = "open"
-type = "open_game"
-system = "nes"
-position = 1
-'''))
-    assert dev_run.run_script(script, ctx, "ga36") == 1
-    assert "not implemented yet" in capsys.readouterr().out
     opened = []
+    console = FakeConsole()
+
+    def open_game(s, p):
+        opened.append((s, p))
+        console.lines.append("2026-11-09T21:10:00 4 game OK opened: core=X content=" + SECRET)
+
     script, ctx, _, _ = make(hdr('''
 [[step]]
 name = "open"
 type = "open_game"
 system = "nes"
 position = 2
-'''), open_game=lambda s, p: opened.append((s, p)))
+'''), console=console, open_game=open_game)
     assert dev_run.run_script(script, ctx, "ga36") == 0
     assert opened == [("nes", 2)]
+    assert SECRET not in capsys.readouterr().out
 
 
 def test_resolve_script(tmp_path):
