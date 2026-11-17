@@ -7,10 +7,11 @@ import re
 
 from r36os.paths import REPO_ROOT
 
-OVERLAY = REPO_ROOT / "rootfs/overlay"
+NET = REPO_ROOT / "aports/lume-net/files"
+CFG = REPO_ROOT / "aports/lume-retroarch-cfg/files"
 PACKAGES = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
-LUME_CFG = (OVERLAY / "usr/share/r36os/retroarch-lume.cfg").read_text()
+LUME_CFG = (CFG / "usr/share/r36os/retroarch-lume.cfg").read_text()
 
 
 FIRMWARE = ("linux-firmware-rtw88", "linux-firmware-rtlwifi", "linux-firmware-ath9k_htc",
@@ -35,7 +36,7 @@ def test_packages_for_wifi_bluetooth_and_their_firmware():
 
 def test_networkmanager_only_manages_wifi_and_needs_no_polkit():
     conf = configparser.ConfigParser()
-    conf.read_string((OVERLAY / "etc/NetworkManager/conf.d/lume.conf").read_text())
+    conf.read_string((NET / "etc/NetworkManager/conf.d/lume.conf").read_text())
     assert conf["main"]["auth-polkit"] == "false"          # RetroArch runs as "game"
     # the USB cable network (usb0) and the vm network stay out of NetworkManager's hands
     assert conf["keyfile"]["unmanaged-devices"] == "*,except:type:wifi"
@@ -43,7 +44,7 @@ def test_networkmanager_only_manages_wifi_and_needs_no_polkit():
 
 
 def test_bluez_answers_the_frontend_user():
-    policy = (OVERLAY / "etc/dbus-1/system.d/lume-bluetooth.conf").read_text()
+    policy = (NET / "etc/dbus-1/system.d/lume-bluetooth.conf").read_text()
     assert '<policy user="game">' in policy
     assert '<allow send_destination="org.bluez"/>' in policy
 

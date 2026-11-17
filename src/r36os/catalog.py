@@ -12,8 +12,8 @@ from pathlib import Path
 
 from r36os.paths import REPO_ROOT
 
-CATALOG = REPO_ROOT / "rootfs/overlay/usr/share/r36os/systems.json"
-RUNNERS_DIR = REPO_ROOT / "rootfs/overlay/usr/share/lume/runners.d"
+CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
+RUNNERS_DIR = REPO_ROOT / "aports/lume-games/files/usr/share/lume/runners.d"
 ARCHES = {"x86_64", "aarch64", "armv7"}
 _ID = re.compile(r"^[a-z0-9]+$")
 _EXT = re.compile(r"^[a-z0-9]+$")
@@ -73,7 +73,7 @@ def validate_runner(r: dict) -> list[str]:
 def validate(cat: dict, runners: dict[str, dict] | None = None) -> list[str]:
     """Schema errors (empty if the catalog is valid).
 
-    `runners` are the image runners (default: rootfs/overlay/usr/share/lume/runners.d); every
+    `runners` are the image runners (default: aports/lume-games/files/usr/share/lume/runners.d); every
     runner a system cites must be there and be valid.
     """
     runners = load_runners() if runners is None else runners

@@ -1,5 +1,6 @@
-"""build-speed 4.2: the lume-core fragment (aports/lume-core) takes its files out of
-rootfs/overlay without losing, adding or changing any file of the image."""
+"""build-speed 4.2 and 8.1: the lume-core fragment and the other noarch fragments take their
+files out of rootfs/overlay without losing, adding or changing any file of the image (the
+identity tests compare the union of every fragment and the overlay with the base commit)."""
 
 import subprocess
 
@@ -22,6 +23,11 @@ CORE = {
     "usr/libexec/r36os/logd", "usr/libexec/r36os/logs.sh", "usr/libexec/r36os/rc-tee",
     "usr/libexec/r36os/session",
 }
+
+
+FRAGMENTS = ("lume-core", "lume-usb", "lume-net", "lume-audio", "lume-saves", "lume-diag",
+             "lume-power", "lume-games", "lume-launcher-data", "lume-retroarch-cfg",
+             "lume-shaders")
 
 
 def _tree(root):
@@ -57,16 +63,24 @@ def test_the_fragment_ships_exactly_the_core_files():
     assert _tree(FILES) == CORE
 
 
-def test_aport_and_overlay_together_are_the_overlay_before_the_move():
+def _roots():
+    """The overlay and the files/ tree of every noarch fragment of the split (4.2 and 8.1)."""
+    return [OVERLAY, *(REPO_ROOT / "aports" / n / "files" for n in FRAGMENTS)]
+
+
+def test_aports_and_overlay_together_are_the_overlay_before_the_move():
     base = _base_overlay()
-    core, overlay = _tree(FILES), _tree(OVERLAY)
-    assert not core & overlay, "a file is both in the package and in the overlay"
-    assert core | overlay == set(base)
+    seen: dict[str, str] = {}
+    for root in _roots():
+        for rel in _tree(root):
+            assert rel not in seen, f"{rel} is in {seen[rel]} and in {root}"
+            seen[rel] = str(root)
+    assert set(seen) == set(base)
 
 
 def test_every_file_keeps_its_content_and_mode():
     base = _base_overlay()
-    for root in (FILES, OVERLAY):
+    for root in _roots():
         for rel in _tree(root):
             mode, sha = base[rel]
             assert (_git_mode(root / rel), _blob_sha(root / rel)) == (mode, sha), rel

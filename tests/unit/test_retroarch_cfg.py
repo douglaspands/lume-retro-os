@@ -5,10 +5,10 @@ import subprocess
 
 from r36os.paths import REPO_ROOT
 
-CFG = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/retroarch-lume.cfg").read_text()
+CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/retroarch-lume.cfg").read_text()
 
 
-FACTORY = (REPO_ROOT / "rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
 
 
 def _keys(text):
@@ -101,7 +101,7 @@ def test_no_recurring_errors_from_core_info_cache_and_midi():
 def test_sysctl_override_keeps_only_keys_every_kernel_has():
     # task 9.11: Alpine's 00-alpine.conf sets network and bpf keys the console kernel lacks;
     # a file of the same name in /etc/sysctl.d replaces it (OpenRC sysctl service)
-    conf = (REPO_ROOT / "rootfs/overlay/etc/sysctl.d/00-alpine.conf").read_text()
+    conf = (REPO_ROOT / "aports/lume-power/files/etc/sysctl.d/00-alpine.conf").read_text()
     keys = re.findall(r"^([a-z_.]+)\s*=", conf, re.M)
     assert keys == ["kernel.panic", "fs.protected_hardlinks", "fs.protected_symlinks"]
 
@@ -134,11 +134,11 @@ def test_no_quit_combo_and_menu_pauses():
     # shutting down asks for confirmation by default (patch 0002: the menu item has to be
     # selected twice); the self-test turns it off for itself because it quits with QUIT
     assert 'quit_press_twice = "true"' in CFG
-    selftest_init = (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-selftest").read_text()
+    selftest_init = (REPO_ROOT / "aports/lume-diag/files/etc/init.d/r36os-selftest").read_text()
     assert 'quit_press_twice = \\"false\\"' in selftest_init or 'quit_press_twice = "false"' in selftest_init
 
 
-SHARE = REPO_ROOT / "rootfs/overlay/usr/share/r36os"
+SHARE = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os"
 FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch"
 
 
@@ -149,7 +149,7 @@ def test_volume_buttons_belong_to_the_input_daemon():
     assert "input_volume" not in CFG
     # the menu still opens from Fn through the autoconfig (BTN_MODE), on both consoles
     for pad in ("R36S Gamepad.cfg", "GA36-MB Gamepad.cfg"):
-        auto = (REPO_ROOT / "rootfs/overlay/usr/share/libretro/autoconfig/udev" / pad).read_text()
+        auto = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev" / pad).read_text()
         assert re.search(r'^input_menu_toggle_btn = "\d+"$', auto, re.M), pad
 
 

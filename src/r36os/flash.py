@@ -57,9 +57,9 @@ BOOTLOADER_START = 8192             # sector 0 (MBR) is never written in update 
 CHUNK = 1 << 22
 ALIGN = 2048                        # 1 MiB, as the initramfs (initramfs/lib/storage.sh)
 MIN_ROMS = 131072                   # 64 MiB, as the initramfs
-OVERLAY = REPO_ROOT / "rootfs/overlay"
-CATALOG = OVERLAY / "usr/share/r36os/systems.json"
-FACTORY = OVERLAY / "usr/share/r36os/factory"
+# shipped by the lume-games and lume-retroarch-cfg fragments
+CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
+FACTORY = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory"
 BASE_FOLDERS = ("bios", "saves", "states", "screenshots", "system")
 
 

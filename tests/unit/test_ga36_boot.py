@@ -13,7 +13,7 @@ from r36os.paths import REPO_ROOT
 
 BOARD = REPO_ROOT / "board/ga36"
 FRAGMENT = (BOARD / "kernel.config").read_text()
-AUTOCONFIG = REPO_ROOT / "rootfs/overlay/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg"
+AUTOCONFIG = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg"
 
 
 def test_ga36_factory_logo_is_the_boot_logo():

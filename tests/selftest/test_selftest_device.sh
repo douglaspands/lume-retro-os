@@ -8,7 +8,7 @@ W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 
-LIBDIR=$PWD/rootfs/overlay/usr/libexec/r36os
+LIBDIR=$PWD/aports/lume-diag/files/usr/libexec/r36os
 export R36OS_LIBDIR=$PWD/aports/lume-core/files/usr/libexec/r36os SELFTEST_DEVICE_SOURCE=1
 
 # One healthy console in $W; a scenario function may then break it
@@ -106,8 +106,8 @@ fake_console vm; echo vm > "$W/c/board"; run_device
 check "vm: refused with exit 2" '[ $RC = 2 ] && grep -q "^SELFTEST-ERROR" "$W/out" && ! grep -q "^SELFTEST-DONE" "$W/out"'
 
 ### the dispatcher: `selftest device` hands over to selftest-device, other modes are unchanged
-check "selftest dispatches device mode first" 'sed -n "/^\[ \"\$1\" = device \]/=" rootfs/overlay/usr/libexec/r36os/selftest | grep -q . && [ "$(grep -n "exec /usr/libexec/r36os/selftest-device" rootfs/overlay/usr/libexec/r36os/selftest | cut -d: -f1)" -lt "$(grep -n "^T=" rootfs/overlay/usr/libexec/r36os/selftest | cut -d: -f1)" ]'
-check "selftest still runs the phases" 'grep -q "^run)" rootfs/overlay/usr/libexec/r36os/selftest'
+check "selftest dispatches device mode first" 'sed -n "/^\[ \"\$1\" = device \]/=" aports/lume-diag/files/usr/libexec/r36os/selftest | grep -q . && [ "$(grep -n "exec /usr/libexec/r36os/selftest-device" aports/lume-diag/files/usr/libexec/r36os/selftest | cut -d: -f1)" -lt "$(grep -n "^T=" aports/lume-diag/files/usr/libexec/r36os/selftest | cut -d: -f1)" ]'
+check "selftest still runs the phases" 'grep -q "^run)" aports/lume-diag/files/usr/libexec/r36os/selftest'
 
 rm -rf "$W"
 [ "$FAILS" -eq 0 ]

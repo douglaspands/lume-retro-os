@@ -8,8 +8,8 @@ import re
 from r36os.paths import REPO_ROOT
 
 ROOTFS = REPO_ROOT / "rootfs"
-# the files of the image come from the overlay or from the lume-core fragment (same paths)
-TREES = (ROOTFS / "overlay", REPO_ROOT / "aports/lume-core/files")
+# the files of the image come from the overlay or from the noarch fragments (same paths)
+TREES = (ROOTFS / "overlay", *sorted((REPO_ROOT / "aports").glob("lume-*/files")))
 CONFIGURE = (ROOTFS / "configure.sh").read_text()
 
 # depend() of the init scripts that come from Alpine 3.24 packages (not in the repo)
@@ -146,7 +146,7 @@ def test_packaged_services_get_the_order_from_conf_d():
     # the init scripts of networkmanager-openrc and bluez-openrc stay untouched
     for name in ("networkmanager", "bluetooth"):
         assert not init_script(name), name
-        assert re.search(r'^rc_after="frontend"$', (ROOTFS / "overlay/etc/conf.d" / name).read_text(), re.M), name
+        assert re.search(r'^rc_after="frontend"$', (REPO_ROOT / "aports/lume-net/files/etc/conf.d" / name).read_text(), re.M), name
 
 
 def test_hardware_snapshot_is_taken_after_the_frontend():

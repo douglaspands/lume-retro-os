@@ -2,7 +2,7 @@
 # Tarefa 6.2: r36os-playlists com fixtures. Roda em busybox + jq (container do builder).
 set -u
 cd "$(dirname "$0")/../.."
-GEN="busybox sh rootfs/overlay/usr/bin/r36os-playlists -c rootfs/overlay/usr/share/r36os/systems.json -i /nao-existe"
+GEN="busybox sh aports/lume-games/files/usr/bin/r36os-playlists -c aports/lume-games/files/usr/share/r36os/systems.json -i /nao-existe"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }

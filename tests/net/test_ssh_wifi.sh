@@ -4,7 +4,7 @@
 # dropbearkey and chpasswd.
 set -u
 cd "$(dirname "$0")/../.."
-SSH_WIFI="busybox sh rootfs/overlay/usr/libexec/r36os/ssh-wifi"
+SSH_WIFI="busybox sh aports/lume-net/files/usr/libexec/r36os/ssh-wifi"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }

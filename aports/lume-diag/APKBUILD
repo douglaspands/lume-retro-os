@@ -1,0 +1,31 @@
+# Lume Retro OS: the diag fragment (build-speed D2, node 8.1). The selftest and hwsummary services and the selftest, selftest-device, hwinfo and
+# hwsummary scripts.
+# The files live in files/ at the same paths and modes they have in the image, and the package
+# ships them as they are.
+#
+# noarch: built once in the x86_64 builder and published as the same .apk for every
+# architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
+pkgname=lume-diag
+pkgver=1.0
+pkgrel=0
+pkgdesc="Diagnostics: selftest, hardware info and the hardware summary"
+url="https://example.invalid"
+arch="noarch"
+license="GPL-2.0-or-later"
+depends="lume-core"
+options="!check" # tested on the host (tests/unit and the shell suites)
+# services `r36os push --hot` restarts when they are running (empty: none)
+_lume_restart=""
+builddir="$srcdir"
+
+build() {
+	:
+}
+
+package() {
+	mkdir -p "$pkgdir"
+	cp -a "$startdir"/files/. "$pkgdir"/
+	# a checkout may have any umask: pin the directories (the files keep the git modes)
+	find "$pkgdir" -type d -exec chmod 755 {} +
+	chown -R 0:0 "$pkgdir"
+}
