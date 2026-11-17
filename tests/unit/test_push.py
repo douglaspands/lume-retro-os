@@ -487,3 +487,20 @@ def test_no_wait_and_nothing_to_send_never_wait(build, tmp_path):
     same = FakeConsole(board="r36s", boot=NEW)
     rc, out = run_push(tmp_path, same, wait=True)
     assert rc == 0 and same.log == ["probe"] and same.clock.sleeps == 0
+
+
+def test_ssh_drops_a_dead_connection_and_a_hung_probe_is_no_answer(monkeypatch):
+    # J1 (2026-11-16): the probe started as the console rebooted and hung for minutes
+    import subprocess
+
+    base = " ".join(push.Remote().base)
+    assert "ServerAliveInterval=3" in base and "ServerAliveCountMax=2" in base
+    seen = {}
+
+    def hung(argv, **kw):
+        seen["timeout"] = kw.get("timeout")
+        raise subprocess.TimeoutExpired(argv, kw.get("timeout"))
+
+    monkeypatch.setattr(push.subprocess, "run", hung)
+    assert push.Remote().answers() is False
+    assert seen["timeout"] == push.PROBE_TIMEOUT

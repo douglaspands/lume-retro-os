@@ -49,6 +49,7 @@ from r36os.paths import cache_dir, ensure_dir
 from r36os.targets import IMAGES
 
 CONSOLE_ADDR = "10.55.0.1"       # the console on the USB network (D5)
+PROBE_TIMEOUT = 10               # seconds for one "does the console answer?" ssh probe
 STAGING = "/storage/.lume-push"
 MIN_BATTERY = 20
 ANDROID_SECTOR = 172032          # GA36 kernel boot image (r36os.vendor.ANDROID_BOOT_SECTOR)
@@ -92,9 +93,14 @@ class Remote:
 
     def __init__(self, host: str = CONSOLE_ADDR):
         self.host = host
+        # ServerAlive*: a connection that dies in the middle (the console rebooting) is
+        # dropped in ~6 s; ConnectTimeout only covers opening it (J1, 2026-11-16: a probe
+        # caught by the reboot hung for minutes)
         self.base = ["ssh", "-o", "UserKnownHostsFile=/dev/null",
                      "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
-                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"root@{host}"]
+                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                     "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
+                     f"root@{host}"]
 
     def run(self, cmd: str, stdin: Path | None = None) -> str:
         with (stdin.open("rb") if stdin else open("/dev/null", "rb")) as f:
@@ -108,9 +114,13 @@ class Remote:
         return r.stdout.decode(errors="replace")
 
     def answers(self) -> bool:
-        """True when the console answers ssh over the cable now."""
-        return subprocess.run([*self.base, "true"], stdin=subprocess.DEVNULL,
-                              capture_output=True).returncode == 0
+        """True when the console answers ssh over the cable now (False after
+        PROBE_TIMEOUT seconds, whatever ssh is doing)."""
+        try:
+            return subprocess.run([*self.base, "true"], stdin=subprocess.DEVNULL,
+                                  capture_output=True, timeout=PROBE_TIMEOUT).returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
 
 @dataclass

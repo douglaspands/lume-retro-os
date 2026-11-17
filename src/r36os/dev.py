@@ -98,9 +98,9 @@ def run_capture(host: str, cmd: str) -> str:
 def wait_for_console(host: str, timeout: float, interval: float = 2.0,
                      sleep=time.sleep, now=time.monotonic, probe=None) -> bool:
     """True when the console answers over the cable before `timeout` seconds."""
-    probe = probe or (lambda: subprocess.run(
-        ssh_argv(host, "true"), stdin=subprocess.DEVNULL,
-        capture_output=True).returncode == 0)
+    if probe is None:
+        from r36os.push import Remote
+        probe = Remote(host).answers  # bounded: a probe caught by a reboot cannot hang
     end = now() + timeout
     while True:
         if probe():
