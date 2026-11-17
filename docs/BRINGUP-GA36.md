@@ -134,7 +134,12 @@ aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funç�
 - **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
   `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
   senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
-  `README.md`).
+  `README.md`). Para o dia a dia use o `r36os dev` (esperar, comando, tela, botões, log e
+  autoteste, em [BUILD.md](BUILD.md)); o ssh direto fica para o que ele não cobre. O cartão
+  vai de um console ao outro e só um deles fica no PC; ambos respondem em `10.55.0.1`, e
+  `r36os dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `r36os push --hot
+  <fragmento>` e `r36os dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
+  em [BUILD.md](BUILD.md)).
 
 **Como funciona no GA36:** o papel da porta vem só do pino ID (PH8): sem adaptador, o MUSB
 fica pronto como device. Uma medição anterior de 2026-11-13 dizia que o VBUS da porta OTG não
@@ -172,7 +177,10 @@ journalctl -k -f            # ao ligar o cabo: "Product: Lume GA36" e "cdc_ncm .
 Se o `lsusb` não mostra nada: o console terminou de ligar? O cabo está na porta OTG? O cabo
 transmite dados (muitos só carregam)? Teste outro cabo ou outra porta do PC.
 
-**2. Entrar no console:** `lume` (shell de root). Um comando só: `lume <comando>`.
+**2. Entrar no console:** `lume` (shell de root). Um comando só: `lume <comando>`. O
+equivalente do `r36os dev` (um comando por chamada, sem apelido): `.venv/bin/r36os dev sh
+<comando>`; `.venv/bin/r36os dev wait` espera o console responder; `.venv/bin/r36os dev
+check --console ga36` roda o autoteste.
 
 | Para quê | Comando |
 |---|---|
@@ -180,6 +188,7 @@ transmite dados (muitos só carregam)? Teste outro cabo ou outra porta do PC.
 | Versão do build | `lume cat /boot/VERSION` |
 | Log do kernel | `lume dmesg` (ou `lume dmesg \| tail -n 30`) |
 | Eventos do sistema | `lume cat /storage/logs/events.log` |
+| Log do boot atual e seus eventos | `.venv/bin/r36os dev log` |
 | Saída do servidor MTP | `lume cat /run/r36os/usb/umtprd.log` |
 | Processos | `lume ps` |
 | Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- r36os-usb restart` |
@@ -218,7 +227,10 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
   sha256sum jogo.zip ; lume sha256sum /storage/roms/<sistema>/jogo.zip     # conferir
   ```
 
-**4. Atualizar o console:** `uv run r36os push --build <carimbo>` (ver o `README.md`).
+**4. Atualizar o console:** `uv run r36os push --build <carimbo>` (ver o `README.md`). Depois
+do reboot o `push` espera o console voltar e confere o boot novo (número do boot, build do
+`/boot/VERSION` e `boot OK completed` no `events.log`), terminando em `ok: boot N completed
+with build X (...)`; `--no-wait` só reinicia. Detalhes em [BUILD.md](BUILD.md).
 
 **Medido (2026-11-13):** com o build `20261113-192923`, o PC enumerou o "Lume GA36" em
 high-speed, com MTP e NCM: o papel pelo pino ID funciona. Naquele build, o PC ficou sem
@@ -308,8 +320,12 @@ recebe o uid (os dois são 1000).
 ### Ver a tela e apertar botões pelo cabo
 
 - **Tela:** `r36os-shot /tmp/s.png` (pacote `r36os-input`) grava a imagem do que está na tela,
-  lida do DRM; serve para o lume, o menu do RetroArch e os jogos. Como o `dropbear` não tem
-  `scp`, a imagem vem pelo ssh com `cat`.
+  lida do DRM; serve para o lume, o menu do RetroArch e os jogos. Do PC, um comando só faz o
+  caminho todo (captura, `cat` pelo ssh e verificação do PNG):
+  `.venv/bin/r36os dev shot cache/tmp/tela.png`. Para comparar com a referência do GA36:
+  `.venv/bin/r36os dev shot --compare home` (ver [BUILD.md](BUILD.md)).
+- **Botões pelo cabo:** `.venv/bin/r36os dev keys 'a,down*3,wait:500,fn+start'` (o texto
+  abaixo explica o que ele faz por dentro).
 - **Botões:** escrever `struct input_event` de 32 bits (16 bytes: dois `long` de tempo, tipo,
   código e valor, seguidos de um `EV_SYN`) num nó de entrada. No `/dev/input/event3` (o
   controle virtual do `r36os-input`) chegam ao lume e ao RetroArch. Combinações do

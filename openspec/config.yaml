@@ -26,6 +26,59 @@ context: |
   - Nada do protótipo foi verificado no aparelho (consumo, gamepad, runner). Incluir tarefas de
     medição no R36S e no clone mais fraco antes de dar o change por concluído.
 
+rules:
+  tasks:
+    - >-
+      Planejamento em grafo (regra do projeto): o tasks.md MUST começar com uma seção
+      "Grafo de execução" (sem checkbox) antes dos grupos numerados, contendo (1) os recursos
+      exclusivos usados (CPU = um build pesado por vez, sob a proteção de calor; ARCH:<arch> =
+      um `r36os pkg` por arquitetura; GA36; R36S; USUARIO = ação física ou olho humano;
+      MERGE = um merge por vez no branch da change), (2) uma tabela com uma linha por task:
+      nó, depende de, recursos, executor (AG = subagente em out/worktrees/<nó>, só código e
+      teste de unidade; PR = sessão principal: merge, build, aparelho), modelo e onda, (3) as trilhas
+      e o caminho crítico em ASCII, (4) as ondas (nós de uma onda sem recurso em comum rodam em
+      paralelo) e (5) as janelas de aparelho, que juntam as provas que precisam do usuário.
+    - >-
+      Coluna "modelo" do grafo (só da parte AG; a parte PR usa o modelo da sessão principal e
+      aparece como "—"): opus quando um erro deixa o console sem boot, corrompe o build ou deixa
+      passar uma versão errada (initramfs, boot, slots, push, kernel, hashes e versões de
+      pacotes, compilação cruzada, proteção de calor, rede do cabo) ou quando a task é uma prova
+      com caminho incerto; sonnet para código bem especificado com teste de unidade claro,
+      documentação e mudanças mecânicas conferidas por manifesto ou checksum; haiku só para
+      buscas largas de apoio, nunca para um nó. Na dúvida, opus.
+    - >-
+      Os modelos são propostos, não decididos: logo abaixo da tabela, a linha
+      "Modelos: propostos, aguardando aprovação do usuário" só muda para "Modelos aprovados
+      pelo usuário em <data>" depois que o usuário revisar a coluna nó a nó. Ao escrever ou
+      alterar o grafo, mostrar a coluna agrupada por modelo e pedir a aprovação; as trocas que o
+      usuário pedir entram na tabela antes de marcar como aprovada.
+    - >-
+      Quando várias tasks dependem de um formato compartilhado (manifesto, arquivo de
+      lista, protocolo), criar antes uma task que congela essa interface com testes de leitura
+      e escrita, para os consumidores avançarem em paralelo.
+    - >-
+      Uma task com prova no aparelho pode ter o código mesclado antes da janela dela, mas só
+      é marcada [x] depois da prova.
+
+operations:
+  apply:
+    guidance:
+      - >-
+        Executar pelo "Grafo de execução" do tasks.md, onda por onda: nós AG em paralelo, cada
+        um na sua worktree em out/worktrees/<nó> (testes com PYTHONPATH=src e o .venv
+        principal); nós com CPU numa fila única, nunca dois builds pesados ao mesmo tempo;
+        merges um por vez, seguidos da suíte de unidade completa e das suítes de shell; um nó
+        só começa com todas as dependências mescladas. Cada subagente é criado com o modelo da
+        coluna "modelo" do nó (parâmetro model da ferramenta Agent). Antes de cada onda,
+        mostrar ao usuário os nós dela com o modelo de cada um e esperar a aprovação ou as
+        trocas, mesmo que a tabela já esteja aprovada; uma troca vira a nova linha da tabela
+        (e a data de aprovação é atualizada). Nenhum subagente é criado sem essa aprovação.
+        Mais de um subagente ao mesmo tempo, ou
+        a ferramenta Workflow, só com o pedido do usuário para aquela onda.
+      - >-
+        Antes de cada janela de aparelho, avisar o usuário quais provas ela cobre e o que ele
+        precisa ligar ou fazer.
+
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
 # Include constraints an agent cannot infer by reading the code.

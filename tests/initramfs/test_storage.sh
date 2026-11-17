@@ -1,9 +1,11 @@
 #!/bin/busybox sh
-# Testes da lógica de partições do initramfs (tarefas 4.1-4.3) sobre imagens falsas.
-# Roda no container do builder: busybox sh tests/initramfs/test_storage.sh
+# Tests of the initramfs storage logic (tasks 4.1-4.3) on fake images, and of the root mount
+# sequence (build-speed 4.5) with fake mount/umount.
+# Runs in the builder container: busybox sh tests/initramfs/test_storage.sh
 set -u
 cd "$(dirname "$0")"
 . ../../initramfs/lib/storage.sh
+. ../../initramfs/lib/slots.sh
 export TMPDIR=$(mktemp -d)
 W=$TMPDIR
 FAILS=0
@@ -136,12 +138,14 @@ B=$W/boot
 mkdir -p "$B/ga36" && : > "$B/ga36/SYSTEM"
 check "system: ga36 finds its SYSTEM" '[ -f "$B/$(system_file ga36)" ]'
 check "system: r36s does not find one" '[ ! -f "$B/$(system_file r36s)" ]'
-# the init rescues with the console and the file in the message, with no fallback
+# the init (mount_root of slots.sh since build-speed 4.5) rescues with the console and the
+# file in the message, with no fallback to another console
 INIT=../../initramfs/init
-check "system: init uses system_file" 'grep -q "SYSTEM=\$(system_file \"\$BOARD\")" "$INIT"'
+SLOTS_SH=../../initramfs/lib/slots.sh
+check "system: mount_root uses system_file" 'grep -q "system=\$(system_file \"\$board\")" "$SLOTS_SH"'
 check "system: rescue names the file and the console" \
-	'grep -q "rescue \"BOOT has no \$SYSTEM, the system of the \$(console_label \"\$BOARD\")" "$INIT"'
-check "system: never mounts /boot/SYSTEM directly" '! grep -q "/boot/SYSTEM " "$INIT"'
+	'grep -q "rescue \"BOOT has no \$system, the system of the \$(console_label \"\$board\")" "$SLOTS_SH"'
+check "system: never mounts /boot/SYSTEM directly" '! grep -q "/boot/SYSTEM " "$INIT" "$SLOTS_SH"'
 
 ### 9b. The .old of a push cut between its two renames (push-boot-swap D4)
 check "boot_file: present" '[ "$(boot_file "$B" ga36/SYSTEM 2>"$W/bf1")" = ga36/SYSTEM ] && [ ! -s "$W/bf1" ]'
@@ -152,8 +156,8 @@ check "boot_file: only .old" '[ "$(boot_file "$B" ga36/SYSTEM 2>"$W/bf2")" = ga3
 check "boot_file: .old logged as ERROR" 'grep -qx "lume: ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build" "$W/bf2"'
 check "boot_file: neither fails" '! boot_file "$B" r36s/SYSTEM >/dev/null 2>"$W/bf3" && [ ! -s "$W/bf3" ]'
 check "boot_file: no other console" '! boot_file "$B" r36s/SYSTEM >/dev/null 2>&1'
-check "system: init mounts the boot_file result" \
-	'grep -q "ROOT_FILE=\$(boot_file /boot \"\$SYSTEM\") || rescue" "$INIT" && grep -q "ro,loop \"/boot/\$ROOT_FILE\" /lower" "$INIT"'
+check "system: mount_root mounts the boot_file result" \
+	'grep -q "file=\$(boot_file \"\$boot\" \"\$system\") || {" "$SLOTS_SH" && grep -q "ro,loop \"\$boot/\$file\" \"\$lower\"" "$SLOTS_SH"'
 rm "$B/ga36/SYSTEM.old"; : > "$B/ga36/SYSTEM"
 
 ### 10. Kernel modules image of each console (kernel-modules-image 2.1, 2.2)
@@ -222,14 +226,263 @@ MOUNT_FAILS=""
 run_modules vm
 check "vm: nothing done, nothing logged" '[ ! -s "$MLOG" ] && [ ! -s "$W/mlog" ]'
 unset -f mount umount uname
-# the init: after select_dtb and the overlay, before the moves and switch_root
+# the init: root and modules (mount_root) after select_dtb, before the moves and switch_root
 line_of() { grep -n "$1" "$INIT" | head -n1 | cut -d: -f1; }
-CALL=$(line_of '^mount_modules "\$BOARD" /boot /modules /newroot$')
-check "init: calls mount_modules" '[ -n "$CALL" ]'
+CALL=$(line_of '^mount_root "\$BOARD" /boot /slots /lower /rw /newroot /modules$')
+check "init: calls mount_root" '[ -n "$CALL" ] && [ "$(grep -c "mount_root" "$INIT")" -eq 1 ]'
 check "init: after select_dtb" '[ "$CALL" -gt "$(line_of "^select_dtb$")" ]'
-check "init: after the overlay" '[ "$CALL" -gt "$(line_of "^mount -t overlay")" ]'
 check "init: before BOOT moves and switch_root" '[ "$CALL" -lt "$(line_of "^mount --move /boot")" ] && [ "$CALL" -lt "$(line_of "exec switch_root")" ]'
+check "init: sources slots.sh after storage.sh" '[ "$(line_of "^\. /lib/slots.sh$")" -gt "$(line_of "^\. /lib/storage.sh$")" ]'
+check "init: no root mount of its own" '! grep -q "^[[:space:]]*mount -t \(squashfs\|overlay\|tmpfs\)" "$INIT"'
+sed -n '/^mount_root() {/,/^}/p' "$SLOTS_SH" > "$W/mount_root.sh"
+OVL=$(grep -n "mount -t overlay" "$W/mount_root.sh" | head -n1 | cut -d: -f1)
+MODS=$(grep -n "mount_modules" "$W/mount_root.sh" | head -n1 | cut -d: -f1)
+check "mount_root: modules after the overlay" '[ -n "$OVL" ] && [ -n "$MODS" ] && [ "$MODS" -gt "$OVL" ]'
+
+### 11. The root mount sequence (build-speed 4.5) with fake mount/umount/uname/rescue:
+### slot set, SLOTS.old, the old SYSTEM, rescue; undo of a half-mounted set
+RUNNING=6.18.62-r36os
+FAIL_ON=""          # a mount whose arguments contain this text fails
+MLOG=$W/root-mount.log
+uname() { echo "$RUNNING"; }
+mount() {
+	echo "mount $*" >> "$MLOG"
+	if [ -n "$FAIL_ON" ]; then
+		case "$*" in *"$FAIL_ON"*) return 1 ;; esac
+	fi
+	case "$1" in
+	--move) cp -a "$2/." "$3/" && rm -rf "$2"/* ;;
+	-t) [ "$2" != squashfs ] || for d in $(cat "$5"); do mkdir -p "$6/$d"; done ;;
+	esac
+}
+umount() { echo "umount $*" >> "$MLOG"; rm -rf "$1"/*; }
+rescue() { echo "rescue $*" >> "$MLOG"; return 1; }
+sha() { printf "%064d" 0 | tr 0 "$1"; }
+s12() { echo "$1" | cut -c1-12; }
+SB=$(sha b); SR=$(sha c); SC=$(sha f)
+SL=$(sha d); SM=$(sha e)      # lume and modules of the previous set (SLOTS.old)
+SL2=$(sha 9); SM2=$(sha 8)    # lume and modules of the new set (SLOTS)
+# manifest of ga36 with lume $1, modules $2 and build id $3 (a reserved core line too)
+manifest() {
+	printf '%s\n' "lume-slots 1" "build $3" "console ga36" \
+		"slot base slot/base-$(s12 $SB) $SB 1000 -" \
+		"pkg base musl 1.2.5-r10" "pkg base busybox 1.37.0-r20" \
+		"slot runtime slot/runtime-$(s12 $SR) $SR 2000 base=$SB" \
+		"pkg runtime retroarch 1.22.2-r0" \
+		"slot lume slot/lume-$(s12 $1) $1 3000 base=$SB,runtime=$SR" \
+		"pkg lume lume-core 1.0-r3" \
+		"slot modules slot/modules-$(s12 $2) $2 4000 -" \
+		"slot core-snes9x slot/core-snes9x-$(s12 $SC) $SC 5000 base=$SB,runtime=$SR" \
+		"end 5 4"
+}
+# BOOT at $W/sb: both slot sets, both manifests, and the old SYSTEM + modules of an old card
+mkcard() {
+	local f
+	rm -rf "$W/sb"
+	mkdir -p "$W/sb/ga36/slot"
+	for f in base-$(s12 $SB) runtime-$(s12 $SR) lume-$(s12 $SL) lume-$(s12 $SL2) \
+		core-snes9x-$(s12 $SC); do
+		: > "$W/sb/ga36/slot/$f"
+	done
+	echo "$RUNNING" > "$W/sb/ga36/slot/modules-$(s12 $SM)"
+	echo "$RUNNING" > "$W/sb/ga36/slot/modules-$(s12 $SM2)"
+	manifest "$SL2" "$SM2" 20261117-010000 > "$W/sb/ga36/SLOTS"
+	manifest "$SL" "$SM" 20261116-214233 > "$W/sb/ga36/SLOTS.old"
+	: > "$W/sb/ga36/SYSTEM"
+	echo "$RUNNING" > "$W/sb/ga36/modules"
+	: > "$W/sb/SYSTEM"
+}
+# mount_root of board $1 (default ga36) -> calls in $MLOG, log in $W/rlog, status in $RC
+run_root() {
+	rm -rf "$W/s" "$W/lower" "$W/rw" "$W/root" "$W/mod"
+	mkdir -p "$W/lower" "$W/rw" "$W/root"
+	: > "$MLOG"
+	RC=0
+	mount_root "${1:-ga36}" "$W/sb" "$W/s" "$W/lower" "$W/rw" "$W/root" "$W/mod" 2> "$W/rlog" || RC=$?
+}
+# expected calls of a whole slot set: lume $1, modules $2
+set_calls() {
+	printf '%s\n' \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/base-$(s12 $SB) $W/s/base" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/runtime-$(s12 $SR) $W/s/runtime" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/lume-$(s12 $1) $W/s/lume" \
+		"mount -t tmpfs -o size=32m,mode=0755 tmpfs $W/rw" \
+		"mount -t overlay overlay -o lowerdir=$W/s/lume:$W/s/runtime:$W/s/base,upperdir=$W/rw/upper,workdir=$W/rw/work $W/root" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/slot/modules-$(s12 $2) $W/mod" \
+		"mount --move $W/mod $W/root/lib/modules"
+}
+# expected calls of the old card: the same commands as the init before build-speed 4.5, with
+# /boot, /lower, /rw, /newroot and /modules in $W
+system_calls() {
+	printf '%s\n' \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/SYSTEM $W/lower" \
+		"mount -t tmpfs -o size=32m,mode=0755 tmpfs $W/rw" \
+		"mount -t overlay overlay -o lowerdir=$W/lower,upperdir=$W/rw/upper,workdir=$W/rw/work $W/root" \
+		"mount -t squashfs -o ro,loop $W/sb/ga36/modules $W/mod" \
+		"mount --move $W/mod $W/root/lib/modules"
+}
+same() { cmp -s "$1" "$2"; }
+
+# good set: SLOTS mounted, cores ignored, every slot and its versions in the log
+mkcard
+run_root
+set_calls "$SL2" "$SM2" > "$W/want"
+check "set: mounts lume:runtime:base + RAM layer + modules slot" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "set: modules of the slot on /lib/modules" '[ -d "$W/root/lib/modules/$RUNNING" ]'
+check "set: no core slot mounted" '! grep -q core- "$MLOG"'
+printf '%s\n' \
+	"lume: slots: ga36/SLOTS (build 20261117-010000)" \
+	"lume: slot base: ga36/slot/base-$(s12 $SB) (packages: 2)" \
+	"lume: slot base packages: musl-1.2.5-r10 busybox-1.37.0-r20" \
+	"lume: slot runtime: ga36/slot/runtime-$(s12 $SR) (packages: 1)" \
+	"lume: slot runtime packages: retroarch-1.22.2-r0" \
+	"lume: slot lume: ga36/slot/lume-$(s12 $SL2) (packages: 1)" \
+	"lume: slot lume packages: lume-core-1.0-r3" \
+	"lume: slot modules: ga36/slot/modules-$(s12 $SM2) (packages: 0)" \
+	"lume: root: ga36/SLOTS (lume, runtime, base; read-only) + 32 MiB RAM layer" \
+	"lume: modules: ga36/slot/modules-$(s12 $SM2) ($RUNNING)" > "$W/want"
+check "set: boot log lists each slot and its versions" 'same "$W/rlog" "$W/want"'
+
+# SLOTS cites a missing file: SLOTS.old picked before any mount
+mkcard
+rm "$W/sb/ga36/slot/lume-$(s12 $SL2)"
+run_root
+set_calls "$SL" "$SM" > "$W/want"
+check "missing file: SLOTS.old mounted" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "missing file: ERROR then the old set in the log" \
+	'grep -qx "lume: ERROR: ga36/SLOTS cites a missing file ga36/slot/lume-$(s12 $SL2); using ga36/SLOTS.old from the previous build" "$W/rlog" && grep -qx "lume: slots: ga36/SLOTS.old (build 20261116-214233)" "$W/rlog"'
+
+# SLOTS missing (push cut between its renames): SLOTS.old
+mkcard
+rm "$W/sb/ga36/SLOTS"
+run_root
+check "SLOTS missing: SLOTS.old mounted" '[ $RC -eq 0 ] && grep -qx "lume: root: ga36/SLOTS.old (lume, runtime, base; read-only) + 32 MiB RAM layer" "$W/rlog"'
+
+# SLOTS and SLOTS.old both cite missing files: the old SYSTEM, as on an old card
+mkcard
+rm "$W/sb/ga36/slot/lume-$(s12 $SL2)" "$W/sb/ga36/slot/lume-$(s12 $SL)"
+run_root
+system_calls > "$W/want"
+check "both bad: the old SYSTEM mounted" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "both bad: ERROR names both, then the SYSTEM" \
+	'grep -q "^lume: ERROR: ga36/SLOTS cites a missing file .* and ga36/SLOTS.old cites a missing file .*; no slot set to mount$" "$W/rlog" && grep -qx "lume: ERROR: no slot set of ga36 to mount; trying the old ga36/SYSTEM" "$W/rlog" && grep -qx "lume: root: ga36/SYSTEM (read-only) + 32 MiB RAM layer" "$W/rlog"'
+
+# a slot of SLOTS fails to mount (squashfs error, no loop): the partial set is undone, newest
+# first, then SLOTS.old
+mkcard
+FAIL_ON=lume-$(s12 $SL2)
+run_root
+FAIL_ON=""
+{
+	set_calls "$SL2" "$SM2" | head -n 3
+	printf '%s\n' "umount $W/s/runtime" "umount $W/s/base"
+	set_calls "$SL" "$SM"
+} > "$W/want"
+check "slot fails: undone, then SLOTS.old" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "slot fails: ERROR lines" \
+	'grep -qx "lume: ERROR: failed to mount slot lume (ga36/slot/lume-$(s12 $SL2)) of ga36/SLOTS" "$W/rlog" && grep -qx "lume: ERROR: ga36/SLOTS could not be mounted; using ga36/SLOTS.old from the previous build" "$W/rlog"'
+
+# the modules slot of SLOTS fails: overlay, RAM layer and slots undone, then SLOTS.old
+mkcard
+FAIL_ON=modules-$(s12 $SM2)
+run_root
+FAIL_ON=""
+{
+	set_calls "$SL2" "$SM2" | head -n 6
+	printf '%s\n' "umount $W/root" "umount $W/rw" "umount $W/s/lume" "umount $W/s/runtime" "umount $W/s/base"
+	set_calls "$SL" "$SM"
+} > "$W/want"
+check "modules slot fails: whole set undone, then SLOTS.old" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+
+# the overlay of both sets fails: both undone, then the old SYSTEM
+mkcard
+FAIL_ON="lowerdir=$W/s/"
+run_root
+FAIL_ON=""
+{
+	set_calls "$SL2" "$SM2" | head -n 5
+	printf '%s\n' "umount $W/rw" "umount $W/s/lume" "umount $W/s/runtime" "umount $W/s/base"
+	set_calls "$SL" "$SM" | head -n 5
+	printf '%s\n' "umount $W/rw" "umount $W/s/lume" "umount $W/s/runtime" "umount $W/s/base"
+	system_calls
+} > "$W/want"
+check "overlay fails twice: both undone, then the old SYSTEM" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "overlay fails twice: ERROR lines" \
+	'[ "$(grep -c "^lume: ERROR: failed to mount the overlay of ga36/SLOTS" "$W/rlog")" -eq 2 ] && grep -qx "lume: ERROR: ga36/SLOTS.old could not be mounted either; trying the old ga36/SYSTEM" "$W/rlog"'
+
+# SLOTS.old picked (SLOTS missing) and its slot fails: straight to the old SYSTEM
+mkcard
+rm "$W/sb/ga36/SLOTS"
+FAIL_ON=runtime-
+run_root
+FAIL_ON=""
+{
+	set_calls "$SL" "$SM" | head -n 2
+	echo "umount $W/s/base"
+	system_calls
+} > "$W/want"
+check "SLOTS.old fails: the old SYSTEM" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+check "SLOTS.old fails: ERROR line" 'grep -qx "lume: ERROR: ga36/SLOTS.old could not be mounted; trying the old ga36/SYSTEM" "$W/rlog"'
+
+# SLOTS fails to mount and SLOTS.old is unusable: the old SYSTEM
+mkcard
+manifest "$SL" "$SM" 20261116-214233 | head -n 5 > "$W/sb/ga36/SLOTS.old"
+FAIL_ON=base-
+run_root
+FAIL_ON=""
+check "SLOTS fails, SLOTS.old truncated: the old SYSTEM" \
+	'[ $RC -eq 0 ] && grep -qx "lume: ERROR: ga36/SLOTS could not be mounted and ga36/SLOTS.old is truncated (no end line); trying the old ga36/SYSTEM" "$W/rlog" && grep -qx "lume: root: ga36/SYSTEM (read-only) + 32 MiB RAM layer" "$W/rlog"'
+
+# no set mounts and no SYSTEM: the existing failure path (rescue), nothing mounted after
+mkcard
+rm "$W/sb/ga36/SYSTEM"
+FAIL_ON=base-
+run_root
+FAIL_ON=""
+check "nothing left: rescue with the old message" \
+	'[ $RC -ne 0 ] && [ "$(tail -n 1 "$MLOG")" = "rescue BOOT has no ga36/SYSTEM, the system of the GA36; write the card again with the console image" ]'
+
+# old card: SYSTEM only. The same calls and log lines as the init before build-speed 4.5
+mkcard
+rm "$W/sb/ga36/SLOTS" "$W/sb/ga36/SLOTS.old"
+run_root
+system_calls > "$W/want"
+check "old card: same calls as before the slots" '[ $RC -eq 0 ] && same "$MLOG" "$W/want"'
+printf '%s\n' "lume: root: ga36/SYSTEM (read-only) + 32 MiB RAM layer" \
+	"lume: modules: ga36/modules ($RUNNING)" > "$W/want"
+check "old card: same log, no slot line" 'same "$W/rlog" "$W/want"'
+# old card whose SYSTEM is only SYSTEM.old: as before
+mv "$W/sb/ga36/SYSTEM" "$W/sb/ga36/SYSTEM.old"
+run_root
+check "old card: SYSTEM.old as before" '[ $RC -eq 0 ] && grep -qx "mount -t squashfs -o ro,loop $W/sb/ga36/SYSTEM.old $W/lower" "$MLOG" && grep -qx "lume: ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build" "$W/rlog"'
+# old card whose SYSTEM fails to mount: rescue, as before
+mv "$W/sb/ga36/SYSTEM.old" "$W/sb/ga36/SYSTEM"
+FAIL_ON=ga36/SYSTEM
+run_root
+FAIL_ON=""
+check "old card: SYSTEM fails -> rescue" '[ $RC -ne 0 ] && [ "$(tail -n 1 "$MLOG")" = "rescue failed to mount ga36/SYSTEM" ]'
+
+# vm: always BOOT/SYSTEM, no modules, no slots (even with a vm/SLOTS)
+mkcard
+mkdir -p "$W/sb/vm"
+cp "$W/sb/ga36/SLOTS" "$W/sb/vm/SLOTS"
+run_root vm
+printf '%s\n' "mount -t squashfs -o ro,loop $W/sb/SYSTEM $W/lower" \
+	"mount -t tmpfs -o size=32m,mode=0755 tmpfs $W/rw" \
+	"mount -t overlay overlay -o lowerdir=$W/lower,upperdir=$W/rw/upper,workdir=$W/rw/work $W/root" > "$W/want"
+check "vm: BOOT/SYSTEM only" '[ $RC -eq 0 ] && same "$MLOG" "$W/want" && [ "$(cat "$W/rlog")" = "lume: root: SYSTEM (read-only) + 32 MiB RAM layer" ]'
+
+# long package lists are split in lines that fit a kernel log record
+mkdir -p "$W/pk"
+{
+	echo "lume-slots 1"
+	i=0
+	while [ $i -lt 60 ]; do echo "pkg base package-number-$i 1.0.$i-r0"; i=$((i + 1)); done
+} > "$W/pk/M"
+check "packages: wrapped under 420 characters" \
+	'[ "$(_slots_pkg_lines "$W/pk" M base | wc -l)" -gt 1 ] && [ "$(_slots_pkg_lines "$W/pk" M base | awk "length > 420" | wc -l)" -eq 0 ] && [ "$(_slots_pkg_lines "$W/pk" M base | tr " " "\n" | grep -c .)" -eq 60 ]'
+unset -f mount umount uname rescue
 
 rm -rf "$W"
-echo "falhas: $FAILS"
+echo "failures: $FAILS"
 [ $FAILS -eq 0 ]

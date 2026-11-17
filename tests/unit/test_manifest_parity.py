@@ -15,9 +15,21 @@ import pytest
 
 from r36os.paths import REPO_ROOT, out_dir
 
-TARGETS = ("vm", "ga36", "r36s")
 # the VM's Mesa is the local build with virgl (aports/mesa, arch x86_64)
 HW_VARIANTS = re.compile(r"^mesa(-.*)?$")
+
+
+def _targets() -> tuple[str, ...]:
+    """The systems to compare. The vm image is out of the build cycle since build-speed D13:
+    it only takes part when its latest image is of the same build as the console one."""
+    images = out_dir() / "images"
+    vm, console = images / "vm" / "latest", images / "console" / "latest"
+    if vm.exists() and console.exists() and vm.resolve().name == console.resolve().name:
+        return ("vm", "ga36", "r36s")
+    return ("ga36", "r36s")
+
+
+TARGETS = _targets()
 
 
 def _manifest(target: str) -> dict[str, str]:
@@ -57,7 +69,7 @@ def test_userland_packages_match_in_name_and_version():
 
 
 def test_every_catalog_core_is_in_both_images():
-    catalog = json.loads((REPO_ROOT / "rootfs/overlay/usr/share/r36os/systems.json").read_text())
+    catalog = json.loads((REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json").read_text())
     used = set()
     for system in catalog["systems"]:
         if system["core"] is not None:  # love and ports have no libretro core

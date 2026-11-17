@@ -13,12 +13,17 @@ Two modes:
   touched. It only accepts a card whose partition 1 has the same start, size and disk
   signature as the image, that is, a card written before with an image of this layout.
   The console image has a 2 GiB BOOT partition, so a card written before with a 1 GiB
-  BOOT (the older ga36 image) is refused and needs a full write.
+  BOOT (the older ga36 image) is refused and needs a full write. BOOT is written whole,
+  so an old card (<console>/SYSTEM and <console>/modules) comes out with the slot layout
+  of the build (<console>/SLOTS and <console>/slot/*, build-speed D9) and nothing of the
+  old one: no SYSTEM, no SLOTS.old.
 
 Pass `--eject` to safely unmount and power off the device after writing and verification.
 
 
-The image comes from out/images/<image>/<timestamp>/ (default: `latest`). Before
+The image comes from out/images/<image>/<timestamp>/ (default: `latest`): its .img.zst, or,
+for a console build archived without one, the image assembled again from the build's
+objects in out/images/objects/ (build-speed D10; checked against its BOOT list). Before
 writing, the command checks that the device is a removable disk, unmounts its partitions
 and asks for confirmation; after writing, it reads back and compares the SHA256 of what
 was written. Writing uses `sudo dd`, so run it in a terminal (sudo asks for the password).
@@ -52,9 +57,9 @@ BOOTLOADER_START = 8192             # sector 0 (MBR) is never written in update 
 CHUNK = 1 << 22
 ALIGN = 2048                        # 1 MiB, as the initramfs (initramfs/lib/storage.sh)
 MIN_ROMS = 131072                   # 64 MiB, as the initramfs
-OVERLAY = REPO_ROOT / "rootfs/overlay"
-CATALOG = OVERLAY / "usr/share/r36os/systems.json"
-FACTORY = OVERLAY / "usr/share/r36os/factory"
+# shipped by the lume-games and lume-retroarch-cfg fragments
+CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
+FACTORY = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory"
 BASE_FOLDERS = ("bios", "saves", "states", "screenshots", "system")
 
 
@@ -124,10 +129,7 @@ def roms_layout(card_sectors: int, image: Mbr) -> tuple[int, int]:
 
 def build_language(zst: Path) -> str:
     """Factory menu language of the build (build.json next to the image), default English."""
-    try:
-        return json.loads((zst.parent / "build.json").read_text()).get("language") or lang.DEFAULT
-    except (OSError, ValueError):
-        return lang.DEFAULT
+    return build_language_of(zst.parent)
 
 
 def populate_roms(root: Path, language: str = lang.DEFAULT) -> None:
@@ -235,6 +237,49 @@ def find_image(target: ImageTarget, build: str = "latest") -> Path:
     if len(found) != 1:
         raise FlashError(f"no image in {d} (build it with: uv run r36os build {target.name})")
     return found[0]
+
+
+def find_build(target: ImageTarget, build: str = "latest") -> tuple[Path, Path | None]:
+    """(build folder, its .img.zst or None). A console build without .img.zst is written
+    from its objects (build-speed D10) when it has the BOOT list and the image parts."""
+    from r36os import image
+
+    d = images_dir(target) / build
+    found = sorted(d.glob(f"{target.name}-*.img.zst")) if d.is_dir() else []
+    if len(found) == 1:
+        return d.resolve(), d.resolve() / found[0].name
+    if (not found and target.name == "console" and (d / image.BOOT_LIST).is_file()
+            and (d / image.IMAGE_PARTS).is_file()):
+        return d.resolve(), None
+    raise FlashError(f"no image in {d} (build it with: uv run r36os build {target.name})")
+
+
+def image_file(build_dir: Path, zst: Path | None) -> Path:
+    """The uncompressed image in the cache: the .img.zst unpacked, or the console image
+    assembled from the objects of the build."""
+    if zst is not None:
+        return _decompress(zst)
+    from r36os import image
+
+    dest = ensure_dir(cache_dir() / "flash") / f"console-{build_dir.name}.img"
+    if not dest.exists() or dest.stat().st_mtime < (build_dir / image.BOOT_LIST).stat().st_mtime:
+        for old in dest.parent.glob("*.img"):
+            old.unlink()
+        print(f"assembling the image of {build_dir.name} from its objects")
+        try:
+            image.assemble_console_image(build_dir, dest.with_suffix(".part"))
+        except image.ConsoleImageError as e:
+            raise FlashError(str(e)) from None
+        dest.with_suffix(".part").replace(dest)
+    return dest
+
+
+def build_language_of(build_dir: Path) -> str:
+    """Factory menu language of the build (its build.json), default English."""
+    try:
+        return json.loads((build_dir / "build.json").read_text()).get("language") or lang.DEFAULT
+    except (OSError, ValueError):
+        return lang.DEFAULT
 
 
 def mark_flashed(build_dir: Path) -> None:
@@ -492,11 +537,12 @@ def _rereadpt(device: str) -> None:
 
 def flash(target: ImageTarget, device: str, update: bool = False, build: str = "latest",
           yes: bool = False, eject: bool = False) -> int:
-    zst = find_image(target, build)
+    build_dir, zst = find_build(target, build)
     desc = _check_device(device)
     mode = "UPDATE (boot area + BOOT; ROMS kept)" if update else \
         "FULL (erases the whole card, including ROMS, then creates an empty ROMS)"
-    print(f"image: {zst}\ncard:  {desc}\nmode:  {mode}")
+    source = zst if zst is not None else f"{build_dir} (assembled from out/images/objects)"
+    print(f"image: {source}\ncard:  {desc}\nmode:  {mode}")
     if warning := reader_warning(device):
         print(warning)
     if not yes:
@@ -504,7 +550,7 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
         if answer.strip() != Path(device).name:
             print("cancelled")
             return 1
-    img = _decompress(zst)
+    img = image_file(build_dir, zst)
     _unmount(device)
 
     if update:
@@ -542,14 +588,14 @@ def flash(target: ImageTarget, device: str, update: bool = False, build: str = "
     bar.finish()
 
     if not update:
-        _create_roms(device, img, build_language(zst))
-    mark_flashed(zst.parent)
+        _create_roms(device, img, build_language_of(build_dir))
+    mark_flashed(build_dir)
 
     if eject:
         _eject(device)
-        print(f"ok: written, verified and safely ejected ({zst.parent.name}).")
+        print(f"ok: written, verified and safely ejected ({build_dir.name}).")
     else:
-        print(f"ok: written and verified ({zst.parent.name}). You can remove the card.")
+        print(f"ok: written and verified ({build_dir.name}). You can remove the card.")
     return 0
 
 

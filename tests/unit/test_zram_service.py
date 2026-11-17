@@ -6,11 +6,11 @@ from pathlib import Path
 from r36os.paths import REPO_ROOT
 from r36os.selftest import expected_checks
 
-ZRAM_SCRIPT = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/zram"
-ZRAM_INIT = REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-zram"
-SYSCTL_CONF = REPO_ROOT / "rootfs/overlay/etc/sysctl.d/r36os-zram.conf"
+ZRAM_SCRIPT = REPO_ROOT / "aports/lume-power/files/usr/libexec/r36os/zram"
+ZRAM_INIT = REPO_ROOT / "aports/lume-power/files/etc/init.d/r36os-zram"
+SYSCTL_CONF = REPO_ROOT / "aports/lume-power/files/etc/sysctl.d/r36os-zram.conf"
 CONFIGURE_SH = REPO_ROOT / "rootfs/configure.sh"
-SELFTEST_SH = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/selftest"
+SELFTEST_SH = REPO_ROOT / "aports/lume-diag/files/usr/libexec/r36os/selftest"
 
 
 def test_selftest_checks_zram_swap():

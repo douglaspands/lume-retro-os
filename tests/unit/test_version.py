@@ -6,7 +6,7 @@ import time
 
 from compression import zstd
 
-from r36os import archive, build, version
+from r36os import archive, build, manifests, version
 from r36os.targets import get_image, get_target
 
 NOW = time.mktime((2026, 11, 9, 21, 42, 33, 0, 0, -1))
@@ -70,11 +70,17 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     monkeypatch.setattr(build.version, "current", lambda: _V)
     calls = []
 
-    def fake_layer(target, v, language, rebuild_packages=False):
+    def fake_layer(target, v, language, rebuild_packages=False, timer=None):
         calls.append((target.name, v.build_id))
         out = tmp_path / target.name
         out.mkdir(exist_ok=True)
-        (out / "SYSTEM").write_bytes(b"s" * (10 if target.name == "ga36" else 20))
+        # the root of a console is its slot set (build-speed D9)
+        size = 10 if target.name == "ga36" else 20
+        sha = hashlib.sha256(target.name.encode()).hexdigest()
+        set_ = manifests.SlotSet(build=v.build_id, console=target.name, slots=(
+            manifests.Slot("base", sha, size), manifests.Slot("runtime", sha, 1),
+            manifests.Slot("lume", sha, 1), manifests.Slot("modules", sha, 1)))
+        manifests.write_slots(out / manifests.SLOTS_DIR / "SLOTS", set_)
         (out / "manifest.txt").write_text(f"# arch: {target.alpine_arch}\n")
         if target.name == "ga36":
             (out / "kernel").mkdir(exist_ok=True)
@@ -90,6 +96,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         return img
 
     monkeypatch.setattr(build, "build_layer", fake_layer)
+    monkeypatch.setattr(build, "build_noarch_fragments", lambda rebuild, timer: None)
     monkeypatch.setattr(build.image, "build_console_image", fake_console_image)
     build.build_image_target(get_image("console"))
 
@@ -97,8 +104,12 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     dest = tmp_path / "images/console" / _V.build_id
     info = json.loads((dest / "build.json").read_text())
     assert info["target"] == "console" and info["build_id"] == _V.build_id
-    assert info["layers"]["ga36"]["system_bytes"] == 10
-    assert info["layers"]["r36s"]["system_bytes"] == 20
+    for console, size in (("ga36", 10), ("r36s", 20)):
+        base = info["layers"][console]["slots"]["base"]
+        assert base["bytes"] == size and base["file"].startswith("slot/base-")
+        assert set(info["layers"][console]["slots"]) == {"base", "runtime", "lume",
+                                                         "modules"}
+        assert "system_bytes" not in info["layers"][console]
     assert set(info["bootloaders"]) == {"ga36", "r36s"}
     assert (dest / "manifest-ga36.txt").read_text() == "# arch: armv7\n"
     assert (dest / "manifest-r36s.txt").read_text() == "# arch: aarch64\n"

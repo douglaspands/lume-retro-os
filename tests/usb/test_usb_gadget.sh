@@ -5,7 +5,7 @@
 # rmdir and umtprd that log what they are asked to do.
 set -u
 cd "$(dirname "$0")/../.."
-GADGET_SH="busybox sh rootfs/overlay/usr/libexec/r36os/usb-gadget"
+GADGET_SH="busybox sh aports/lume-usb/files/usr/libexec/r36os/usb-gadget"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -69,7 +69,7 @@ export BOARD_FILE="$W/board" CONFIGFS="$W/cfg" UDC_CLASS="$W/udc" FFS_DIR="$W/ff
 	UMTPRD="$W/bin/umtprd" UMTPRD_CONF="$W/umtprd.conf" USB_RUN="$W/run" \
 	SOC0_DIR="$W/soc0" MMC_DEVICE="$W/mmc" GAME_UID=1000 GAME_GID=1000 \
 	MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" MOUNTPOINT="$W/bin/mountpoint" \
-	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os" \
+	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os" \
 	LOGS_RAM="$W/logs" NET_CLASS="$W/net" IP="$W/bin/ip" UDHCPD="$W/bin/udhcpd" \
 	DROPBEAR="$W/bin/dropbear"
 EV="$W/logs/events.pending"
@@ -123,7 +123,7 @@ check "stop: a second stop is harmless" '[ $rc = 0 ]'
 out=$(UMTPRD="$W/bin/umtprd-broken" READY_TRIES=5 $GADGET_SH start); rc=$?
 check "broken umtprd: start fails and says why" '[ $rc = 1 ] && printf "%s\n" "$out" | grep -q "^usb: ERROR: umtprd exited before writing its descriptors"'
 check "broken umtprd: its own error reaches the log" 'printf "%s\n" "$out" | grep -qx "usb: umtprd: uMTPrd: cannot open the configuration file"'
-check "umtprd is found by name (Alpine installs /bin/umtprd)" 'grep -qx "UMTPRD=\${UMTPRD:-umtprd}" rootfs/overlay/usr/libexec/r36os/usb-gadget'
+check "umtprd is found by name (Alpine installs /bin/umtprd)" 'grep -qx "UMTPRD=\${UMTPRD:-umtprd}" aports/lume-usb/files/usr/libexec/r36os/usb-gadget'
 check "broken umtprd: nothing left bound or built" '[ ! -e "$G" ] && grep -qx "umount $W/ffs" "$LOG"'
 
 ### R36S: the SoC serial number when the kernel gives one

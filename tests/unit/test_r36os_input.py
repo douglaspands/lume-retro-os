@@ -19,7 +19,7 @@ from r36os.paths import REPO_ROOT
 APORT = REPO_ROOT / "aports/r36os-input"
 SOURCE = (APORT / "input.c").read_text()
 DTS = (REPO_ROOT / "board/r36s/dts/rk3326-r36s-v5.dts").read_text()
-AUTOCONFIG = REPO_ROOT / "rootfs/overlay/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg"
+AUTOCONFIG = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg"
 GA36_AUTOCONFIG = AUTOCONFIG.with_name("GA36-MB Gamepad.cfg")
 CC = shutil.which("cc") or shutil.which("gcc")
 

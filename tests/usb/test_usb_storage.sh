@@ -5,7 +5,7 @@
 # ID_FS_LABEL) set by hand.
 set -u
 cd "$(dirname "$0")/../.."
-STORAGE_SH="busybox sh rootfs/overlay/usr/libexec/r36os/usb-storage"
+STORAGE_SH="busybox sh aports/lume-usb/files/usr/libexec/r36os/usb-storage"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -28,7 +28,7 @@ grep -v " \$dir " "$W/mounts" > "$W/mounts.new"; mv "$W/mounts.new" "$W/mounts"
 EOF
 chmod +x "$W/bin/"*
 export USB_MOUNT_ROOT="$W/usb" MOUNTS_FILE="$W/mounts" MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" \
-	DEV_DIR="$W/dev" GAME_UID=1000 GAME_GID=1000 USB_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os" \
+	DEV_DIR="$W/dev" GAME_UID=1000 GAME_GID=1000 USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os" \
 	LOGS_RAM="$W/logs" KMSG="$W/kmsg"
 EV="$W/logs/events.pending"
 
@@ -70,7 +70,7 @@ $STORAGE_SH remove sdz1 >/dev/null
 check "remove of something never mounted: nothing" '[ ! -s $LOG ]'
 
 ### the udev rule: only USB disks, mounted by filesystem, removed by name
-R=rootfs/overlay/etc/udev/rules.d/90-lume-usb-storage.rules
+R=aports/lume-usb/files/etc/udev/rules.d/90-lume-usb-storage.rules
 check "udev rule: add only for filesystems on the USB bus" 'grep -q "^ACTION==\"add\", SUBSYSTEM==\"block\", ENV{ID_BUS}==\"usb\", ENV{ID_FS_USAGE}==\"filesystem\", RUN+=\"/usr/libexec/r36os/usb-storage add %k\"$" $R'
 check "udev rule: remove on the USB bus" 'grep -q "^ACTION==\"remove\", SUBSYSTEM==\"block\", ENV{ID_BUS}==\"usb\", RUN+=\"/usr/libexec/r36os/usb-storage remove %k\"$" $R'
 

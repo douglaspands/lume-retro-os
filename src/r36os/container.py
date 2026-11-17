@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from r36os.heat import BUILD_LABEL
+from r36os.jobs import PRIORITY_PREFIX
 from r36os.paths import REPO_ROOT
 from r36os.targets import Target
 
@@ -20,6 +23,10 @@ def builder_image(target: Target) -> str:
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("+ " + " ".join(cmd), flush=True)
     kw.setdefault("check", True)
+    from r36os import parallel
+
+    if parallel.current() is not None:  # one of two pipelines: prefixed, cancellable
+        return parallel.run_process(cmd, **kw)
     return subprocess.run(cmd, **kw)
 
 
@@ -29,28 +36,36 @@ def image_exists(name: str) -> bool:
     ).returncode == 0
 
 
+_BUILDER_LOCK = threading.Lock()  # both arch pipelines use the x86_64 builder too
+
+
 def ensure_builder(target: Target) -> str:
     """Build (if missing) the Alpine builder image for the target architecture."""
     name = builder_image(target)
-    if not image_exists(name):
-        run([
-            "podman", "build", "-t", name, "--platform", target.oci_platform,
-            "--build-arg", f"ALPINE_VERSION={ALPINE_VERSION}",
-            "-f", str(REPO_ROOT / "containers/builder.Containerfile"),
-            str(REPO_ROOT / "containers"),
-        ])
+    with _BUILDER_LOCK:
+        if not image_exists(name):
+            run([
+                "podman", "build", "-t", name, "--platform", target.oci_platform,
+                "--build-arg", f"ALPINE_VERSION={ALPINE_VERSION}",
+                "-f", str(REPO_ROOT / "containers/builder.Containerfile"),
+                str(REPO_ROOT / "containers"),
+            ])
     return name
 
 
+_CROSS_LOCK = threading.Lock()  # both arch pipelines ask for the one cross image
+
+
 def ensure_cross() -> str:
-    if not image_exists(CROSS_IMAGE):
-        run([
-            # fixed --platform: with qemu-user in binfmt, the base image tag may point
-            # to an ARM variant pulled by another build
-            "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
-            "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
-            str(REPO_ROOT / "containers"),
-        ])
+    with _CROSS_LOCK:
+        if not image_exists(CROSS_IMAGE):
+            run([
+                # fixed --platform: with qemu-user in binfmt, the base image tag may point
+                # to an ARM variant pulled by another build
+                "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
+                "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
+                str(REPO_ROOT / "containers"),
+            ])
     return CROSS_IMAGE
 
 
@@ -66,7 +81,8 @@ class Container:
     extra: list[str] = field(default_factory=list)
 
     def argv(self, script: str) -> list[str]:
-        cmd = ["podman", "run", "--rm", "--network=host"]
+        cmd = [*PRIORITY_PREFIX, "podman", "run", "--rm", "--network=host",
+               "--label", BUILD_LABEL]
         if self.platform:
             cmd += ["--platform", self.platform]
         for host, guest in self.volumes.items():

@@ -56,9 +56,14 @@ def test_build_console_kernel_makes_the_modules_image(tmp_path, monkeypatch):
     monkeypatch.setattr(build.uboot, "build_uboot", lambda *a: None)
     monkeypatch.setattr(build.rootfs, "make_modules_image",
                         lambda src, dest: made.append((src, dest)))
+    packaged = []
+    monkeypatch.setattr(build.kernel_packages, "package_console",
+                        lambda board, out: packaged.append((board, out)))
     build.build_console_kernel(get_target("r36s"))
     kdir = tmp_path / "r36s" / "kernel"
     assert made == [(kdir / "modules.tar", kdir / "modules")]
+    # build-speed 7.3: the kernel outputs are then wrapped in the arch packages
+    assert packaged == [("r36s", tmp_path / "r36s")]
 
 
 def test_logs_doc_has_the_boot_messages_of_the_modules_step():
@@ -67,8 +72,11 @@ def test_logs_doc_has_the_boot_messages_of_the_modules_step():
     import re
 
     src = (REPO_ROOT / "initramfs/lib/storage.sh").read_text()
-    body = src.split("mount_modules() {", 1)[1].split("\n}\n", 1)[0]
-    messages = re.findall(r'log "([^"]*)"', body)
+    # build-speed 4.5: the release check and the move went to modules_attach
+    messages = []
+    for fn in ("mount_modules", "modules_attach"):
+        body = src.split(f"{fn}() {{", 1)[1].split("\n}\n", 1)[0]
+        messages += re.findall(r'log "([^"]*)"', body)
     assert len(messages) == 5
     doc = (REPO_ROOT / "docs/LOGS.md").read_text()
     for msg in messages:

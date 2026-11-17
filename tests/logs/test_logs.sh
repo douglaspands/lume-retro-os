@@ -11,8 +11,8 @@ check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS
 export LOGS_DIR=$W/storage/logs LOGS_RAM=$W/ram LOGS_CONF=$W/storage/system/etc/logs.conf
 export LOGS_MOUNT=/ FRONTEND_LOG=$W/frontend.log
 export RA_USER_CFG=$W/retroarch.cfg RA_FACTORY_CFG=$W/factory.cfg
-. rootfs/overlay/usr/libexec/r36os/lib.sh
-. rootfs/overlay/usr/libexec/r36os/logs.sh
+. aports/lume-core/files/usr/libexec/r36os/lib.sh
+. aports/lume-core/files/usr/libexec/r36os/logs.sh
 mkdir -p "$LOGS_RAM" "$LOGS_DIR/boot" "$LOGS_DIR/hw" "$LOGS_DIR/metrics" "$LOGS_DIR/frontend" \
 	"$(dirname "$LOGS_CONF")"
 echo 7 > "$LOGS_RAM/boot-n"
@@ -146,8 +146,8 @@ FRONTEND_RAM_MAX_BYTES=8388608 FRONTEND_RAM_KEEP_BYTES=1048576
 
 ### logd: RetroArch vivo mas sem responder (processo falso chamado retroarch)
 # Esta parte vale no busybox (pidof do console e do container); no pidof do PC não acha o script.
-export LOGD_LIB=1 LOGD_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os"
-. rootfs/overlay/usr/libexec/r36os/logd
+export LOGD_LIB=1 LOGD_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os"
+. aports/lume-core/files/usr/libexec/r36os/logd
 RECOVER_MAX=0   # the checks below only observe; the recovery (kill) is tested further down
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
 mkdir -p "$W/bin"
@@ -325,7 +325,7 @@ check "usage: a missing process gives empty columns" '[ "$PU_OUT" = "," ]'
 uptime_cs 116.58; a=$CS; uptime_cs 10.5; b=$CS; uptime_cs 7.08; c=$CS; uptime_cs 42; d=$CS
 check "usage: uptime in centiseconds, no octal trap" '[ "$a" = 11658 ] && [ "$b" = 1050 ] && [ "$c" = 708 ] && [ "$d" = 4200 ]' "$a $b $c $d"
 kill $LR 2>/dev/null; wait $LR 2>/dev/null
-check "usage: the metrics header has the launcher columns" 'grep -q "lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct" rootfs/overlay/usr/libexec/r36os/logd'
+check "usage: the metrics header has the launcher columns" 'grep -q "lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct" aports/lume-core/files/usr/libexec/r36os/logd'
 
 ### logd: hung frontend (blocked, no CPU, no vblank): detection and recovery
 reset_hang() {
@@ -496,10 +496,10 @@ INTERRUPTS_FILE=/proc/interrupts
 FE_STATE=stopped
 
 ### persist: the build language only seeds new cards; the menu choice always wins
-export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/rootfs/overlay/usr/libexec/r36os/lib.sh" PERSIST_MOUNT=/
+export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/aports/lume-core/files/usr/libexec/r36os/lib.sh" PERSIST_MOUNT=/
 export PERSIST_RAM=$W/p/ram PERSIST_SYS=$W/p/sys PERSIST_FACTORY=$W/p/factory
 mkdir -p "$PERSIST_RAM" "$PERSIST_SYS" "$PERSIST_FACTORY"
-. rootfs/overlay/usr/libexec/r36os/persist
+. aports/lume-saves/files/usr/libexec/r36os/persist
 echo 'user_language = "7"' > "$PERSIST_FACTORY/retroarch.cfg"
 restore >/dev/null 2>&1
 check "language: a new card gets the factory (build) language" 'grep -q "^user_language = \"7\"$" $PERSIST_SYS/retroarch/retroarch.cfg && grep -q "^user_language = \"7\"$" $PERSIST_RAM/retroarch.cfg'
@@ -508,7 +508,7 @@ echo 'user_language = "0"' > "$PERSIST_FACTORY/retroarch.cfg"
 rm -rf "$PERSIST_RAM"
 restore >/dev/null 2>&1
 check "language: a build with another language keeps the menu choice" 'grep -q "^user_language = \"3\"$" $PERSIST_RAM/retroarch.cfg && grep -q "^user_language = \"3\"$" $PERSIST_SYS/retroarch/retroarch.cfg'
-check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" rootfs/overlay/usr/libexec/r36os/persist'
+check "language: persist no longer rewrites user_language" '! grep -q "lang_sync\|user_language" aports/lume-saves/files/usr/libexec/r36os/persist'
 
 ### Single card (r36s-single-card, task 7.1): boots on the GA36, the R36S and the GA36
 ### again share ROMS/logs/ with one boot sequence, and each boot names its console
@@ -521,9 +521,20 @@ starts=$(sed -n 's/^[^ ]* \([0-9]*\) boot OK started: \([a-z0-9]*\) .*/\1 \2/p' 
 check "single card: three boots in one sequence, each with its console" '[ "$starts" = "1 ga36 2 r36s 3 ga36 " ]'
 check "single card: the counter is shared on ROMS" '[ "$(cat "$LOGS_DIR/.boot")" = 3 ]'
 check "single card: the boot log header names the console" \
-	'grep -q "echo \"== console: \$(board)\"" rootfs/overlay/usr/libexec/r36os/bootlog'
+	'grep -q "echo \"== console: \$(board)\"" aports/lume-core/files/usr/libexec/r36os/bootlog'
 check "single card: the hardware snapshot names the board" \
-	'grep -q "^kv board " rootfs/overlay/usr/libexec/r36os/hwinfo'
+	'grep -q "^kv board " aports/lume-diag/files/usr/libexec/r36os/hwinfo'
+### Fragment versions in the hardware snapshot (build-speed 8.2): the function of hwinfo run
+### against a fake apk database
+printf 'P:zlib\nV:1.3-r0\n\nP:lume-core\nV:1.0-r5\nS:10\n\nP:r36os-logd\nV:1.0-r1\n\nP:lume-diag\nV:1.0-r2\n\nP:busybox\nV:1.36-r0\n' > "$W/apk-installed"
+eval "$(sed -n '/^fragment_versions() {/,/^}/p' aports/lume-diag/files/usr/libexec/r36os/hwinfo)"
+APK_DB=$W/apk-installed
+check "hwinfo: fragment versions list only lume-* and r36os-*, sorted" \
+	'[ "$(fragment_versions | tr "\n" ";")" = "lume-core 1.0-r5;lume-diag 1.0-r2;r36os-logd 1.0-r1;" ]'
+APK_DB=$W/none
+check "hwinfo: a missing apk database lists nothing" '[ -z "$(fragment_versions)" ]'
+check "hwinfo: the snapshot has the fragments section" \
+	'grep -q "^sec fragments" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
 
 ### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
 ### the frontend starts and the events of the choice made in the initramfs
@@ -576,7 +587,7 @@ dtb_confirm
 check "dtb: a pending one that is not running is left to lume-bootsel" \
 	'grep -qx pending=r36s-v6 $DTB_CONF_DIR/dtb-rk3326-02c00042a1b2c3d4.conf'
 check "dtb: the hardware snapshot has the device tree in use and the state file" \
-	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" rootfs/overlay/usr/libexec/r36os/hwinfo'
+	'grep -q "^kv \"dt in use\" \"\$(dtb_in_use); state \$(dtb_conf_name)" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
 rm -rf "$DT_ROOT/lume-select"
 dtb_confirm
 check "dtb: without the node nothing is written" '[ "$(dtb_in_use)" = "no lume-select node" ]'

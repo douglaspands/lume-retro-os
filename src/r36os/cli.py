@@ -18,12 +18,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
 
-    b = sub.add_parser("build", help="build the image of one target (or all with --all)")
-    b.add_argument("target", nargs="?", help=f"image: {', '.join(IMAGES)}")
+    b = sub.add_parser("build", help="build the image of one target (or all with --all), "
+                                     "or only some fragments for `r36os push`")
+    b.add_argument("target", nargs="*",
+                   help=f"image: {', '.join(IMAGES)}; or fragments (aports/ names): a "
+                        "fragment build compiles them and the aports that build-depend on "
+                        "them, redoes only the slots that hold them and archives a build "
+                        "without an image, ready for `r36os push`")
+    b.add_argument("--console", choices=("ga36", "r36s"),
+                   help="fragment build: only this console (default: every console the "
+                        "fragments are built for)")
     b.add_argument("--all", action="store_true",
                    help="build the vm, test it, then the console image")
-    b.add_argument("--lang", default=lang.DEFAULT, metavar="CODE",
-                   help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en)")
+    b.add_argument("--lang", default=None, metavar="CODE",
+                   help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en, "
+                        "or for a fragment build the one of the latest console build)")
+    b.add_argument("--clean", action="store_true",
+                   help="run every stage, even those whose inputs did not change")
 
     f = sub.add_parser("flash", help="write a built image to the card (run it in a terminal)")
     f.add_argument("target", help=f"image: {', '.join(IMAGES)}")
@@ -45,6 +56,49 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--build", default="latest", metavar="TIMESTAMP",
                    help="console build from out/images/console/ (default: latest)")
     u.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    u.add_argument("--no-wait", action="store_true",
+                   help="reboot and return, without waiting for the console to come back "
+                        "and checking the new boot")
+    u.add_argument("--hot", metavar="FRAGMENT",
+                   help="extract one lume-*/r36os-* fragment into the console's RAM layer "
+                        "and restart its services, without a reboot (gone after a reboot; "
+                        "not for kernel, modules or base)")
+    u.add_argument("--console", choices=("ga36", "r36s"),
+                   help="refuse, before sending anything, when the console on the cable is "
+                        "the other one")
+    u.add_argument("--dry-run", action="store_true",
+                   help="only list what would change: the packages of each slot set, the "
+                        "files to send with their sizes and what would be deleted")
+
+    dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
+                                    "keys, log)")
+    dv.add_argument("--host", metavar="ADDR", help="console address (default: the USB cable's)")
+    ds = dv.add_subparsers(dest="dev_command", required=True, metavar="<action>")
+    w = ds.add_parser("wait", help="wait until the console answers over the cable")
+    w.add_argument("--timeout", type=float, default=120, metavar="SECONDS")
+    sh = ds.add_parser("sh", help="run a command on the console as root (exit code passed)")
+    sh.add_argument("cmd", nargs=argparse.REMAINDER, help="the command")
+    st = ds.add_parser("shot", help="save a PNG of the console screen")
+    st.add_argument("file", type=Path, nargs="?")
+    st.add_argument("--compare", metavar="SCREEN",
+                    help="reach SCREEN (tests/device/shots/screens.toml), capture and compare "
+                         "with the reference of this console; fail above the threshold")
+    st.add_argument("--update", metavar="SCREEN",
+                    help="store the capture of SCREEN as the new reference of this console")
+    ky = ds.add_parser("keys", help="press buttons, e.g. 'a,down*3,start+select,wait:500,"
+                                    "fn+start' (see r36os.dev for the syntax)")
+    ky.add_argument("sequence")
+    ky.add_argument("--hold", type=int, default=80, metavar="MS", help="press length")
+    ky.add_argument("--gap", type=int, default=120, metavar="MS", help="pause after a press")
+    lg = ds.add_parser("log", help="print the boot log of the current boot")
+    ck = ds.add_parser("check", help="run the on-device self-test; exit 0 only if all pass")
+    for action in (sh, st, ky, lg, ck):     # not wait: the console may still be off
+        action.add_argument("--console", choices=("ga36", "r36s"),
+                            help="refuse to run when the console on the cable is the other one")
+
+    wt = ds.add_parser("watch", help="on every saved file of a lume-*/r36os-* fragment: "
+                                     "fragment build, then push --hot (Ctrl-C ends)")
+    wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
 
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
@@ -64,6 +118,14 @@ def _parser() -> argparse.ArgumentParser:
     k.add_argument("target", help=f"layer: {', '.join(TARGETS)}")
     k.add_argument("names", nargs="+", help="directories under aports/")
     k.add_argument("--checksum", action="store_true", help="only update the sha512sums")
+    k.add_argument("--force", action="store_true",
+                   help="compile even when the inputs did not change (a same content is "
+                        "still not published)")
+
+    for cmd in (b, u, k):
+        cmd.add_argument("--jobs", type=int, metavar="N",
+                         help="parallel jobs for make, abuild, mksquashfs and zstd "
+                              "(default: R36OS_JOBS, else half the cores)")
 
     t = sub.add_parser("test-vm", help="automated acceptance test of the vm image")
     t.add_argument("--keep", action="store_true", help="keep the VM disk after the test")
@@ -84,32 +146,110 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _heat_guarded(fn):
+    """Runs a build step under the heat guard (D15), even on error.
+
+    Pauses the build containers when the CPU is too hot (`R36OS_TEMP_GUARD=log` only logs).
+    The heat lines join the stage summary when the build prints one, otherwise they are
+    printed here. A HeatAbort replaces whatever error the killed containers caused, and
+    nothing stays paused when this returns.
+    """
+    from r36os import heat
+
+    guard = heat.guard_from_env().start()
+    heat.ACTIVE = guard
+    try:
+        result = fn()
+    except BaseException:
+        if guard.error is not None:
+            guard.stop()
+            raise guard.error from None
+        raise
+    finally:
+        guard.stop()  # resumes anything still paused
+        if not guard.reported:
+            for line in guard.summary.lines():
+                print(line, flush=True)
+        heat.ACTIVE = None
+    guard.check()
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        return _main(args)
+    except Exception as e:
+        from r36os.heat import HeatError
+        from r36os.parallel import PipelineError
+
+        if isinstance(e, PipelineError):  # the summaries were printed by the build
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if isinstance(e, HeatError):
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        raise
+
+
+def _main(args: argparse.Namespace) -> int:
+    try:
+        if args.command in ("build", "pkg", "push"):
+            from r36os import jobs
+
+            jobs.set_jobs(args.jobs)  # the option beats R36OS_JOBS
+            print(jobs.summary(), flush=True)
         if args.command == "build":
             if args.all == bool(args.target):
                 print("error: give a target or --all", file=sys.stderr)
                 return 2
-            lang.retro_language(args.lang)  # validate before creating any file
+            if args.lang is not None:
+                lang.retro_language(args.lang)  # validate before creating any file
+            from r36os import fragment_build, stage_inputs
+
+            fragments = not args.all and fragment_build.is_fragment_target(args.target)
+            if fragments:
+                # validated before any file is created (an unknown name, an image name)
+                fragment_build.plan_fragments(args.target, args.console)
+            elif args.console:
+                print("error: --console is for a fragment build", file=sys.stderr)
+                return 2
+            stage_inputs.set_clean(args.clean)
+            if fragments:
+                _heat_guarded(lambda: fragment_build.build_fragments(
+                    args.target, console=args.console, language=args.lang))
+                return 0
+            language = args.lang or lang.DEFAULT
             if args.all:
                 from r36os.release import build_all
 
-                return build_all(language=args.lang)
-            image = get_image(args.target)
+                return _heat_guarded(lambda: build_all(language=language))
+            image = get_image(args.target[0])
             from r36os.build import build_image_target
 
-            build_image_target(image, language=args.lang)
+            _heat_guarded(lambda: build_image_target(image, language=language))
             return 0
         if args.command == "flash":
             from r36os.flash import main_flash
 
             return main_flash(get_image(args.target), args.device, args.update,
                               args.build, args.yes, args.eject)
+        if args.command == "push" and args.hot:
+            if args.dry_run:
+                print("error: --dry-run is for the normal push, not --hot", file=sys.stderr)
+                return 2
+            from r36os.push_hot import main_push_hot
+
+            return main_push_hot(args.hot, console=args.console)
         if args.command == "push":
             from r36os.push import main_push
 
-            return main_push(args.build, args.yes)
+            return main_push(args.build, args.yes, wait=not args.no_wait, console=args.console,
+                             dry_run=args.dry_run)
+        if args.command == "dev":
+            from r36os.dev import main_dev
+
+            return main_dev(args)
         if args.command == "eject":
             from r36os.flash import main_eject
 
@@ -118,7 +258,8 @@ def main(argv: list[str] | None = None) -> int:
             target = get_target(args.target)
             from r36os.packages import build_packages
 
-            build_packages(target, args.names, checksum=args.checksum)
+            _heat_guarded(lambda: build_packages(target, args.names, checksum=args.checksum,
+                                                 force=args.force))
             return 0
         if args.command == "vm":
             from r36os.vm import run_vm
@@ -156,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             from r36os.clean import main_clean
 
             return main_clean(yes=args.yes, keep=args.keep)
-    except (InvalidTargetError, lang.InvalidLanguageError) as e:
+    except (InvalidTargetError, lang.InvalidLanguageError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     return 1

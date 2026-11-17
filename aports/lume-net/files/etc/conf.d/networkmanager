@@ -1,0 +1,4 @@
+# Wi-Fi by USB dongle starts after the frontend (build-speed D20): no game uses it, and the
+# init script comes from the networkmanager-openrc package (left untouched), so the order is
+# added here. The launcher reads the Wi-Fi state on demand and copes with it not up yet.
+rc_after="frontend"

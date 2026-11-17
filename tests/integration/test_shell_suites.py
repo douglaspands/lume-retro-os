@@ -14,6 +14,7 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
 
 @pytest.mark.parametrize("script", [
     "tests/initramfs/test_storage.sh",   # 4.1-4.3
+    "tests/initramfs/test_slots.sh",     # build-speed 4.0
     "tests/playlists/test_playlists.sh",  # 6.2
     "tests/logs/test_logs.sh",            # 5.5
     "tests/audio/test_mixer.sh",          # 9.8
@@ -23,6 +24,7 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
     "tests/usb/test_usb_storage.sh",      # usb-device-access 7.3
     "tests/session/test_session.sh",      # lume-launcher 6.1
     "tests/net/test_ssh_wifi.sh",         # lume-launcher 12.5
+    "tests/selftest/test_selftest_device.sh",  # build-speed 3.2
 ])
 def test_shell_suite(script):
     cmd = Container(

@@ -4,12 +4,21 @@
       console-20261109-214233.img.zst  card image, compressed (zstd)
       manifest-ga36.txt                rootfs packages and versions of each system
       manifest-r36s.txt                (the vm has a single manifest.txt)
-      build.json                       timestamp, commit, layers (kernel, patches, SYSTEM
-                                       size), bootloaders, Alpine, sizes
+      build.json                       timestamp, commit, layers (kernel, patches, slots of
+                                       a console or SYSTEM size of the vm), bootloaders,
+                                       Alpine, sizes
       SHA256SUMS                       of the uncompressed image and of the .zst
       boot-files.sha256                console: every file of BOOT with its SHA256, read
                                        back from the FAT, VERSION last (r36os push)
+      image-parts.sha256               console: the boot area and the GA36 panel 1 boot
+                                       image (the image outside BOOT), by SHA256
     out/images/console/latest -> 20261109-214233
+    out/images/objects/<sha256>        each file of BOOT and each image part, once for every
+                                       build that has it (build-speed D10)
+
+`r36os push` reads the files it sends from objects/ (no unpacking); `r36os flash` writes the
+.img.zst, or assembles the image from the objects of a build that has none. `r36os clean`
+deletes the objects no kept build cites.
 
 Write it to a card: `uv run r36os flash <image> /dev/sdX`.
 """
@@ -32,13 +41,26 @@ def images_dir(target: ImageTarget | Target) -> Path:
     return out_dir() / "images" / target.name
 
 
+def objects_dir() -> Path:
+    """out/images/objects/: the files of every archived build, by SHA256 (D10)."""
+    from r36os.manifests import OBJECTS_DIR
+
+    return out_dir() / "images" / OBJECTS_DIR
+
+
 def _compress(src: Path, dest: Path) -> tuple[str, str]:
     """Compress with zstd; return (sha256 of the original, sha256 of the .zst)."""
     from compression import zstd
 
+    from r36os import jobs
+
     h_raw, h_zst = hashlib.sha256(), hashlib.sha256()
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with src.open("rb") as fin, zstd.open(tmp, "wb", level=10) as fout:
+    # nb_workers = the build's jobs (zstd -T)
+    # (level and options are exclusive: the level goes in the options)
+    opts = {zstd.CompressionParameter.compression_level: 10,
+            zstd.CompressionParameter.nb_workers: jobs.jobs()}
+    with src.open("rb") as fin, zstd.open(tmp, "wb", options=opts) as fout:
         while chunk := fin.read(CHUNK):
             h_raw.update(chunk)
             fout.write(chunk)
@@ -77,11 +99,37 @@ def archive_image(target: ImageTarget | Target, img: Path, v: BuildVersion,
     }
     (dest / "build.json").write_text(json.dumps(build, indent=2, ensure_ascii=False) + "\n")
     sums = f"{sha_raw}  {name}\n{sha_zst}  {name}.zst\n"
-    for archived, src in sorted((extras or {}).items()):
+    extras = dict(extras or {})
+    # the console image parts in objects/ (image.store_build_objects), for flash (D10)
+    parts = img.parent / "image-parts.sha256"
+    if parts.exists():
+        extras.setdefault(parts.name, parts)
+    _finish(target, v, dest, sums, extras)
+    return dest
+
+
+def archive_set(target: ImageTarget, v: BuildVersion, info: dict,
+                manifests: dict[str, Path], extras: dict[str, Path]) -> Path:
+    """Keep a console build without an image (fragment build, build-speed 6.2): no
+    .img.zst, its BOOT list and image parts (in `extras`, the files already in objects/),
+    the manifests and build.json (`image` null); update `latest`. `r36os push` sends it,
+    `r36os flash` assembles its image from the objects."""
+    dest = ensure_dir(images_dir(target) / v.build_id)
+    for archived, manifest in manifests.items():
+        if manifest.exists():
+            shutil.copy(manifest, dest / archived)
+    build = {"target": target.name, **v.as_dict(), "image": None, **info}
+    (dest / "build.json").write_text(json.dumps(build, indent=2, ensure_ascii=False) + "\n")
+    _finish(target, v, dest, "", dict(extras))
+    return dest
+
+
+def _finish(target, v: BuildVersion, dest: Path, sums: str, extras: dict[str, Path]) -> None:
+    """Copy the extras (listed in SHA256SUMS) and point `latest` at this build."""
+    for archived, src in sorted(extras.items()):
         shutil.copy(src, dest / archived)
         sums += f"{hashlib.sha256((dest / archived).read_bytes()).hexdigest()}  {archived}\n"
     (dest / "SHA256SUMS").write_text(sums)
     latest = images_dir(target) / "latest"
     latest.unlink(missing_ok=True)
     latest.symlink_to(v.build_id)
-    return dest

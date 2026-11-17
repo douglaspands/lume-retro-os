@@ -77,7 +77,7 @@ done
 # board DTS (our own files, no upstream file is edited) next to the upstream DTS:
 # OF_UPSTREAM compiles CONFIG_DEFAULT_DEVICE_TREE with sunxi-u-boot.dtsi (binman)
 cp /board/dts/* dts/upstream/src/arm/allwinner/
-make -s O=$B -j$(nproc)
+make -s O=$B -j{jobs}
 cp $B/{binary} /out/{binary}
 cp $B/u-boot.dtb /out/u-boot.dtb
 cp $B/.config /out/u-boot.config
@@ -86,6 +86,7 @@ cp $B/.config /out/u-boot.config
 
 def build_uboot(board: str, out: Path) -> Path:
     """Build the console U-Boot with the board DT; return the binary."""
+    from r36os import jobs
     from r36os.container import Container, ensure_cross
 
     defconfig, cross, dtb, binary, _ = UBOOT_TARGETS[board]
@@ -97,7 +98,8 @@ def build_uboot(board: str, out: Path) -> Path:
         image=ensure_cross(),
         volumes={tree: "/uboot", build: "/build", out: "/out",
                  ccache: "/cache/ccache", REPO_ROOT / "board" / board: "/board"},
-    ).sh(_SCRIPT.format(cross=cross, defconfig=defconfig, dtb=dtb, binary=binary))
+    ).sh(_SCRIPT.format(cross=cross, defconfig=defconfig, dtb=dtb, binary=binary,
+                        jobs=jobs.jobs()))
     return out / binary
 
 

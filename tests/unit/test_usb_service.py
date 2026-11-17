@@ -5,9 +5,9 @@ import re
 
 from r36os.paths import REPO_ROOT
 
-INIT = (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-usb").read_text()
+INIT = (REPO_ROOT / "aports/lume-usb/files/etc/init.d/r36os-usb").read_text()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
-GADGET = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/usb-gadget"
+GADGET = REPO_ROOT / "aports/lume-usb/files/usr/libexec/r36os/usb-gadget"
 
 
 def test_service_runs_the_gadget_under_supervision():
@@ -56,4 +56,4 @@ def test_root_logs_in_without_a_password_on_the_cable_only():
 
 def test_overlay_scripts_are_executable():
     assert GADGET.stat().st_mode & 0o111
-    assert (REPO_ROOT / "rootfs/overlay/etc/init.d/r36os-usb").stat().st_mode & 0o111
+    assert (REPO_ROOT / "aports/lume-usb/files/etc/init.d/r36os-usb").stat().st_mode & 0o111

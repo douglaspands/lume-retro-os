@@ -85,11 +85,12 @@ _VM_RAW = ("dd if=/usr/share/syslinux/mbr.bin of=$W/disk.img bs=440 count=1 "
 
 # Console (design D5; boot-dtb-select D8): BOOT with one folder per console, one folder of
 # DTBs per SoC (dtbs/<soc>/, read by lume-bootsel) and, at the root, the boot.ini that the
-# R36S U-Boot reads. Only what the consoles read: GA36 SYSTEM and the zImage without an
-# appended DTB (reloaded by kexec; the kernel with the built-in initramfs and the appended
-# DTB is the Android boot image at sector 172032, outside BOOT, and the images of both
-# panels are archived next to the card image for a dd from the PC). R36S: SYSTEM and the
-# Image (initramfs built in); boot.ini loads the default DTB from dtbs/rk3326/.
+# R36S U-Boot reads. Only what the consoles read: the GA36 slot set (SLOTS, slot/; build-
+# speed D9) and the zImage without an appended DTB (reloaded by kexec; the kernel with the
+# built-in initramfs and the appended DTB is the Android boot image at sector 172032,
+# outside BOOT, and the images of both panels are archived next to the card image for a dd
+# from the PC). R36S: the slot set and the Image (initramfs built in); boot.ini loads the
+# default DTB from dtbs/rk3326/.
 _CONSOLE = """
 W=/out/imgwork
 rm -rf $W && mkdir -p $W
@@ -97,7 +98,7 @@ truncate -s {boot_bytes} $W/boot.img
 mkfs.vfat -F 32 -n BOOT -h {boot_start} -S 512 $W/boot.img >/dev/null
 export MTOOLS_SKIP_CHECK=1
 M="mcopy -i $W/boot.img"
-$M /out/VERSION ::VERSION
+$M {version} ::VERSION
 # every other file from console_boot_files() (the same list flash and push use, task 5.1)
 mmd -i $W/boot.img {dirs}
 {copies}
@@ -120,8 +121,8 @@ truncate -s {image_bytes} $W/disk.img
 printf 'label: dos\\nlabel-id: 0x{disk_id}\\nstart={boot_start}, size={boot_sectors}, type=c, bootable\\n' \\
     | sfdisk -q $W/disk.img
 # boot area of both consoles without sector 0 (the MBR is ours), then the panel 1 boot image
-dd if=/out/{area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
-dd if=/ga36/kernel/android-boot-panel1.img of=$W/disk.img bs=512 seek={android} conv=notrunc status=none
+dd if={area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
+dd if={panel1} of=$W/disk.img bs=512 seek={android} conv=notrunc status=none
 dd if=$W/boot.img of=$W/disk.img bs=512 seek={boot_start} conv=notrunc,sparse status=none
 mv $W/disk.img /out/console.img
 rm -rf $W
@@ -145,23 +146,33 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
 
     `factory`: files of the R36S factory BOOT root (r36s_vendor.factory_boot_files()).
     """
+    from r36os import kernel_packages
+
     files = {**(factory or {}),
              "boot.ini": REPO_ROOT / "board/r36s/boot.ini",
-             "ga36/SYSTEM": ga36_out / "SYSTEM",
-             "ga36/zImage": ga36_out / "kernel/zImage",
-             # the kernel modules of each console, outside SYSTEM (kernel-modules-image D1)
-             "ga36/modules": ga36_out / "kernel/modules",
-             "r36s/SYSTEM": r36s_out / "SYSTEM",
-             "r36s/Image": r36s_out / "kernel/Image",
-             "r36s/modules": r36s_out / "kernel/modules",
-             f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
+             f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}":
+                 r36s_out / kernel_packages.PKG_DIR / "boot/dtbs" / SOC_DIR["r36s"] / R36S_DTB}
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
-        for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
-            files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
-        # trees converted from vendor DTBs (boot-dtb-select D12), read only on demand
-        for dtb in sorted((out / "kernel/dtbs/vendor").glob("*.dtb")):
-            files[f"dtbs/{SOC_DIR[board]}/vendor/{dtb.name}"] = dtb
+        # the root of each console is its slot set (build-speed D9): <console>/SLOTS and
+        # <console>/slot/<name>-<sha12>, the kernel modules among them; no SYSTEM and no
+        # <console>/modules on a new card (an old one keeps them until the push of 4.6)
+        files.update(console_slot_files(board, out))
+        # the kernel and the DTBs (with the trees converted from vendor DTBs, boot-dtb-select
+        # D12) are the data of the published lume-kernel and lume-dtbs (build-speed 7.3)
+        files.update(kernel_packages.boot_sources(board, out))
     return files
+
+
+def console_slot_files(board: str, layer_out: Path) -> dict[str, Path]:
+    """BOOT path -> source of the slot set of a console: <console>/SLOTS (listed even when
+    the layer has none yet, so the image build reports it missing) and the slot files it
+    names."""
+    from r36os import manifests, slots
+
+    sdir = slots.slots_dir(layer_out)
+    if not (sdir / manifests.SLOTS_FILE).is_file():
+        return {f"{board}/{manifests.SLOTS_FILE}": sdir / manifests.SLOTS_FILE}
+    return slots.boot_files(board, sdir)
 
 
 BOOT_LIST = "boot-files.sha256"   # "<sha256>  <BOOT path>" of every file, VERSION last
@@ -234,22 +245,37 @@ def check_soc_dtbs(files: dict[str, Path]) -> None:
                 + (f": {', '.join(defaults)}" if defaults else ""))
 
 
-def check_console_boot(sizes: dict[str, int]) -> None:
-    """Limits of the console BOOT (system-image): every SYSTEM within 448 MiB and at least
-    64 MiB free on the 2 GiB BOOT. `sizes` maps the BOOT path to the file size."""
-    from r36os.rootfs import CONSOLE_SYSTEM_LIMIT_MIB
+def _clusters(size: int) -> int:
+    return -(-size // _CLUSTER) * _CLUSTER
 
+
+def check_console_boot(sizes: dict[str, int]) -> None:
+    """Limits of the console BOOT (system-image, build-speed D9): the slots of each console
+    (<console>/slot/*) within 448 MiB together, and at least 64 MiB free on the 2 GiB BOOT
+    counting the previous set a push keeps (SLOTS.old): every slot is counted twice, the
+    previous set taken as large as the new one. `sizes` maps the BOOT path to the size."""
+    from r36os.manifests import SLOTS_DIR
+    from r36os.slots import CONSOLE_SLOTS_LIMIT_MIB
+
+    per_console: dict[str, int] = {}
     for path, size in sizes.items():
-        if path.endswith("/SYSTEM") and size > CONSOLE_SYSTEM_LIMIT_MIB * 2**20:
+        parts = path.split("/")
+        if len(parts) == 3 and parts[1] == SLOTS_DIR:
+            per_console[parts[0]] = per_console.get(parts[0], 0) + size
+    for console, total in sorted(per_console.items()):
+        if total > CONSOLE_SLOTS_LIMIT_MIB * 2**20:
             raise ConsoleImageError(
-                f"{path} has {size / 2**20:.1f} MiB, above the {CONSOLE_SYSTEM_LIMIT_MIB} MiB "
-                "limit of each system on the console image")
-    used = sum(-(-size // _CLUSTER) * _CLUSTER for size in sizes.values())
-    free = boot_sectors("console") * 512 - _FAT_OVERHEAD - used
+                f"the slots of {console} take {total / 2**20:.1f} MiB, above the "
+                f"{CONSOLE_SLOTS_LIMIT_MIB} MiB limit of each console on the image")
+    used = sum(_clusters(size) for size in sizes.values())
+    previous = sum(_clusters(size) for path, size in sizes.items()
+                   if path.split("/")[1:2] == [SLOTS_DIR])
+    free = boot_sectors("console") * 512 - _FAT_OVERHEAD - used - previous
     if free < BOOT_MIN_FREE:
         raise ConsoleImageError(
             f"the console BOOT would have {free / 2**20:.0f} MiB free, it needs at least "
-            f"{BOOT_MIN_FREE // 2**20} MiB (files: {used / 2**20:.0f} MiB)")
+            f"{BOOT_MIN_FREE // 2**20} MiB (files: {used / 2**20:.0f} MiB, the previous "
+            f"slot set: {previous / 2**20:.0f} MiB)")
 
 
 def build_image(target: Target, v: version.BuildVersion | None = None,
@@ -290,7 +316,7 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     """
     import shutil
 
-    from r36os import bootarea, r36s_vendor, vendor
+    from r36os import r36s_vendor
     from r36os.paths import ensure_dir
     from r36os.targets import IMAGES
 
@@ -315,19 +341,177 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     staged = {**files, **{name: staging / name for name in factory}}
     volumes = {out: "/out", ga36_out: "/ga36", r36s_out: "/r36s",
                REPO_ROOT / "board/r36s": "/board"}
-    script = _CONSOLE.format(
-        **boot_copy_commands(staged, volumes),
+    panel1 = ga36_out / "kernel" / PANEL1_SOURCE
+    script = _console_script(staged, volumes, "/out/VERSION", f"/out/{area.name}",
+                             f"/ga36/kernel/{PANEL1_SOURCE}")
+    # the image does not depend on the target arch: always the x86_64 builder
+    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
+    # build-speed D10: every file of BOOT and both pieces outside it, once in objects/
+    store_build_objects(out, {**staged, VERSION_FILE: out / "VERSION"},
+                        {AREA_PART: area, PANEL1_PART: panel1})
+    area.unlink()
+    return out / "console.img"
+
+
+def write_console_set(v: version.BuildVersion, language: str = "en",
+                      ga36_out: Path | None = None, r36s_out: Path | None = None,
+                      out: Path | None = None, area_writer=None) -> Path:
+    """A console build without its image (fragment build, build-speed 6.2): the BOOT list
+    out/console/boot-files.sha256 of every file the card's BOOT would hold (kernels, DTBs,
+    the slot sets of both consoles, the R36S factory files, VERSION last), each file and the
+    two image parts stored in objects/, and image-parts.sha256. No FAT and no 2 GiB image:
+    the sha256 comes from the sources, which is what mcopy writes to the FAT. `r36os push`
+    compares the whole card with this list; `r36os flash` assembles the image from it.
+    Returns the BOOT list."""
+    from r36os import manifests, r36s_vendor
+    from r36os.archive import objects_dir
+    from r36os.paths import ensure_dir
+    from r36os.targets import IMAGES
+
+    out = ensure_dir(out or target_out(IMAGES["console"]))
+    ga36_out = ga36_out or target_out(TARGETS["ga36"])
+    r36s_out = r36s_out or target_out(TARGETS["r36s"])
+    files = console_boot_files(ga36_out, r36s_out, r36s_vendor.factory_boot_files())
+    panel1 = ga36_out / "kernel" / PANEL1_SOURCE
+    missing = [str(src) for src in [*files.values(), panel1] if not src.exists()]
+    if missing:
+        raise ConsoleImageError("a fragment build reuses the kernel, DTBs and slot sets of "
+                                "the last `r36os build console`; missing: " + ", ".join(missing))
+    check_soc_dtbs(files)
+    check_console_boot({path: src.stat().st_size for path, src in files.items()})
+    (out / VERSION_FILE).write_text(
+        version.boot_version_file("console", v) + f"language: {language}\n")
+    files = {**files, VERSION_FILE: out / VERSION_FILE}
+    objects = objects_dir()
+    # one read of each file: store_object hashes it and copies it only when it is new
+    shas = {p: manifests.store_object(objects, src) for p, src in files.items()}
+    area = (area_writer or bootarea.write_console_area)(out / "console-boot-area.bin")
+    try:
+        parts = {AREA_PART: manifests.store_object(objects, area),
+                 PANEL1_PART: manifests.store_object(objects, panel1)}
+    finally:
+        area.unlink(missing_ok=True)
+    manifests._write_atomic(out / IMAGE_PARTS, format_image_parts(parts))
+    manifests.write_boot_list(out / BOOT_LIST, shas)
+    return out / BOOT_LIST
+
+
+def _console_script(files: dict[str, Path], volumes: dict[Path, str], version_src: str,
+                    area_src: str, panel1_src: str) -> str:
+    """The script that makes console.img and its BOOT list in /out (paths in the container)."""
+    from r36os import vendor
+
+    return _CONSOLE.format(
+        **boot_copy_commands(files, volumes),
+        version=version_src,
         boot_bytes=boot_sectors("console") * 512,
         boot_start=boot_start("console"),
         boot_sectors=boot_sectors("console"),
         image_bytes=(boot_start("console") + boot_sectors("console")) * 512,
         disk_id=disk_id("console"),
         min_free=BOOT_MIN_FREE,
-        area_file=area.name,
+        area_file=area_src,
         area_sectors=bootarea.AREA_SECTORS - 1,
         android=vendor.ANDROID_BOOT_SECTOR,
+        panel1=panel1_src,
     )
-    # the image does not depend on the target arch: always the x86_64 builder
-    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
-    area.unlink()
-    return out / "console.img"
+
+
+# --- content-addressed archive (build-speed D10) ----------------------------------------
+#
+# Each file of BOOT is out/images/objects/<sha256>, stored once for every build that has it
+# (boot-files.sha256 names them). The two pieces of the console image outside BOOT are
+# objects too, named by image-parts.sha256 (same `<sha256>  <name>` lines): with both lists
+# `flash` assembles the image of a build that has no .img.zst.
+
+IMAGE_PARTS = "image-parts.sha256"
+AREA_PART = "boot-area"                     # bootarea.write_console_area(), 128 MiB
+PANEL1_PART = "android-boot-panel1"         # GA36 kernel boot image at sector 172032
+PANEL1_SOURCE = "android-boot-panel1.img"   # in out/ga36/kernel/
+VERSION_FILE = "VERSION"
+
+
+def format_image_parts(parts: dict[str, str]) -> str:
+    from r36os import manifests
+
+    if set(parts) != {AREA_PART, PANEL1_PART}:
+        raise manifests.ManifestError(f"{IMAGE_PARTS}: expected {AREA_PART} and "
+                                      f"{PANEL1_PART}, got {sorted(parts)}")
+    for name, sha in parts.items():
+        manifests.object_path(Path("."), sha)           # checks the sha256
+    return "".join(f"{parts[n]}  {n}\n" for n in (AREA_PART, PANEL1_PART))
+
+
+def read_image_parts(path: Path) -> dict[str, str]:
+    """name -> sha256 of the pieces of the image outside BOOT."""
+    from r36os import manifests
+
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        raise manifests.ManifestError(f"{path}: missing") from None
+    parts = {}
+    for n, line in enumerate(text.splitlines(), start=1):
+        sha, sep, name = line.partition("  ")
+        if not sep or name in parts:
+            raise manifests.ManifestError(f"{path}: line {n}: not `<sha256>  <name>`")
+        parts[name] = sha
+    format_image_parts(parts)                           # same checks as the writer
+    return parts
+
+
+def store_build_objects(out: Path, files: dict[str, Path], parts: dict[str, Path]) -> None:
+    """Store every file of out/boot-files.sha256 (BOOT path -> source in `files`) and the
+    image `parts` in objects/, and write out/image-parts.sha256. A source that differs from
+    what the FAT holds stops the build."""
+    from r36os import manifests
+    from r36os.archive import objects_dir
+
+    objects = objects_dir()
+    for path, sha in manifests.read_boot_list(out / BOOT_LIST):
+        src = files.get(path)
+        if src is None:
+            raise ConsoleImageError(f"{path} is on BOOT but not in the files of the build")
+        if manifests.store_object(objects, src) != sha:
+            raise ConsoleImageError(f"{path} on the FAT differs from its source {src}")
+    stored = {name: manifests.store_object(objects, src) for name, src in parts.items()}
+    manifests._write_atomic(out / IMAGE_PARTS, format_image_parts(stored))
+
+
+def assemble_console_image(build_dir: Path, dest: Path, runner=None) -> Path:
+    """The card image of an archived console build, made again from its objects (for a
+    build without .img.zst). The BOOT list read back from the new FAT must be the archived
+    one."""
+    import shutil
+
+    from r36os import manifests
+    from r36os.archive import objects_dir
+
+    objects = objects_dir()
+    boot_list = manifests.read_boot_list(build_dir / BOOT_LIST)
+    parts = read_image_parts(build_dir / IMAGE_PARTS)
+    missing = manifests.missing_objects(objects, [*boot_list, *parts.items()])
+    if missing:
+        raise ConsoleImageError(f"build {build_dir.name}: no object in {objects} for "
+                                + ", ".join(missing))
+    work = dest.parent / f"assemble-{build_dir.name}"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    volumes = {work: "/out", objects: "/obj"}
+    files = {p: manifests.object_path(objects, sha) for p, sha in boot_list
+             if p != VERSION_FILE}
+    script = _console_script(files, volumes, f"/obj/{dict(boot_list)[VERSION_FILE]}",
+                             f"/obj/{parts[AREA_PART]}", f"/obj/{parts[PANEL1_PART]}")
+    try:
+        if runner is not None:
+            runner(volumes, script)
+        else:
+            Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
+        built = manifests.read_boot_list(work / BOOT_LIST)
+        if dict(built) != dict(boot_list):
+            raise ConsoleImageError(f"the BOOT assembled from the objects of {build_dir.name} "
+                                    f"differs from its {BOOT_LIST}")
+        (work / "console.img").replace(dest)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return dest

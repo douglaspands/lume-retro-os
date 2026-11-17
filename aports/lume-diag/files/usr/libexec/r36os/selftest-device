@@ -1,0 +1,120 @@
+#!/bin/sh
+# Device mode of the self-test (build-speed D12): `selftest device`, run on a console by
+# `r36os dev check` over the USB cable. Stateless: no TESTDATA disk, no phases, no reboots,
+# no keys. It checks that the running system is healthy and prints one line per check:
+#
+#   SELFTEST <name> PASS|FAIL [detail]
+#   SELFTEST-DONE board=<ga36|r36s> pass=<n> fail=<n>
+#
+# Exit code 0 only when every check passed (and 2 when run on the VM, which has its own
+# phased self-test). Only the cases that apply to the consoles are here: the VM-only ones
+# (QEMU keyboard grab, test games and cores, abrupt resets, forced failures, Shut down by
+# keys) stay in `selftest run`.
+#
+# Sourced with SELFTEST_DEVICE_SOURCE=1 (the tests do) it only defines the functions.
+. "${R36OS_LIBDIR:-/usr/libexec/r36os}/lib.sh"
+LOGS=${LOGS:-/storage/logs}
+PROC_MOUNTS=${PROC_MOUNTS:-/proc/mounts}
+PROC_SWAPS=${PROC_SWAPS:-/proc/swaps}
+INPUT_DEVICES=${INPUT_DEVICES:-/proc/bus/input/devices}
+HWSUMMARY=${HWSUMMARY:-$R36OS_RUN/hwsummary}
+SYSLOG=${SYSLOG:-/var/log/messages}
+PASSED=0
+FAILED=0
+
+mark() {  # name PASS|FAIL [detail]: the detail is kept on one line
+	local detail
+	detail=$(printf '%s' "${3:-}" | tr '\n' ' ')
+	echo "SELFTEST $1 $2${detail:+ $detail}"
+	if [ "$2" = PASS ]; then PASSED=$((PASSED + 1)); else FAILED=$((FAILED + 1)); fi
+}
+check() {  # name "condition" [detail]
+	if eval "$2"; then mark "$1" PASS "${3:-}"; else mark "$1" FAIL "${3:-}"; fi
+}
+
+svc_up() { rc-service "$1" status >/dev/null 2>&1; }
+svc_state() { rc-service "$1" status 2>&1 | tr -d ' *' | head -c 40; }
+frontend_up() { pidof lume-run >/dev/null 2>&1 && pidof lume-ui >/dev/null 2>&1; }
+# the launcher game-list scan of this boot: still running, or its summary line in the syslog
+# (which starts with the boot) says no system failed
+lume_index_line() { grep "lume-index: scan " "$SYSLOG" 2>/dev/null | tail -n 1; }
+lume_index_ok() {
+	pidof lume-index >/dev/null 2>&1 && return 0
+	lume_index_line | grep -q " failed=0 "
+}
+uid_of() { awk '/^Uid:/{print $2}' "/proc/$1/status" 2>/dev/null; }
+
+# Services of the default runlevel that the consoles run (rootfs/configure.sh); the VM-only
+# r36os-hostshare and r36os-selftest are not here, r36os-audiotest is a bring-up tool.
+# lume-index is not here either: it is a background scan that exits when done, which OpenRC
+# then shows as "crashed" (seen on the GA36, J1 2026-11-16); lume_index_ok checks it.
+device_services() {  # board
+	local s
+	for s in r36os-zram seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb \
+		r36os-savesync r36os-input r36os-hwsummary frontend r36os-playlists \
+		dbus networkmanager r36os-ssh-wifi bluetooth; do
+		echo "$s"
+	done
+	[ "$1" = r36s ] && echo r36os-jack
+	return 0
+}
+
+device_checks() {  # board
+	local b="$1" s boot_n lume_pid ui_pid
+	# Storage: read-write games partition, the layered root system
+	check roms-mounted 'grep -q " /storage exfat " "$PROC_MOUNTS" && grep " /storage " "$PROC_MOUNTS" | grep -q noatime' "$(grep " /storage " "$PROC_MOUNTS" | head -n 1)"
+	check root-overlay 'grep -q "^overlay / overlay" "$PROC_MOUNTS"' "$(grep "^overlay / " "$PROC_MOUNTS" | cut -c1-80)"
+	check zram-swap 'grep -qE "^/dev/zram0[[:space:]]" "$PROC_SWAPS"' "$(tr '\n' ';' < "$PROC_SWAPS" 2>/dev/null)"
+
+	# Hardware summary of the boot (video, audio, gamepad, battery, ROMS): none may fail
+	check hwsummary '[ -f "$HWSUMMARY" ] && ! grep -qE "^ *[A-Za-z]+ +fail( |$)" "$HWSUMMARY"' "$(tr -s ' ' < "$HWSUMMARY" 2>/dev/null | grep -E " fail( |$)" | tr '\n' ';')"
+
+	# Services that start with the system
+	for s in $(device_services "$b"); do
+		check "service-$s" 'svc_up "$s"' "$(svc_state "$s")"
+	done
+	check lume-index-scan 'lume_index_ok' "$(lume_index_line | sed 's/.*lume-index: //' | cut -c1-60)"
+
+	# The frontend runs as game, not as root, and has not given up
+	lume_pid=$(pidof lume-run | awk '{print $1}')
+	ui_pid=$(pidof lume-ui | awk '{print $1}')
+	check frontend-up 'frontend_up' "lume-run=$lume_pid lume-ui=$ui_pid"
+	check frontend-not-root '[ -n "$lume_pid" ] && [ -n "$ui_pid" ] && [ "$(uid_of "$lume_pid")" = 1000 ] && [ "$(uid_of "$ui_pid")" = 1000 ]'
+	check frontend-no-giveup '! dmesg | grep -q "frontend stopped after 3 failures"'
+
+	# The input daemon publishes the board's virtual pad
+	check input-daemon 'pidof r36os-input >/dev/null && grep -q "^N: Name=\"$pad\"" "$INPUT_DEVICES"' "pad: $(device_pad "$b")"
+
+	# Diagnostic logs (D14): the boot log exists and the boot finished
+	boot_n=$(cat "$R36OS_RUN/logs/boot-n" 2>/dev/null)
+	check bootlog-written '[ -n "$boot_n" ] && { [ -f "$R36OS_RUN/logs/boot/boot-$boot_n.log" ] || [ -f "$LOGS/boot/boot-$boot_n.log" ]; }' "boot ${boot_n:-?}"
+	check boot-completed '[ -n "$boot_n" ] && awk -v n="$boot_n" "\$2 == n && / boot OK completed/ {f=1} END {exit !f}" "$LOGS/events.log"' "$(awk -v n="$boot_n" '$2 == n && / boot / {l=$0} END {print l}' "$LOGS/events.log" 2>/dev/null)"
+	check logs-dirs '[ -d "$LOGS/boot" ] && [ -d "$LOGS/hw" ] && [ -d "$LOGS/metrics" ] && [ -d "$LOGS/frontend" ]' "$(ls -A "$LOGS" 2>/dev/null | tr '\n' ' ')"
+
+	# Games cgroup handed to the game user (lume-launcher 6.1)
+	local cg="${CGROUP_ROOT:-/sys/fs/cgroup}/lume"
+	check cgroup-delegated '[ "$(stat -c %U "$cg" 2>/dev/null)" = game ] && [ -e "$cg/cgroup.kill" ]' "owner: $(stat -c %U "$cg" 2>/dev/null)"
+}
+
+# Name of the virtual gamepad of a board, published by r36os-input
+device_pad() {
+	case "$1" in
+	ga36) echo "GA36-MB Gamepad" ;;
+	r36s) echo "R36S Gamepad" ;;
+	esac
+}
+
+device_run() {
+	local b
+	b=$(board)
+	case "$b" in
+	ga36|r36s) ;;
+	*) echo "SELFTEST-ERROR device mode is for the consoles (board: ${b:-unknown}); the VM runs 'selftest run'"; return 2 ;;
+	esac
+	pad=$(device_pad "$b")
+	device_checks "$b"
+	echo "SELFTEST-DONE board=$b pass=$PASSED fail=$FAILED"
+	[ "$FAILED" -eq 0 ]
+}
+
+[ -n "${SELFTEST_DEVICE_SOURCE:-}" ] || device_run

@@ -1,0 +1,83 @@
+# Slot groups of the console root (build-speed D9): each installed package goes to the slot
+# of the first group whose patterns match its name (shell patterns, as in fnmatch). The
+# overlay mounts base at the bottom, runtime over it and lume on top.
+#
+# Files with no owner in the apk database, files changed after the install (configure.sh,
+# the overlay, the factory language), the apk database itself, /etc/apk/world and the
+# outputs of the triggers go to `lume`, the top slot, so a change in one group never
+# changes the base. The `modules` slot is the kernel modules image of stage 1.
+#
+# A package no group names goes to `default`: the unit test lists every package of
+# rootfs/packages.txt and board/*/hw-packages.txt that is not named here, so a new package
+# lands in a slot by decision, not by accident.
+
+default = "base"
+
+[groups]
+# RetroArch and the cores (a core-<name> slot per core is P-80), video (mesa, DRM, SDL),
+# audio (ALSA) and the runner of the launcher (LÖVE) with the libraries only they use
+runtime = [
+    "retroarch",
+    "retroarch-*",
+    "libretro-*",
+    "mesa",
+    "mesa-*",
+    "llvm*-libs",
+    "spirv-tools",
+    "libdrm",
+    "libpciaccess",
+    "libelf",
+    "libxshmfence",
+    "libx11",
+    "libxcb",
+    "libxau",
+    "libxdmcp",
+    "wayland-libs-*",
+    "sdl2",
+    "alsa-*",
+    "fftw-single-libs",
+    "love",
+    "luajit",
+    "openal-soft-libs",
+    "libmodplug",
+    "libtheora",
+    "libvorbis",
+    "libogg",
+    "mpg123-libs",
+    "freetype",
+    "libpng",
+]
+
+# The project's fragments (local aports): scripts, settings, launcher, input daemon
+lume = [
+    "lume-*",
+    "r36os-*",
+]
+
+# Alpine base, services and the dongle firmware (named so the test sees a decision)
+base = [
+    "alpine-base",
+    "openrc",
+    "busybox-openrc",
+    "busybox-extras",
+    "eudev",
+    "eudev-openrc",
+    "tzdata",
+    "seatd",
+    "seatd-openrc",
+    "usbutils",
+    "pciutils",
+    "exfatprogs",
+    "jq",
+    "umtprd",
+    "dropbear",
+    "dbus",
+    "dbus-openrc",
+    "networkmanager",
+    "networkmanager-*",
+    "wpa_supplicant",
+    "bluez",
+    "bluez-openrc",
+    "linux-firmware-*",
+    "linux-virt",
+]

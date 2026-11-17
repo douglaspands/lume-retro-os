@@ -118,7 +118,37 @@ Uma linha por evento:
 | `battery` | abaixo de 10% (`FAIL`) |
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
+| `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
+
+Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
+próprio console e é descarregada no cartão na hora):
+
+```
+2026-11-17T10:22:41 47 push OK hot lume-audio 0.3.1-r4
+2026-11-17T10:22:44 47 push FAIL hot lume-audio 0.3.1-r4 restart r36os-mixer
+```
+
+O `dev watch` grava uma linha dessas a cada ciclo bem-sucedido; o build dele fica no PC, em
+`out/dev-watch/<fragmento>.log`, não nos logs do console. O `r36os dev log` mostra essas linhas
+junto com as do boot atual.
+
+### O que o `r36os push` e o `r36os dev` leem
+
+Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.
+
+- `/run/r36os/logs/boot-n` (RAM): o número do boot atual. O `push` o lê antes do reboot e
+  depois dele; o boot novo precisa ter outro número (o relógio do console não é confiável).
+- `events.log`, a linha `<time> <n> boot OK completed: ...` do boot `<n>` (o segundo campo
+  é o número do boot): o `push` espera por ela até 120 s e mostra o detalhe
+  (`frontend in <s>s from kernel`) no `ok: boot N completed with build X (...)`. O autoteste
+  (`boot-completed`) e o `r36os dev log` leem a mesma linha; o `dev log` imprime todas as
+  linhas do boot atual do `events.log` depois do `boot-<n>.log`.
+- `/boot/VERSION` (linha `build: <carimbo>`): comparada com o build enviado.
+- `boot/boot-<n>.log` (RAM, senão `ROMS/logs/boot/`): o que o `dev log` imprime primeiro; o
+  autoteste confere que existe (`bootlog-written`).
+- `lume-index: scan ... failed=<n>` do syslog do boot: o autoteste (`lume-index-scan`) passa
+  com `failed=0`, ou se o scan ainda roda.
 
 ## `metrics/boot-<n>.csv`
 
@@ -323,6 +353,49 @@ O aprendido (D15) fica em `ROMS/system/etc/dtb-<soc>-learned.conf`, uma linha
 `panel:<hex>=<id>` por assinatura, comum a todos os aparelhos do SoC que usam o cartão: vale
 para qualquer aparelho cujo painel responda o mesmo ID.
 
+## Raiz do sistema (slots) no `boot/boot-<n>.log`
+
+Nos consoles, o sistema é um conjunto de slots squashfs em `BOOT/<console>/slot/`, descrito
+pelo manifesto `BOOT/<console>/SLOTS` (change `build-speed`, D9). O initramfs monta `lume`,
+`runtime` e `base` como `lowerdir` do overlay (o de cima prevalece), embaixo da camada de 32 MiB
+na RAM, e o slot `modules` em `/lib/modules`. As linhas `core-<nome>` do manifesto são
+ignoradas no boot (P-80). A ordem de tentativa é:
+
+1. `<console>/SLOTS`;
+2. `<console>/SLOTS.old` (o conjunto anterior), quando o `SLOTS` falta, está truncado, cita um
+   arquivo ausente ou algum slot dele não monta;
+3. o `<console>/SYSTEM` antigo (ou o `SYSTEM.old`), como antes dos slots;
+4. o modo de resgate, com a mesma mensagem de antes (`BOOT has no <console>/SYSTEM, …`).
+
+Um conjunto que falha no meio é desmontado inteiro (do último ao primeiro) antes do passo
+seguinte: nunca sobra um overlay pela metade. O cartão antigo, sem `SLOTS` nem `SLOTS.old`, não
+ganha linha nova: monta o `SYSTEM` exatamente como antes. Linhas, com o prefixo `lume:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `slots: <manifest> (build <id>)` | conjunto montado: `<manifest>` é `<console>/SLOTS` ou `<console>/SLOTS.old`, `<id>` o build dele |
+| `slot <name>: <file> (packages: <n>)` | um slot do conjunto (`base`, `runtime`, `lume`, `modules`), o arquivo na `BOOT` (`<console>/slot/<name>-<sha12>`) e quantos pacotes ele traz |
+| `slot <name> packages: <package>-<version> …` | os pacotes do slot com a versão, em linhas de até ~400 caracteres (cabem num registro do `dmesg`) |
+| `root: <manifest> (lume, runtime, base; read-only) + 32 MiB RAM layer` | raiz montada pelos slots |
+| `root: <file> (read-only) + 32 MiB RAM layer` | raiz montada pelo `SYSTEM` antigo (cartão antigo ou depois das falhas abaixo) |
+| `ERROR: <console>/SLOTS <reason>; using <console>/SLOTS.old from the previous build` | o `SLOTS` falta (`push` cortado entre os dois `mv`), está truncado ou cita um slot ausente; `<reason>` diz qual |
+| `ERROR: <console>/SLOTS <reason> and <console>/SLOTS.old <reason>; no slot set to mount` | nenhum dos dois manifestos serve |
+| `ERROR: no slot set of <console> to mount; trying the old <console>/SYSTEM` | segue para o `SYSTEM` antigo depois da linha acima |
+| `ERROR: failed to mount slot <name> (<file>) of <manifest>` | um slot não montou (squashfs corrompido, sem dispositivo loop, arquivo ruim); o que já estava montado do conjunto é desmontado |
+| `ERROR: failed to mount slot modules (<file>) of <manifest>` | o slot `modules` não montou; o conjunto inteiro é desmontado |
+| `ERROR: failed to mount the RAM layer for <manifest>` | o `tmpfs` da camada de escrita não montou |
+| `ERROR: failed to mount the overlay of <manifest>` | o overlay dos slots não montou |
+| `ERROR: <manifest> gives the overlay lowerdir "<lowerdir>"` | o manifesto não deu os três slots do overlay na ordem esperada |
+| `ERROR: failed to unmount <path>` | um ponto de montagem do conjunto que falhou não desmontou nem com `umount -l` |
+| `ERROR: <console>/SLOTS could not be mounted; using <console>/SLOTS.old from the previous build` | o `SLOTS` estava bom mas não montou: tenta o conjunto anterior |
+| `ERROR: <console>/SLOTS could not be mounted and <console>/SLOTS.old <reason>; trying the old <console>/SYSTEM` | o `SLOTS` não montou e o `SLOTS.old` não serve |
+| `ERROR: <console>/SLOTS.old could not be mounted either; trying the old <console>/SYSTEM` | nenhum dos dois conjuntos montou |
+| `ERROR: <console>/SLOTS.old could not be mounted; trying the old <console>/SYSTEM` | só havia o `SLOTS.old` e ele não montou |
+
+Com os slots, a linha de módulos (seção abaixo) traz o slot: `modules:
+<console>/slot/modules-<sha12> (<release>)`, com a mesma conferência de versão. Na VM não há
+slots: ela monta o `BOOT/SYSTEM` como antes.
+
 ## Módulos do kernel no `boot/boot-<n>.log`
 
 Nos consoles, os módulos do kernel ficam fora do `SYSTEM`, num squashfs por console
@@ -368,6 +441,12 @@ sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Se
 - `== system`: versão, placa, modelo e `compatible` do device tree, o DTB em uso
   (`dt in use: <id> (<motivo>)`, com `after kexec` quando houve troca), número de série,
   SoC, kernel e linha de comando.
+- `== fragments`: a versão de cada fragmento do projeto instalado no console (pacotes
+  `lume-*` e `r36os-*` do banco do apk, lidos de `/lib/apk/db/installed`), uma linha
+  `   <pacote>:   <versão>` por fragmento, em ordem alfabética (por exemplo
+  `   lume-core:   1.0-r5`). Mostra qual versão de cada fragmento rodou naquele boot; o
+  `r36os push` confere essas mesmas versões depois do reboot e falha quando diferem das
+  que enviou (`the console runs lume-core 1.0-r4, the push sent 1.0-r5`).
 - `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
   entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
   decodificador de vídeo, áudio, DMA, botões, gamepad, cartão, RTC, watchdog, sensor

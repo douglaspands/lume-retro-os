@@ -114,6 +114,18 @@ uv run r36os build --all           # vm, test-vm e depois console (só liberada 
 uv run r36os pkg r36s retroarch    # recompila um pacote de aports/ para uma camada (ga36, r36s, vm)
 ```
 
+**Velocidade do build.** O build usa metade dos núcleos por padrão, sob `nice 19` e
+`ionice` ocioso, e diz isso na primeira linha (`jobs: N (M cores), priority: ...`). Mude com
+`--jobs N` ou `R36OS_JOBS=N` (a opção vence a variável). Um build sem mudança leva ~1 min 25 s
+(eram 12 min 04 s), porque as etapas cujas entradas não mudaram (DTBs, initramfs, módulos,
+rootfs, SYSTEM) são puladas; `--clean` força todas. No fim, o `build summary:` mostra o tempo
+de cada etapa, o total e as temperaturas. Detalhes em `docs/BUILD.md`.
+
+```sh
+uv run r36os build console --jobs 4   # menos tarefas, PC mais frio
+uv run r36os build console --clean    # roda todas as etapas
+```
+
 Idiomas aceitos em `--lang`: `en` (padrão), `pt_BR`, `pt_PT`, `es`, `fr`, `de`, `it`.
 O usuário pode trocar o idioma no menu do RetroArch, e a escolha é guardada no cartão.
 
