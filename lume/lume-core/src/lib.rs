@@ -10,6 +10,7 @@ pub mod events;
 pub mod log;
 pub mod options;
 pub mod paths;
+pub mod power;
 pub mod runner;
 pub mod settings;
 pub mod states;
