@@ -6,6 +6,7 @@ import gzip
 import os
 import shutil
 import tarfile
+import threading
 from pathlib import Path
 
 from r36os import jobs, manifests
@@ -467,13 +468,27 @@ def _build_fragment(target: Target, name: str, aports: Path, force: bool,
         # abuild -r installs the dependencies (Alpine and the published local ones)
         script = (_KEY + _local_repo(arch) + ("apk add -q distcc\n" if distcc else "")
                   + _abuild_step(name, commit))
-    if distcc:
-        from r36os import distcc as dcc
-        with dcc.distccd(arch):
+    # abuild works in <aport>/src and <aport>/pkg, in the aports folder every arch pipeline
+    # mounts: one arch at a time per aport (with the cross build, both arches reach this step
+    # together and one packaged the other's binaries)
+    with _aport_lock(name):
+        if distcc:
+            from r36os import distcc as dcc
+            with dcc.distccd(arch):
+                c.sh(script)
+        else:
             c.sh(script)
-    else:
-        c.sh(script)
     return _settle(name, inputs, sorted((staging / arch).glob("*.apk")), arches, arch)
+
+
+_APORT_LOCKS: dict[str, threading.Lock] = {}
+_APORT_LOCKS_GUARD = threading.Lock()
+
+
+def _aport_lock(name: str) -> threading.Lock:
+    """The lock of one aport's abuild work folders (parallel arch pipelines, build-speed 6.6)."""
+    with _APORT_LOCKS_GUARD:
+        return _APORT_LOCKS.setdefault(name, threading.Lock())
 
 
 INPUTS_SIDECAR = ".inputs"   # <apk>.inputs in the noarch staging: its full inputs hash

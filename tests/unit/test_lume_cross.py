@@ -133,6 +133,19 @@ def test_console_fragment_is_cross_built_then_packaged(monkeypatch, tmp_path):
     assert lume_cross.WORKSPACE_GUEST + "/target" not in c.volumes.values()
 
 
+def test_packaging_holds_the_aport_lock(monkeypatch, tmp_path):
+    # both arch pipelines package lume-launcher in the same aports folder (abuild src/, pkg/)
+    seen, _ = _fake_fragment(monkeypatch, tmp_path)
+    held = []
+    monkeypatch.setattr(Container, "sh", lambda self, s: held.append(
+        packages._aport_lock("lume-launcher").locked()))
+    packages._build_fragment(TARGETS["ga36"], "lume-launcher", REPO_ROOT / "aports", True,
+                             cargo=True)
+    assert held == [True]
+    assert not packages._aport_lock("lume-launcher").locked()
+    assert packages._aport_lock("lume-launcher") is not packages._aport_lock("retroarch")
+
+
 def test_fallback_builds_under_qemu_with_the_cargo_cache(monkeypatch, tmp_path):
     seen, _ = _fake_fragment(monkeypatch, tmp_path)
     monkeypatch.setenv(lume_cross.CROSS_ENV, "0")
