@@ -46,7 +46,7 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 6.3 | 6.2, 5.4 | CPU, ARCH:aarch64 | PR | — | 10 | |
 | 6.4 | 6.3, 5.5 | R36S, USUARIO | PR | — | 11 | J4 |
 
-Modelos: onda 0 aprovada pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
+Modelos: ondas 0 e 1 aprovadas pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
 outras ondas aguardam aprovação antes de começar.
 
 **GA36 primeiro (pedido do usuário, 2026-11-17):** o usuário vai levar o GA36 e ficar fora;
@@ -111,7 +111,7 @@ cartão; ordem J1, J3, J2, J4):
 
 ## 3. Avisos do supervisor e launcher
 
-- [ ] 3.0 Protótipo (`docs/lume-launcher/prototipo/`, D9): a marca de carga na bateria da barra de status e o aviso de bateria fraca, nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
+- [x] 3.0 Protótipo (`docs/lume-launcher/prototipo/`, D9): a marca de carga na bateria da barra de status e o aviso de bateria fraca, nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
 - [ ] 3.1 `lume-run` (D1): `game <sistema> <core>` antes do `exec` do jogo e `end` depois de o cgroup esvaziar, pelo escritor da 1.1. Verificação: testes em `lume/lume-run/tests/run.rs` com um FIFO de teste (ordem das mensagens; sem leitor, o jogo abre igual) e o RSS do supervisor sem mudança (requisito do `game-runners`); no aparelho, os eventos `power` no `events.log` (J1).
 - [ ] 3.2 `lume-ui` (D9): `menu` na primeira tela e ao voltar do ocioso; depois de 2 minutos sem botão (ou do `idle after=` do `power.conf`; `0` desliga), `idle` e luz em `min(10%, brilho do usuário)` sem gravar, o primeiro botão devolve o brilho e é consumido; bateria lida a cada 5 s, marca de carga desenhada pela régua da 3.0, aviso de bateria fraca no mesmo limite do serviço, textos en/pt/es. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` (escurecer, botão consumido, brilho salvo intacto, marca de carga, aviso uma vez por descarga) e o teste de régua da marca; o uso de CPU do launcher parado continua abaixo de 1% (requisito "Parado não consome CPU"); no aparelho, J3 e J4.
 
