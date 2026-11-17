@@ -363,17 +363,20 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 - A saída de cada uma ganha prefixo (`[armv7]`, `[aarch64]`); o resumo por etapa separa as duas.
 - O que é comum (árvore do kernel, fragmentos noarch) é feito uma vez antes de dividir.
 
-### D18. Um endereço USB por console
+### D18. Cartão único: um console por vez no cabo
 
-- Hoje os dois consoles usam `10.55.0.1`; com os dois ligados ao PC, as duas interfaces têm a
-  mesma sub-rede e só um responde. Cada tipo de console passa a ter a sua sub-rede: GA36 continua
-  em `10.55.0.0/24` (`10.55.0.1`), R36S passa para `10.55.1.0/24` (`10.55.1.1`).
-- `r36os push`, `r36os dev` e o `flash` acham o console por `--console ga36|r36s`, ou pelo único
-  que responder; com os dois ligados e sem `--console`, os comandos de teste rodam nos dois em
-  paralelo e mostram o resultado de cada um.
-- Dois aparelhos do mesmo tipo ainda colidem; fica anotado como limite.
-- A change ativa `r36s-usb-proof` prova a USB do R36S com o endereço atual: a troca entra depois
-  das provas dela, ou elas são refeitas.
+- O teste usa **um só cartão para os dois consoles** (decisão do usuário, 2026-11-16): o cartão é
+  passado do GA36 ao R36S e de volta, então nunca há dois consoles ligados ao PC ao mesmo tempo.
+  O desenho anterior (uma sub-rede por console, `10.55.1.1` no R36S, comandos nos dois em paralelo)
+  saiu da change: o endereço continua `10.55.0.1` nos dois, e a spec `usb-otg` não muda.
+- `r36os push`, `r36os dev` e o `flash` dizem qual console respondeu (o console informa a placa
+  dele); `--console ga36|r36s` confere e recusa quando o ligado é o outro, para um comando pensado
+  para um console não rodar no outro por engano.
+- Um push feito por qualquer console grava a `BOOT` inteira, com os arquivos e os slots dos dois
+  (`ga36/`, `r36s/`): o cartão passado ao outro console inicia com o conjunto novo dele sem outro
+  push. As provas "nos dois consoles" são sequenciais, trocando o cartão.
+- Se um dia houver dois cartões ligados ao mesmo tempo, a sub-rede por console volta como
+  pendência própria.
 
 ### D19. `r36os dev watch` e capturas de referência
 
@@ -426,8 +429,8 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
   relógio; o tempo pausado aparece no resumo.
 - [Duas esteiras em paralelo esquentam mais] → o total de tarefas não muda e a proteção de calor
   vale para as duas.
-- [Endereço novo do R36S quebra receitas e documentação] → `--console` e a descoberta pelo único
-  que responde; guias de bring-up e `docs/LOGS.md` atualizados na mesma task.
+- [Cartão único: um comando pensado para um console roda no outro] → todo comando diz qual
+  console respondeu, e `--console` recusa o outro.
 - [Serviços depois do frontend atrasam algo que o usuário usa logo] → só o que o jogo não usa;
   o launcher mostra Wi-Fi e Bluetooth como "iniciando" até ficarem prontos.
 

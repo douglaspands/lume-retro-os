@@ -60,8 +60,9 @@ fragmento só está provado quando chega ao console e funciona.
   os helpers refeitos a cada sessão; `r36os dev watch <fragmento>` faz build pontual e
   `push --hot` a cada arquivo salvo; `r36os dev shot --compare` confere a tela com capturas de
   referência do launcher.
-- **Os dois consoles no PC ao mesmo tempo** (**BREAKING** no endereço do R36S): cada console
-  ganha a própria sub-rede USB, para `push` e `dev check` rodarem nos dois em paralelo.
+- **Cartão único para os dois consoles** (decisão do usuário, 2026-11-16): o teste passa o mesmo
+  cartão de um console ao outro; os comandos dizem qual console respondeu e `--console` confere.
+  O endereço USB não muda.
 - **Boot mais curto para o ciclo de teste** (ganhos rápidos do P-58): OpenRC em paralelo e os
   serviços que o jogo não usa (Bluetooth, NetworkManager, playlists do RetroArch, índice do
   launcher) depois do frontend. O resto do P-58 continua numa change própria.
@@ -93,7 +94,6 @@ na change do governor); voltar a VM ao ciclo (pendência nova).
 - `system-image`: o sistema de cada console passa a ser um conjunto de slots com manifesto.
 - `vm-validation`: a liberação de um build de console passa a depender da conferência nos
   aparelhos, não do teste da VM.
-- `usb-otg`: o endereço da rede USB passa a ser por console, não igual nos dois.
 - `boot-runtime`: os serviços que o jogo não usa sobem depois do frontend, com o OpenRC em
   paralelo.
 
@@ -103,10 +103,7 @@ na change do governor); voltar a VM ao ciclo (pendência nova).
   `container.py`, `push.py`, `archive.py`, `flash.py`, `cli.py`) e um módulo novo para
   `r36os dev`; `initramfs/init` e `initramfs/lib/storage.sh` (slots e manifesto); serviço novo
   que monta os cores; `game-runners` passa a achar o core no slot montado; módulo novo de
-  proteção de calor; endereço USB do R36S (`lume-usb`, `r36os-usb`) e a ordem dos serviços do
-  OpenRC (`rc.conf`, dependências dos `init.d`).
-- Conflito possível com a change ativa `r36s-usb-proof` (prova da USB do R36S): a troca de
-  endereço entra depois das provas dela, ou elas são refeitas com o endereço novo.
+  proteção de calor; a ordem dos serviços do OpenRC (`rc.conf`, dependências dos `init.d`).
 - Repositório: `rootfs/overlay/` vira aports noarch em `aports/lume-*`; novos pacotes
   `lume-kernel`, `lume-modules`, `lume-dtbs` em `out/repo/<arch>/`.
 - Cartão: a `BOOT` de cada console ganha `<console>/SLOTS` e `<console>/slots/`; o `push` e o

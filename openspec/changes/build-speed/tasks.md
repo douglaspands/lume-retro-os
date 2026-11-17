@@ -1,7 +1,7 @@
 # Tasks
 
 Verificação desta change: testes de unidade (Python, Rust e shell, segundos) e o aparelho (GA36 e
-R36S). A imagem `vm` não é construída nem testada (D13). Cada fase termina com os dois consoles
+R36S, com um único cartão passado de um console ao outro: nunca os dois ligados ao mesmo tempo). A imagem `vm` não é construída nem testada (D13). Cada fase termina com os dois consoles
 iniciando e o `r36os dev check` verde, a partir da fase 4.
 
 ## Grafo de execução
@@ -38,7 +38,7 @@ apoio, nunca para um nó.
 | 3.1 | — | GA36, R36S | AG+PR | sonnet | 0 | J1 |
 | 3.2 | 3.1 | GA36, R36S | AG+PR | sonnet | 1 | J1 |
 | 3.3 | 3.1 | GA36, R36S | AG+PR | opus | 1 | J1 |
-| 3.4 | 3.1, provas da `r36s-usb-proof` | GA36, R36S, USUARIO | AG+PR | opus | 7 | J4 |
+| 3.4 | 3.1 | GA36, R36S, USUARIO | AG+PR | opus | 7 | J4 |
 | 3.5 | 3.1 | GA36, R36S | AG+PR | sonnet | 1 | J1 |
 | 3.6 | 3.1, 3.2, 3.3, 3.5 | — | AG | sonnet | 2 | |
 | 4.0 | — | — | AG | opus | 0 | |
@@ -85,7 +85,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
                             |                            |
  B  kernel    7.1 --> 7.2 --+--> 7.4, 7.5     6.4 -------+
                             \--------------------------------> 7.3 (com 6.1, 4.4)
- C  aparelho  3.1 --+--> 3.2, 3.5 --> 3.6                      3.4 (apos r36s-usb-proof)
+ C  aparelho  3.1 --+--> 3.2, 3.5 --> 3.6                      3.4 (cartao unico)
                     \--> 3.3 ---------\
  D  slots     4.0 --+--> 4.5 ----------+--> 4.6 --> 4.7 --> 8.1 --> 8.2
                     \--> 4.3 <---------/     ^
@@ -116,10 +116,10 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
 | Janela | Provas | Quando | O que o usuário faz |
 |---|---|---|---|
-| J1 | 1.2, 3.1, 3.2, 3.3, 3.5 | fim da onda 1 | liga o GA36 e o R36S no cabo (um de cada vez até a 3.4), confere as telas |
+| J1 | 1.2, 3.1, 3.2, 3.3, 3.5 | fim da onda 1 | liga o GA36 e depois o R36S no cabo, passando o cartão de um ao outro, confere as telas |
 | J2 | 4.3, 4.5, 4.6, 4.7, 5.1, 10.1 | fim da onda 5 | push de cartão antigo e novo nos dois, olha o boot |
 | J3 | 5.2, 5.3, 7.3, 8.1, 8.2, 9.2, 9.3, 9.4 | fim da onda 6 | abre um jogo por core nos dois, troca de core com jogo aberto |
-| J4 | 3.4, 11.1, 11.2 | onda 7 | liga os dois consoles ao mesmo tempo, corte de energia no meio de um push |
+| J4 | 3.4, 11.1, 11.2 | onda 7 | passa o cartão de um console ao outro entre as provas, corte de energia no meio de um push |
 
 ## 1. Proteção de calor e medição de partida (D15, D14)
 
@@ -130,7 +130,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 
 - [ ] 2.1 Ligar a pausa da proteção de calor em todo container do build e do `pkg`, com a temperatura máxima e o tempo pausado no resumo; documentar no `docs/BUILD.md` os limites, as variáveis e o ajuste manual opcional (boost ou EPP, com root) para quem quiser o PC mais frio. Verificação: teste de unidade do resumo; um build real com `R36OS_TEMP_MAX` baixo de propósito pausa e retoma, com as linhas na saída.
 - [ ] 2.2 `container.py`: o `podman` roda sob `nice -n 19 ionice -c 3`; `--jobs`/`R36OS_JOBS` em `build`, `pkg` e `push`, padrão metade dos núcleos, levado ao `make -j`, ao `JOBS` do `abuild`, ao `-processors` do `mksquashfs` e às threads do zstd; o build diz tarefas e prioridade no começo. Verificação: testes de unidade dos argumentos; durante um build, `ps -o ni,cmd` mostra `19` nos compiladores.
-- [ ] 2.3 Tempo por etapa no fim do build, com `skipped` e também em erro. Verificação: teste de unidade do resumo e a saída de um build real.
+- [x] 2.3 Tempo por etapa no fim do build, com `skipped` e também em erro. Verificação: teste de unidade do resumo e a saída de um build real.
 - [ ] 2.4 Documentar `--jobs`/`R36OS_JOBS` e o resumo no `README.md` e no `docs/BUILD.md` (novo). Verificação: o comando documentado roda como escrito.
 
 ## 3. Teste no aparelho como ferramenta (D12)
@@ -138,7 +138,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 - [x] 3.1 `r36os dev wait | sh | shot | keys | log`, com as opções de ssh do cabo, botões por `input_event` (pad virtual e combinações no pad do kernel) e os eventos lidos de `/proc/bus/input/devices` em cada console. Verificação: testes de unidade da montagem dos comandos e dos eventos; no GA36 e no R36S, `shot` traz a tela e `keys` move o foco do launcher.
 - [ ] 3.2 Modo de aparelho do `selftest` (sem os casos só da VM) e `r36os dev check`, que o roda e devolve passou ou falhou com a lista. Verificação: teste do shell do `selftest`; `dev check` verde nos dois consoles com o build atual e vermelho com um serviço parado de propósito.
 - [ ] 3.3 O `push` espera o console voltar e confere `boot OK completed` e o `VERSION` novo no log, com tempos de envio e de boot; `--no-wait` pula. Verificação: testes de `tests/unit/test_push.py` (volta certo, não volta, versão errada); um `push` real nos dois consoles termina com `ok`.
-- [ ] 3.4 Sub-rede USB por console (D18): R36S em `10.55.1.0/24` (`10.55.1.1`), GA36 como está; `--console` e descoberta pelo único que responde em `push`, `dev` e `flash`; com os dois ligados e sem `--console`, `dev check` e `dev wait` rodam nos dois em paralelo. Fazer depois das provas de USB da change `r36s-usb-proof` (ou refazê-las). Verificação: testes de unidade da escolha do console; os dois ligados ao PC ao mesmo tempo, `r36os dev check` mostra o resultado de cada um; spec `usb-otg`.
+- [ ] 3.4 Console identificado pelo cabo, com cartão único (D18): o endereço continua `10.55.0.1` nos dois; `push`, `dev` e `flash` dizem qual console respondeu (GA36 ou R36S, pelo que o console informa) e `--console ga36|r36s` confere e recusa quando o ligado é o outro. Verificação: testes de unidade da identificação e da recusa; com o mesmo cartão, `r36os dev check --console r36s` recusa no GA36 e passa no R36S.
 - [ ] 3.5 `r36os dev shot --compare <tela>` e `--update`, com as referências em `tests/device/shots/<console>/` e as sequências de botões de cada tela, num cartão de demonstração com nomes inventados (D19). Verificação: teste de unidade da comparação (igual, diferente com a imagem da diferença em `./cache/`); referências das telas principais do launcher gravadas nos dois consoles.
 - [ ] 3.6 Documentar `r36os dev`, a conferência do `push`, os endereços e as capturas no `docs/BUILD.md`, no `docs/LOGS.md` e nos guias de bring-up. Verificação: os comandos documentados rodam como escritos.
 
@@ -197,7 +197,7 @@ cada onda, os modelos dela são mostrados de novo para aprovação ou troca.
 ## 11. Verificação integrada
 
 - [ ] 11.1 Repetir as medições da 1.2 e preencher a coluna "Depois", conferindo as metas do design (driver < 1 min por arquitetura, launcher ~1 min, script e build sem mudança em segundos), a temperatura máxima da CPU e do NVMe e o tempo pausado pela proteção de calor. Verificação: tabela preenchida no design.
-- [ ] 11.2 Nos dois consoles, ligados ao mesmo tempo: `push` depois de um patch de driver, de uma mudança no launcher, de um core e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; `r36os dev check` verde; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
+- [ ] 11.2 Nos dois consoles, um de cada vez com o mesmo cartão: `push` depois de um patch de driver, de uma mudança no launcher, de um core e de um script (`--hot` e normal), cada um enviando só o que mudou e terminando com `ok`; depois de um push feito por um console, o cartão passado ao outro inicia com o conjunto novo dele sem outro push; `r36os dev check` verde nos dois; corte de energia simulado no meio de um push (tirar o cabo e desligar antes da troca do manifesto) volta ao conjunto antigo. Verificação: saídas dos comandos e log de boot.
 
 ## Workflow follow-up
 

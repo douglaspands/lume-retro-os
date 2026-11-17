@@ -53,6 +53,10 @@ cartão para isso.
 - **WHEN** o cartão já tem os arquivos do build, salvo o `VERSION`
 - **THEN** o `push` termina sem enviar nada e sem reiniciar, dizendo que o console já está no build
 
+#### Scenario: Cartão único nos dois consoles
+- **WHEN** o `push` é feito pelo GA36 e o cartão depois é passado ao R36S
+- **THEN** o R36S inicia com o conjunto novo dele, sem outro `push`
+
 ### Requirement: Reinício como padrão
 Toda troca de slot do boot ou do kernel MUST terminar com o reinício do console; a troca de um
 slot de core MUST acontecer sem reinício.

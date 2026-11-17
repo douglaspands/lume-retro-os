@@ -37,18 +37,18 @@ uma sequência de botões e ler o log do boot, nos dois consoles, sem helper for
 - **WHEN** o usuário roda `r36os dev shot <arquivo>`
 - **THEN** o arquivo PNG no PC tem a tela atual do console
 
-### Requirement: Os dois consoles ao mesmo tempo
-Com o GA36 e o R36S ligados ao mesmo PC, os comandos de atualização e de teste MUST alcançar cada
-um pelo próprio endereço, escolhido por opção ou pelo único que responder, e MUST rodar nos dois
-em paralelo quando nenhum for escolhido.
+### Requirement: Console identificado pelo cabo
+Com um único cartão usado nos dois consoles, um por vez no cabo, os comandos de atualização e de
+teste MUST dizer qual console respondeu e, quando um console for escolhido por opção, MUST recusar
+rodar no outro.
 
-#### Scenario: Conferência nos dois
-- **WHEN** os dois consoles estão ligados ao PC e o usuário roda `r36os dev check` sem escolher console
-- **THEN** o auto-teste roda nos dois ao mesmo tempo e o resultado de cada um aparece com o nome do console
+#### Scenario: Console certo
+- **WHEN** o R36S está no cabo e o usuário roda `r36os dev check --console r36s`
+- **THEN** o auto-teste roda e o resultado aparece com o nome do console
 
-#### Scenario: Push num só
-- **WHEN** os dois estão ligados e o usuário roda `r36os push --console r36s`
-- **THEN** só o R36S é atualizado
+#### Scenario: Console errado
+- **WHEN** o GA36 está no cabo e o usuário roda `r36os push --console r36s`
+- **THEN** o comando recusa sem enviar nada, dizendo que o console ligado é o GA36
 
 ### Requirement: Build e push a cada arquivo salvo
 O `r36os dev watch <fragmento>` MUST refazer o build pontual e o `push --hot` daquele fragmento a
