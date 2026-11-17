@@ -121,7 +121,7 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
-| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`) |
+| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
@@ -170,6 +170,7 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 | `game <sistema> <core>` | `lume-run`, antes do `exec` | cenário jogo (perfil pelo `core`, depois pela classe do sistema, depois `game`) |
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
+| `controller <chave>` | o próprio serviço (o subshell do controlador) | o controlador saiu sozinho: o perfil do jogo de novo, sem ele (chave errada é ignorada) |
 | `manual` | `r36os-power set`/`auto` (root, pelo cabo) | relê `/run/r36os/power.manual` (só o root grava): com um nome, aplica esse perfil já e em todo cenário (medição, D5); sem o arquivo, volta ao perfil do cenário |
 
 O escritor abre o FIFO com `O_NONBLOCK`, sem criá-lo: sem o serviço (sem FIFO, sem leitor, pipe
@@ -191,6 +192,25 @@ ficam no padrão do kernel; no jogo, sempre com `scaling_min_freq` no `game_min`
 fonte `power_supply` do tipo `Battery`) é lida a cada mensagem e a cada 60 s, sem processo novo.
 Eventos gravados antes de o `r36os-logd` numerar o boot esperam em `/run/r36os/power.early` e
 entram no `events.log` com o número certo.
+
+**Controlador pela carga (D12):** num perfil de jogo com `controller=load`, o serviço aplica o
+perfil e liga o `/usr/bin/r36os-powerctl` (pacote `r36os-powerctl`, C, por arquitetura) num
+subshell que espera por ele. O controlador põe o governor em `userspace`, começa no maior
+degrau permitido e, a cada 250 ms, lê `utime`+`stime` de todas as threads dos processos do
+cgroup de jogo mais novo (`/sys/fs/cgroup/lume/game-*`, pelo `mtime`) e toma a thread mais
+ocupada (o "processo principal" é o dono dela: o runner que o `lume-run` executa no cgroup).
+Sobe um degrau de `scaling_available_frequencies` depois de 1 s acima de 85% de um núcleo,
+desce um depois de 3 s abaixo de 50%, sempre entre o `min` do perfil (o `scaling_min_freq` já
+com o piso de jogo) e o `max`, e nunca acima do `scaling_max_freq` atual (o teto térmico, lido a
+cada amostra). Roda com `nice -10`. Termina no SIGTERM (`end=stop`, o serviço o para antes do
+perfil seguinte), quando o cgroup do jogo esvazia ou some (`end=game`), sem jogo em 10 s
+(`end=no-game`), com o serviço morto (`end=owner`) ou com outro governor posto por fora
+(`end=governor`, código 4). Sem `userspace` em `scaling_available_governors` ele recusa (código
+3, nada muda). Ao sair, imprime o tempo em cada degrau, que o subshell grava como
+`power OK controller: ...` (ou `FAIL controller: exit <código>: ...`); se ele saiu sozinho, o
+subshell manda `controller <chave>` ao FIFO do próprio serviço, que reaplica o mesmo perfil sem
+o controlador (`profile: game -> <perfil> (without controller)`), sem laço de espera. A saída do
+controlador fica em `/run/r36os/powerctl.out`.
 
 Linha de comando (root, pelo cabo): `r36os-power set <perfil|default>` (modo manual da
 medição: aplica já e mantém até `auto` ou reboot), `r36os-power auto`, `r36os-power reload`,
