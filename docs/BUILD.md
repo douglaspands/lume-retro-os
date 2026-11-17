@@ -215,7 +215,35 @@ console ligado e com o cabo.
 Um só cartão SD vai de um console para o outro (GA36 e R36S), e **nunca os dois ficam ligados
 no PC ao mesmo tempo**. Os dois respondem no mesmo endereço pelo cabo: **`10.55.0.1`** (o PC
 recebe `10.55.0.2`). O `r36os dev` e o `r36os push` usam esse endereço; `--host ADDR` (antes
-da ação, ex. `r36os dev --host 10.55.0.1 wait`) troca o endereço.
+da ação, ex. `r36os dev --host 10.55.0.1 wait`) troca o endereço. O endereço aceita uma porta,
+`--host HOST:PORTA` (o `ssh` recebe `-p PORTA`), que é a forma de falar com a vm (abaixo). No
+`r36os dev` o `--host` vale antes ou depois da ação (`r36os dev sh --host 127.0.0.1:2222
+uname -m`).
+
+### A vm no lugar do console (`r36os vm --ssh`)
+
+Change `virtual-gamepad` (3.3). Sem console no cabo, a imagem `vm` pode receber os mesmos
+comandos:
+
+```
+.venv/bin/r36os vm --ssh            # porta 2222; ou --ssh 2300
+.venv/bin/r36os dev --host 127.0.0.1:2222 wait --timeout 180
+.venv/bin/r36os dev sh --host 127.0.0.1:2222 uname -m       # x86_64
+```
+
+- `--ssh [PORTA]` liga a rede de usuário da QEMU (`-nic user,model=virtio-net-pci,
+  restrict=on,hostfwd=tcp:0.0.0.0:PORTA-:22`) e o podman publica a porta só em
+  `127.0.0.1:PORTA` do PC (`-p 127.0.0.1:PORTA:PORTA`): nada da rede local chega ao `ssh` da
+  vm, e o `restrict=on` deixa a vm **sem rota para fora** (nem para o PC, só a conexão
+  redirecionada entra).
+- Na vm, e só nela (`r36os-vmnet` entra no runlevel apenas com o board `vm`, em
+  `rootfs/configure.sh`), o serviço pega um endereço por DHCP na interface virtio (só o
+  endereço: sem rota padrão e sem DNS) e roda o `dropbear` nesse endereço, root sem senha e sem
+  encaminhamento, como no cabo. Ele sobe **depois do frontend**, fora do caminho do boot, e
+  sem a interface (o `r36os vm` sem `--ssh` e o `test-vm`) não faz nada.
+- O `test-vm` continua sem rede (`-nic none`).
+- O `--host 127.0.0.1:PORTA` vale também para o `r36os push` e o `push --hot`.
+- O que for provado assim vale **só para a vm**; a prova no console continua pendente.
 
 ### Qual console está no cabo (`--console`)
 

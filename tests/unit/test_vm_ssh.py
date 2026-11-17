@@ -65,6 +65,12 @@ def test_push_and_dev_take_host():
     assert p.parse_args(["push"]).host is None
     assert p.parse_args(["dev", "--host", "127.0.0.1:2222", "sh", "uname", "-m"]).host \
         == "127.0.0.1:2222"
+    # after the action too (the form of the 3.3 live check); the command stays intact
+    a = p.parse_args(["dev", "sh", "--host", "127.0.0.1:2222", "uname", "-m"])
+    assert a.host == "127.0.0.1:2222" and a.cmd == ["uname", "-m"]
+    assert p.parse_args(["dev", "--host", "h:1", "wait"]).host == "h:1"
+    assert p.parse_args(["dev", "wait"]).host is None
+    assert p.parse_args(["dev", "--host", "a:1", "keys", "--host", "b:2", "a"]).host == "b:2"
 
 
 def test_main_push_passes_the_host(monkeypatch):

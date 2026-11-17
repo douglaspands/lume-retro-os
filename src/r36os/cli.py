@@ -124,6 +124,11 @@ def _parser() -> argparse.ArgumentParser:
     wt = ds.add_parser("watch", help="on every saved file of a lume-*/r36os-* fragment: "
                                      "fragment build, then push --hot (Ctrl-C ends)")
     wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
+    for action in (w, sh, st, ky, lg, ck, rp, rc, pl, rn, wt):
+        # also after the action (`r36os dev sh --host 127.0.0.1:2222 uname -m`); SUPPRESS
+        # keeps the one given before the action when this one is absent
+        action.add_argument("--host", metavar="ADDR[:PORT]", default=argparse.SUPPRESS,
+                            help="console address, as before the action")
 
     pw = sub.add_parser("power", help="power profiles: report on the card's metrics and events")
     pw.add_argument("--host", metavar="ADDR", help="console address (default: the USB cable's)")
