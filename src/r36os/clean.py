@@ -7,9 +7,12 @@ person to review. `--yes` removes only the first list.
 `$R36OS_CACHE` (see `paths.cache_dir`).
 
 Removed (all of it comes back by itself on the next build or download):
-  - kernel build trees of old patch sets: <cache>/kbuild/<board>-<digest> whose digest is
-    not the one of the current kernel/patches/ (each is 0.3 to 2.8 GB). The build now uses
-    one fixed folder per architecture (<cache>/kbuild/<arch>/, no dash), never removed;
+  - old kernel generations (each is 0.3 to 2.8 GB): <cache>/src/linux-<version>-<hash>/,
+    trees of another kernel version, and <cache>/kbuild/<console>-<hash>/. The build removes
+    them by itself at the start of the kernel stage (`prune_old_generations`, same rules).
+    The current <cache>/src/linux-<version>/ and linux-<version>.git and the fixed
+    <cache>/kbuild/<arch>/ are never removed; neither is anything named `*.antes-1.2`
+    (listed for review);
   - archived images in out/images/<image>/<timestamp>/ beyond the newest `keep` of each
     image, except `latest`, `flashed` (the build last written to a card, set by `flash`;
     also the one whose decompressed copy is in <cache>/flash/) and any timestamp cited in
@@ -84,13 +87,61 @@ def cited_timestamps(repo: Path) -> set[str]:
     return found
 
 
-def _old_kernel_builds(cache: Path, digest: str) -> list[Item]:
-    items = []
-    # only the old <board>-<digest> layout: the per-architecture folders have no dash
+KEEP_MARK = ".antes-1.2"  # renamed baseline folders of the user: reported, never removed
+
+
+def old_kernel_generations(cache: Path, version: str) -> tuple[list[Item], list[Item]]:
+    """(to remove, to review) among the kernel trees and build folders of the cache.
+
+    Current layout: <cache>/src/linux-<version>/ + linux-<version>.git beside it, and one
+    fixed build folder per architecture, <cache>/kbuild/<arch>/ (no dash). Everything else
+    is an old generation: per-patch-set trees `linux-<version>-<hash>`, per-console build
+    folders `<console>-<hash>`, and the trees of another kernel version. Folders marked
+    `*.antes-1.2` are only reported.
+    """
+    remove, review = [], []
+
+    def classify(d: Path, old: bool, reason: str) -> None:
+        if d.name.endswith(KEEP_MARK):
+            review.append(Item(d, size_of(d), f"{reason} kept for the user ({KEEP_MARK})"))
+        elif old:
+            remove.append(Item(d, size_of(d), reason))
+
+    current = {f"linux-{version}", f"linux-{version}.git"}
+    for d in sorted((cache / "src").glob("linux-*")):
+        # `linux-<version>.extract` is the import scratch folder, owned by the import
+        if d.is_dir() and not d.is_symlink() and d.name not in current \
+                and not d.name.endswith(".extract"):
+            classify(d, True, "old kernel tree")
+    # the per-architecture folders have no dash; `<console>-<hash>` is the old layout
     for d in sorted((cache / "kbuild").glob("*-*")):
-        if d.is_dir() and not d.name.endswith(f"-{digest}"):
-            items.append(Item(d, size_of(d), "kernel build of an old patch set"))
-    return items
+        if d.is_dir() and not d.is_symlink():
+            classify(d, True, "old kernel build folder")
+    return remove, review
+
+
+def prune_old_generations(cache: Path, version: str, repo: Path = REPO_ROOT,
+                          out: Path | None = None) -> str | None:
+    """Remove the old kernel generations; return the one-line summary, or None if none.
+
+    Called at the start of the kernel stage. A folder that cannot be removed is reported
+    in its own line and never stops the build.
+    """
+    out = out_dir() if out is None else out
+    to_remove, review = old_kernel_generations(cache, version)
+    for it in review:
+        print(f"cache: left alone {it.path} ({it.reason})", flush=True)
+    if not to_remove:
+        return None
+    failed: list[tuple[Item, str]] = []
+    freed = remove(to_remove, repo, out, cache, failed)
+    for it, err in failed:
+        print(f"cache: could not remove {it.path}: {err}", flush=True)
+    n = len(to_remove) - len(failed)
+    if n == 0:
+        return None
+    return (f"cache: removed {n} old kernel generation{'s' if n != 1 else ''}, "
+            f"freed {_human(freed)}")
 
 
 def flashed_timestamps(cache: Path) -> set[str]:
@@ -165,17 +216,18 @@ def _merged_worktrees(repo: Path, out: Path) -> list[Item]:
     return items
 
 
-def plan(repo: Path, out: Path, cache: Path, digest: str, keep: int = DEFAULT_KEEP,
+def plan(repo: Path, out: Path, cache: Path, version: str, keep: int = DEFAULT_KEEP,
          cited: set[str] | None = None) -> tuple[list[Item], list[Item]]:
     """(to remove, to review) for the given repository, out/ and cache."""
     if cited is None:
         cited = cited_timestamps(repo)
     # the build on the card stays archived, even when its decompressed copy goes
     cited = cited | flashed_timestamps(cache)
-    remove = (_old_kernel_builds(cache, digest) + _old_images(out, keep, cited)
+    old_kernels, kept_kernels = old_kernel_generations(cache, version)
+    remove = (old_kernels + _old_images(out, keep, cited)
               + _stale_flash_cache(cache, out) + _work_folders(repo))
-    review = [Item(p, size_of(p), "unknown entry in out/ (a one-off test?)")
-              for p in sorted(out.glob("*")) if p.name not in KNOWN_OUT]
+    review = kept_kernels + [Item(p, size_of(p), "unknown entry in out/ (a one-off test?)")
+                             for p in sorted(out.glob("*")) if p.name not in KNOWN_OUT]
     review += _merged_worktrees(repo, out)
     return remove, review
 
@@ -229,10 +281,10 @@ def _human(n: int) -> str:
 
 
 def main_clean(yes: bool = False, keep: int = DEFAULT_KEEP) -> int:
-    from r36os.kernel import patches_digest
+    from r36os.kernel import KERNEL_VERSION
 
     repo, out, cache = REPO_ROOT, out_dir(), cache_dir()
-    to_remove, to_review = plan(repo, out, cache, patches_digest(), keep)
+    to_remove, to_review = plan(repo, out, cache, KERNEL_VERSION, keep)
     total = sum(i.size for i in to_remove)
     print(f"to remove ({len(to_remove)} items, {_human(total)}):")
     for i in to_remove:

@@ -63,6 +63,29 @@ heat: above limit 0 s, paused 0 s (0 pauses)
 
 Durante o build, cada pausa e cada retomada também aparecem como linhas `heat guard: ...`.
 
+## Cache do kernel: uma árvore, uma pasta de build por arquitetura
+
+Depois do primeiro build, o `.cache/` guarda só:
+
+- `src/linux-<versão>/` (a árvore com os patches aplicados) e `src/linux-<versão>.git` (o
+  repositório git dela, ao lado);
+- `kbuild/armv7/` e `kbuild/aarch64/` (uma pasta de build fixa por arquitetura, reaproveitada
+  entre os builds, então só o que mudou recompila).
+
+No início da etapa do kernel o build apaga sozinho as gerações antigas: as árvores
+`src/linux-<versão>-<hash>/` (uma por conjunto de patches, 1,5 a 2 GB cada), as pastas
+`kbuild/<console>-<hash>/` e as árvores de outra versão do kernel quando `KERNEL_VERSION`
+muda. Ele diz numa linha quanto liberou:
+
+```
+cache: removed 3 old kernel generations, freed 14.2 GiB
+```
+
+Nunca são apagados: a árvore e as pastas de build atuais, `ccache`, `cargo`, `distfiles`,
+`upstream`, `abuild` e qualquer pasta `*.antes-1.2` (linhas de base que o usuário renomeou:
+o build só avisa que as deixou). O `r36os clean` (simulação por padrão, `--yes` para apagar)
+usa as mesmas regras e lista as mesmas gerações antigas.
+
 ## Teste com limite baixo
 
 Para ver a pausa e a retomada sem esquentar o PC, baixe o limite (ele precisa ficar acima

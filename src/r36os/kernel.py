@@ -160,6 +160,11 @@ def source_tree() -> Path:
     what depends on them. A bad patch raises PatchError naming it and leaves the tree as
     it was.
     """
+    from r36os.clean import prune_old_generations
+
+    summary = prune_old_generations(cache_dir(), KERNEL_VERSION)
+    if summary:
+        print(summary, flush=True)
     base = ensure_dir(cache_dir() / "src")
     tree = base / f"linux-{KERNEL_VERSION}"
     git_dir = base / f"linux-{KERNEL_VERSION}.git"
