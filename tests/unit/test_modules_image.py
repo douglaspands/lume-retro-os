@@ -56,9 +56,14 @@ def test_build_console_kernel_makes_the_modules_image(tmp_path, monkeypatch):
     monkeypatch.setattr(build.uboot, "build_uboot", lambda *a: None)
     monkeypatch.setattr(build.rootfs, "make_modules_image",
                         lambda src, dest: made.append((src, dest)))
+    packaged = []
+    monkeypatch.setattr(build.kernel_packages, "package_console",
+                        lambda board, out: packaged.append((board, out)))
     build.build_console_kernel(get_target("r36s"))
     kdir = tmp_path / "r36s" / "kernel"
     assert made == [(kdir / "modules.tar", kdir / "modules")]
+    # build-speed 7.3: the kernel outputs are then wrapped in the arch packages
+    assert packaged == [("r36s", tmp_path / "r36s")]
 
 
 def test_logs_doc_has_the_boot_messages_of_the_modules_step():

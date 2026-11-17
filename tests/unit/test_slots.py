@@ -373,7 +373,9 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
     out.mkdir()
     _rootfs(out / "rootfs.tar")
-    _modules(out / "kernel" / "modules")
+    # the modules slot is the image of the published lume-modules (build-speed 7.3)
+    _modules(out / "kernel-pkg" / "boot" / "modules.squashfs")
+    (out / "kernel").mkdir()
     (out / "kernel" / "release").write_text("6.18.2\n")
     runs = []
 

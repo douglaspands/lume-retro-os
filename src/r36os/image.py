@@ -146,21 +146,20 @@ def console_boot_files(ga36_out: Path, r36s_out: Path,
 
     `factory`: files of the R36S factory BOOT root (r36s_vendor.factory_boot_files()).
     """
+    from r36os import kernel_packages
+
     files = {**(factory or {}),
              "boot.ini": REPO_ROOT / "board/r36s/boot.ini",
-             "ga36/zImage": ga36_out / "kernel/zImage",
-             "r36s/Image": r36s_out / "kernel/Image",
-             f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}": r36s_out / "kernel/dtbs" / R36S_DTB}
+             f"dtbs/{SOC_DIR['r36s']}/{R36S_DTB}":
+                 r36s_out / kernel_packages.PKG_DIR / "boot/dtbs" / SOC_DIR["r36s"] / R36S_DTB}
     for board, out in (("ga36", ga36_out), ("r36s", r36s_out)):
         # the root of each console is its slot set (build-speed D9): <console>/SLOTS and
         # <console>/slot/<name>-<sha12>, the kernel modules among them; no SYSTEM and no
         # <console>/modules on a new card (an old one keeps them until the push of 4.6)
         files.update(console_slot_files(board, out))
-        for dtb in sorted((out / "kernel/dtbs").glob("*.dtb")):
-            files[f"dtbs/{SOC_DIR[board]}/{dtb.name}"] = dtb
-        # trees converted from vendor DTBs (boot-dtb-select D12), read only on demand
-        for dtb in sorted((out / "kernel/dtbs/vendor").glob("*.dtb")):
-            files[f"dtbs/{SOC_DIR[board]}/vendor/{dtb.name}"] = dtb
+        # the kernel and the DTBs (with the trees converted from vendor DTBs, boot-dtb-select
+        # D12) are the data of the published lume-kernel and lume-dtbs (build-speed 7.3)
+        files.update(kernel_packages.boot_sources(board, out))
     return files
 
 

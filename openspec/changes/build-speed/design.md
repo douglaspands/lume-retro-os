@@ -109,6 +109,40 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
 
   Regra de corte: o que sempre muda junto fica junto. Dependências pelo `depends` do `APKBUILD`
   (quase todos dependem de `lume-core`). O `rootfs/packages.txt` passa a listar os fragmentos.
+- **Pacotes do kernel (tarefa 7.3, `src/r36os/kernel_packages.py`):** três pacotes por
+  arquitetura, com o mesmo nome no armv7 (GA36) e no aarch64 (R36S): `lume-kernel`
+  (`boot/zImage` ou `boot/Image`), `lume-modules` (`boot/modules.squashfs`, a imagem de módulos
+  que é o slot `modules`) e `lume-dtbs` (`boot/dtbs/<soc>/*.dtb` e `boot/dtbs/<soc>/vendor/*.dtb`,
+  com a pasta do SoC, não a do console). `pkgver` = versão do kernel fixada
+  (`kernel.KERNEL_VERSION`), `pkgrel` calculado (mínimo 0).
+  - **Onde ficam os arquivos:** em `/boot/...` dentro do pacote. Eles **nunca** são instalados
+    no rootfs (não estão no `rootfs/packages.txt`): o console lê o kernel e os DTBs da BOOT e os
+    módulos do slot. O pacote é a forma versionada, assinada e indexada desses arquivos.
+  - **Sem compilar e sem qemu:** o kernel continua compilado fora do `abuild`
+    (`kernel.build_kernel` → `out/<console>/kernel/`). A etapa `kernel packages` do
+    `build_console_kernel` só embrulha esses arquivos: o `.apk` é escrito em Python (segmento de
+    dados com dono `0:0`, modo 0644/0755, mtime = data fixa do kernel (D4) e o registro pax
+    `APK-TOOLS.checksum.SHA1` de cada arquivo, como o `abuild-tar --hash`; `.PKGINFO` com
+    `datahash`). Não há `APKBUILD`: nada a compilar, e assim o pacote não entra no
+    `local_aports()` nem no `build_packages`. Conferido com o `apk` do builder: `apk index
+    --rewrite-arch armv7` e `apk add --root` instalam o pacote e gravam os checksums.
+  - **Versão pelo conteúdo (D3):** cada pacote tem o seu hash de entradas (nome, versão,
+    arquitetura, o próprio `kernel_packages.py` e o SHA256 de cada arquivo). Entradas iguais às do
+    `hashes.json` (arquivo presente) → nada é feito. Senão o `.apk` é feito em
+    `out/pkg-staging/kernel-<arch>/` com o `pkgrel` seguinte e passa pelo mesmo `_settle` dos
+    fragmentos: conteúdo igual ao publicado → descartado, a versão fica e o `hashes.json` só liga
+    as entradas novas a ela; diferente → `.lume-content`, assinatura, `out/repo/<arch>/`,
+    `hashes.json` e índice. Cada pacote decide sozinho: um DTB novo só muda o `lume-dtbs`. Como o
+    kernel é reprodutível (D4, D5), um patch que só toca um driver do GA36 deixa os três pacotes
+    do aarch64 com as mesmas entradas e a mesma versão.
+  - **BOOT e slot vêm dos pacotes publicados:** depois de publicar, a etapa extrai os dados das
+    três versões que o `hashes.json` aponta (conferidas pelo `.lume-content`) para
+    `out/<console>/kernel-pkg/` (trocada inteira, com `PACKAGES` = `<nome> <versão>`). O
+    `console_boot_files` tira dali `<console>/zImage|Image` e `dtbs/<soc>/...`, e o
+    `write_slot_set` tira dali o slot `modules` (`kernel-pkg/boot/modules.squashfs`). Os bytes
+    são os do `out/<console>/kernel/`, então a lista da BOOT e o slot de um console cujo kernel
+    não mudou ficam idênticos e o `push` para ele não manda nada. As imagens Android de painel
+    do GA36 (fora da BOOT) continuam feitas de `out/ga36/kernel/`.
 
 ### D3. Versão pelo conteúdo, compilação pelo hash de entradas
 
