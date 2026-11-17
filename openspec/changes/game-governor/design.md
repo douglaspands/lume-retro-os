@@ -44,9 +44,12 @@ GPU devfreq      simple_ondemand                 simple_ondemand, userspace
 - Medições confiáveis: o coletor deixa de pesar antes de medir qualquer perfil.
 
 **Non-Goals:**
-- Controlador que muda o clock no meio do jogo pelo FPS (P-20, etapas 2 e 3): fica para depois,
-  se os perfis por classe não bastarem.
+- Controlador pelo FPS real (P-20, etapa 3): fica para depois, se os perfis por classe e o
+  controlador pela carga (D12, etapa 2) não bastarem; exige patch no RetroArch.
 - Modo escolhido pelo usuário (Desempenho, Equilibrado, Economia).
+- Otimizar os cores (flags por CPU, PGO; P-10): adiado de propósito pelo usuário (2026-11-17).
+  Todos os cores ficam no build padrão do upstream, inclusive o `snes9x2005_plus` (D15), para a
+  medição desta change isolar o ganho do sistema; as tabelas do D5 viram a linha de base do P-10.
 - Overclock, clock da DRAM variável, mudar a tabela de OPPs ou as zonas térmicas.
 
 ## Decisions
@@ -144,6 +147,10 @@ Pré-requisito: o `logd` barato (D8), senão ele falseia a corrente e a ocupaç�
   candidato sem rebuild.
 - **Regra:** por classe, o candidato de menor corrente média sem mais eventos `slow` que o `K`.
   Resultados só agregados por sistema e classe, nunca por jogo (regra das ROMs de teste).
+- **Linha de base dos cores:** toda sessão roda os cores no build padrão do upstream (P-10
+  adiado). As tabelas de antes e depois, com a versão de cada core, ficam neste design e o CSV
+  do `r36os power report` em `docs/referencia/medicoes/game-governor/`, para a otimização dos
+  cores (P-10, change de cores P-80) ser medida depois contra os mesmos números.
 
 ### D6. Boot
 

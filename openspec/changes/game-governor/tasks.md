@@ -115,7 +115,7 @@ cartão):
 ## 5. Medição e valores
 
 - [ ] 5.1 Build de medição: pacotes da onda 0 e 1 e o kernel do GA36, nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push`. Verificação: os `.apk` e o kernel novos no repositório local e o `push` terminando com `ok`.
-- [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual, com e sem o controlador nos pesados. Verificação: tabela do `r36os power report` (1.3) no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5.
+- [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual, com e sem o controlador nos pesados. Verificação: tabela do `r36os power report` (1.3) no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5; o CSV do relatório, com a versão de cada core (build padrão, linha de base do P-10), em `docs/referencia/medicoes/game-governor/`.
 - [ ] 5.3 Janela J2 no R36S, com o mesmo cartão: o mesmo da 5.2 (sem a DRAM do A33). Verificação: a tabela do R36S no `design.md` e o candidato escolhido por classe.
 - [ ] 5.4 Escrever `ga36.conf` e `r36s.conf` com os perfis escolhidos na 5.2 e na 5.3 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria). Verificação: os testes do validador da 1.1 com os arquivos reais contra as tabelas de OPP de cada console (copiadas do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
 
@@ -130,3 +130,5 @@ cartão):
 - Arquivar a change depois das provas da J3 e da J4.
 - Com os perfis medidos, decidir se o modo escolhido pelo usuário (Desempenho, Equilibrado,
   Economia) e o controlador por FPS (P-20, etapa 3) viram pendências novas.
+- As tabelas da 5.2, 5.3 e 6.2/6.3 (cores no build padrão) são a linha de base do P-10: anotar
+  no P-10 onde elas estão quando a change for arquivada.

@@ -55,7 +55,9 @@ pendências (P-20, P-83, P-23), com o P-60, o P-78 e o item 3 do P-64.
   das proteções térmicas do device tree mainline.
 
 Fora do escopo: overclock do GA36 (P-11), flags de compilação por CPU e userland armv7 (P-10 e
-P-82, reservados para a change de cores, P-80), Mesa sem LLVM (P-59, vai para o P-58), modo de
+P-82, reservados para a change de cores, P-80; o P-10 foi adiado de propósito pelo usuário em
+2026-11-17: todos os cores ficam no build padrão do upstream, para as medições desta change
+mostrarem só o ganho do sistema e servirem de linha de base à otimização dos cores), Mesa sem LLVM (P-59, vai para o P-58), modo de
 energia escolhido pelo usuário (fica para depois de medido), o controlador por FPS real (P-20,
 etapa 3, exige patch no RetroArch) e a barra de status sobre o jogo
 (`lume-hud-actions`, parada).
