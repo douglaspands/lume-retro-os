@@ -383,7 +383,8 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
 
     real = slots.build_overlay_slots
     monkeypatch.setattr(slots, "build_overlay_slots",
-                        lambda tar, sdir, options: real(tar, sdir, options, squash=squash))
+                        lambda tar, sdir, options, **kw: real(tar, sdir, options,
+                                                              squash=squash, **kw))
     v = version.current()
     timer = StageTimer()
     build.build_console_slots(TARGETS["ga36"], v, timer)
@@ -398,6 +399,57 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
     (out / manifests.SLOTS_DIR / Path(first.get("lume").file).name).unlink()
     build.build_console_slots(TARGETS["ga36"], v, timer)
     assert len(runs) == 2
+
+
+def _recording_squash(runs):
+    def squash(sdir, names, options):
+        runs.append(list(names))
+        _fake_squash(sdir, names, options)
+    return squash
+
+
+def test_only_the_slots_whose_content_changed_are_packed_again(tmp_path, monkeypatch):
+    sdir = tmp_path / "slots"
+    runs = []
+    first = slots.build_overlay_slots(_rootfs(tmp_path / "rootfs.tar"), sdir, "-a", GROUPS,
+                                      squash=_recording_squash(runs))
+    assert runs == [["base", "runtime", "lume"]]
+    assert slots.rebuilt_slots(sdir) == ["base", "runtime", "lume"]
+    # a new lume-core: its file and the apk database (no owner) are both in lume
+    monkeypatch.setitem(PACKAGES, "lume-core",
+                        ("1.1-r0", [("usr/libexec/r36os", [("logd", b"new logd")])]))
+    again = slots.build_overlay_slots(_rootfs(tmp_path / "rootfs.tar", mtime=7), sdir, "-a",
+                                      GROUPS, squash=_recording_squash(runs))
+    assert runs[1:] == [["lume"]]
+    assert slots.rebuilt_slots(sdir) == ["lume"]
+    assert again[0] == first[0] and again[1] == first[1]       # base and runtime kept
+    assert again[2].sha256 != first[2].sha256
+    assert again[2].lower == (("base", first[0].sha256), ("runtime", first[1].sha256))
+    assert slots.overlay_files(sdir) == [sdir / Path(s.file).name for s in again]
+    assert all(p.is_file() for p in slots.overlay_files(sdir))
+    # nothing changed: nothing packed
+    slots.build_overlay_slots(_rootfs(tmp_path / "rootfs.tar"), sdir, "-a", GROUPS,
+                              squash=_recording_squash(runs))
+    assert len(runs) == 2
+    assert slots.rebuilt_slots(sdir) == []
+
+
+def test_other_options_pack_again_unless_a_fragment_build(tmp_path):
+    sdir = tmp_path / "slots"
+    tar = _rootfs(tmp_path / "rootfs.tar")
+    runs = []
+    slots.build_overlay_slots(tar, sdir, "-level19", GROUPS, squash=_recording_squash(runs))
+    # a fragment build (other, faster options) keeps the slots of the same content
+    slots.build_overlay_slots(tar, sdir, "-level3", GROUPS, squash=_recording_squash(runs),
+                              reuse_any_options=True)
+    assert len(runs) == 1
+    record = (sdir / slots.OVERLAY_RECORD).read_text()
+    assert "-level19" in record and "-level3" not in record
+    # `build console` with its options packs again what a fast build packed
+    slots.build_overlay_slots(tar, sdir, "-level19", GROUPS, squash=_recording_squash(runs))
+    assert len(runs) == 1                                      # they were level 19 already
+    slots.build_overlay_slots(tar, sdir, "-other", GROUPS, squash=_recording_squash(runs))
+    assert runs[1:] == [["base", "runtime", "lume"]]
 
 
 def test_two_runs_give_the_same_squashfs(tmp_path):

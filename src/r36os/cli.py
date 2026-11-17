@@ -18,12 +18,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
 
-    b = sub.add_parser("build", help="build the image of one target (or all with --all)")
-    b.add_argument("target", nargs="?", help=f"image: {', '.join(IMAGES)}")
+    b = sub.add_parser("build", help="build the image of one target (or all with --all), "
+                                     "or only some fragments for `r36os push`")
+    b.add_argument("target", nargs="*",
+                   help=f"image: {', '.join(IMAGES)}; or fragments (aports/ names): a "
+                        "fragment build compiles them and the aports that build-depend on "
+                        "them, redoes only the slots that hold them and archives a build "
+                        "without an image, ready for `r36os push`")
+    b.add_argument("--console", choices=("ga36", "r36s"),
+                   help="fragment build: only this console (default: every console the "
+                        "fragments are built for)")
     b.add_argument("--all", action="store_true",
                    help="build the vm, test it, then the console image")
-    b.add_argument("--lang", default=lang.DEFAULT, metavar="CODE",
-                   help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en)")
+    b.add_argument("--lang", default=None, metavar="CODE",
+                   help=f"factory menu language ({', '.join(lang.LANGUAGES)}; default en, "
+                        "or for a fragment build the one of the latest console build)")
     b.add_argument("--clean", action="store_true",
                    help="run every stage, even those whose inputs did not change")
 
@@ -183,18 +192,31 @@ def _main(args: argparse.Namespace) -> int:
             if args.all == bool(args.target):
                 print("error: give a target or --all", file=sys.stderr)
                 return 2
-            lang.retro_language(args.lang)  # validate before creating any file
-            from r36os import stage_inputs
+            if args.lang is not None:
+                lang.retro_language(args.lang)  # validate before creating any file
+            from r36os import fragment_build, stage_inputs
 
+            fragments = not args.all and fragment_build.is_fragment_target(args.target)
+            if fragments:
+                # validated before any file is created (an unknown name, an image name)
+                fragment_build.plan_fragments(args.target, args.console)
+            elif args.console:
+                print("error: --console is for a fragment build", file=sys.stderr)
+                return 2
             stage_inputs.set_clean(args.clean)
+            if fragments:
+                _heat_guarded(lambda: fragment_build.build_fragments(
+                    args.target, console=args.console, language=args.lang))
+                return 0
+            language = args.lang or lang.DEFAULT
             if args.all:
                 from r36os.release import build_all
 
-                return _heat_guarded(lambda: build_all(language=args.lang))
-            image = get_image(args.target)
+                return _heat_guarded(lambda: build_all(language=language))
+            image = get_image(args.target[0])
             from r36os.build import build_image_target
 
-            _heat_guarded(lambda: build_image_target(image, language=args.lang))
+            _heat_guarded(lambda: build_image_target(image, language=language))
             return 0
         if args.command == "flash":
             from r36os.flash import main_flash

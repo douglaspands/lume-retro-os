@@ -322,44 +322,102 @@ def overlay_files(slots_dir: Path) -> list[Path]:
         return []
 
 
+def _previous_record(slots_dir: Path) -> dict[str, dict]:
+    """name -> entry of the overlay slots of the last run (empty when there is none)."""
+    try:
+        record = json.loads((slots_dir / OVERLAY_RECORD).read_text())
+        return {s["name"]: s for s in record["slots"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def _reusable(prev: dict | None, content: str, options: str, any_options: bool,
+              slots_dir: Path) -> bool:
+    """The slot file of the last run holds this content (and was packed with these
+    options, unless `any_options`), and is still there with its sha256."""
+    if not prev or prev.get("content") != content:
+        return False
+    if not any_options and prev.get("options") != options:
+        return False
+    try:
+        path = slots_dir / prev["file"]
+        return path.is_file() and path.stat().st_size == prev["size"]
+    except (KeyError, TypeError):
+        return False
+
+
 def build_overlay_slots(tar_path: Path, slots_dir: Path, options: str,
-                        groups: Groups | None = None, squash=_squash) -> list[Slot]:
+                        groups: Groups | None = None, squash=_squash,
+                        reuse_any_options: bool = False) -> list[Slot]:
     """base, runtime and lume from rootfs.tar in `slots_dir`, named by content, and the
     record overlay.json. `squash(slots_dir, names, options)` makes <name>.squashfs from
-    work/<name>.tar."""
+    work/<name>.tar.
+
+    Only the slots whose content changed are packed again (build-speed 6.2): a slot whose
+    tar holds what the same slot of the last run held (tar_content_digest, times ignored)
+    keeps its file. With `reuse_any_options` (a fragment build), a slot packed with other
+    mksquashfs options (another compression level) is kept too; otherwise only one packed
+    with these options."""
+    from r36os.stage_inputs import tar_content_digest
+
     groups = groups or load_groups()
     slots_dir.mkdir(parents=True, exist_ok=True)
+    previous = _previous_record(slots_dir)
     (slots_dir / OVERLAY_RECORD).unlink(missing_ok=True)
     sp = split_rootfs(tar_path, groups)
     work = slots_dir / "work"
     shutil.rmtree(work, ignore_errors=True)
     write_slot_tars(tar_path, sp, work)
     names = list(OVERLAY_SLOTS)
-    squash(slots_dir, names, options)
+    contents = {n: tar_content_digest(work / f"{n}.tar") for n in names}
+    kept = {n for n in names
+            if _reusable(previous.get(n), contents[n], options, reuse_any_options, slots_dir)}
+    rebuilt = [n for n in names if n not in kept]
+    if rebuilt:
+        squash(slots_dir, rebuilt, options)
     shutil.rmtree(work, ignore_errors=True)
     out: list[Slot] = []
+    packed_with = {}
     for name in names:
-        made = slots_dir / f"{name}.squashfs"
-        sha = manifests.sha256_file(made)
         lower = tuple((s.name, s.sha256) for s in out)
-        slot = Slot(name=name, sha256=sha, size=made.stat().st_size, lower=lower,
+        if name in kept:
+            prev = previous[name]
+            sha, size = prev["sha256"], prev["size"]
+            packed_with[name] = prev.get("options", options)
+        else:
+            made = slots_dir / f"{name}.squashfs"
+            sha, size = manifests.sha256_file(made), made.stat().st_size
+            packed_with[name] = options
+        slot = Slot(name=name, sha256=sha, size=size, lower=lower,
                     packages=tuple(sp.packages[name]))
-        made.replace(slots_dir / Path(slot.file).name)
+        if name not in kept:
+            made.replace(slots_dir / Path(slot.file).name)
         out.append(slot)
     files_in = {n: 0 for n in names}
     for slot in sp.files.values():
         files_in[slot] += 1
     record = {"slots": [{"name": s.name, "sha256": s.sha256, "size": s.size,
                          "file": Path(s.file).name, "lower": [list(x) for x in s.lower],
-                         "packages": [list(p) for p in s.packages]} for s in out],
+                         "packages": [list(p) for p in s.packages],
+                         "content": contents[s.name], "options": packed_with[s.name]}
+                        for s in out],
+              "rebuilt": rebuilt,
               "files": files_in, "to_top": len(sp.to_top),
               "unnamed_packages": sp.unnamed}
     manifests._write_atomic(slots_dir / OVERLAY_RECORD, json.dumps(record, indent=1) + "\n")
     print("slots: " + ", ".join(f"{s.name} {s.size / 2**20:.1f} MiB ({files_in[s.name]} "
-                                f"files)" for s in out)
+                                f"files{', kept' if s.name in kept else ''})" for s in out)
           + f"; {len(sp.to_top)} files with no owner or changed after the install in lume",
           flush=True)
     return out
+
+
+def rebuilt_slots(slots_dir: Path) -> list[str]:
+    """The overlay slots the last run packed again (the others kept their file)."""
+    try:
+        return list(json.loads((slots_dir / OVERLAY_RECORD).read_text())["rebuilt"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
 
 
 def read_overlay(slots_dir: Path) -> list[Slot]:
