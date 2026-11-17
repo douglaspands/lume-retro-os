@@ -68,7 +68,9 @@ def test_no_network_by_default(tmp_path):
     # `r36os vm` without --ssh and `r36os test-vm`: no NIC, no published port
     cfg = _cfg(tmp_path)
     assert _nic(qemu_argv(cfg)) == "none"
-    assert "-p" not in podman_argv(cfg)
+    p = podman_argv(cfg)
+    assert "-p" not in p
+    assert not any(a.startswith("--network") for a in p)   # the container's own network
 
 
 def test_ssh_forwards_only_port_22_on_the_pc_loopback(tmp_path):
@@ -78,16 +80,18 @@ def test_ssh_forwards_only_port_22_on_the_pc_loopback(tmp_path):
     nic = _nic(q)
     assert nic.startswith("user,") and "model=virtio-net-pci" in nic
     assert "restrict=on" in nic.split(",")           # no route out of the PC
-    assert nic.endswith("hostfwd=tcp:0.0.0.0:2222-:22")
+    # bound on the PC's loopback: the guest sees the connections from 10.0.2.2 (on-link);
+    # a published port (-p) brought them from the container's address and the guest,
+    # without a default route, never answered (live check of 3.3)
+    assert nic.endswith("hostfwd=tcp:127.0.0.1:2222-:22")
     p = podman_argv(cfg)
-    assert p[p.index("-p") + 1] == "127.0.0.1:2222:2222"
-    assert p.count("-p") == 1
+    assert "--network=host" in p
+    assert "-p" not in p
 
 
 def test_ssh_custom_port(tmp_path):
     cfg = _cfg(tmp_path, ssh_port=2300)
-    assert "hostfwd=tcp:0.0.0.0:2300-:22" in _nic(qemu_argv(cfg))
-    assert "127.0.0.1:2300:2300" in podman_argv(cfg)
+    assert "hostfwd=tcp:127.0.0.1:2300-:22" in _nic(qemu_argv(cfg))
 
 
 def test_test_vm_has_no_user_network(tmp_path, monkeypatch):

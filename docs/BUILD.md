@@ -232,10 +232,14 @@ comandos:
 ```
 
 - `--ssh [PORTA]` liga a rede de usuário da QEMU (`-nic user,model=virtio-net-pci,
-  restrict=on,hostfwd=tcp:0.0.0.0:PORTA-:22`) e o podman publica a porta só em
-  `127.0.0.1:PORTA` do PC (`-p 127.0.0.1:PORTA:PORTA`): nada da rede local chega ao `ssh` da
-  vm, e o `restrict=on` deixa a vm **sem rota para fora** (nem para o PC, só a conexão
-  redirecionada entra).
+  restrict=on,hostfwd=tcp:127.0.0.1:PORTA-:22`), com o container na rede do PC
+  (`--network=host`), de modo que a porta só existe em `127.0.0.1:PORTA` do PC: nada da rede
+  local chega ao `ssh` da vm, e o `restrict=on` deixa a vm **sem rota para fora** (nem para o
+  PC, só a conexão redirecionada entra; conferido em 2026-11-17: `wget` para fora dá
+  "Network unreachable").
+- Por que não `podman -p`: a conexão publicada pelo podman chega à QEMU vinda do endereço do
+  container, e a slirp só troca pelo gateway `10.0.2.2` uma origem de loopback. A vm, que não
+  tem rota padrão, nunca respondia, e o `ssh` travava na troca de banners.
 - Na vm, e só nela (`r36os-vmnet` entra no runlevel apenas com o board `vm`, em
   `rootfs/configure.sh`), o serviço pega um endereço por DHCP na interface virtio (só o
   endereço: sem rota padrão e sem DNS) e roda o `dropbear` nesse endereço, root sem senha e sem

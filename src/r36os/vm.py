@@ -88,13 +88,19 @@ def nic_arg(ssh_port: int | None) -> str:
 
     restrict=on isolates the guest (no packet of it is routed out of the PC, it cannot
     reach the host either) while the hostfwd rule still accepts connections; slirp's DHCP
-    keeps answering. Inside the container the forward listens on all its addresses so the
-    port podman publishes on the PC's 127.0.0.1 (podman_argv) reaches it.
+    keeps answering.
+
+    The forward listens on 127.0.0.1 of the PC itself (the container shares the PC's
+    network, podman_argv), so every connection comes from the loopback, which slirp shows
+    to the guest as its gateway 10.0.2.2, on-link. A connection from any other address
+    keeps that address as its source, and the guest (no default route, by design) never
+    answers it: with podman's `-p` the source was the container's own address and ssh hung
+    in the banner exchange (live check of 3.3, 2026-11-17).
     """
     if ssh_port is None:
         return "none"
     return (f"user,model=virtio-net-pci,restrict=on,"
-            f"hostfwd=tcp:0.0.0.0:{ssh_port}-:22")
+            f"hostfwd=tcp:127.0.0.1:{ssh_port}-:22")
 
 
 def qemu_argv(cfg: VmConfig) -> list[str]:
@@ -178,8 +184,10 @@ def podman_argv(cfg: VmConfig) -> list[str]:
     if cfg.name:
         a += ["--name", cfg.name]
     if cfg.ssh_port is not None:
-        # only the PC's loopback: nothing on the LAN reaches the vm's root ssh
-        a += ["-p", f"127.0.0.1:{cfg.ssh_port}:{cfg.ssh_port}"]
+        # the PC's network, so QEMU's forward binds the PC's 127.0.0.1 and the connections
+        # reach slirp from the loopback (see nic_arg); nothing on the LAN reaches the vm's
+        # root ssh, and the guest still has no route out (restrict=on)
+        a += ["--network=host"]
     if nvidia_cdi():
         # proprietary driver: the host GL/EGL libraries come in through CDI
         a += ["--device", "nvidia.com/gpu=all"]
