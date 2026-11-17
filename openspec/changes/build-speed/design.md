@@ -386,13 +386,18 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 
 - **Sensor:** o hwmon do processador (`k10temp` Tctl, `zenpower`, ou `coretemp` Package em Intel),
   achado pelo nome; nunca as entradas auxiliares de chips da placa-mãe. `R36OS_TEMP_SENSOR`
-  escolhe outro. Também o NVMe (`nvme` Composite), pelo volume de escrita do build.
+  escolhe outro. Também o disco onde fica o cache do build, pelo volume de escrita: achado pelo
+  `/proc/self/mountinfo` (o `st_dev` do btrfs é virtual) e lido do hwmon dele, `nvme` Composite
+  ou `drivetemp` (SATA). **Correção do usuário (2026-11-17):** o sistema e o build ficam num SSD
+  SATA (`sda`, Kingston SA400); o NVMe do PC não é usado pelo Linux, então a leitura dele não
+  dizia nada (inclusive a coluna "Antes"). O SATA só tem sensor com o módulo `drivetemp`
+  carregado; sem ele o build avisa no começo e segue só com a CPU.
 - **Amostragem:** uma thread do `r36os` lê a cada 2 s durante todo o build e todo container.
-- **Ação (histerese):** CPU ≥ `R36OS_TEMP_MAX` (padrão 85 °C) ou NVMe ≥ máximo dele − 5 °C →
+- **Ação (histerese):** CPU ≥ `R36OS_TEMP_MAX` (padrão 85 °C) ou disco do build ≥ máximo dele − 5 °C →
   `podman pause` dos containers do build, com uma linha na saída; retoma com CPU ≤ máximo − 10 °C.
   Se a CPU passar de 92 °C mesmo pausado por 60 s (refrigeração com problema), o build aborta com
   a mensagem do que foi lido.
-- **Resumo:** temperatura máxima da CPU e do NVMe, tempo acima do limite e tempo pausado, no
+- **Resumo:** temperatura máxima da CPU e do disco do build, tempo acima do limite e tempo pausado, no
   resumo por etapa (D14).
 - **Ordem das defesas:** (1) limite de tarefas (D8) reduz o calor; (2) a pausa evita o pico;
   (3) `CPUQuota` pelo `systemd-run --user` fica de reserva. Desligar o boost ou mudar o EPP durante o
@@ -509,7 +514,7 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 | push + boot (launcher) | GA36: push 4 min 07 s (descompacta 644 MiB, manda `SYSTEM`, `zImage`, o `Image` do R36S e `VERSION`) + boot 33,6 s; sem mudança: 35 s, sem reinício | |
 | `boot OK completed` (GA36 / R36S) | 34,2 s e 33,6 s / 24,4 s | |
 | temperatura máxima da CPU (`k10temp` Tctl) | 95,4 °C (cache frio, 1074 s acima de 85 °C); 75–82 °C nos outros | |
-| temperatura máxima do NVMe | 37,9 °C | |
+| temperatura máxima do disco do build | sem leitura (o 37,9 °C medido era do NVMe que o build não usa; o SATA precisa do `drivetemp`) | |
 | tempo pausado pela proteção de calor | 0 s (só registrando) | |
 
 Medido em 2026-11-16 (1.2), com o código de antes desta change e a proteção de calor só

@@ -39,7 +39,7 @@ fragmento só está provado quando chega ao console e funciona.
   (`--jobs`, `R36OS_JOBS`; padrão metade dos núcleos).
 - **Proteção de calor** (pedido do usuário, 2026-11-16): o build lê a temperatura da CPU (sensor
   do processador, `k10temp`, não as entradas auxiliares da placa-mãe, que marcam 90–97 °C com o PC
-  parado) e a do NVMe durante todo o build, pausa os containers acima de um limite e retoma
+  parado) e a do disco onde o build grava durante todo o build, pausa os containers acima de um limite e retoma
   abaixo de outro, aborta se a temperatura subir mesmo pausado, e mostra no fim o máximo e o tempo
   pausado.
 - **Perfil de desenvolvimento:** no build pontual, os slots usam compressão rápida; o `build

@@ -56,8 +56,11 @@ class Runner:
 
 def _guard(hwmon: Path, **kw) -> tuple[heat.HeatGuard, Clock, Runner, io.StringIO]:
     clock, runner, out = Clock(), Runner(), io.StringIO()
+    # the build disk of these tests: the fake NVMe (find_disk is tested on its own below)
+    disk = kw.pop("disk", [s for s in heat.scan(hwmon)
+                           if s.chip == "nvme" and s.label == "Composite"])
     g = heat.guard_from_env(root=hwmon, env=kw.pop("env", {}), clock=clock, runner=runner,
-                            containers=lambda: ["c1", "c2"], out=out, **kw)
+                            containers=lambda: ["c1", "c2"], out=out, disk=disk, **kw)
     return g, clock, runner, out
 
 
@@ -65,8 +68,54 @@ def test_picks_k10temp_tctl_and_ignores_aux_inputs(hwmon: Path) -> None:
     sensors = heat.scan(hwmon)
     cpu = heat.find_cpu(sensors, {})
     assert (cpu.chip, cpu.label, cpu.read()) == ("k10temp", "Tctl", 37.0)
-    nvme = heat.find_nvme(sensors)
-    assert [(s.label, s.crit) for s in nvme] == [("Composite", 89.85)]
+
+
+def _disks(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A PC like the user's: the OS and the build on a SATA SSD (sda, drivetemp) and an
+    NVMe the OS does not use (nvme0n1). Returns (hwmon root, mountinfo, /sys/class/block)."""
+    root = tmp_path / "hwmon"
+    sata = _chip(root, 0, "drivetemp", {1: (None, 34.0)}, {1: 60.0})
+    nvme = _chip(root, 1, "nvme", {1: ("Composite", 29.0)}, {1: 89.85})
+    _chip(root, 2, "k10temp", {1: ("Tctl", 40.0)})
+    devs = tmp_path / "devices"
+    (devs / "scsi/0:0:0:0/block/sda/sda3").mkdir(parents=True)
+    (devs / "scsi/0:0:0:0/block/sda/sda3/partition").write_text("3\n")
+    (devs / "nvme/nvme0/nvme0n1/nvme0n1p3").mkdir(parents=True)
+    (devs / "nvme/nvme0/nvme0n1/nvme0n1p3/partition").write_text("3\n")
+    (sata / "device").symlink_to(devs / "scsi/0:0:0:0")
+    (nvme / "device").symlink_to(devs / "nvme/nvme0")
+    block = tmp_path / "class_block"
+    block.mkdir()
+    (block / "sda3").symlink_to(devs / "scsi/0:0:0:0/block/sda/sda3")
+    (block / "nvme0n1p3").symlink_to(devs / "nvme/nvme0/nvme0n1/nvme0n1p3")
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(
+        "45 1 0:37 /root / rw,noatime shared:1 - btrfs /dev/sda3 rw,subvol=/root\n"
+        "61 45 0:37 /home /home rw,noatime shared:163 - btrfs /dev/sda3 rw,subvol=/home\n"
+        "62 45 0:54 / /tmp rw shared:158 - tmpfs tmpfs rw\n"
+        "70 45 259:3 / /mnt/fast rw shared:170 - ext4 /dev/nvme0n1p3 rw\n")
+    return root, mountinfo, block
+
+
+def test_the_build_disk_is_the_sata_ssd_not_the_unused_nvme(tmp_path: Path) -> None:
+    root, mountinfo, block = _disks(tmp_path)
+    sensors = heat.scan(root)
+    assert heat.disk_of(Path("/home/u/repo/.cache"), mountinfo, block) == "sda"
+    found = heat.find_disk(sensors, Path("/home/u/repo/.cache"), mountinfo, block)
+    assert [(s.chip, s.read(), s.crit) for s in found] == [("drivetemp", 34.0, 60.0)]
+    # a build on the NVMe would watch the NVMe (controller nvme0 for nvme0n1)
+    found = heat.find_disk(sensors, Path("/mnt/fast/build"), mountinfo, block)
+    assert [(s.chip, s.label) for s in found] == [("nvme", "Composite")]
+    # tmpfs has no disk
+    assert heat.find_disk(sensors, Path("/tmp/x"), mountinfo, block) == []
+
+
+def test_no_drivetemp_means_no_disk_sensor_and_says_so(tmp_path: Path) -> None:
+    root, mountinfo, block = _disks(tmp_path)
+    sensors = [s for s in heat.scan(root) if s.chip != "drivetemp"]
+    assert heat.find_disk(sensors, Path("/home/u/repo"), mountinfo, block) == []
+    g = heat.HeatGuard(cpu=heat.find_cpu(sensors, {}), disk=[])
+    assert "load the drivetemp module" in g.start_line()
 
 
 def test_aux_input_at_97_never_pauses(hwmon: Path) -> None:
@@ -122,7 +171,7 @@ def test_start_line_names_sensor_and_reading(hwmon: Path) -> None:
     g, *_ = _guard(hwmon)
     line = g.start_line()
     assert "CPU 37.0 C" in line and "k10temp Tctl" in line
-    assert "NVMe 28.0 C" in line and "84.8" in line
+    assert "disk 28.0 C" in line and "84.8" in line
 
 
 def test_pause_at_limit_and_resume_ten_below(hwmon: Path) -> None:
@@ -154,25 +203,25 @@ def test_custom_limit(hwmon: Path) -> None:
     assert runner.calls == [["pause", "c1", "c2"]]
 
 
-def test_nvme_near_its_max_pauses(hwmon: Path) -> None:
+def test_build_disk_near_its_max_pauses(hwmon: Path) -> None:
     g, clock, runner, _ = _guard(hwmon)
-    nvme = g.nvme[0]
-    _set(nvme, 84.0)
+    disk = g.disk[0]
+    _set(disk, 84.0)
     g.step()
     assert runner.calls == []
-    _set(nvme, 85.0)           # crit 89.85 - 5 = 84.85
+    _set(disk, 85.0)           # crit 89.85 - 5 = 84.85
     clock.t = 2
     g.step()
     assert runner.calls == [["pause", "c1", "c2"]]
-    _set(nvme, 80.0)           # CPU cool but NVMe still within 10 of its limit
+    _set(disk, 80.0)           # CPU cool but the disk still within 10 of its limit
     clock.t = 4
     g.step()
     assert len(runner.calls) == 1
-    _set(nvme, 70.0)
+    _set(disk, 70.0)
     clock.t = 6
     g.step()
     assert runner.calls[-1] == ["unpause", "c1", "c2"]
-    assert g.summary.max_nvme == 85.0
+    assert g.summary.max_disk == 85.0
 
 
 def test_abort_when_hot_after_60s_paused(hwmon: Path) -> None:
@@ -212,7 +261,7 @@ def test_log_only_records_and_never_pauses(hwmon: Path) -> None:
     assert runner.calls == []
     g.check()
     s = g.summary
-    assert s.max_cpu == 95.0 and s.max_nvme == 28.0
+    assert s.max_cpu == 95.0 and s.max_disk == 28.0
     assert s.time_above == 118.0 and s.time_paused == 0.0
     assert "log only" in g.start_line()
 
@@ -224,7 +273,7 @@ def test_stop_resumes_paused_containers_and_returns_summary(hwmon: Path) -> None
     summary = g.stop()
     assert runner.calls[-1] == ["unpause", "c1", "c2"]
     lines = summary.lines()
-    assert "max CPU 88.0 C" in lines[0] and "max NVMe 28.0 C" in lines[0]
+    assert "max CPU 88.0 C" in lines[0] and "max disk 28.0 C" in lines[0]
     assert "paused" in lines[1]
 
 

@@ -76,7 +76,7 @@ aceitar outro valor por opção da linha de comando e por variável de ambiente.
 
 ### Requirement: Proteção de calor do PC
 Durante todo build, o `r36os` MUST ler a temperatura do processador (pelo sensor do próprio
-processador, nunca por entradas auxiliares da placa-mãe) e a do NVMe, MUST pausar os containers do
+processador, nunca por entradas auxiliares da placa-mãe) e a do disco onde o build grava, MUST pausar os containers do
 build acima de um limite ajustável e retomá-los abaixo de outro, e MUST abortar o build se a
 temperatura continuar subindo com os containers pausados.
 
@@ -94,7 +94,7 @@ temperatura continuar subindo com os containers pausados.
 
 #### Scenario: Resumo do calor
 - **WHEN** um build termina
-- **THEN** o resumo traz a temperatura máxima da CPU e do NVMe e o tempo pausado
+- **THEN** o resumo traz a temperatura máxima da CPU e do disco do build e o tempo pausado
 
 ### Requirement: Compressão rápida no build pontual
 O build pontual de um fragmento MUST montar os slots com compressão rápida, e o build completo da
