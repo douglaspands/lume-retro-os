@@ -95,6 +95,8 @@ EDITED_AFTER_MOVE = {
     "usr/share/lume/i18n/en.toml",  # game-governor 3.2: the low-battery text
     "usr/share/lume/i18n/pt.toml",
     "usr/share/lume/i18n/es.toml",
+    "usr/libexec/r36os/logd",       # game-governor 1.2: the sample without external processes
+    "usr/libexec/r36os/logs.sh",
 }
 
 
