@@ -172,6 +172,7 @@ trace_sample
 check "logd: voltou a responder (evento OK)" 'grep -q "frontend OK retroarch answering again" $LOGS_DIR/events.log'
 check "logd: rastreio dentro do teto de tamanho" '[ "$(stat -c %s $LOGS_DIR/trace/boot-7.log)" -le $((TRACE_MAX_BYTES + 65536)) ]'
 kill "$FAKE" 2>/dev/null
+wait "$FAKE" 2>/dev/null   # reaped: a zombie still has the name retroarch
 FE_STATE=stopped
 trace_sample
 check "logd: sem retroarch, linha pid=-" 'tail -n 1 $LOGS_DIR/trace/boot-7.log | grep -q "fe=stopped pid=-"'
@@ -494,6 +495,67 @@ KICK_MAX=5
 DEVMEM_BIN=r36os-devmem
 INTERRUPTS_FILE=/proc/interrupts
 FE_STATE=stopped
+
+### Frozen format (game-governor 1.2, D8): the metrics columns, the per-column value format
+### and the trace lines, pinned before the sampler was rewritten without external processes.
+### It runs on the /proc and /sys of the machine running the test, without ROMS (the buffers
+### stay in RAM to be read).
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+LOGS_MOUNT=$W/not-mounted
+METRICS_COLS='time,uptime_s(,temp_[A-Za-z0-9_]+_c)*(,freq_policy[0-9]+_mhz)*(,cpu[0-9]+_pct)+,mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal,lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct'
+# metrics_ok <header file> <line>: one value per column, each in the format of its column
+metrics_ok() {
+	printf '%s\n' "$2" | awk -F, -v hf="$1" '
+		BEGIN { getline h < hf; n = split(h, col, ",") }
+		{ if (NF != n) { print "fields " NF " != columns " n; exit 1 }
+		  for (i = 1; i <= n; i++) { c = col[i]; v = $i; re = ""
+			if (c == "time") re = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$"
+			else if (c == "uptime_s") re = "^[0-9]+\\.[0-9]+$"
+			else if (c ~ /^temp_/) re = "^-?[0-9]+\\.[0-9]$"
+			else if (c ~ /^freq_|^cpu[0-9]|_mb$/) re = "^-?[0-9]+$"
+			else if (c == "bat_mv" || c == "bat_ma") re = "^(-?[0-9]+)?$"
+			else if (c == "bat_pct") re = "^[0-9]*$"
+			else if (c == "frontend") re = "^(stopped|other|launcher|game|paused|menu|no_answer)$"
+			else if (c == "fps" || c == "fps_nominal") re = "^([0-9]+(\\.[0-9]+)?)?$"
+			else if (c ~ /_rss_kb$/) re = "^[0-9]*$"
+			else if (c ~ /_cpu_pct$/) re = "^([0-9]+\\.[0-9])?$"
+			if (re != "" && v !~ re) { print "column " c " value [" v "]"; exit 1 }
+		  } }'
+}
+# no frontend, whatever runs on the machine of the test (a PC may run its own retroarch)
+pidof() { return 1; }
+pgrep() { return 1; }
+discover
+: > "$LOGS_RAM/stat.prev"
+check "frozen: the metrics header has the documented columns, in order" \
+	'grep -qE "^$METRICS_COLS\$" "$LOGS_RAM/metrics.header"'
+sample
+sample
+check "frozen: two samples give two metrics lines" '[ "$(grep -c "" "$LOGS_RAM/metrics.pending")" = 2 ]'
+check "frozen: each metrics value has the format of its column" \
+	'metrics_ok "$LOGS_RAM/metrics.header" "$(tail -n 1 "$LOGS_RAM/metrics.pending")"'
+check "frozen: the cpu columns of the second sample are 0-100" \
+	'tail -n 1 "$LOGS_RAM/metrics.pending" | awk -F, -v hf="$LOGS_RAM/metrics.header" "BEGIN { getline h < hf; n = split(h, c, \",\") } { for (i = 1; i <= n; i++) if (c[i] ~ /^cpu/ && (\$i < 0 || \$i > 100)) exit 1 }"'
+check "frozen: the frontend trace line of a sample without retroarch" \
+	'grep -qE "^[0-9]{2}:[0-9]{2}:[0-9]{2} fe=stopped pid=- gpu_mhz=[0-9]* vblank=[0-9]*$" "$LOGS_RAM/trace.pending"'
+check "frozen: the usb trace line of each sample" \
+	'[ "$(grep -cE "^[0-9]{2}:[0-9]{2}:[0-9]{2} usb: " "$LOGS_RAM/trace.pending")" = 2 ]'
+unset -f pidof pgrep
+check "frozen: no event from two quiet samples but the first usb state" \
+	'! grep -v " usb OK otg: " "$LOGS_RAM/events.pending" 2>/dev/null | grep -q .'
+# the trace of new kernel messages: one "k" line per message, with the dmesg time stamp
+rm -f "$LOGS_RAM"/*.pending
+printf '[    1.000000] old message\n' > "$W/dmesg"
+dmesg() { cat "$W/dmesg"; }
+KMSG_SEEN=1
+printf '[   12.345678] lume: hello kernel\n[  123.000001] second line\n' >> "$W/dmesg"
+trace_kernel
+unset -f dmesg
+check "frozen: new kernel messages become k lines with the dmesg time stamp" \
+	'[ "$(grep -c " k " "$LOGS_RAM/trace.pending")" = 2 ] && grep -qE "^[0-9]{2}:[0-9]{2}:[0-9]{2} k \[   12\.345678\] lume: hello kernel$" "$LOGS_RAM/trace.pending" && grep -qE "^[0-9:]{8} k \[  123\.000001\] second line$" "$LOGS_RAM/trace.pending"'
+check "frozen: kernel messages already seen are not traced again" '! grep -q "old message" "$LOGS_RAM/trace.pending"'
+rm -f "$LOGS_RAM"/*.pending "$W/dmesg"
+LOGS_MOUNT=/
 
 ### persist: the build language only seeds new cards; the menu choice always wins
 export PERSIST_LIB=1 PERSIST_LIBSH="$PWD/aports/lume-core/files/usr/libexec/r36os/lib.sh" PERSIST_MOUNT=/
