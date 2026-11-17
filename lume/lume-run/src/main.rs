@@ -94,6 +94,23 @@ fn polite_quit(l: &Launch, pid: libc::pid_t, port: u16) {
     }
 }
 
+/// `game <system> <core>` to the power FIFO; a native runner has no core, so the runner id
+/// stands in (as in the events log). The menu is not a game: the launcher owns that scenario.
+fn power_game(l: &Launch) {
+    if l.menu {
+        return;
+    }
+    let core = if l.core.is_empty() { l.runner.clone() } else { l.core.clone() };
+    lume_core::power::notify(&lume_core::power::Message::Game { system: l.system.clone(), core });
+}
+
+/// `end` to the power FIFO, once the game's cgroup is empty.
+fn power_end(l: &Launch) {
+    if !l.menu {
+        lume_core::power::notify(&lume_core::power::Message::End);
+    }
+}
+
 impl Run {
     fn from_env() -> std::io::Result<Run> {
         let runtime = match std::env::var_os("XDG_RUNTIME_DIR") {
@@ -161,11 +178,14 @@ impl Run {
         let cg = proc::GameCgroup::create(&self.cgroup_base, self.games);
         let before = states::snapshot(&l.states);
         let started = Instant::now();
+        // power service: the scenario changes before the game's exec (non-blocking, never fails)
+        power_game(l);
         let spawned = proc::spawn_game(&l.argv, cg.as_ref().map(|c| c.dir.as_path()));
         let (child, in_cgroup) = match spawned {
             Ok(c) => c,
             Err(e) => {
                 log(&format!("game not started ({}): {e}", l.runner));
+                power_end(l);
                 self.events.game(false, l, "start-failed", "error", 0);
                 return true;
             }
@@ -238,6 +258,8 @@ impl Run {
             None => proc::kill_group(child.pid, libc::SIGKILL),
         }
         drop(cg);
+        // the cgroup is empty (or given up on): every end path of a started game comes here
+        power_end(l);
         let secs = started.elapsed().as_secs();
         let ok = matches!(exit, Exit::Code(0)) || end == End::QuitCombo;
         self.events.game(ok, l, end.as_str(), &exit.describe(), secs);

@@ -212,6 +212,7 @@ name = "lume-run"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "lume-core",
 ]
 
 [[package]]

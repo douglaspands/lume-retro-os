@@ -316,6 +316,94 @@ fn retroarch_quit_arrives_before_any_signal() {
     assert!(e.events().contains("game OK snes fake fakecore exit=0 end=quit-combo"), "{}", e.events());
 }
 
+/// The power FIFO `$R36OS_RUN/power`, read without blocking (the test is the power service).
+fn power_fifo(e: &Env) -> (PathBuf, fs::File) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let p = e.dir.join("run/power");
+    let c = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o660) }, 0);
+    let r = fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&p).unwrap();
+    (p, r)
+}
+
+fn drain(r: &mut fs::File, acc: &mut String) {
+    use std::io::Read;
+    let mut buf = [0u8; 256];
+    while let Ok(n) = r.read(&mut buf) {
+        if n == 0 {
+            break;
+        }
+        acc.push_str(&String::from_utf8_lossy(&buf[..n]));
+    }
+}
+
+#[test]
+fn power_fifo_gets_game_before_the_game_runs_and_end_after_it_exits() {
+    let e = setup("power", false);
+    let (_p, mut r) = power_fifo(&e);
+    let d = e.dir.display().to_string();
+    let game = format!("echo $$ > \"{d}/game\"; while [ ! -f \"{d}/exit\" ]; do sleep 0.05; done");
+    e.step(1, 64, &launch("snes", "sigterm", 2, &["/bin/sh", "-c", &game]));
+    e.step(2, 0, "");
+    let mut run = e.spawn(&[]);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let mut got = String::new();
+    drain(&mut r, &mut got);
+    // the game is running: `game` is there, `end` is not
+    assert_eq!(got, "game snes fakecore\n");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    drain(&mut r, &mut got);
+    assert_eq!(got, "game snes fakecore\nend\n");
+}
+
+#[test]
+fn power_end_comes_after_a_forced_kill() {
+    let e = setup("powerkill", false);
+    let (_p, mut r) = power_fifo(&e);
+    let listener = listen(&e.dir.join("input.sock"));
+    let game = stubborn_game(&e);
+    e.step(1, 64, &launch("ports", "sigterm", 1, &["/bin/sh", &game]));
+    e.step(2, 0, "");
+    let mut run = e.spawn(&[]);
+    let game_pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let grand = read_pid(&e.dir.join("grand"), Duration::from_secs(5));
+    accept_and_quit(&listener);
+    assert_eq!(wait(&mut run, Duration::from_secs(10)), 0);
+    let mut got = String::new();
+    drain(&mut r, &mut got);
+    assert_eq!(got, "game ports fakecore\nend\n");
+    assert!(!alive(game_pid));
+    unsafe { libc::kill(grand, libc::SIGKILL) };
+}
+
+#[test]
+fn power_native_runner_uses_the_runner_as_core() {
+    let e = setup("powernative", false);
+    let (_p, mut r) = power_fifo(&e);
+    let l = "kind=game\nsystem=ports\nrunner=sh\nquit=sigterm\ntimeout=2\narg=/bin/true\n";
+    e.step(1, 64, l);
+    e.step(2, 0, "");
+    assert_eq!(wait(&mut e.spawn(&[]), Duration::from_secs(5)), 0);
+    let mut got = String::new();
+    drain(&mut r, &mut got);
+    assert_eq!(got, "game ports sh\nend\n");
+}
+
+#[test]
+fn fifo_without_reader_does_not_stop_the_game() {
+    let e = setup("noreader", false);
+    // a FIFO nobody reads, and a missing one in the second run
+    let p = e.dir.join("run/power");
+    let c = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o660) }, 0);
+    let marker = e.dir.join("ran");
+    e.step(1, 64, &launch("ports", "sigterm", 2, &["/bin/sh", "-c", &format!("echo ok > '{}'", marker.display())]));
+    e.step(2, 0, "");
+    assert_eq!(wait(&mut e.spawn(&[]), Duration::from_secs(5)), 0);
+    assert_eq!(fs::read_to_string(&marker).unwrap().trim(), "ok");
+}
+
 #[test]
 fn session_sigterm_ends_the_game_and_the_supervisor() {
     let e = setup("session", false);
