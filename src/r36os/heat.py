@@ -33,7 +33,7 @@ NVME_DEFAULT_MAX = 70.0   # used when the drive does not report crit/max
 ABORT_TEMP = 92.0
 ABORT_AFTER = 60.0        # seconds paused above ABORT_TEMP
 INTERVAL = 2.0
-# Label the build containers carry so the guard can find them (wired in by node 2.1).
+# Label every build/pkg container carries (Container.argv) so the guard can find them.
 BUILD_LABEL = "r36os.build=1"
 
 # hwmon name -> accepted input labels, in order of preference.
@@ -219,6 +219,7 @@ class HeatGuard:
         self.paused: list[str] = []
         self.paused_since: float | None = None
         self.error: HeatAbort | None = None
+        self.reported = False   # summary lines already handed to a StageTimer
         self._last: float | None = None
         self._above = False
         self._stop = threading.Event()
@@ -357,10 +358,33 @@ class HeatGuard:
             self.check()
 
 
-def guard_from_env(log_only: bool = False, root: Path = HWMON_ROOT,
+ENV_GUARD = "R36OS_TEMP_GUARD"   # "log" = sample and report only, never pause
+
+# The guard running for this build, so the stage summary can include its lines.
+ACTIVE: HeatGuard | None = None
+
+
+def add_summary(timer) -> None:
+    """Adds the heat lines to a StageTimer summary (once); a no-op without a guard."""
+    g = ACTIVE
+    if g is not None and not g.reported:
+        g.reported = True
+        for line in g.summary.lines():
+            timer.add_line(line)
+
+
+def guard_from_env(log_only: bool | None = None, root: Path = HWMON_ROOT,
                    env: Mapping[str, str] | None = None, **kw) -> HeatGuard:
-    """Builds the guard for this PC; raises SensorNotFound before the build starts."""
+    """Builds the guard for this PC; raises SensorNotFound before the build starts.
+
+    Pauses by default; `R36OS_TEMP_GUARD=log` (or log_only=True) only samples and reports.
+    """
     env = os.environ if env is None else env
+    if log_only is None:
+        mode = env.get(ENV_GUARD, "").strip().lower()
+        if mode not in ("", "pause", "log"):
+            raise HeatError(f"{ENV_GUARD}={mode!r} must be 'pause' or 'log'")
+        log_only = mode == "log"
     sensors = scan(root)
     return HeatGuard(cpu=find_cpu(sensors, env), nvme=find_nvme(sensors),
                      limit=temp_max(env), log_only=log_only, **kw)

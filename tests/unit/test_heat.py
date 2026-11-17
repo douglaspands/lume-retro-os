@@ -236,17 +236,17 @@ def test_thread_samples_and_stops(hwmon: Path) -> None:
     assert out.getvalue().startswith("heat guard: CPU 37.0 C")
 
 
-def test_cli_build_runs_under_log_only_guard_and_prints_summary_on_error(
+def test_cli_build_pauses_by_default_and_prints_summary_on_error(
         hwmon: Path, monkeypatch, capsys) -> None:
     from r36os import build, cli
 
     made = {}
     real = heat.guard_from_env
 
-    def fake_guard(log_only: bool = False, **kw):
-        made["log_only"] = log_only
-        return real(root=hwmon, env={}, log_only=log_only, interval=0.01,
-                    runner=Runner(), containers=lambda: [], out=io.StringIO())
+    def fake_guard(**kw):
+        made["guard"] = real(root=hwmon, env={}, interval=0.01, runner=Runner(),
+                             containers=lambda: [], out=io.StringIO())
+        return made["guard"]
 
     def failing_build(image, language="en"):
         raise RuntimeError("build broke")
@@ -255,8 +255,75 @@ def test_cli_build_runs_under_log_only_guard_and_prints_summary_on_error(
     monkeypatch.setattr(build, "build_image_target", failing_build)
     with pytest.raises(RuntimeError, match="build broke"):
         cli.main(["build", "console"])
-    assert made["log_only"] is True
+    assert made["guard"].log_only is False
     assert "max CPU 37.0 C" in capsys.readouterr().out
+    assert heat.ACTIVE is None
+
+
+def test_env_guard_log_forces_log_only(hwmon: Path) -> None:
+    g = heat.guard_from_env(root=hwmon, env={"R36OS_TEMP_GUARD": "log"})
+    assert g.log_only is True
+    assert heat.guard_from_env(root=hwmon, env={}).log_only is False
+    with pytest.raises(heat.HeatError, match="R36OS_TEMP_GUARD"):
+        heat.guard_from_env(root=hwmon, env={"R36OS_TEMP_GUARD": "x"})
+
+
+def test_build_containers_carry_the_heat_label() -> None:
+    from r36os.container import Container
+
+    argv = Container("img").argv("true")
+    i = argv.index("--label")
+    assert argv[i + 1] == heat.BUILD_LABEL
+
+
+def test_stage_summary_includes_heat_lines_once(hwmon: Path) -> None:
+    from r36os.stages import StageTimer
+
+    g, clock, runner, _ = _guard(hwmon)
+    _set(g.cpu, 86.0)
+    g.step()
+    clock.t = 30.0
+    _set(g.cpu, 70.0)
+    g.step()
+    heat.ACTIVE = g
+    try:
+        timer = StageTimer()
+        heat.add_summary(timer)
+        heat.add_summary(timer)
+        lines = timer.summary()
+    finally:
+        heat.ACTIVE = None
+    heat_lines = [ln for ln in lines if ln.startswith("heat:")]
+    assert len(heat_lines) == 2
+    assert "max CPU 86.0 C" in heat_lines[0]
+    assert "paused 30 s (1 pauses)" in heat_lines[1]
+
+
+def test_cli_heat_abort_replaces_the_build_error_and_unpauses(
+        hwmon: Path, monkeypatch, capsys) -> None:
+    from r36os import build, cli
+
+    runner = Runner()
+    real = heat.guard_from_env
+
+    def fake_guard(**kw):
+        return real(root=hwmon, env={}, interval=3600, runner=runner,
+                    containers=lambda: ["c1"], out=io.StringIO())
+
+    def killed_build(image, language="en"):
+        g = heat.ACTIVE
+        _set(g.cpu, 95.0)
+        g.clock = lambda: 0.0
+        g.step()
+        g.clock = lambda: 100.0
+        g.step()  # aborts
+        raise RuntimeError("container killed")
+
+    monkeypatch.setattr(heat, "guard_from_env", fake_guard)
+    monkeypatch.setattr(build, "build_image_target", killed_build)
+    assert cli.main(["build", "console"]) == 2
+    assert "Build aborted" in capsys.readouterr().err
+    assert ["kill", "c1"] in runner.calls
 
 
 def test_cli_build_without_cpu_sensor_fails_before_building(monkeypatch, capsys) -> None:

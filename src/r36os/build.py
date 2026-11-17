@@ -7,7 +7,7 @@ then the single card image with both systems.
 
 from __future__ import annotations
 
-from r36os import bootimg, image, kernel, lang, rootfs, uboot, version
+from r36os import bootimg, heat, image, kernel, lang, rootfs, uboot, version
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
@@ -23,6 +23,7 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
         _build_image_target(img_target, rebuild_packages, language, timer)
     finally:
         # on success and on error alike; the error then propagates as before
+        heat.add_summary(timer)  # max temperature and paused time, in the same block
         timer.print_summary()
 
 

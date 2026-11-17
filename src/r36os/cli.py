@@ -107,19 +107,32 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _heat_guarded(fn):
-    """Runs a build step under the heat guard and prints its summary, even on error.
+    """Runs a build step under the heat guard (D15), even on error.
 
-    Log-only for now (build-speed 1.2 measures the baseline with it); build-speed 2.1
-    turns pausing on.
+    Pauses the build containers when the CPU is too hot (`R36OS_TEMP_GUARD=log` only logs).
+    The heat lines join the stage summary when the build prints one, otherwise they are
+    printed here. A HeatAbort replaces whatever error the killed containers caused, and
+    nothing stays paused when this returns.
     """
-    from r36os.heat import guard_from_env
+    from r36os import heat
 
-    guard = guard_from_env(log_only=True).start()
+    guard = heat.guard_from_env().start()
+    heat.ACTIVE = guard
     try:
-        return fn()
+        result = fn()
+    except BaseException:
+        if guard.error is not None:
+            guard.stop()
+            raise guard.error from None
+        raise
     finally:
-        for line in guard.stop().lines():
-            print(line, flush=True)
+        guard.stop()  # resumes anything still paused
+        if not guard.reported:
+            for line in guard.summary.lines():
+                print(line, flush=True)
+        heat.ACTIVE = None
+    guard.check()
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

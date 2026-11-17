@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from r36os.heat import BUILD_LABEL
 from r36os.jobs import PRIORITY_PREFIX
 from r36os.paths import REPO_ROOT
 from r36os.targets import Target
@@ -67,7 +68,8 @@ class Container:
     extra: list[str] = field(default_factory=list)
 
     def argv(self, script: str) -> list[str]:
-        cmd = [*PRIORITY_PREFIX, "podman", "run", "--rm", "--network=host"]
+        cmd = [*PRIORITY_PREFIX, "podman", "run", "--rm", "--network=host",
+               "--label", BUILD_LABEL]
         if self.platform:
             cmd += ["--platform", self.platform]
         for host, guest in self.volumes.items():
