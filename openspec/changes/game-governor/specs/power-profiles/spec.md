@@ -9,7 +9,7 @@ quando a bateria está acabando.
 ## ADDED Requirements
 
 ### Requirement: Perfil escolhido pelo cenário
-O console MUST aplicar sozinho, sem escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo; dentro do jogo, só o controlador pela carga, quando o perfil o liga, MAY variar o clock, e sempre dentro da faixa do perfil.
+O console MUST aplicar sozinho, sem precisar de escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo; dentro do jogo, só o controlador pela carga, quando o perfil o liga, MAY variar o clock, e sempre dentro da faixa do perfil.
 
 #### Scenario: Do menu ao jogo e de volta
 - **WHEN** o usuário abre um jogo pelo launcher e depois volta ao launcher
@@ -37,6 +37,21 @@ Todo perfil MUST ficar dentro da tabela de frequências e tensões do device tre
 - **WHEN** o arquivo de perfis pede um clock que não existe na tabela do console
 - **THEN** o perfil é recusado, o log diz qual valor e qual console, e a CPU fica com o governor padrão do kernel
 
+### Requirement: Piso de clock nos jogos do GA36
+No GA36, o mínimo da CPU durante um jogo MUST NOT ser o menor clock da tabela: todo perfil usado em jogo MUST ter um mínimo de pelo menos o piso de jogo do console (600 MHz no início), inclusive quando o perfil é recusado, quando os perfis estão desligados ou quando o usuário o sobrescreve. Uma classe MAY ter piso maior (o GBA começa em 1008 MHz), nunca menor. O piso só muda no arquivo da imagem.
+
+#### Scenario: Perfil de jogo recusado
+- **WHEN** o perfil da classe de um jogo é recusado no GA36
+- **THEN** o jogo roda com o governor padrão do kernel e o `scaling_min_freq` no piso de jogo, e o log diz por que o perfil foi recusado
+
+#### Scenario: Ajuste do usuário abaixo do piso
+- **WHEN** o arquivo de ajustes do cartão pede um mínimo abaixo do piso de jogo para uma classe
+- **THEN** essa linha é recusada com uma linha no log e vale o perfil da imagem
+
+#### Scenario: GBA sem oscilar abaixo do piso da classe
+- **WHEN** um jogo de GBA roda no GA36
+- **THEN** as métricas desse jogo não trazem clock abaixo do mínimo do perfil do GBA, a não ser que a proteção térmica do kernel baixe o teto
+
 ### Requirement: Jogo sem perder quadros
 O perfil de cada classe de jogo MUST rodar os jogos de teste sem mais eventos `game FAIL slow` do que o governor padrão do kernel nas mesmas sessões, nos dois consoles.
 
@@ -63,11 +78,22 @@ Um perfil de jogo MAY ligar o controlador pela carga: durante o jogo, a frequên
 - **THEN** o controlador para e o perfil do menu volta, como em qualquer fim de jogo
 
 ### Requirement: Ajustes pelo cartão
-O usuário MUST poder, num arquivo de texto da partição `ROMS`, sobrescrever perfis, mudar o tempo do launcher parado e desligar os perfis. Com os perfis desligados, a CPU e a GPU MUST ficar no padrão do kernel. Um valor inválido MUST ser ignorado com uma linha no log, valendo o padrão.
+O usuário MUST poder, num arquivo de texto da partição `ROMS`, sobrescrever perfis, mudar o tempo do launcher parado e desligar os perfis. Com os perfis desligados, a CPU e a GPU MUST ficar no padrão do kernel, exceto o piso de clock nos jogos do GA36. Um valor inválido MUST ser ignorado com uma linha no log, valendo o padrão.
 
 #### Scenario: Perfis desligados
 - **WHEN** o arquivo de ajustes desliga os perfis e o console reinicia
-- **THEN** a CPU usa o governor padrão do kernel em todos os cenários e o `events.log` registra que os perfis estão desligados
+- **THEN** a CPU usa o governor padrão do kernel em todos os cenários (no GA36, com o piso nos jogos) e o `events.log` registra que os perfis estão desligados
+
+### Requirement: Ajustes prontos para a interface
+O mesmo arquivo de ajustes do cartão MUST poder ser mudado por um programa, sem reiniciar e sem perder o que o usuário escreveu à mão: o sistema MUST publicar, legível sem root, o estado em vigor (valores aceitos pelo console, perfis com a origem de cada um, cenário e perfil atuais, perfis recusados) e MUST aceitar um pedido para reler os ajustes. A gravação feita por programa MUST manter comentários e linhas desconhecidas e MUST ser atômica.
+
+#### Scenario: Ajuste mudado com o console ligado
+- **WHEN** um programa muda o perfil de uma classe no arquivo de ajustes e pede a releitura
+- **THEN** o próximo jogo dessa classe roda com o perfil novo, sem reiniciar, e o estado publicado mostra o perfil com a origem no cartão
+
+#### Scenario: Arquivo escrito à mão preservado
+- **WHEN** o programa grava uma mudança num arquivo de ajustes com comentários do usuário
+- **THEN** os comentários e as outras linhas continuam iguais, e um corte de energia no meio deixa o arquivo antigo ou o novo, nunca um pela metade
 
 #### Scenario: Tempo do launcher parado
 - **WHEN** o arquivo de ajustes muda o tempo do launcher parado para 5 minutos

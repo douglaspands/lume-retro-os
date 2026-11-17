@@ -99,10 +99,11 @@ sem `awk` por mensagem:
 profile boot    governor=performance
 profile menu    governor=schedutil min=120000 max=648000 cores=2 gpu_max=144000000
 profile idle    governor=schedutil min=120000 max=480000 cores=1 gpu_max=144000000
-profile light   governor=schedutil min=480000 max=1008000 cores=2
-profile medium  governor=ondemand  min=648000 max=1008000 cores=4 up_threshold=30 sampling_down_factor=10
+profile light   governor=schedutil min=600000 max=1008000 cores=2
+profile medium  governor=ondemand  min=600000 max=1008000 cores=4 up_threshold=30 sampling_down_factor=10
 profile heavy   governor=performance cores=4
-profile game    governor=schedutil cores=4                 # sistema sem classe
+profile game    governor=schedutil min=600000 cores=4      # sistema sem classe
+limit game_min=600000                                      # piso dos perfis de jogo (só no ga36.conf)
 class nes light
 class psx heavy
 core  snes9x2005_plus heavy                                # exceção por core
@@ -112,8 +113,9 @@ Os números acima são só o formato: os valores saem da medição (D5). Valida�
 clock tem de estar em `scaling_available_frequencies` (ou entre `cpuinfo_min_freq` e
 `cpuinfo_max_freq` e num OPP do devfreq), cada governor em `scaling_available_governors`,
 `cores` entre 1 e o número de núcleos. Um perfil inválido é recusado inteiro (log) e o cenário
-usa o padrão do kernel. Um `ROMS/system/lume/power.conf` opcional sobrescreve linhas, para
-ajuste fino pelo PC (avançado, documentado, validado igual), e aceita mais duas linhas:
+usa o padrão do kernel, com a exceção do piso abaixo. Um `ROMS/system/lume/power.conf` opcional
+sobrescreve linhas (avançado, documentado, validado igual; é também o arquivo que a interface
+vai escrever, D16) e aceita mais duas linhas:
 
 ```
 enabled 0          # desliga os perfis: o serviço devolve o padrão do kernel e só registra
@@ -122,6 +124,54 @@ idle after=300     # segundos sem botão até o launcher parado (padrão 120; 0 
 
 O `lume-ui` lê a linha `idle` do mesmo arquivo para o prazo de escurecer (D9). Um perfil pode
 ter `controller=load` (D12).
+
+**Piso dos jogos no GA36 (pedido do usuário, 2026-11-17):** em jogo, o mínimo da CPU do GA36
+nunca é o menor clock da tabela. A linha `limit game_min=<khz>` do arquivo do console vale para
+todo perfil usado em jogo (as classes, as exceções por core, o `game` e o que vier do
+`power.conf`): um perfil de jogo sem `min` recebe o `game_min`; um `min` abaixo dele recusa o
+perfil (log); o perfil de jogo recusado cai no governor padrão do kernel **com**
+`scaling_min_freq` no `game_min`; com `enabled 0` o piso dos jogos continua (só ele). O
+`game_min` tem de estar na tabela de OPP, senão o arquivo inteiro é recusado e o serviço usa o
+maior OPP que não passe de 600 MHz. O `game_min` não vale para o `power.conf` mudar: ele fica
+só no arquivo da imagem. Valor inicial: **600 MHz**, o piso já avaliado no GA36 com o EmuELEC
+(`R36S GA36-MB V1.2-20260416`, feature `44-cpu-ondemand` e change arquivada
+`2026-10-16-cps2-fbalpha2012-ondemand-afinado`): o ondemand de fábrica descia a 240–504 MHz no
+jogo, com quedas de FPS e som picotado em CPS2, PSX e SNES; o afinamento usado lá era
+`ondemand`, `up_threshold` 30, `sampling_down_factor` 10 e `scaling_min_freq` 600000. A
+medição (D5) pode subir o piso de uma classe (o `min` do perfil acima do `game_min`), nunca
+descer. O R36S não tem `limit` até a medição dele (6.1) mostrar se precisa.
+
+**Revisão pelo GBA (usuário, 2026-11-17: "a resposta desse clock é o emulador de GBA"):** o
+ondemand de fábrica já tinha sido descartado no GBA porque o desempenho mudava a cada curva (o
+governor seguia a carga sempre atrasado). O log do EmuELEC no GA36
+(`docs/referencia/ga36-emuelec/medicoes/r36-thermal*.csv`, já com o piso de 600 MHz, amostra a
+cada 5 s, agregado por core e sem nome de jogo) mostra que 600 MHz não basta para o GBA:
+
+| Sistema (core), ondemand com piso 600 | Amostras | Clock médio | Abaixo de 1000 MHz | Em 1200 MHz | Núcleo mais ocupado (média / p90) | Corrente média |
+|---|---|---|---|---|---|---|
+| GBA (gpsp) | 1903 | 1093 MHz | 25% (600 a 912) | 66% | 27% / 34% | 598 mA |
+| GBA (gpsp), performance | 6 | — | — | — | 25% / 35% | 573 mA |
+| N64 (mupen64plus) | 182 | 992 MHz | 34% (62 amostras em 600) | 63% | 55% / 100% | — |
+| PSP (PPSSPP) | 2350 | 1027 MHz | 28% (625 em 600) | 63% | 64% / 80% | 752 mA |
+| PC Engine (mednafen_pce_fast) | 99 | 726 MHz | 80% (75 em 600) | 16% | 29% / 32% | — |
+| NES (fceumm) | 64 | 1143 MHz | 19% | 78% | 25% / 27% | 561 mA |
+
+Leitura: no GBA o clock fica dois terços do tempo no máximo e o resto oscila entre 600 e
+1104 MHz; é essa oscilação que o usuário sentiu, e a economia dela é pequena (a corrente com o
+`performance` não foi maior nas poucas amostras). N64 e PSP chegam a ficar em 600 MHz com o
+núcleo cheio. Já o PC Engine roda em 600 MHz quase sempre, sem queixa: o piso geral de 600 MHz
+serve aos leves. Valores iniciais do `ga36.conf` (antes da medição, D5):
+- `limit game_min=600000` para todos os jogos;
+- classe própria `gba` com `min=1008000` (o degrau abaixo do clock médio medido), sem descer
+  a 600–912 MHz no meio do jogo;
+- classe `heavy` (N64, PSP, NDS) com `min=1008000`.
+
+A medição da J1 compara no GBA: `min=1008000` com schedutil, `min=1008000` com o controlador
+pela carga (D12) e `performance` (1200 MHz fixo); vence pela regra do D5, com a ressalva de que
+um `slow` a mais que o `performance` desclassifica o candidato no GBA. Se o piso de 1008 MHz ainda
+oscilar, o próximo é 1104 MHz. A cena 0 da DRAM
+que o EmuELEC usava em jogo não existe no kernel mainline (sem devfreq da DRAM do A33): o P-23
+só mede.
 
 ### D4. Como um perfil é aplicado
 
@@ -137,8 +187,12 @@ afetados por desligar núcleos porque a troca acontece antes do `exec` do jogo.
 Pré-requisito: o `logd` barato (D8), senão ele falseia a corrente e a ocupação.
 
 - **Candidatos por classe:** `K` (governor padrão, a linha de base), `S+piso` (schedutil com
-  mínimo), `O` (ondemand da fábrica com piso), `S+rate` (schedutil com `rate_limit_us` maior,
-  hipótese do P-60) e, no GA36, cada um com 2 núcleos e com 4.
+  mínimo), `O` (o afinamento do EmuELEC: ondemand, `up_threshold` 30, `sampling_down_factor` 10,
+  mínimo 600 MHz), `S+rate` (schedutil com `rate_limit_us` maior, hipótese do P-60) e, no GA36,
+  cada um com 2 núcleos e com 4. No GA36 todo candidato de jogo tem mínimo de pelo menos
+  600 MHz (D3, piso dos jogos); o `K` sem piso é medido só como referência e não pode ser
+  escolhido; no GBA e nos pesados os candidatos partem de 1008 MHz (D3, revisão pelo GBA), com
+  1104 MHz e o `performance` como próximos degraus.
 - **Sessão:** o mesmo ponto de cada jogo de teste por save state, 10 minutos por candidato, sem
   carregador, bateria entre 40% e 90% (a rodada 1 do `snes9x2005_plus` foi descartada por
   bateria baixa), console já aquecido.
@@ -197,6 +251,30 @@ consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em 
 `CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y`, sem mudar o padrão (`schedutil`). O teste
 `test_fragment_keeps_mainline_cpufreq_and_thermal` passa a exigir esses dois e a proibir
 `CPU_FREQ_DEFAULT_GOV_*` e `THERMAL_DEFAULT_GOV_*`.
+
+### D16. Ajustes prontos para a interface (pedido do usuário, 2026-11-17)
+
+Mais tarde estes ajustes vão ser mudados pela interface (tela de Energia nas Configurações,
+P-85); esta change não faz a tela, mas deixa tudo o que ela precisa:
+- **Um arquivo só do usuário:** o `ROMS/system/lume/power.conf` (D3), escrito à mão pelo PC ou
+  pela interface, com a mesma gramática. A imagem nunca o traz; as camadas são o arquivo do
+  console (imagem) e, por cima, o `power.conf`.
+- **Editor no `lume-core`:** módulo Rust que lê, valida, muda uma linha (`profile`, `class`,
+  `core`, `battery`, `idle`, `enabled`) e grava o `power.conf` mantendo os comentários, a ordem
+  e as linhas que ele não conhece, com gravação atômica (arquivo temporário, `fsync`,
+  `rename`). Ele valida contra o estado publicado pelo serviço (abaixo), então a interface só
+  oferece valores que o serviço aceita.
+- **Recarregar sem reiniciar:** a mensagem `reload` no FIFO faz o serviço ler os arquivos de
+  novo e reaplicar o perfil do cenário em curso (no jogo, só na próxima fronteira, como
+  qualquer troca de perfil).
+- **Estado publicado:** o serviço grava `/run/r36os/power.state` (legível pelo grupo `game`, uma
+  chave por linha) a cada carga e troca: console, `enabled`, clocks e governors disponíveis,
+  número de núcleos, `game_min`, os perfis em vigor com a origem de cada um (`image` ou
+  `card`), as classes e exceções, o cenário e o perfil atuais e os perfis recusados com o
+  motivo.
+
+*Alternativa descartada:* um segundo arquivo só da interface por cima do `power.conf`: duas
+fontes de verdade para o usuário, e uma mudança feita no PC sumiria sob a da tela.
 
 ### D11. DRAM do A33 (P-23, só medir)
 
