@@ -12,3 +12,7 @@
 
 [screens.home]
 keys = ""
+
+# the Settings screen (the gear left of Favorites), first item (Language) open
+[screens.settings]
+keys = "left,a,wait:1"
