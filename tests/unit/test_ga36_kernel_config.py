@@ -29,9 +29,23 @@ def test_fragment_enables_own_drivers_builtin():
 
 
 def test_fragment_keeps_mainline_cpufreq_and_thermal():
-    # kernel default governor and mainline OPPs/thermal: the fragment does not touch them
-    assert not re.search(r"CPU_FREQ_DEFAULT_GOV|CPU_FREQ_GOV_|THERMAL_DEFAULT_GOV", FRAGMENT)
+    # kernel default governors (schedutil, step_wise) and mainline OPPs/thermal: the
+    # fragment never picks a default, set or unset
+    assert not re.search(r"CPU_FREQ_DEFAULT_GOV|THERMAL_DEFAULT_GOV", FRAGMENT)
     assert KERNEL_TARGETS["ga36"][2] == "sunxi_defconfig"
+
+
+def test_fragment_adds_the_game_governor_cpufreq_governors():
+    # game-governor D10: ondemand and conservative for the profile candidates; D12: the
+    # load controller writes scaling_setspeed under userspace. Built in, never modules.
+    opts = _options(FRAGMENT)
+    for o in ("CONFIG_CPU_FREQ_GOV_ONDEMAND", "CONFIG_CPU_FREQ_GOV_CONSERVATIVE",
+              "CONFIG_CPU_FREQ_GOV_USERSPACE"):
+        assert opts.get(o) == "y", o
+    # no other CPU_FREQ_GOV_* option is set or unset by the fragment
+    govs = set(re.findall(r"^#? ?(CONFIG_CPU_FREQ_GOV_\w+)", FRAGMENT, re.M))
+    assert govs == {"CONFIG_CPU_FREQ_GOV_ONDEMAND", "CONFIG_CPU_FREQ_GOV_CONSERVATIVE",
+                    "CONFIG_CPU_FREQ_GOV_USERSPACE"}
 
 
 def test_fragment_enables_thermal_sensor_and_gpu_cooling():
