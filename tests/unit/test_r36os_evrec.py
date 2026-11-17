@@ -50,10 +50,28 @@ def exe(tmp_path_factory):
     if EVENT.size != 24:
         pytest.skip("the tests read the 64-bit struct input_event")
     out = tmp_path_factory.mktemp("evrec") / "r36os-evrec"
+    r = subprocess.run([CC, "-O2", "-Wall", "-Wextra", "-Werror", "-DEVREC_TESTS", "-o",
+                        str(out), str(APORT / "evrec.c")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return out
+
+
+def test_image_build_refuses_a_user_without_root(tmp_path):
+    # the binary of the image (no -DEVREC_TESTS) runs only as root: the games user is in the
+    # input group and could write the nodes, so the tool itself refuses (P-87)
+    if CC is None:
+        pytest.skip("no C compiler")
+    if os.geteuid() == 0:
+        pytest.skip("running as root")
+    out = tmp_path / "r36os-evrec"
     r = subprocess.run([CC, "-O2", "-Wall", "-Wextra", "-Werror", "-o", str(out),
                         str(APORT / "evrec.c")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    return out
+    for args in (["play", str(tmp_path / "x.evrec")], ["record", str(tmp_path / "y.evrec")]):
+        p = subprocess.run([str(out), *args], capture_output=True, text=True)
+        assert p.returncode == 3, (args, p.stderr)
+        assert "root only" in p.stderr
+    assert not (tmp_path / "y.evrec").exists()
 
 
 class Console:

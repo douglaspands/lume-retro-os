@@ -43,8 +43,14 @@ A injeção continua como o `dev keys` já faz: escrever eventos no nó do contr
 do kernel para os acordes com Fn). Isso já exige root, não muda o `r36os-input` e funciona nos
 dois consoles. *Alternativa descartada:* um socket de injeção no `r36os-input` (o pedido
 original): mais código no daemon de entrada, um protocolo a manter junto com o da
-`lume-hud-actions`, e nada que o nó de evento não dê; a regra "só root" fica atendida pelas
-permissões dos nós.
+`lume-hud-actions`, e nada que o nó de evento não dê.
+
+**Correção (prova na vm, 2026-11-17):** as permissões dos nós não bastam para "só root": o
+usuário dos jogos (`game`) está no grupo `input`, e os `/dev/input/event*` são graváveis pelo
+grupo (`crw-rw---- root input`), então ele conseguiu tocar uma gravação. Decisão do usuário: o
+`r36os-evrec` recusa quem não é root (sai com 3, `root only`); o nó gravável pelo grupo
+`input`, que já existia antes desta change, vira a P-87 (avaliar com rumble e LEDs de
+controles USB, que precisam de escrita).
 
 ### D2. `r36os-evrec`: gravar e repetir no console, em C
 

@@ -701,6 +701,15 @@ static int cmd_record(int argc, char **argv)
 int main(int argc, char **argv)
 {
 	clock_setup();
+#ifndef EVREC_TESTS
+	/* Root only (spec device-testing, cable control is root only): the games user
+	 * belongs to the input group and could write the event nodes, so the node permissions
+	 * alone do not keep the tool to root (P-87). The PC tests build with -DEVREC_TESTS. */
+	if (argc >= 2 && geteuid() != 0) {
+		fprintf(stderr, "r36os-evrec: refused: root only (use the root ssh of the cable)\n");
+		return EXIT_REFUSED;
+	}
+#endif
 	if (argc >= 2 && strcmp(argv[1], "record") == 0)
 		return cmd_record(argc - 2, argv + 2);
 	if (argc >= 2 && strcmp(argv[1], "play") == 0)

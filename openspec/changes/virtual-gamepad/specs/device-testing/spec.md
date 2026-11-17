@@ -62,7 +62,7 @@ O `r36os dev replay` MUST gravar a entrada de um jogo do RetroArch desde um pont
 - **THEN** o comando termina com erro dizendo que não há jogo do RetroArch rodando
 
 ### Requirement: Controle pelo cabo só para o root
-As ferramentas de controle pelo cabo MUST exigir o acesso de root que o cabo USB já dá e MUST NOT abrir nenhum meio novo de mandar botões para um usuário sem root ou pela rede.
+As ferramentas de controle pelo cabo MUST rodar só como root, o acesso que o cabo USB já dá, recusando qualquer outro usuário, e MUST NOT abrir nenhum meio novo de mandar botões para um usuário sem root ou pela rede.
 
 #### Scenario: Usuário do jogo
 - **WHEN** um processo rodando como o usuário dos jogos tenta repetir uma gravação
