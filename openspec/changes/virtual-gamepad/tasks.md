@@ -76,6 +76,17 @@ virtual; a prova na vm vale só para a vm, e as V1/V2 continuam).
 - [ ] 3.4 Console `vm` no `r36os dev` e no `r36os-evrec`: o controle virtual "Lume VM Keyboard" reconhecido como o console `vm` (gravação `# r36os-evrec 1 vm`, roteiros com `consoles = ["vm"]`), a tabela de botões da vm (as teclas do `vm.conf` do `r36os-input`) no `dev keys`, sem controle do kernel separado (os atalhos do Fn da vm, se houver, pelo mesmo teclado), e o `open_game` com a mesma navegação. Verificação: testes de unidade (identificação do console `vm`, tabela de botões, gravação da vm recusada num console e vice-versa) e testes do `r36os-evrec` com um nó falso de nome "Lume VM Keyboard".
 - [ ] 3.5 Prova na vm (**vale só para a vm**): build da `vm`, `test-vm` verde, e com `r36os vm --ssh`: `dev keys`, `dev record`/`play` de 30 s no launcher com o atraso medido, `dev run` de um roteiro `consoles = ["vm"]` que abre e fecha um jogo de teste livre da vm, `dev replay` num jogo do RetroArch da vm. Verificação: resultados anotados neste `tasks.md` e no `docs/BUILD.md`, marcados como "só vm"; as provas da V1 e da V2 continuam pendentes.
 
+  **Resultados na vm, 2026-11-17 (só vm; imagem com `r36os-evrec` e `r36os-vmnet`):**
+  `test-vm` 82/82 sem rede; `r36os vm --headless --ssh` + `dev --host 127.0.0.1:2222`
+  responde (depois da correção do encaminhamento: `hostfwd` no loopback do PC com o container
+  em `--network=host`; a vm sem rota para fora); `dev keys` ok; `dev record` com 9 toques
+  injetados = 36 eventos em 8,2 s; `dev play` com atraso máximo 0,43 ms e médio 0,18 ms; `dev
+  run` com 3 passos ok e o 4º falhando pelo tempo, nomeado, saída 1; o usuário `game` recusado
+  pelo `r36os-evrec` (saída 3, `root only`) e o root tocando (0,135 ms). **Falta na vm:** o
+  `open_game` e o `dev replay` (a vm do `r36os vm` não tem jogos; as ROMs livres só vão no disco
+  do `test-vm`) e a captura de tela (no `--headless` o `lume-ui` não liga o vídeo: `Could not
+  set videomode on CRTC`). A tarefa fica aberta até decidir como levar jogos de teste à vm.
+
 ## 4. Build e provas
 
 - [ ] 4.1 Build com o `r36os-input` novo (o `r36os-evrec`) nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push`. Verificação: o binário no manifesto das duas camadas e o `push` terminando com `ok`.
