@@ -88,7 +88,7 @@ pub fn read_cpu_temp(sys: &Path) -> Option<i64> {
 }
 
 /// The battery of /sys/class/power_supply (the first supply of type Battery): level and
-/// charging. Two small sysfs reads; the status bar asks every 30 s from its own thread.
+/// charging. Two small sysfs reads; the status bar asks every 5 s from its own thread.
 pub fn read_battery(sys: &Path) -> Option<(u8, bool)> {
     let bat = std::fs::read_dir(sys.join("class/power_supply"))
         .ok()?
@@ -97,7 +97,8 @@ pub fn read_battery(sys: &Path) -> Option<(u8, bool)> {
         .find(|p| std::fs::read_to_string(p.join("type")).map(|t| t.trim() == "Battery").unwrap_or(false))?;
     let cap = read_num(&bat.join("capacity"))?.min(100) as u8;
     let status = std::fs::read_to_string(bat.join("status")).unwrap_or_default();
-    Some((cap, matches!(status.trim(), "Charging" | "Full")))
+    // only "Charging" draws the bolt: "Full" is a full icon without one (design D9)
+    Some((cap, status.trim() == "Charging"))
 }
 
 pub struct RealSystem {
@@ -477,6 +478,8 @@ mod tests {
         assert_eq!(read_battery(&sys), Some((82, false)));
         std::fs::write(ps.join("axp20x-battery/status"), "Charging\n").unwrap();
         assert_eq!(read_battery(&sys), Some((82, true)));
+        std::fs::write(ps.join("axp20x-battery/status"), "Full\n").unwrap();
+        assert_eq!(read_battery(&sys), Some((82, false)), "full: no charge mark");
         assert_eq!(read_battery(Path::new("/nonexistent")), None);
     }
 

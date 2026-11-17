@@ -6,7 +6,7 @@
 # architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
 pkgname=lume-launcher-data
 pkgver=1.0
-pkgrel=0
+pkgrel=1
 pkgdesc="Launcher data: translations, themes and the theme template"
 url="https://example.invalid"
 arch="noarch"

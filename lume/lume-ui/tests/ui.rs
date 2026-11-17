@@ -1326,6 +1326,207 @@ fn cover_cache_stays_under_its_ceiling() {
     assert!(canvas.textures > (cap / (128 * 96 * 2)) as u32);
 }
 
+/// A power FIFO for the app to write to, and its reader (non-blocking).
+fn power_fifo(c: &Card) -> (PathBuf, fs::File) {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let p = c.root.join("power-fifo");
+    let cp = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(cp.as_ptr(), 0o660) }, 0);
+    let rd = fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&p).unwrap();
+    (p, rd)
+}
+
+fn drain(rd: &mut fs::File) -> String {
+    use std::io::Read;
+    let mut s = String::new();
+    let _ = rd.read_to_string(&mut s); // WouldBlock once the pipe is empty
+    s
+}
+
+#[test]
+fn idle_dims_without_saving_and_the_first_button_is_consumed() {
+    let c = card("idle", 3, false);
+    let (fifo, mut rd) = power_fifo(&c);
+    let mut a = app(&c, FakeSystem { bri: 80, ..Default::default() });
+    a.power_fifo = fifo;
+    // default: 120 s, one wake-up at the end of the timer; the screen itself asks for none
+    let d = a.idle_wait().expect("idle timer");
+    assert!(d <= Duration::from_secs(120) && d > Duration::from_secs(100), "{d:?}");
+    assert_eq!(a.wait(), None);
+    // before the time is up a Tick does nothing and draws nothing
+    assert!(!a.handle(Ev::Tick));
+    assert!(!a.idle && a.sys.bri == 80);
+    // the first screen and the return from the idle state tell the service `menu`
+    a.announce_menu();
+    assert_eq!(drain(&mut rd), "menu\n");
+    // time up: dimmed to 10%, `idle` sent, the saved brightness untouched, no more timer
+    a.idle_after = Some(Duration::ZERO);
+    a.handle(Ev::Tick);
+    assert!(a.idle);
+    assert_eq!(a.sys.bri, 10);
+    assert_eq!(a.settings.brightness, None, "the dimming is never saved");
+    assert!(!card_settings_written(&c), "no settings file written");
+    assert_eq!(drain(&mut rd), "idle\n");
+    assert_eq!(a.idle_wait(), None);
+    // the first button brings the light back, tells `menu` and does nothing else
+    let focus = a.dock_focus;
+    assert!(!a.handle(Ev::Input(Action::Right, false)));
+    assert_eq!(a.dock_focus, focus, "the button is consumed");
+    assert!(!a.idle);
+    assert_eq!(a.sys.bri, 80);
+    assert_eq!(drain(&mut rd), "menu\n");
+    // the next button works, and restarts the timer
+    a.idle_after = Some(Duration::from_secs(120));
+    press(&mut a, Action::Right);
+    assert_ne!(a.dock_focus, focus);
+    assert!(a.idle_wait().unwrap() > Duration::from_secs(100));
+    // a user brightness below 10% is kept as it is
+    a.sys.bri = 4;
+    a.idle_after = Some(Duration::ZERO);
+    a.handle(Ev::Tick);
+    assert_eq!(a.sys.bri, 4);
+    // the Fn + volume brightness key is a first button too (the daemon already moved the light)
+    a.sys.bri = 15;
+    assert!(!a.handle(Ev::Brightness(15)));
+    assert!(!a.idle);
+    assert_eq!(a.sys.bri, 4, "the user's level is put back");
+    assert_eq!(a.brightness_bar, None, "and the key does nothing else");
+    let _ = drain(&mut rd);
+    // `idle after=0` switches it off
+    a.idle_after = None;
+    assert_eq!(a.idle_wait(), None);
+    a.handle(Ev::Tick);
+    assert!(!a.idle);
+}
+
+fn card_settings_written(c: &Card) -> bool {
+    c.root.join("storage/system/lume/settings.toml").exists()
+}
+
+#[test]
+fn idle_timeout_comes_from_the_state_then_power_conf_then_120() {
+    let d = std::env::temp_dir().join(format!("lume-ui-idlecfg-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(&d).unwrap();
+    let (state, conf) = (d.join("power.state"), d.join("power.conf"));
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (120, 5));
+    fs::write(&conf, "idle after=45\nbattery warn=8 critical=3\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (45, 8));
+    fs::write(&conf, "idle after=0\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (0, 5));
+    // the service's merged state wins
+    fs::write(&state, "idle card after=300\nbattery card warn=10 critical=4\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (300, 10));
+    let _ = fs::remove_dir_all(&d);
+}
+
+#[test]
+fn low_battery_warning_once_per_discharge() {
+    let c = card("lowbat", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((50, false)), ..Default::default() });
+    assert_eq!(a.warn_level, 5);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(!canvas.texts.iter().any(|(t, _)| t.starts_with("Low battery")));
+    // above the level: nothing
+    a.handle(Ev::Battery(6, false));
+    assert_eq!(a.wait(), None, "no toast at 6%");
+    // at the level while discharging: the toast, 4 s, with the level
+    assert!(a.handle(Ev::Battery(5, false)));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 5%"), "{:?}", cv.texts);
+    let wait = a.wait().expect("toast timer");
+    assert!(wait > Duration::from_millis(3500) && wait <= Duration::from_secs(4), "{wait:?}");
+    // once: the next readings of the same discharge show nothing new
+    a.handle(Ev::Tick);
+    assert!(a.handle(Ev::Battery(4, false)), "the level changed: a frame");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.texts.iter().any(|(t, _)| t == "Low battery 5%"), "still the first toast, not a second one");
+    assert!(!cv.texts.iter().any(|(t, _)| t == "Low battery 4%"));
+    // charging arms it again; the next discharge at the level warns again
+    assert!(a.handle(Ev::Battery(4, true)));
+    a.handle(Ev::Battery(4, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 4%"), "{:?}", cv.texts);
+    // a level above the limit arms it too
+    a.handle(Ev::Battery(30, false));
+    a.handle(Ev::Battery(5, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 5%"));
+    // the service's level
+    let mut b = app(&c, FakeSystem { batt: Some((9, false)), ..Default::default() });
+    b.warn_level = 10;
+    b.handle(Ev::Battery(9, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    b.draw(&mut cv);
+    assert!(cv.has_text("Low battery 9%"));
+    // starting already low shows it from the first frame; charging does not
+    let d = app(&c, FakeSystem { batt: Some((3, false)), ..Default::default() });
+    assert!(d.wait().is_some());
+    let e = app(&c, FakeSystem { batt: Some((3, true)), ..Default::default() });
+    assert_eq!(e.wait(), None);
+}
+
+#[test]
+fn low_battery_texts_in_every_language() {
+    let c = card("lowbat-lang", 3, false);
+    for (lang, text) in [("pt", "Bateria fraca 5%"), ("es", "Batería baja 5%"), ("en", "Low battery 5%")] {
+        let mut a = app(&c, FakeSystem { batt: Some((50, false)), ..Default::default() });
+        a.settings.language = lang.into();
+        a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), lang);
+        a.handle(Ev::Battery(5, false));
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text(text), "{lang}: {:?}", cv.texts);
+    }
+}
+
+/// The charge mark against the prototype measured at 640x480 (2026-11-17, design-das-telas.md):
+/// the bolt 9.5 x 11.5 px at (13.6, 3.4) from the icon's origin, in the text color with a halo
+/// in the background color; none when discharging or full; the percent and the icon keep
+/// their width. One pixel of rounding allowed.
+#[test]
+fn charge_mark_matches_the_prototype_ruler() {
+    let c = card("bolt", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, true)), ..Default::default() });
+    let (fg, bg) = (a.theme.color("fg"), a.theme.color("bg"));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let body = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > 500).map(|(r, _)| *r).max_by_key(|r| r.w * r.h).unwrap();
+    let inside = |r: &lume_ui::canvas::Rect| r.x > body.x && r.right() < body.right() && r.y > body.y && r.bottom() < body.bottom();
+    let bolt = cv.fills.iter().filter(|(r, col)| *col == fg && inside(r) && r.h > 9 && r.w < 12).map(|(r, _)| *r).next().expect("the bolt");
+    // the icon's origin is the body's left edge less 0.2 unit (1 unit = 19.2 * 0.95 / 14 px)
+    let u = 19.2 * 0.95 / 14.0;
+    let (ox, oy) = (body.x as f32 - 0.2 * u, body.y as f32 - 0.2 * u);
+    let near = |a: f32, b: f32| (a - b).abs() <= 1.0;
+    assert!(near(bolt.x as f32 - ox, 13.6) && near(bolt.y as f32 - oy, 3.4), "{bolt:?} body {body:?}");
+    assert!(near(bolt.w as f32, 9.5) && near(bolt.h as f32, 11.5), "{bolt:?}");
+    // the halo: the background color around it, a little larger (1.1 unit stroke)
+    let halo = cv.fills.iter().filter(|(r, col)| *col == bg && inside(r) && r.w > bolt.w && r.h > bolt.h && r.w < 14).map(|(r, _)| *r).last().expect("the halo");
+    assert!(halo.x < bolt.x && halo.y < bolt.y && halo.right() > bolt.right() && halo.bottom() > bolt.bottom(), "{halo:?} around {bolt:?}");
+    assert!(near(halo.w as f32 - bolt.w as f32, 1.1 * u) && near(halo.h as f32 - bolt.h as f32, 1.1 * u), "{halo:?}");
+    let pct = cv.texts.iter().find(|(t, _)| t == "82%").unwrap().1;
+    // discharging and full: no bolt, and the text and the icon stay where they were
+    for charging in [false] {
+        a.battery = Some((82, charging));
+        let mut cv2 = FakeCanvas::new(640, 480);
+        a.draw(&mut cv2);
+        assert_eq!(cv2.texts.iter().find(|(t, _)| t == "82%").unwrap().1, pct, "the text does not move");
+        let b2 = cv2.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > 500).map(|(r, _)| *r).max_by_key(|r| r.w * r.h).unwrap();
+        assert_eq!(b2, body, "the icon does not move");
+        assert!(!cv2.fills.iter().any(|(r, col)| *col == fg && inside(r) && r.h > 9 && r.w < 12), "no bolt");
+    }
+    a.battery = Some((100, false));
+    let mut cv3 = FakeCanvas::new(640, 480);
+    a.draw(&mut cv3);
+    assert!(!cv3.fills.iter().any(|(r, col)| *col == fg && r.w < 12 && r.h > 9 && r.y < 40 && r.x > 500 && r.w > 8), "full: no bolt");
+}
+
 #[test]
 fn layouts_fit_three_resolutions() {
     let c = card("layout", 50, false);

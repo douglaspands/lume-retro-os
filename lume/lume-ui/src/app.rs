@@ -251,7 +251,40 @@ pub struct App<S: SystemAdapter> {
     anim: Option<(Instant, f32)>,
     pub cols: usize,
     pub rows: usize,
+    /// seconds without a button before the idle state (None: switched off, `idle after=0`)
+    pub idle_after: Option<Duration>,
+    /// the last button (or level key), the idle timer's start
+    last_input: Instant,
+    /// the screen is dimmed (idle state): the next button wakes it and does nothing else
+    pub idle: bool,
+    /// the user's brightness (percent) while dimmed, put back on waking; never saved
+    idle_user: Option<u8>,
+    /// the low-battery level (percent), the service's `battery warn=`
+    pub warn_level: u8,
+    /// the warning already shown in this discharge
+    warned: bool,
+    /// the power service's FIFO (`menu` and `idle` are written here)
+    pub power_fifo: PathBuf,
 }
+
+/// The idle timeout (seconds; 0 switches it off) and the low-battery level (percent):
+/// from the service's published state when it exists (already merged and validated), else
+/// from `power.conf`, else the defaults (120 s, 5%).
+pub fn idle_config(state: &std::path::Path, conf: &std::path::Path) -> (u32, u8) {
+    const DEFAULT: (u32, u8) = (120, 5);
+    if let Some(st) = lume_core::powerstate::PowerState::read(state) {
+        return (st.idle_after, st.battery.map_or(DEFAULT.1, |(w, _)| w.min(100) as u8));
+    }
+    match lume_core::powerconf::PowerConf::load(conf) {
+        Ok(c) => (c.idle_after().unwrap_or(DEFAULT.0), c.battery_warn().map_or(DEFAULT.1, |w| w.min(100) as u8)),
+        Err(_) => DEFAULT,
+    }
+}
+
+/// The idle state's backlight: 10% of the panel, or the user's level when it is lower.
+const IDLE_BRIGHTNESS: u8 = 10;
+/// the low-battery warning stays this long
+const WARN_TOAST: Duration = Duration::from_secs(4);
 
 pub struct Paths {
     pub storage: PathBuf,
@@ -320,8 +353,19 @@ impl<S: SystemAdapter> App<S> {
             anim: None,
             cols: 4,
             rows: 2,
+            idle_after: None,
+            last_input: Instant::now(),
+            idle: false,
+            idle_user: None,
+            warn_level: 5,
+            warned: false,
+            power_fifo: lume_core::power::fifo_path(),
         };
+        let (idle, warn) = idle_config(&lume_core::powerstate::state_path(), &app.card.join("power.conf"));
+        app.idle_after = (idle > 0).then(|| Duration::from_secs(idle as u64));
+        app.warn_level = warn;
         app.battery = app.sys.battery();
+        app.check_low_battery();
         app.network = app.sys.network();
         app.write_level_colors();
         app.build_dock();
@@ -505,6 +549,9 @@ impl<S: SystemAdapter> App<S> {
         match ev {
             Ev::Tick => {
                 let mut redraw = false;
+                if !self.idle && self.idle_wait().is_some_and(|d| d.is_zero()) {
+                    self.enter_idle();
+                }
                 if self.toast.as_ref().is_some_and(|(_, t)| now >= *t) {
                     self.toast = None;
                     redraw = true;
@@ -552,12 +599,21 @@ impl<S: SystemAdapter> App<S> {
                 true
             }
             Ev::Volume(v) => {
+                // a volume key is a button: it wakes a dimmed screen and does nothing else
+                if self.wake() {
+                    return false;
+                }
                 // the Settings show it in the Volume row; elsewhere, the bar
                 self.level.insert("volume", v);
                 self.volume_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
                 true
             }
             Ev::Brightness(v) => {
+                // the first button too: the daemon already moved the backlight, wake puts the
+                // user's level back and the key does nothing else
+                if self.wake() {
+                    return false;
+                }
                 // the same: the Brightness row in the Settings, the left line elsewhere
                 self.level.insert("brightness", v);
                 self.brightness_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
@@ -567,7 +623,8 @@ impl<S: SystemAdapter> App<S> {
                 let new = Some((level.min(100), charging));
                 let changed = self.battery != new;
                 self.battery = new;
-                changed
+                // the toast needs a frame too
+                self.check_low_battery() || changed
             }
             Ev::Network(wifi, bt) => {
                 let changed = self.network != (wifi, bt);
@@ -575,6 +632,10 @@ impl<S: SystemAdapter> App<S> {
                 changed
             }
             Ev::Input(a, repeat) => {
+                // the first button after the idle state only brings the light back
+                if self.wake() {
+                    return false;
+                }
                 if self.updating.is_some() {
                     return false; // the lists are being rebuilt
                 }
@@ -633,6 +694,65 @@ impl<S: SystemAdapter> App<S> {
 
     fn toast_key(&mut self, key: &'static str) {
         self.toast = Some((self.tr(key), Instant::now() + TOAST));
+    }
+
+    /// Tells the power service the scenario is the menu (the first screen, and the return
+    /// from the idle state). Without the service the message is dropped.
+    pub fn announce_menu(&self) {
+        let _ = lume_core::power::send_to(&self.power_fifo, &lume_core::power::Message::Menu);
+    }
+
+    /// How long until the idle state starts: None when it is off or already on, zero when the
+    /// time is up. The main loop uses it as the timeout of its event wait, so the timer costs
+    /// one wake-up at its end, not one per frame (`wait` stays None on an idle screen).
+    pub fn idle_wait(&self) -> Option<Duration> {
+        let after = self.idle_after.filter(|_| !self.idle)?;
+        Some((self.last_input + after).saturating_duration_since(Instant::now()))
+    }
+
+    /// The idle state: the backlight to min(10%, the user's level) without saving it, and the
+    /// service told (`idle`).
+    fn enter_idle(&mut self) {
+        self.idle = true;
+        self.idle_user = self.sys.brightness();
+        if let Some(user) = self.idle_user {
+            self.sys.set_brightness(user.min(IDLE_BRIGHTNESS));
+        }
+        let _ = lume_core::power::send_to(&self.power_fifo, &lume_core::power::Message::Idle);
+    }
+
+    /// A button (or a volume or brightness key) pressed: restarts the idle timer. From the idle
+    /// state it puts the user's brightness back, tells the service `menu` and returns true:
+    /// the press is consumed.
+    fn wake(&mut self) -> bool {
+        self.last_input = Instant::now();
+        if !self.idle {
+            return false;
+        }
+        self.idle = false;
+        if let Some(user) = self.idle_user.take() {
+            self.sys.set_brightness(user);
+        }
+        self.brightness_bar = None;
+        self.announce_menu();
+        true
+    }
+
+    /// The low-battery warning: a toast once per discharge, at or below the service's level
+    /// while discharging; charging, or a level above it, arms it again. True when it shows.
+    fn check_low_battery(&mut self) -> bool {
+        let Some((level, charging)) = self.battery else { return false };
+        if charging || level > self.warn_level {
+            self.warned = false;
+            return false;
+        }
+        if self.warned {
+            return false;
+        }
+        self.warned = true;
+        let text = format!("{} {level}%", self.tr("low_battery"));
+        self.toast = Some((text, Instant::now() + WARN_TOAST));
+        true
     }
 
     fn animate(&mut self, from: f32) {
@@ -1457,10 +1577,10 @@ impl<S: SystemAdapter> App<S> {
     /// SVG icon (a 30x14 box: body 25x12 at (1, 1) with a 1.6 stroke and 2.5 corners, a 2x5
     /// terminal at (27, 4.5), the level in a 20x7 bar at (3.5, 3.5)), all in the text color,
     /// 0.95 of the text tall and centered on its line, 0.35 of the text before the percent
-    /// (medium). One color, no charging mark: the prototype has none. Edges are rounded,
+    /// (medium). One color; the charge mark (a bolt) only while charging. Edges are rounded,
     /// not sizes, so the stroke stays even. Returns the x where it starts.
-    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, under: crate::canvas::Color) -> i32 {
-        let Some((level, _charging)) = self.battery else { return right };
+    fn draw_battery(&mut self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, under: crate::canvas::Color) -> i32 {
+        let Some((level, charging)) = self.battery else { return right };
         let th = &self.theme;
         let fg = th.color("fg");
         let s = px * 0.95 / 14.0; // icon units to pixels
@@ -1487,6 +1607,20 @@ impl<S: SystemAdapter> App<S> {
         let fill = 20.0 * level.min(100) as f32 / 100.0;
         if fill > 0.0 {
             c.fill(rect(3.5, 3.5, 3.5 + fill, 10.5), rad(1.0), fg);
+        }
+        // charging: the bolt inside the body (the icon and the text keep their width), in the
+        // text color with a halo in the background color so it shows on the full and the
+        // empty part; "full" has no bolt
+        if charging {
+            use crate::glyphs::{BOLT_BOX as B, BOLT_HALO as H};
+            let halo = rect(B.0 - H, B.1 - H, B.2 + H, B.3 + H);
+            let mark = rect(B.0, B.1, B.2, B.3);
+            if let Some((t, _)) = self.symbol(c, "@bolt_halo") {
+                c.draw_mask(t, halo, under);
+            }
+            if let Some((t, _)) = self.symbol(c, "@bolt") {
+                c.draw_mask(t, mark, fg);
+            }
         }
         x0.round() as i32
     }
@@ -1634,6 +1768,9 @@ impl<S: SystemAdapter> App<S> {
             // the status bar's icons, drawn about 17 px tall: made at 3x, scaled down
             "@wifi" => crate::glyphs::wifi(56),
             "@bt" => crate::glyphs::bluetooth(56),
+            // the charge mark and its halo (battery icon, drawn about 11 px tall)
+            "@bolt" => crate::glyphs::bolt(48),
+            "@bolt_halo" => crate::glyphs::bolt_halo(52),
             _ => (N, N, crate::glyphs::clock(N)),
         };
         let made = c.texture_mask(w, h, &alpha).map(|t| (t, Rect::new(0, 0, w as i32, h as i32)));

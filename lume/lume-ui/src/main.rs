@@ -124,29 +124,27 @@ fn main() -> ExitCode {
             )
         });
     }
-    // the status bar: Wi-Fi and Bluetooth every 5 s (a connection shows soon), the battery
-    // every 30 s; a few sysfs reads, no process, an event only when something changes (the
-    // loop stays asleep otherwise)
+    // the status bar: Wi-Fi, Bluetooth and the battery (level and charging, for the charge
+    // mark and the low-battery warning) every 5 s; a few sysfs reads, no process, an event
+    // only when something changes (the loop stays asleep otherwise)
     let t = tx.clone();
     std::thread::spawn(move || {
         let sys = std::path::Path::new("/sys");
         let mut battery = lume_ui::system::read_battery(sys);
         let mut network = lume_ui::system::read_network(sys);
-        for tick in 1u64.. {
+        loop {
             std::thread::sleep(Duration::from_secs(5));
             let now = lume_ui::system::read_network(sys);
             if now != network {
                 let _ = t.send(Ev::Network(now.0, now.1));
                 network = now;
             }
-            if tick % 6 == 0 {
-                let now = lume_ui::system::read_battery(sys);
-                if now != battery {
-                    if let Some((level, charging)) = now {
-                        let _ = t.send(Ev::Battery(level, charging));
-                    }
-                    battery = now;
+            let now = lume_ui::system::read_battery(sys);
+            if now != battery {
+                if let Some((level, charging)) = now {
+                    let _ = t.send(Ev::Battery(level, charging));
                 }
+                battery = now;
             }
         }
     });
@@ -158,6 +156,8 @@ fn main() -> ExitCode {
     }));
 
     const IDLE: Duration = Duration::from_secs(1);
+    // the first screen is the menu scenario for the power service (D9)
+    app.announce_menu();
     let mut redraw = true;
     let code = loop {
         if redraw {
@@ -189,7 +189,9 @@ fn main() -> ExitCode {
             });
         }
         // idle: wake once a second only to drain SDL's queue; an animation: its next frame
-        let event = match app.wait() {
+        // The idle timer is a timeout of this wait, not a polling loop: one wake-up when its
+        // time is up (zero: a Tick enters the idle state), nothing while the screen is dimmed.
+        let event = match app.wait().into_iter().chain(app.idle_wait()).min() {
             None => rx.recv_timeout(IDLE).ok(),
             Some(d) => Some(rx.recv_timeout(d.max(Duration::from_millis(1))).unwrap_or(Ev::Tick)),
         };

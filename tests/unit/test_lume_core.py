@@ -88,6 +88,9 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
 EDITED_AFTER_MOVE = {
     "usr/libexec/r36os/hwinfo",     # 8.2: the fragments section
     "usr/libexec/r36os/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
+    "usr/share/lume/i18n/en.toml",  # game-governor 3.2: the low-battery text
+    "usr/share/lume/i18n/pt.toml",
+    "usr/share/lume/i18n/es.toml",
 }
 
 
