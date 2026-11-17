@@ -45,6 +45,8 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "wifi_driver", "bluetooth_driver",
         # the launcher has its own recents (lume-launcher 15.1)
         "history_list_enable", "content_runtime_log", "content_runtime_log_aggregate",
+        # the pictures of the save states and of Fn+Y (lume-hud-actions D5, D9)
+        "savestate_thumbnail_enable", "video_gpu_screenshot", "auto_screenshot_filename",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -147,10 +149,20 @@ def test_volume_buttons_belong_to_the_input_daemon():
     # any program, so RetroArch has no volume binding of the distro (fixed or factory)
     assert "input_volume" not in _keys(FACTORY)
     assert "input_volume" not in CFG
-    # the menu still opens from Fn through the autoconfig (BTN_MODE), on both consoles
+    # lume-hud-actions D9: the Fn never reaches RetroArch (r36os-input keeps it as the system
+    # button), so no autoconfig binds the menu to it; Start + Select is the game's
     for pad in ("R36S Gamepad.cfg", "GA36-MB Gamepad.cfg"):
         auto = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev" / pad).read_text()
-        assert re.search(r'^input_menu_toggle_btn = "\d+"$', auto, re.M), pad
+        assert "input_menu_toggle_btn" not in auto, pad
+    assert 'input_menu_toggle_gamepad_combo = "0"' in CFG
+
+
+def test_pictures_of_states_and_screenshots_are_fixed():
+    # lume-hud-actions D5, D9: a picture with every save state (not only on new cards), and
+    # Fn+Y saves the core's picture (no widgets) under a dated name
+    for line in ('savestate_thumbnail_enable = "true"', 'video_gpu_screenshot = "false"',
+                 'auto_screenshot_filename = "true"', 'screenshot_directory = "/storage/screenshots"'):
+        assert line in CFG, line
 
 
 def test_ga36_has_no_keyboard_enable_hotkey():

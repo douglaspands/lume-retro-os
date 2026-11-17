@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=112
+pkgrel=113
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -25,6 +25,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0009-network-commands-on-localhost.patch
 	0010-quit-label-follows-the-frontend.patch
 	0011-lume-level-line.patch
+	0012-lume-hud-hint-menu.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -58,6 +59,9 @@ options="!check" # No tests
 # 0010: opened by the lume-launcher (LUME_RETROARCH_QUIT=launcher, set by the frontend
 # script), quitting goes back to the game list: the item keeps the upstream wording and
 # quits without the confirmation of 0002. As the fallback frontend, 0001 and 0002 hold.
+# 0012: LUME_HUD, LUME_HINT and LUME_MENU draw lume-run's status bar, chord hint and Lume
+# menu over the game as graphics widgets (lume-hud-actions D8); RetroArch only draws the
+# text it gets, and each widget hides 3 s after its last command.
 #
 # Wi-Fi and Bluetooth (usb-device-access D9-D11): the menus use NetworkManager (nmcli, the
 # only Wi-Fi driver outside Lakka builds) and bluez (bluetoothctl, no D-Bus build needed).
@@ -111,4 +115,5 @@ b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2
 97f113ef47b44011260a094a56dc2d82042441294bae32aa4caa6a603d16ffe3470c8b26f24126fd3d1612d4126b1c6bdc7886253cdd486e8bd649f51f879551  0009-network-commands-on-localhost.patch
 46fc6f310072556940c3fefb43923d350904d76a90253538c1f5eecad2ec5cb0b453e98a45a5ef8c33ed889ab1bd04326d042520220a1d5e23e548d5e8f3dc3c  0010-quit-label-follows-the-frontend.patch
 a8af2aa6cb5b03e4ce2b79a7c79a163dfde2435b314b474e8f4bdca26f3011a206090c88d00865b10de2f2fcebac005b94c3361d16cc04d50f896dabe3596dfd  0011-lume-level-line.patch
+87487b2fc3b99521aab8432f3f4dd8f21af0f128ca2d9fdd4517d5bc39ea781fc41c0166f9de3e27102d55c72230a8ac4dd93788792679d162a24010131e7b14  0012-lume-hud-hint-menu.patch
 "

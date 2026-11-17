@@ -290,16 +290,15 @@ phase_second() {
 	# The message is translated (user_language); the path and "succeeded" are not.
 	check state-survived-reset 'grep -qE "\[State\] .*Test NES\.state.* succeeded" "$R36OS_RUN/load.log"'
 
-	# Shortcuts: Start + Select opens the menu and pauses the game without quitting; right
-	# Shift + S (keyboard only) opens it too; Esc does not quit
+	# Shortcuts (lume-hud-actions D9): Start + Select belongs to the game (no menu, no quit);
+	# right Shift + S (keyboard only) opens the menu; Esc does not quit
 	ra_run "$R36OS_RUN/keys.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
 	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
 	check game-running-before-menu 'wait_for 5 core_running' "RAM \$0000=$(ram0)"
 	request keys-start-select
-	check combo-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
+	sleep 2
+	check combo-stays-in-game '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]' "$(ra_cmd GET_STATUS)"
 	check combo-no-quit ra_running
-	request keys-start-select
-	check menu-closes-resumes 'wait_for 10 core_running'
 	request keys-menu
 	check hotkey-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
 	request keys-menu

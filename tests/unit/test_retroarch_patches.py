@@ -18,7 +18,8 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
-           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch"]
+           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch",
+           "0012-lume-hud-hint-menu.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
@@ -131,6 +132,17 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert "&gfx_widget_lume_level," in (tmp_path / "gfx/gfx_widgets.c").read_text()
     assert "extern const gfx_widget_t gfx_widget_lume_level;" in (tmp_path / "gfx/gfx_widgets.h").read_text()
     assert "#define LUME_LEVEL_DURATION 1500" in widget
+    # 0012 (lume-hud-actions D8): the bar, the hint and the menu, registered commands and one
+    # graphics widget that hides 3 s after the last command
+    h = (tmp_path / "command.h").read_text()
+    for name, fn in (("LUME_HUD", "command_lume_hud"), ("LUME_HINT", "command_lume_hint"),
+                     ("LUME_MENU", "command_lume_menu")):
+        assert re.search(rf'\{{ "{name}", +{fn},', h), name
+    assert "gfx_widget_lume_show(GFX_WIDGET_LUME_MENU, arg);" in command
+    assert "&gfx_widget_lume," in (tmp_path / "gfx/gfx_widgets.c").read_text()
+    assert "#define LUME_WIDGET_TIMEOUT 3000" in widget
+    # "-" hides, so lume-run never sends a bare command (RetroArch reads past its end)
+    assert 'string_is_equal(text, "-")' in widget
 
 
 def test_quit_label_patch_keeps_the_three_languages():

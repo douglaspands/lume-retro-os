@@ -1,0 +1,421 @@
+From: Lume Retro OS
+Subject: [PATCH] gfx_widgets: LUME_HUD, LUME_HINT and LUME_MENU over the game
+
+lume-run owns the status bar, the chord hint and the Lume menu over a game
+(lume-hud-actions D8, D10, D13) but cannot draw while RetroArch owns the
+screen. Three network commands draw what lume-run sends, as graphics widgets
+(gfx_widget_lume, kept in gfx_widget_volume.c so the build files do not
+change, like 0011):
+
+  LUME_HUD  <text>                  a strip along the top, semi-transparent,
+                                    the game's viewport untouched
+  LUME_HINT <button\tname|...>      a centred panel, one row per Fn chord
+  LUME_MENU <title|item|...|focus>  the Lume menu: the game dimmed, a panel
+                                    with a title and the focused row filled
+
+RetroArch interprets nothing: "-" (or no text) hides a widget, and each one
+hides by itself 3 s after its last command, so a dead lume-run leaves nothing
+on the screen. Nothing pauses the game here; lume-run pauses it for the menu
+(GET_STATUS + PAUSE_TOGGLE). LUME_MENU is the reserve path of D14 while the
+system-drawn menu waits for its proof on the consoles. The command channel
+listens on 127.0.0.1 only (patch 0009).
+
+diff --git a/command.c b/command.c
+index 6a9b40f..5d0f63e 100644
+--- a/command.c
++++ b/command.c
+@@ -756,6 +756,37 @@ bool command_lume_level(command_t *cmd, const char* arg)
+    return true;
+ }
+ 
++/* Lume: the status bar, the chord hint and the Lume menu over the game, sent
++ * by lume-run (lume-hud-actions D8). RetroArch only draws the text it gets;
++ * "-" (or nothing) hides the widget, and each one hides by itself 3 s after
++ * the last command. */
++bool command_lume_hud(command_t *cmd, const char* arg)
++{
++#if defined(HAVE_GFX_WIDGETS)
++   if (gfx_widgets_ready())
++      gfx_widget_lume_show(GFX_WIDGET_LUME_HUD, arg);
++#endif
++   return true;
++}
++
++bool command_lume_hint(command_t *cmd, const char* arg)
++{
++#if defined(HAVE_GFX_WIDGETS)
++   if (gfx_widgets_ready())
++      gfx_widget_lume_show(GFX_WIDGET_LUME_HINT, arg);
++#endif
++   return true;
++}
++
++bool command_lume_menu(command_t *cmd, const char* arg)
++{
++#if defined(HAVE_GFX_WIDGETS)
++   if (gfx_widgets_ready())
++      gfx_widget_lume_show(GFX_WIDGET_LUME_MENU, arg);
++#endif
++   return true;
++}
++
+ 
+ bool command_load_state_slot(command_t *cmd, const char *arg)
+ {
+diff --git a/command.h b/command.h
+index ec62c86..a317028 100644
+--- a/command.h
++++ b/command.h
+@@ -427,6 +427,9 @@ bool command_get_status(command_t *cmd, const char* arg);
+ bool command_get_config_param(command_t *cmd, const char* arg);
+ bool command_show_osd_msg(command_t *cmd, const char* arg);
+ bool command_lume_level(command_t *cmd, const char* arg);
++bool command_lume_hud(command_t *cmd, const char* arg);
++bool command_lume_hint(command_t *cmd, const char* arg);
++bool command_lume_menu(command_t *cmd, const char* arg);
+ bool command_load_state_slot(command_t *cmd, const char* arg);
+ bool command_play_replay_slot(command_t *cmd, const char* arg);
+ bool command_seek_replay(command_t *cmd, const char *arg);
+@@ -449,6 +452,9 @@ static const struct cmd_action_map action_map[] = {
+    { "GET_CONFIG_PARAM", command_get_config_param, "<param name>" },
+    { "SHOW_MSG",         command_show_osd_msg,     "No argument" },
+    { "LUME_LEVEL",       command_lume_level,       "<left|right> <percent> <rrggbb>" },
++   { "LUME_HUD",         command_lume_hud,         "<text> (- hides)" },
++   { "LUME_HINT",        command_lume_hint,        "<button\\tname|...> (- hides)" },
++   { "LUME_MENU",        command_lume_menu,        "<title|item|...|focus> (- hides)" },
+ #if defined(HAVE_CHEEVOS)
+    /* These functions use achievement addresses and only work if a game with achievements is
+     * loaded. READ_CORE_MEMORY and WRITE_CORE_MEMORY are preferred and use system addresses. */
+diff --git a/gfx/gfx_widgets.c b/gfx/gfx_widgets.c
+index 15fd03e..e7a829a 100644
+--- a/gfx/gfx_widgets.c
++++ b/gfx/gfx_widgets.c
+@@ -58,6 +58,7 @@ static const gfx_widget_t* const widgets[] = {
+ #endif
+    &gfx_widget_volume,
+    &gfx_widget_lume_level,
++   &gfx_widget_lume,
+ #ifdef HAVE_CHEEVOS
+    &gfx_widget_achievement_popup,
+    &gfx_widget_leaderboard_display,
+diff --git a/gfx/gfx_widgets.h b/gfx/gfx_widgets.h
+index 1879687..c854659 100644
+--- a/gfx/gfx_widgets.h
++++ b/gfx/gfx_widgets.h
+@@ -372,6 +372,17 @@ void gfx_widget_volume_update_and_show(float new_volume,
+ /* Lume: a level line on the left or right edge (percent 0-100, rgb 0xrrggbb) */
+ void gfx_widget_lume_level_show(bool left, unsigned percent, unsigned rgb);
+ 
++/* Lume: the status bar, the chord hint and the Lume menu (text from lume-run) */
++enum gfx_widget_lume_kind
++{
++   GFX_WIDGET_LUME_HUD = 0,
++   GFX_WIDGET_LUME_HINT,
++   GFX_WIDGET_LUME_MENU,
++   GFX_WIDGET_LUME_LAST
++};
++
++void gfx_widget_lume_show(enum gfx_widget_lume_kind kind, const char *text);
++
+ void gfx_widgets_iterate(
+       void *data_disp,
+       void *settings_data,
+@@ -428,6 +439,7 @@ dispgfx_widget_t *dispwidget_get_ptr(void);
+ extern const gfx_widget_t gfx_widget_screenshot;
+ extern const gfx_widget_t gfx_widget_volume;
+ extern const gfx_widget_t gfx_widget_lume_level;
++extern const gfx_widget_t gfx_widget_lume;
+ extern const gfx_widget_t gfx_widget_generic_message;
+ extern const gfx_widget_t gfx_widget_libretro_message;
+ extern const gfx_widget_t gfx_widget_progress_message;
+diff --git a/gfx/widgets/gfx_widget_volume.c b/gfx/widgets/gfx_widget_volume.c
+index bfad70c..2ae56a5 100644
+--- a/gfx/widgets/gfx_widget_volume.c
++++ b/gfx/widgets/gfx_widget_volume.c
+@@ -15,8 +15,14 @@
+  *  If not, see <http://www.gnu.org/licenses/>.
+  */
+ 
++#include <stdlib.h>
++#include <string.h>
++
+ #include <retro_miscellaneous.h>
++#include <compat/strl.h>
++#include <string/stdstring.h>
+ 
++#include "../font_driver.h"
+ #include "../gfx_widgets.h"
+ #include "../gfx_animation.h"
+ #include "../gfx_display.h"
+@@ -484,3 +490,271 @@ const gfx_widget_t gfx_widget_lume_level = {
+    NULL, /* iterate */
+    gfx_widget_lume_level_frame
+ };
++
++/* Lume: the status bar, the chord hint and the Lume menu over the game
++ * (lume-hud-actions D8, D10, D13). lume-run owns the numbers, the items and
++ * the state; RetroArch only draws the text it gets:
++ *   LUME_HUD  <text>                  a strip along the top of the screen
++ *   LUME_HINT <button\tname|...>      a panel with one row per chord
++ *   LUME_MENU <title|item|...|focus>  the Lume menu, a dimmed screen and a
++ *                                     panel with the focused row filled
++ * "-" (or no text) hides one; each one also hides 3 s after its last
++ * command, so a dead lume-run leaves nothing on the screen. Nothing here
++ * pauses the game: lume-run pauses it for the menu. Sizes are those of
++ * 640x480 and scale with the screen height. */
++#define LUME_WIDGET_TIMEOUT 3000
++#define LUME_TEXT_MAX       1024
++#define LUME_ROWS_MAX       12
++/* the launcher's dark theme (Lume tokens): surface, accent, text, muted */
++#define LUME_SURFACE        0x1c1b1f
++#define LUME_ACCENT         0x4db3ff
++#define LUME_ON_ACCENT      0x0b1a26
++#define LUME_TEXT           0xeeeeee
++#define LUME_MUTED          0x9aa0aa
++
++struct gfx_widget_lume_state
++{
++   char text[GFX_WIDGET_LUME_LAST][LUME_TEXT_MAX];
++   float timer[GFX_WIDGET_LUME_LAST];
++   bool visible[GFX_WIDGET_LUME_LAST];
++};
++
++static struct gfx_widget_lume_state p_w_lume_st;
++
++static void gfx_widget_lume_timer_end(void *userdata)
++{
++   unsigned kind = (unsigned)(uintptr_t)userdata;
++   if (kind < GFX_WIDGET_LUME_LAST)
++      p_w_lume_st.visible[kind] = false;
++}
++
++void gfx_widget_lume_show(enum gfx_widget_lume_kind kind, const char *text)
++{
++   gfx_timer_ctx_entry_t entry;
++   struct gfx_widget_lume_state *state = &p_w_lume_st;
++
++   if ((unsigned)kind >= GFX_WIDGET_LUME_LAST)
++      return;
++   if (!text || !*text || string_is_equal(text, "-"))
++   {
++      uintptr_t tag = (uintptr_t)&state->timer[kind];
++      gfx_animation_kill_by_tag(&tag);
++      state->visible[kind] = false;
++      return;
++   }
++   strlcpy(state->text[kind], text, sizeof(state->text[kind]));
++   state->visible[kind] = true;
++
++   entry.cb       = gfx_widget_lume_timer_end;
++   entry.duration = LUME_WIDGET_TIMEOUT;
++   entry.userdata = (void*)(uintptr_t)kind;
++   gfx_animation_timer_start(&state->timer[kind], &entry);
++}
++
++/* Splits `s` (a copy) at '|' into at most `max` fields; returns the count. */
++static unsigned gfx_widget_lume_split(char *s, char **fields, unsigned max)
++{
++   unsigned n = 0;
++   char *p    = s;
++   while (n < max)
++   {
++      char *bar  = strchr(p, '|');
++      fields[n++] = p;
++      if (!bar)
++         break;
++      *bar = '\0';
++      p    = bar + 1;
++   }
++   return n;
++}
++
++static float gfx_widget_lume_width(gfx_widget_font_data_t *font, const char *s)
++{
++   return (float)font_driver_get_message_width(font->font, s, strlen(s), 1.0f);
++}
++
++static void gfx_widget_lume_quad(gfx_display_t *p_disp, void *userdata,
++      unsigned vw, unsigned vh, float x, float y, float w, float h,
++      unsigned rgb, float a)
++{
++   float c[16];
++   gfx_widget_lume_level_color(c, rgb, a);
++   gfx_display_draw_quad(p_disp, userdata, vw, vh,
++         (int)x, (int)y, (unsigned)w, (unsigned)h, vw, vh, c, NULL);
++}
++
++static void gfx_widget_lume_text(gfx_widget_font_data_t *font, const char *s,
++      float x, float row_y, float row_h, unsigned vw, unsigned vh,
++      unsigned rgb, enum text_alignment align)
++{
++   gfx_widgets_draw_text(font, s, x,
++         row_y + row_h / 2.0f + font->line_centre_offset,
++         vw, vh, (rgb << 8) | 0xff, align, false);
++}
++
++static void gfx_widget_lume_hud(dispgfx_widget_t *w, gfx_display_t *p_disp,
++      void *userdata, unsigned vw, unsigned vh, float s)
++{
++   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
++   float h                      = font->line_height + 8.0f * s;
++
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, h, 0x000000, 0.6f);
++   gfx_widget_lume_text(font, p_w_lume_st.text[GFX_WIDGET_LUME_HUD],
++         8.0f * s, 0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++   gfx_widgets_flush_text(vw, vh, font);
++}
++
++static void gfx_widget_lume_hint(dispgfx_widget_t *w, gfx_display_t *p_disp,
++      void *userdata, unsigned vw, unsigned vh, float s)
++{
++   char copy[LUME_TEXT_MAX];
++   char *rows[LUME_ROWS_MAX];
++   char *names[LUME_ROWS_MAX];
++   gfx_widget_font_data_t *bold = &w->gfx_widget_fonts.bold;
++   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
++   unsigned n, i;
++   float pad    = 16.0f * s;
++   float gap    = 20.0f * s;
++   float row_h  = font->line_height * 1.5f;
++   float left_w = 0, right_w = 0, pw, ph, px, py;
++
++   strlcpy(copy, p_w_lume_st.text[GFX_WIDGET_LUME_HINT], sizeof(copy));
++   n = gfx_widget_lume_split(copy, rows, LUME_ROWS_MAX);
++   for (i = 0; i < n; i++)
++   {
++      float lw, rw;
++      char *tab = strchr(rows[i], '\t');
++      names[i]  = tab ? tab + 1 : (char*)"";
++      if (tab)
++         *tab = '\0';
++      lw = gfx_widget_lume_width(bold, rows[i]);
++      rw = gfx_widget_lume_width(font, names[i]);
++      if (lw > left_w)
++         left_w = lw;
++      if (rw > right_w)
++         right_w = rw;
++   }
++   pw = pad * 2 + left_w + gap + right_w;
++   ph = pad * 2 + row_h * n;
++   px = (vw - pw) / 2.0f;
++   py = (vh - ph) / 2.0f;
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, 0.92f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, 3.0f * s, LUME_ACCENT, 1.0f);
++   for (i = 0; i < n; i++)
++   {
++      float ry = py + pad + row_h * i;
++      gfx_widget_lume_text(bold, rows[i], px + pad, ry, row_h, vw, vh,
++            LUME_ACCENT, TEXT_ALIGN_LEFT);
++      gfx_widget_lume_text(font, names[i], px + pad + left_w + gap, ry, row_h,
++            vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++   }
++   gfx_widgets_flush_text(vw, vh, bold);
++   gfx_widgets_flush_text(vw, vh, font);
++}
++
++static void gfx_widget_lume_menu(dispgfx_widget_t *w, gfx_display_t *p_disp,
++      void *userdata, unsigned vw, unsigned vh, float s)
++{
++   char copy[LUME_TEXT_MAX];
++   char *f[LUME_ROWS_MAX + 2];
++   gfx_widget_font_data_t *bold = &w->gfx_widget_fonts.bold;
++   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
++   unsigned n, i, items, focus;
++   float pad     = 20.0f * s;
++   float row_h   = font->line_height * 1.8f;
++   float title_h = bold->line_height * 2.0f;
++   float pw, ph, px, py, content = 0;
++
++   strlcpy(copy, p_w_lume_st.text[GFX_WIDGET_LUME_MENU], sizeof(copy));
++   n = gfx_widget_lume_split(copy, f, LUME_ROWS_MAX + 2);
++   if (n < 3)
++      return; /* a title, an item and the focus at least */
++   items = n - 2;
++   focus = (unsigned)strtoul(f[n - 1], NULL, 10);
++   if (focus >= items)
++      focus = items - 1;
++
++   content = gfx_widget_lume_width(bold, f[0]);
++   for (i = 1; i <= items; i++)
++   {
++      float iw = gfx_widget_lume_width(font, f[i]) + pad;
++      if (iw > content)
++         content = iw;
++   }
++   pw = content + pad * 2;
++   if (pw < 300.0f * s)
++      pw = 300.0f * s;
++   if (pw > vw - 32.0f * s)
++      pw = vw - 32.0f * s;
++   ph = title_h + row_h * items + pad;
++   px = (vw - pw) / 2.0f;
++   py = (vh - ph) / 2.0f;
++
++   /* the game stays visible, dimmed: the menu belongs to the system */
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, vh, 0x000000, 0.45f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py, pw, ph, LUME_SURFACE, 0.96f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh, px, py + title_h - 1.0f * s,
++         pw, 1.0f * s, LUME_MUTED, 0.35f);
++   gfx_widget_lume_quad(p_disp, userdata, vw, vh,
++         px + 8.0f * s, py + title_h + row_h * focus + 3.0f * s,
++         pw - 16.0f * s, row_h - 6.0f * s, LUME_ACCENT, 1.0f);
++
++   gfx_widget_lume_text(bold, f[0], px + pad, py, title_h, vw, vh,
++         LUME_TEXT, TEXT_ALIGN_LEFT);
++   for (i = 0; i < items; i++)
++      gfx_widget_lume_text(font, f[i + 1], px + pad, py + title_h + row_h * i,
++            row_h, vw, vh, i == focus ? LUME_ON_ACCENT : LUME_TEXT,
++            TEXT_ALIGN_LEFT);
++   gfx_widgets_flush_text(vw, vh, bold);
++   gfx_widgets_flush_text(vw, vh, font);
++}
++
++static void gfx_widget_lume_frame(void* data, void *user_data)
++{
++   struct gfx_widget_lume_state *state = &p_w_lume_st;
++   video_frame_info_t *video_info;
++   dispgfx_widget_t *w;
++   gfx_display_t *p_disp;
++   float s;
++
++   if (!state->visible[GFX_WIDGET_LUME_HUD]
++         && !state->visible[GFX_WIDGET_LUME_HINT]
++         && !state->visible[GFX_WIDGET_LUME_MENU])
++      return;
++   video_info = (video_frame_info_t*)data;
++   w          = (dispgfx_widget_t*)user_data;
++   p_disp     = (gfx_display_t*)video_info->disp_userdata;
++   s          = video_info->height / 480.0f;
++
++   if (state->visible[GFX_WIDGET_LUME_HUD])
++      gfx_widget_lume_hud(w, p_disp, video_info->userdata,
++            video_info->width, video_info->height, s);
++   /* the menu covers the hint: never both */
++   if (state->visible[GFX_WIDGET_LUME_MENU])
++      gfx_widget_lume_menu(w, p_disp, video_info->userdata,
++            video_info->width, video_info->height, s);
++   else if (state->visible[GFX_WIDGET_LUME_HINT])
++      gfx_widget_lume_hint(w, p_disp, video_info->userdata,
++            video_info->width, video_info->height, s);
++}
++
++static void gfx_widget_lume_free(void)
++{
++   unsigned i;
++   for (i = 0; i < GFX_WIDGET_LUME_LAST; i++)
++   {
++      uintptr_t tag = (uintptr_t)&p_w_lume_st.timer[i];
++      gfx_animation_kill_by_tag(&tag);
++      p_w_lume_st.visible[i] = false;
++   }
++}
++
++const gfx_widget_t gfx_widget_lume = {
++   NULL, /* init */
++   gfx_widget_lume_free,
++   NULL, /* context_reset */
++   NULL, /* context_destroy */
++   NULL, /* layout */
++   NULL, /* iterate */
++   gfx_widget_lume_frame
++};
