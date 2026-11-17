@@ -250,7 +250,7 @@ def test_slots_toml_groups():
     groups = slots.load_groups()
     assert groups.default == "base"
     assert groups.group_of("retroarch") == "runtime"
-    assert groups.group_of("libretro-snes9x") == "runtime"     # the cores stay here (P-80)
+    assert groups.group_of("libretro-snes9x2005-plus") == "runtime"     # the cores stay here (P-80)
     assert groups.group_of("mesa-dri-gallium") == "runtime"
     assert groups.group_of("sdl2") == "runtime"
     assert groups.group_of("lume-launcher") == "lume"

@@ -159,8 +159,8 @@ emulators = [{ runner = "meu-emulador" }]
 ```
 
 Um core do RetroArch que não está no catálogo também entra assim:
-`emulators = [{ runner = "retroarch", core = "snes9x" }]` (o arquivo
-`/usr/lib/libretro/snes9x_libretro.so` precisa existir).
+`emulators = [{ runner = "retroarch", core = "snes9x2005_plus" }]` (o arquivo
+`/usr/lib/libretro/snes9x2005_plus_libretro.so` precisa existir).
 
 Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jogo do console.
 

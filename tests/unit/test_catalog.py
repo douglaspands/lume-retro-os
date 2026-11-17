@@ -20,6 +20,13 @@ def test_systems_match_design_table():
     assert ids == ["nes", "snes", "mastersystem", "megadrive", "segacd", "sega32x", "gb", "gbc",
                    "gba", "arcade", "cps1", "cps2", "neogeo", "psx", "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
+    # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap
+    assert by_id["snes"]["core"] == "snes9x2005_plus"
+    assert by_id["snes"]["alt_cores"] == []
+    assert by_id["snes"]["core_by_arch"] == {}
+    for arch in ("x86_64", "aarch64", "armv7"):
+        assert catalog.default_core(by_id["snes"], arch) == "snes9x2005_plus"
+    assert not any("snes9x" in c and c != "snes9x2005_plus" for c in CAT["cores"])
     # Sega CD: genesis_plus_gx, picodrive on the GA36 (armv7); required BIOS by region
     assert by_id["segacd"]["extensions"] == ["cue", "chd", "iso", "m3u"]
     assert catalog.default_core(by_id["segacd"], "aarch64") == "genesis_plus_gx"

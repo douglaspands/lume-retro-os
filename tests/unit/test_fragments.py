@@ -101,10 +101,10 @@ def test_build_deps_are_the_build_time_names_without_constraints():
 
 def test_build_order_puts_local_deps_and_subpackage_origins_first():
     deps = {"lume-launcher": ["retroarch"], "retroarch": ["mesa-dev", "zlib-dev"],
-            "mesa": [], "libretro-snes9x": []}
-    order = frag.build_order(["libretro-snes9x", "lume-launcher", "mesa", "retroarch"], deps)
+            "mesa": [], "libretro-snes9x2005-plus": []}
+    order = frag.build_order(["libretro-snes9x2005-plus", "lume-launcher", "mesa", "retroarch"], deps)
     assert order.index("mesa") < order.index("retroarch") < order.index("lume-launcher")
-    assert order[0] == "libretro-snes9x"
+    assert order[0] == "libretro-snes9x2005-plus"
 
 
 # --- inputs ---------------------------------------------------------------------------
