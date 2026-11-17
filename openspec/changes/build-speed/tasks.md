@@ -173,7 +173,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 - [x] 7.1 `kernel.source_tree()`: árvore `.cache/src/linux-<versão>/` com git, série nova montada num índice temporário e aplicada com `read-tree -m -u`, só os arquivos de conteúdo diferente com data nova; `GIT_CEILING_DIRECTORIES` mantido. Verificação: teste de unidade com uma árvore pequena (mudar um patch muda o mtime só do arquivo dele).
 - [x] 7.2 `build_kernel()` por arquitetura em `.cache/kbuild/<arch>/`, com as verificações do fragmento e dos warnings. Verificação: patch num driver do GA36 recompila esse arquivo e o link (log do `make`); o kernel aarch64 sai igual byte a byte.
 - [ ] 7.3 Pacotes `lume-kernel`, `lume-modules` e `lume-dtbs` por arquitetura, com versão pelo conteúdo; a `BOOT` e o slot `modules` saem deles. Verificação: testes de unidade; um patch de driver do GA36 muda só os pacotes do armv7, e o `push` ao R36S não envia nada.
-- [ ] 7.4 Equivalência: o `Image`/`zImage` incremental é igual ao de um build limpo com as mesmas entradas. Verificação: `r36os build --clean` contra incremental, mesmo SHA256.
+- [x] 7.4 Equivalência: o `Image`/`zImage` incremental é igual ao de um build limpo com as mesmas entradas. Verificação: `r36os build --clean` contra incremental, mesmo SHA256.
 - [ ] 7.5 Limpeza das gerações antigas com o espaço liberado numa linha; `repo-clean` e `docs/BUILD.md` com o layout novo. Verificação: depois do primeiro build, `.cache/` tem uma árvore e uma pasta de build por arquitetura; spec `build-cache`.
 
 ## 8. Fragmentar o resto (D2)
