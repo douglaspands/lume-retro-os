@@ -1,0 +1,14 @@
+# Screens for `r36os dev shot --compare|--update <screen>` (build-speed D19).
+#
+# `keys` is the button sequence (syntax of `r36os dev keys`) that reaches the screen from the
+# launcher home; empty means the home itself. Every sequence starts from the home, so go back
+# to the home (or restart the launcher) before comparing the next screen.
+# The references are tests/device/shots/<console>/<screen>.png, one directory per console
+# (ga36 = armv7l, r36s = aarch64), recorded with --update.
+#
+# PRIVACY: references must never show real game names or ROM paths. Only system and launcher
+# screens are listed. Game-list screens come later, with a demo card of invented names (D19);
+# do not add them before that card exists.
+
+[screens.home]
+keys = ""

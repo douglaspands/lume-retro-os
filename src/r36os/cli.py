@@ -55,7 +55,12 @@ def _parser() -> argparse.ArgumentParser:
     sh = ds.add_parser("sh", help="run a command on the console as root (exit code passed)")
     sh.add_argument("cmd", nargs=argparse.REMAINDER, help="the command")
     st = ds.add_parser("shot", help="save a PNG of the console screen")
-    st.add_argument("file", type=Path)
+    st.add_argument("file", type=Path, nargs="?")
+    st.add_argument("--compare", metavar="SCREEN",
+                    help="reach SCREEN (tests/device/shots/screens.toml), capture and compare "
+                         "with the reference of this console; fail above the threshold")
+    st.add_argument("--update", metavar="SCREEN",
+                    help="store the capture of SCREEN as the new reference of this console")
     ky = ds.add_parser("keys", help="press buttons, e.g. 'a,down*3,start+select,wait:500,"
                                     "fn+start' (see r36os.dev for the syntax)")
     ky.add_argument("sequence")
