@@ -7,7 +7,10 @@ The value comes from `--jobs N` (the CLI stores it in `R36OS_JOBS`), then from t
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import os
+from typing import Iterator
 
 ENV_VAR = "R36OS_JOBS"
 # prefix of every podman command: conmon and the container inherit the low priority
@@ -27,10 +30,38 @@ def parse_jobs(value: str | int) -> int:
     return n
 
 
+# per-pipeline override (task 6.6): the environment is process-wide, a context variable is
+# not; each pipeline thread sets its own share of the total
+_override: contextvars.ContextVar[int | None] = contextvars.ContextVar("r36os_jobs", default=None)
+
+
 def jobs() -> int:
-    """Number of parallel jobs: R36OS_JOBS if set, else half the cores (minimum 1)."""
+    """Number of parallel jobs: the pipeline's share if one is set (`share`), else
+    R36OS_JOBS if set, else half the cores (minimum 1)."""
+    own = _override.get()
+    if own is not None:
+        return own
     raw = os.environ.get(ENV_VAR, "").strip()
     return parse_jobs(raw) if raw else default_jobs()
+
+
+def split(total: int, parts: int = 2) -> list[int]:
+    """Share `total` jobs among `parts` pipelines: 8 -> [4, 4], 7 -> [4, 3]. Empty list
+    when there are fewer jobs than pipelines: they then run one after the other."""
+    if total < parts:
+        return []
+    base, extra = divmod(total, parts)
+    return [base + (1 if i < extra else 0) for i in range(parts)]
+
+
+@contextlib.contextmanager
+def share(n: int) -> Iterator[None]:
+    """Inside the block (this thread/context) `jobs()` returns `n`."""
+    token = _override.set(parse_jobs(n))
+    try:
+        yield
+    finally:
+        _override.reset(token)
 
 
 def set_jobs(value: int | None) -> None:
