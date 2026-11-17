@@ -26,6 +26,11 @@ refuses before running anything when the cable has the other one (build-speed 3.
   `delay max=<ms> mean=<ms> events=<n>`; a recording of the other console is refused before
   anything is sent.
 
+- `run <script>`: run a device test script (r36os.dev_run, r36os.scripts): one line
+  `passo <n> <name>: ok|FALHOU (<reason>)` per step, stops at the first failure, refuses a
+  console the script does not list before any button, reads events.log only from the start
+  of the run and cuts every line at `content=` on the console (no game name ever leaves it).
+
 Key sequence syntax (tokens separated by commas, spaces ignored):
 
     a,b,down*3,start+select,wait:500,fn+start
@@ -621,6 +626,10 @@ def main_dev(args) -> int:
     try:
         if args.dev_command == "wait":
             return cmd_wait(host, args.timeout)
+        if args.dev_command == "run":      # identifies the console itself, after loading
+            from r36os.dev_run import cmd_run
+
+            return cmd_run(host, args.script, args.console)
         console_name = which_console(host, getattr(args, "console", None))  # not wait: may be off
         if args.dev_command == "record":
             return cmd_record(host, console_name, args.stop)

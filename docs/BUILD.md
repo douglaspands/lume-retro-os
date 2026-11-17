@@ -371,6 +371,26 @@ numa extensão de ROM (`.gba`, `.zip`, `.nes`...). Um jogo é sempre `system` + 
 teste de unidade valida todo roteiro rastreado em `tests/device/scripts/` e falha se houver
 `.evrec` no repositório.
 
+**Executar um roteiro:** `r36os dev run <nome-ou-caminho> [--console ga36|r36s]`. Um nome sem
+`/` vira `tests/device/scripts/<nome>.toml`. O comando identifica o console do cabo e recusa,
+antes do primeiro botão, um console que o roteiro não lista em `consoles`. Os passos rodam em
+ordem, cada um com o seu `timeout`, e cada um imprime uma linha:
+
+```
+passo 1 abrir o menu: ok
+passo 2 esperar o jogo: FALHOU (timeout after 30s waiting for an event (pattern game.*start))
+```
+
+A execução **para no primeiro passo que falha** (os seguintes dependem dele); o código de saída
+é 0 só se todos passaram. Por tipo: `keys` usa o `dev keys`; `wait_event` consulta o
+`/storage/logs/events.log` a cada ~1 s e só vê as linhas escritas depois do início do roteiro
+(`category` é o 3o campo da linha, `pattern` é uma regex); `wait_process` usa `pidof`;
+`shot` faz o `dev shot --compare`; `sh` passa com saída 0 (a saída não é impressa); `play`
+usa o `dev play`; `open_game`/`close_game` dependem do nó 3.2 (até lá o passo falha com
+"not implemented yet"). **Privacidade:** o filtro que corta cada linha do `events.log` em
+` content=` roda no próprio console e de novo no PC, e nenhuma linha do log é impressa; o nome
+do jogo nunca sai do console. Código em `src/r36os/dev_run.py`.
+
 ## Relatório de energia: `r36os power report`
 
 Change `game-governor` (D14). Lê pelo cabo as métricas (`metrics/boot-<n>.csv`) e o `events.log`

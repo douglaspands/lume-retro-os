@@ -102,7 +102,10 @@ def _parser() -> argparse.ArgumentParser:
     pl = ds.add_parser("play", help="play a recording (.evrec) on the console, "
                                     "printing the measured delay")
     pl.add_argument("file", type=Path)
-    for action in (sh, st, ky, lg, ck, rp, rc, pl):     # not wait: the console may still be off
+    rn = ds.add_parser("run", help="run a device test script (tests/device/scripts/<name>.toml "
+                                   "or a path); exit 0 only if every step passes")
+    rn.add_argument("script", help="script name or path")
+    for action in (sh, st, ky, lg, ck, rp, rc, pl, rn):  # not wait: the console may still be off
         action.add_argument("--console", choices=("ga36", "r36s"),
                             help="refuse to run when the console on the cable is the other one")
 
