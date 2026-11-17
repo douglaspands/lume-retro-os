@@ -248,7 +248,10 @@ consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em 
 ### D10. Kernel do GA36
 
 `board/ga36/kernel.config` ganha `CONFIG_CPU_FREQ_GOV_ONDEMAND=y` e
-`CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y`, sem mudar o padrão (`schedutil`). O teste
+`CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y`, sem mudar o padrão (`schedutil`). Também
+`CONFIG_CPU_FREQ_GOV_USERSPACE=y` (faltava no GA36 e o controlador do D12 precisa dele) e
+`CONFIG_CPU_FREQ_STAT=y` (o `stats/time_in_state` dá o tempo exato em cada clock para a
+medição do D5). No R36S, ondemand e userspace já vêm no kernel e o conservative é módulo. O teste
 `test_fragment_keeps_mainline_cpufreq_and_thermal` passa a exigir esses dois e a proibir
 `CPU_FREQ_DEFAULT_GOV_*` e `THERMAL_DEFAULT_GOV_*`.
 

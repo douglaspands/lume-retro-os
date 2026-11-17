@@ -48,6 +48,11 @@ def test_fragment_adds_the_game_governor_cpufreq_governors():
                     "CONFIG_CPU_FREQ_GOV_USERSPACE"}
 
 
+def test_fragment_enables_cpufreq_stats():
+    # game-governor D5: the measurements read stats/time_in_state per clock.
+    assert _options(FRAGMENT).get("CONFIG_CPU_FREQ_STAT") == "y"
+
+
 def test_fragment_enables_thermal_sensor_and_gpu_cooling():
     # the A33 THS is driven by the GPADC IIO driver (SUN8I_THERMAL covers newer SoCs), and
     # the GPU is a cooling device only with DEVFREQ_THERMAL (tasks 9.8 follow-up and 9.10)
