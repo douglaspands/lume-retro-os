@@ -118,7 +118,9 @@ def build_initramfs(target: Target) -> Path:
     ensure_dir(stage / "lib")
     shutil.copy(REPO_ROOT / "initramfs/init", stage / "init")
     (stage / "init").chmod(0o755)
-    shutil.copy(REPO_ROOT / "initramfs/lib/storage.sh", stage / "lib/storage.sh")
+    # every library the init sources: a missing one stops the init (no root, kernel panic)
+    for lib in ("storage.sh", "slots.sh"):
+        shutil.copy(REPO_ROOT / "initramfs/lib" / lib, stage / "lib" / lib)
     # the console of this initramfs: the init mounts BOOT/<console>/SYSTEM (single card)
     ensure_dir(stage / "etc")
     (stage / "etc/board").write_text(target.name + "\n")

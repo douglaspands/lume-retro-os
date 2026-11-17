@@ -67,8 +67,11 @@ def test_logs_doc_has_the_boot_messages_of_the_modules_step():
     import re
 
     src = (REPO_ROOT / "initramfs/lib/storage.sh").read_text()
-    body = src.split("mount_modules() {", 1)[1].split("\n}\n", 1)[0]
-    messages = re.findall(r'log "([^"]*)"', body)
+    # build-speed 4.5: the release check and the move went to modules_attach
+    messages = []
+    for fn in ("mount_modules", "modules_attach"):
+        body = src.split(f"{fn}() {{", 1)[1].split("\n}\n", 1)[0]
+        messages += re.findall(r'log "([^"]*)"', body)
     assert len(messages) == 5
     doc = (REPO_ROOT / "docs/LOGS.md").read_text()
     for msg in messages:

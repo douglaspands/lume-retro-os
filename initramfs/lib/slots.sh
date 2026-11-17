@@ -166,3 +166,168 @@ slots_packages() {
 slots_build() {
 	awk 'NR == 2 && $1 == "build" { print $2 }' "$1/$2"
 }
+
+# ---- Mounting the root (build-speed 4.5) -------------------------------------------------
+#
+# The init calls mount_root once, after select_dtb. With a usable slot set the root is
+# lume:runtime:base (read-only squashfs slots) under the 32 MiB RAM layer and the modules
+# slot goes on /lib/modules. Fallback chain, each step with an ERROR line in the log:
+#   SLOTS -> SLOTS.old -> the old <console>/SYSTEM -> rescue (emergency shell).
+# A set that fails to mount (squashfs error, no loop device, bad file) is undone entirely
+# before the next step: nothing half-built is left on the mount points.
+
+# Mount points of the set being tried, the newest first (slots_undo unmounts in that order).
+SLOTS_MOUNTED=""
+
+# Unmount every mount of the set being tried.
+slots_undo() {
+	local m
+	for m in $SLOTS_MOUNTED; do
+		umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null \
+			|| log "ERROR: failed to unmount $m"
+	done
+	SLOTS_MOUNTED=""
+}
+
+# Packages of slot $3 in manifest $2 (on the BOOT at $1) as "<package>-<version>" lines of
+# at most about 400 characters (a /dev/kmsg record holds about 1 KiB).
+_slots_pkg_lines() {
+	awk -v s="$3" '
+		$1 == "pkg" && $2 == s {
+			p = $3 "-" $4
+			if (line != "" && length(line) + length(p) > 400) { print line; line = "" }
+			line = line (line == "" ? "" : " ") p
+		}
+		END { if (line != "") print line }' "$1/$2"
+}
+
+# Log the slots of manifest $2 (on the BOOT at $1) and their package versions.
+slots_log() {
+	local name file sha n line
+	log "slots: $2 (build $(slots_build "$1" "$2"))"
+	while read -r name file sha; do
+		[ -n "$name" ] || continue
+		n=$(awk -v s="$name" '$1 == "pkg" && $2 == s { n++ } END { print n + 0 }' "$1/$2")
+		log "slot $name: $file (packages: $n)"
+		while read -r line; do
+			[ -n "$line" ] && log "slot $name packages: $line"
+		done <<EOF
+$(_slots_pkg_lines "$1" "$2" "$name")
+EOF
+	done <<EOF
+$(slots_list "$1" "$2" overlay)
+$(slots_list "$1" "$2" modules)
+EOF
+}
+
+# Try the slot set of manifest $2 (on the BOOT at $1): each overlay slot on $3/<name>, the
+# RAM layer on $4, the overlay on $5 and the modules slot on $6. On success sets
+# SLOTS_MODULES (BOOT path of the modules slot, still mounted on $6). On any failure logs an
+# ERROR line, undoes every mount it made and fails.
+slots_try() {
+	local boot="$1" man="$2" dir="$3" rw="$4" root="$5" mod="$6" name file sha lower
+	SLOTS_MOUNTED=""
+	SLOTS_MODULES=""
+	while read -r name file sha; do
+		[ -n "$name" ] || continue
+		mkdir -p "$dir/$name"
+		if ! mount -t squashfs -o ro,loop "$boot/$file" "$dir/$name" </dev/null; then
+			log "ERROR: failed to mount slot $name ($file) of $man"
+			slots_undo
+			return 1
+		fi
+		SLOTS_MOUNTED="$dir/$name $SLOTS_MOUNTED"
+	done <<EOF
+$(slots_list "$boot" "$man" overlay)
+EOF
+	lower=$(slots_lowerdir "$boot" "$man" "$dir")
+	case "$lower" in
+	"$dir/lume:$dir/runtime:$dir/base") ;;
+	*)
+		log "ERROR: $man gives the overlay lowerdir \"$lower\""
+		slots_undo
+		return 1
+		;;
+	esac
+	if ! mount -t tmpfs -o size=32m,mode=0755 tmpfs "$rw"; then
+		log "ERROR: failed to mount the RAM layer for $man"
+		slots_undo
+		return 1
+	fi
+	SLOTS_MOUNTED="$rw $SLOTS_MOUNTED"
+	mkdir -p "$rw/upper" "$rw/work"
+	if ! mount -t overlay overlay -o "lowerdir=$lower,upperdir=$rw/upper,workdir=$rw/work" "$root"; then
+		log "ERROR: failed to mount the overlay of $man"
+		slots_undo
+		return 1
+	fi
+	SLOTS_MOUNTED="$root $SLOTS_MOUNTED"
+	set -- $(slots_list "$boot" "$man" modules)
+	mkdir -p "$mod"
+	if [ -z "${2:-}" ] || ! mount -t squashfs -o ro,loop "$boot/$2" "$mod"; then
+		log "ERROR: failed to mount slot modules (${2:-none}) of $man"
+		slots_undo
+		return 1
+	fi
+	SLOTS_MOUNTED=""
+	SLOTS_MODULES=$2
+}
+
+# Root of console $2 from its slot set on the BOOT at $1 (build-speed D9): slots on $3/<name>,
+# RAM layer on $4, overlay on $5, modules slot through $6 on $5/lib/modules. Fails, with
+# nothing left mounted, on the vm, on an old card (no SLOTS nor SLOTS.old: nothing logged)
+# and when no set mounts (ERROR lines): the caller then mounts the old <console>/SYSTEM.
+slots_mount_root() {
+	local boot="$1" console="$2" man why
+	case "$console" in ""|vm) return 1 ;; esac
+	if ! man=$(slots_pick "$boot" "$console"); then
+		if [ -e "$boot/$console/SLOTS" ] || [ -e "$boot/$console/SLOTS.old" ]; then
+			log "ERROR: no slot set of $console to mount; trying the old $console/SYSTEM"
+		fi
+		return 1
+	fi
+	if ! slots_try "$boot" "$man" "$3" "$4" "$5" "$6"; then
+		if [ "$man" != "$console/SLOTS" ]; then
+			log "ERROR: $man could not be mounted; trying the old $console/SYSTEM"
+			return 1
+		fi
+		if ! why=$(slots_check "$boot" "$console" SLOTS.old); then
+			log "ERROR: $man could not be mounted and $console/SLOTS.old $why; trying the old $console/SYSTEM"
+			return 1
+		fi
+		log "ERROR: $man could not be mounted; using $console/SLOTS.old from the previous build"
+		man=$console/SLOTS.old
+		if ! slots_try "$boot" "$man" "$3" "$4" "$5" "$6"; then
+			log "ERROR: $man could not be mounted either; trying the old $console/SYSTEM"
+			return 1
+		fi
+	fi
+	slots_log "$boot" "$man"
+	log "root: $man (lume, runtime, base; read-only) + 32 MiB RAM layer"
+	modules_attach "$SLOTS_MODULES" "$6" "$5"
+}
+
+# Root of console $1 on $6, from the BOOT mounted at $2: the slot set (slots_mount_root, slots
+# on $3/<name>) or, without one, the old <console>/SYSTEM on $4 exactly as before the slots;
+# RAM layer on $5, kernel modules through $7. Calls the init's rescue() when no root mounts.
+mount_root() {
+	local board="$1" boot="$2" slots="$3" lower="$4" rw="$5" root="$6" mod="$7" system file
+	slots_mount_root "$boot" "$board" "$slots" "$rw" "$root" "$mod" && return 0
+	system=$(system_file "$board")
+	# Never falls back to the SYSTEM of another console (another architecture); only to the
+	# SYSTEM.old of this one, the previous build left by a push cut between its two renames
+	file=$(boot_file "$boot" "$system") || {
+		rescue "BOOT has no $system, the system of the $(console_label "$board"); write the card again with the console image"
+		return 1
+	}
+	mount -t squashfs -o ro,loop "$boot/$file" "$lower" || { rescue "failed to mount $file"; return 1; }
+	mount -t tmpfs -o size=32m,mode=0755 tmpfs "$rw"
+	mkdir -p "$rw/upper" "$rw/work"
+	mount -t overlay overlay -o "lowerdir=$lower,upperdir=$rw/upper,workdir=$rw/work" "$root" \
+		|| { rescue "failed to mount overlay"; return 1; }
+	log "root: $file (read-only) + 32 MiB RAM layer"
+	# Kernel modules of this console (kernel-modules-image D4): BOOT/<console>/modules on
+	# /lib/modules of the new root. After select_dtb: an open loop on BOOT would stop the
+	# umount before the kexec.
+	mount_modules "$board" "$boot" "$mod" "$root"
+}
