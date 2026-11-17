@@ -178,11 +178,19 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
     de novo; o segmento de dados fica byte a byte (o `datahash` continua valendo). O `apk` 3.0.9
     instala o pacote com a chave local e ignora o arquivo extra
     (`tests/integration/test_fragment_versions.py`).
+  - **Adoção sem build (primeiro build após o merge):** um aport sem entrada no `hashes.json`
+    cujo pacote principal e todos os subpacotes (`subpackages=` com `$pkgname` expandido) já
+    têm a versão mais nova publicada em `out/repo/<arch>/` (todas iguais, com o `pkgver` do
+    `APKBUILD` e `pkgrel` não abaixo do dele) é **adotado sem compilar**: o hash de conteúdo
+    sai do `.apk` publicado, o `hashes.json` grava as entradas atuais apontando para esse
+    arquivo e o log diz `pkg <n>: adopted <arquivo> (no build)`. Assim o RetroArch e os cores
+    não recompilam sob qemu (horas): eles ficam com os pacotes de hoje nesta change (P-80).
+    Só compila o aport sem nada publicado, ou com subpacote/versão faltando; `--force` sempre
+    compila. Vale também para os noarch (o arquivo precisa estar nas três arquiteturas).
   - **Decisão:** entradas iguais às do `hashes.json` (e arquivos presentes) → não compila.
     Senão compila numa área de preparo (`out/pkg-staging/<arch>/`, com `out/repo` como
     repositório para as dependências locais) e compara o conteúdo com o da versão publicada
-    (do `hashes.json`; sem ele, o do `.apk` mais novo em `out/repo/<arch>/`, o que adota sem
-    recompilar a versão os pacotes publicados antes desta change). Conteúdo igual → não publica e
+    (do `hashes.json`; sem ele, o do `.apk` mais novo em `out/repo/<arch>/`). Conteúdo igual → não publica e
     o `hashes.json` passa a ligar as entradas novas ao arquivo já publicado (o `commit` do
     `.apk` continua o das entradas que o geraram). Diferente → publica todos os pacotes do
     aport (principal e subpacotes) com o `pkgrel` novo, grava o `hashes.json` e refaz o índice.

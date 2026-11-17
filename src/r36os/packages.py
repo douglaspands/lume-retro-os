@@ -247,6 +247,46 @@ def _up_to_date(name: str, inputs: str, arches: list[str] | tuple[str, ...]) -> 
     return True
 
 
+def _adopt(aports: Path, name: str, inputs: str,
+           arches: list[str] | tuple[str, ...]) -> bool:
+    """First build after hashes.json existed: adopt what is already published, no build.
+
+    When no arch has an entry for `name` and every package of the aport (subpackages
+    too) has its newest version published in every arch, with the APKBUILD pkgver, the
+    same version for all of them and a pkgrel not below the APKBUILD one, hashes.json
+    records the current inputs and the content of those files. Nothing is compiled
+    (RetroArch and the cores under qemu would take hours, P-80).
+    """
+    from r36os import fragments as frag
+    text = (aports / name / "APKBUILD").read_text()
+    pkgs = frag.apkbuild_packages(text, f"{name}/APKBUILD")
+    if pkgs is None:
+        return False
+    pkgver, minimum = frag.apkbuild_version(text, f"{name}/APKBUILD")
+    hashes = {a: read_repo_hashes(a) for a in arches}
+    if any(name in h.packages for h in hashes.values()):
+        return False
+    newest = {}
+    for a in arches:
+        files = frag.apk_files(arch_repo_dir(a))
+        for p in pkgs:
+            if not files.get(p):
+                return False
+            newest[(a, p)] = files[p][0]
+    versions = {f.version for f in newest.values()}
+    main = newest[(arches[0], name)]
+    if versions != {main.version} or main.pkgver != pkgver or main.pkgrel < minimum:
+        return False
+    entries = {}
+    for p in pkgs:
+        apk = newest[(arches[0], p)].path
+        content = frag.apk_lume_content(apk) or frag.apk_content_hash(apk)
+        entries[p] = manifests.PackageHashes(main.version, inputs, content, apk.name)
+    _record(arches, entries)
+    print(f"pkg {name}: adopted {main.path.name} (no build)", flush=True)
+    return True
+
+
 def _next_pkgrel(aports: Path, name: str, arches: list[str] | tuple[str, ...]) -> int:
     from r36os import fragments as frag
     pkgver, minimum = frag.apkbuild_version((aports / name / "APKBUILD").read_text(),
@@ -369,6 +409,8 @@ def _build_fragment(target: Target, name: str, aports: Path, force: bool,
     inputs = _inputs(aports, name, arch, arch)
     if not force and _up_to_date(name, inputs, arches):
         print(f"pkg {name} ({arch}): inputs unchanged, not built", flush=True)
+        return []
+    if not force and _adopt(aports, name, inputs, arches):
         return []
     pkgrel = _next_pkgrel(aports, name, arches)
     commit = manifests.commit_of_inputs(inputs)
@@ -561,6 +603,8 @@ def build_noarch(names: list[str], aports: Path | None = None,
         inputs = _inputs(aports, n, build_arch, build_arch, built_now)
         if not force and _up_to_date(n, inputs, REPO_ARCHES):
             print(f"pkg {n} (noarch): inputs unchanged, not built", flush=True)
+            continue
+        if not force and _adopt(aports, n, inputs, REPO_ARCHES):
             continue
         before = set((staging / build_arch).glob("*.apk"))
         c = _container(NOARCH_BUILD_TARGET, aports, repodest=staging)

@@ -380,15 +380,56 @@ def test_flow_builds_once_then_skips_bumps_on_change_and_cleans(fake_build, caps
     assert "repo armv7: removed 1 old package file(s), freed" in capsys.readouterr().out
 
 
-def test_flow_adopts_a_package_published_before_hashes_json(fake_build):
+def test_flow_adopts_a_package_published_before_hashes_json(fake_build, capsys):
     aports, calls, _ = fake_build
     ga36 = get_target("ga36")
     repo = packages.arch_repo_dir("armv7")
-    make_apk(repo / "lume-base-1.0-r7.apk", name="lume-base", version="1.0-r7",
-             files={"usr/share/x/data": b"v1"})
+    old = make_apk(repo / "lume-base-1.0-r7.apk", name="lume-base", version="1.0-r7",
+                   files={"usr/share/x/data": b"published"})
+    # no hashes.json yet: adopted without any container
     assert packages.build_packages(ga36, ["lume-base"], aports=aports) == []
-    assert calls == ["lume-base-1.0-r8"]   # compiled once to learn its content
+    assert calls == []
+    assert "pkg lume-base: adopted lume-base-1.0-r7.apk (no build)" in capsys.readouterr().out
     h = packages.read_repo_hashes("armv7").packages["lume-base"]
     assert (h.version, h.file) == ("1.0-r7", "lume-base-1.0-r7.apk")
+    assert h.content == frag.apk_content_hash(old)
+    assert h.inputs == packages._inputs(aports, "lume-base", "armv7", "armv7")
+    # next build: inputs unchanged
     assert packages.build_packages(ga36, ["lume-base"], aports=aports) == []
+    assert calls == []
+    # an input change compiles and bumps the pkgrel as before
+    (aports / "lume-base" / "data").write_bytes(b"v2")
+    out = packages.build_packages(ga36, ["lume-base"], aports=aports)
     assert calls == ["lume-base-1.0-r8"]
+    assert [p.name for p in out] == ["lume-base-1.0-r8.apk"]
+
+
+def test_flow_force_compiles_instead_of_adopting(fake_build):
+    aports, calls, _ = fake_build
+    make_apk(packages.arch_repo_dir("armv7") / "lume-base-1.0-r7.apk", name="lume-base",
+             version="1.0-r7", files={"usr/share/x/data": b"v1"})
+    assert packages.build_packages(get_target("ga36"), ["lume-base"], aports=aports,
+                                   force=True) == []   # same content: not published
+    assert calls == ["lume-base-1.0-r8"]
+
+
+def test_flow_compiles_when_a_subpackage_or_the_version_is_not_published(fake_build):
+    aports, calls, _ = fake_build
+    ga36 = get_target("ga36")
+    repo = packages.arch_repo_dir("armv7")
+    apkbuild = aports / "lume-base" / "APKBUILD"
+    apkbuild.write_text(apkbuild.read_text() + 'subpackages="$pkgname-doc"\n')
+    make_apk(repo / "lume-base-1.0-r7.apk", name="lume-base", version="1.0-r7")
+    packages.build_packages(ga36, ["lume-base"], aports=aports)
+    assert calls == ["lume-base-1.0-r8"]      # lume-base-doc missing: compiled
+
+    calls.clear()
+    make_apk(repo / "lume-x-0.9-r9.apk", name="lume-x", version="0.9-r9")
+    packages.build_packages(ga36, ["lume-x"], aports=aports)   # APKBUILD says 1.0
+    assert calls == ["lume-x-1.0-r3"]
+
+
+def test_apkbuild_packages_expand_pkgname_or_give_up():
+    text = 'pkgname=mesa\nsubpackages="\n\t$pkgname-dri-gallium:_gallium\n\t${pkgname}-egl\n"\n'
+    assert frag.apkbuild_packages(text) == ["mesa", "mesa-dri-gallium", "mesa-egl"]
+    assert frag.apkbuild_packages('pkgname=x\nsubpackages="$_py-x"\n') is None

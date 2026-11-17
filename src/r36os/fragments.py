@@ -71,6 +71,22 @@ def with_pkgrel(text: str, pkgrel: int, source: str = "APKBUILD") -> str:
     return new
 
 
+def apkbuild_packages(text: str, source: str = "APKBUILD") -> list[str] | None:
+    """pkgname and the subpackage names of an APKBUILD; None when a name is computed by
+    something other than $pkgname (then the packages are only known after a build)."""
+    name = _assignment(text, "pkgname")
+    if not name or "$" in name:
+        return None
+    out = [name]
+    for tok in (_assignment(text, "subpackages") or "").split():
+        sub = tok.split(":", 1)[0].replace("${pkgname}", name).replace("$pkgname", name)
+        if "$" in sub or not sub:
+            return None
+        if sub not in out:
+            out.append(sub)
+    return out
+
+
 def build_deps(text: str) -> list[str]:
     """Package names in the build-time dependency variables (version constraints and
     shell variables dropped)."""
