@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from r36os import bootimg, r36s_vendor, vendor
+from r36os import bootimg, manifests, r36s_vendor, vendor
 from r36os.container import Container, ensure_builder
 from r36os.image import boot_start
 from r36os.rootfs import target_out
@@ -77,8 +77,11 @@ def test_android_boot_is_ga36_panel1():
 
 def test_boot_contents():
     listing = _sh(f"MTOOLS_SKIP_CHECK=1 mdir -i /out/console.img@@{START * S} -b -/ ::/")
-    for name in ("VERSION", "boot.ini", "ga36/SYSTEM", "ga36/zImage", "ga36/modules",
-                 "r36s/SYSTEM", "r36s/Image", "r36s/modules",
+    sets = {b: manifests.read_slots(target_out(get_target(b)) / "slots/SLOTS")
+            for b in ("ga36", "r36s")}
+    slot_files = [f"{b}/{f}" for b, ss in sets.items() for f in ss.files()]
+    for name in ("VERSION", "boot.ini", "ga36/SLOTS", "ga36/zImage", *slot_files,
+                 "r36s/SLOTS", "r36s/Image",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel1.dtb",
                  "dtbs/a33/sun8i-a33-ga36-mb-v1.2-panel2.dtb",
                  "dtbs/rk3326/rk3326-r36s-v5.dtb",
@@ -86,6 +89,10 @@ def test_boot_contents():
                  "dtbs/rk3326/vendor/darkosre-r36s.dtb"):
         assert f"::/{name}" in listing, listing
     assert "::/logs" not in listing and "::/SYSTEM" not in listing.split()
+    # build-speed D9: a new card has the slot sets only, no SYSTEM nor modules image
+    for b in ("ga36", "r36s"):
+        assert f"::/{b}/SYSTEM" not in listing.split()
+        assert f"::/{b}/modules" not in listing.split()
     # boot-dtb-select D8: the DTBs only live in dtbs/<soc>/, and force is the user's
     assert "::/ga36/dtbs" not in listing and "::/r36s/rk3326" not in listing
     assert "::/dtbs/force" not in listing
@@ -95,21 +102,25 @@ def test_boot_contents():
 
 @pytest.mark.parametrize("board", ["ga36", "r36s"])
 def test_modules_outside_system(board):
-    # kernel-modules-image: BOOT/<console>/modules is the built image, with one folder named
-    # after the kernel release, and SYSTEM has nothing under lib/modules/
+    # kernel-modules-image: the modules slot (build-speed D9) is the built modules image,
+    # with one folder named after the kernel release, and the overlay slots have nothing
+    # under lib/modules/ (base, runtime, lume: only the mount point)
     out = target_out(get_target(board))
+    ss = manifests.read_slots(out / "slots/SLOTS")
     want = hashlib.sha256((out / "kernel/modules").read_bytes()).hexdigest()
-    got = _sh(f"MTOOLS_SKIP_CHECK=1 mtype -i /out/console.img@@{START * S} ::/{board}/modules "
-              "| sha256sum")
+    assert ss.get("modules").sha256 == want
+    got = _sh(f"MTOOLS_SKIP_CHECK=1 mtype -i /out/console.img@@{START * S} "
+              f"::/{board}/{ss.get('modules').file} | sha256sum")
     assert got.split()[0] == want
     builder = Container(image=ensure_builder(get_target("vm")), volumes={out: "/b"})
     listing = builder.sh("unsquashfs -l /b/kernel/modules", capture_output=True,
                          text=True).stdout.split()
     top = {p.split("/")[1] for p in listing if p.startswith("squashfs-root/")}
     assert top == {(out / "kernel/release").read_text().strip()}
-    system = builder.sh("unsquashfs -l /b/SYSTEM", capture_output=True, text=True).stdout
-    assert "squashfs-root/lib/modules" in system.split()
-    assert "squashfs-root/lib/modules/" not in system
+    for slot in ss.overlay():
+        system = builder.sh(f"unsquashfs -l /b/{slot.file}", capture_output=True,
+                            text=True).stdout
+        assert "squashfs-root/lib/modules/" not in system, slot.name
 
 
 def test_ga36_zimage_has_no_appended_dtb():

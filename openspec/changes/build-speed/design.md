@@ -327,6 +327,25 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   (`/lib/apk/db`, `/etc/apk/world`, saídas de triggers como cache de fontes e mime) vão para o
   `lume`, o slot de cima, para que uma mudança num grupo não mude a base. Teste: todo arquivo do
   rootfs está em exatamente um slot. O mapa grupo → pacotes fica em `rootfs/slots.toml`.
+- **Montagem no build (tarefa 4.4, `src/r36os/slots.py`):** o arquivo de um pacote que foi
+  alterado depois da instalação (conteúdo diferente do `Z:` do banco do `apk`: `configure.sh`,
+  overlay, idioma de fábrica) também vai para o `lume`, e assim a base não muda por causa
+  deles. O diretório vai para o slot do dono e para todo slot que tem algo dentro dele, com o
+  mesmo cabeçalho. O link físico cujo alvo ficou em outro slot vira arquivo. O pacote que
+  nenhum grupo cita cai no `default` (`base`), e o teste lista os de `packages.txt` e
+  `hw-packages.txt` que caíram assim. Etapa `slots` do build (pulada quando o conteúdo do
+  `rootfs.tar`, sem os tempos, o `slots.toml` e as opções não mudam) grava
+  `out/<console>/slots/{base,runtime,lume}-<sha12>` e `overlay.json`; a etapa `slot set`, em
+  todo build, copia `kernel/modules` para `modules-<sha12>`, confere os 448 MiB e escreve o
+  `SLOTS` com o build. Medido em 2026-11-17 (rootfs atuais): GA36 base 19,6 + runtime 259,0 +
+  lume 2,3 + modules 1,3 = 282,2 MiB; R36S 21,5 + 262,2 + 2,3 + 15,0 = 301,0 MiB (o `SYSTEM`
+  tinha 280,9 e 286,0 MiB). A união dos três slots é igual ao `SYSTEM` (nomes, tipos, modos,
+  donos, tamanhos e conteúdo).
+- **BOOT da imagem nova:** o `build console` grava só `<console>/SLOTS` e `<console>/slots/`
+  (sem `SYSTEM` e sem `<console>/modules`, que o slot `modules` substitui). A conta dos 64 MiB
+  livres soma cada slot duas vezes (o conjunto anterior que o push guarda, tomado do tamanho
+  do novo); com os tamanhos acima (mais kernels, DTBs e arquivos de fábrica, ~65 MiB), a
+  `BOOT` de 2 GiB fica com cerca de 790 MiB livres nessa conta (~1,37 GiB na imagem gravada).
 - **Coerência:** cada slot grava o sha dos slots de baixo contra os quais foi montado; o
   manifesto só é gerado com um conjunto coerente, e o push nunca manda um slot sem o resto do
   conjunto que ele exige.

@@ -4,8 +4,9 @@
       console-20261109-214233.img.zst  card image, compressed (zstd)
       manifest-ga36.txt                rootfs packages and versions of each system
       manifest-r36s.txt                (the vm has a single manifest.txt)
-      build.json                       timestamp, commit, layers (kernel, patches, SYSTEM
-                                       size), bootloaders, Alpine, sizes
+      build.json                       timestamp, commit, layers (kernel, patches, slots of
+                                       a console or SYSTEM size of the vm), bootloaders,
+                                       Alpine, sizes
       SHA256SUMS                       of the uncompressed image and of the .zst
       boot-files.sha256                console: every file of BOOT with its SHA256, read
                                        back from the FAT, VERSION last (r36os push)
