@@ -50,7 +50,7 @@ class FakeConsole:
                  boot=None, sector=b"old panel image", corrupt=None, ro_busy=False,
                  boot_used=300 * MiB, boot_files=300 * MiB, clock=None, boot_n=43,
                  gone_after=1, back_after=40, boot_ok_after=50, booted_build=None,
-                 send_seconds=30):
+                 send_seconds=30, loops=None, cut_at=None, damaged_on_boot=None):
         self.clock = clock or Clock()
         self.boot_n, self.rebooted_at = boot_n, None
         self.gone_after, self.back_after = gone_after, back_after
@@ -68,10 +68,75 @@ class FakeConsole:
         self.staging = {}
         self.corrupt = corrupt          # a staged file that arrives damaged
         self.log = []                   # steps, in order
+        # BOOT files held open by loop devices: by default what the initramfs mounted
+        self.loops = list(loops) if loops is not None else self.mounted_files(board)
+        self.cut_at = cut_at            # "swap" or "between renames": the power goes
+        self.damaged_on_boot = damaged_on_boot   # a file written damaged on BOOT
 
     @staticmethod
     def stale(p):
-        return p.endswith((".old", ".new"))
+        return p.endswith((".old", ".new")) and not p.endswith("/SLOTS.old")
+
+    # --- the initramfs (initramfs/lib/slots.sh): SLOTS, else SLOTS.old, else SYSTEM ---
+    def usable_set(self, path):
+        from r36os import manifests
+        c = path.split("/")[0]
+        if path not in self.boot:
+            return None
+        try:
+            ss = manifests.parse_slots(self.boot[path].decode(), path)
+        except manifests.ManifestError:
+            return None
+        if ss.console != c or any(f"{c}/{f}" not in self.boot for f in ss.files()):
+            return None
+        return ss
+
+    def mounted(self, board):
+        """The manifest (or legacy root) the initramfs mounts for `board`, and its set."""
+        for name in ("SLOTS", "SLOTS.old"):
+            if ss := self.usable_set(f"{board}/{name}"):
+                return f"{board}/{name}", ss
+        for name in ("SYSTEM", "SYSTEM.old"):
+            if f"{board}/{name}" in self.boot:
+                return f"{board}/{name}", None
+        return None, None
+
+    def mounted_files(self, board):
+        man, ss = self.mounted(board)
+        if ss is not None:
+            return [f"/boot/{board}/{f}" for f in ss.files()]
+        return [f"/boot/{man}"] + ([f"/boot/{board}/modules"]
+                                   if f"{board}/modules" in self.boot else []) if man else []
+
+    def slot_state(self):
+        out = []
+        for p in sorted(self.boot):
+            if p.count("/") == 1 and p.split("/")[1] in ("SLOTS", "SLOTS.old"):
+                out.append(f"== {p}\n{self.boot[p].decode(errors='replace')}\n== eof\n")
+        out.append("== loops\n" + "".join(f"{x}\n" for x in self.loops))
+        out.append("== sizes\n" + "".join(f"{-(-len(d) // 1024)}\t/boot/{p}\n"
+                                          for p, d in sorted(self.boot.items())
+                                          if p.count("/") == 2 and p.split("/")[1] == "slot"))
+        return "".join(out)
+
+    def slots_mounted(self):
+        """The answer to push.SLOTS_MOUNTED after the reboot."""
+        board = self.board
+        on_boot = self.usable_set(f"{board}/SLOTS")
+        head = f"{board}\n{on_boot.build if on_boot else '-'}\n"
+        if f"{board}/SLOTS" in self.boot and on_boot is None:
+            from r36os import manifests
+            try:
+                head = (f"{board}\n"
+                        f"{manifests.parse_slots(self.boot[f'{board}/SLOTS'].decode()).build}\n")
+            except manifests.ManifestError:
+                pass
+        man, ss = self.mounted(board)
+        if ss is not None:
+            return (head + f"[ 1.0] lume: slots: {man} (build {ss.build})\n"
+                    f"[ 1.1] lume: root: {man} (lume, runtime, base; read-only) + 32 MiB "
+                    "RAM layer\n")
+        return head + f"[ 1.1] lume: root: {man} (read-only) + 32 MiB RAM layer\n"
 
     def since_reboot(self):
         return None if self.rebooted_at is None else self.clock.t - self.rebooted_at
@@ -112,6 +177,49 @@ class FakeConsole:
             self.log.append("clean stale")
             self.boot = {p: d for p, d in self.boot.items() if not self.stale(p)}
             return ""
+        if cmd == push.SLOT_STATE:
+            self.log.append("slot state")
+            return self.slot_state()
+        if cmd == push.SLOTS_MOUNTED:
+            self.log.append("slots mounted")
+            return self.slots_mounted()
+        if m := re.fullmatch(r"rm -f ((?:/boot/\S+ ?)+) && sync", cmd):
+            gone = [p.removeprefix("/boot/") for p in m.group(1).split()]
+            self.log.append("delete " + " ".join(gone))
+            for p in gone:
+                self.boot.pop(p, None)
+            return ""
+        if m := re.fullmatch(r"mkdir -p \S+ && cp /storage/\.lume-push/[^/]+/(\S+) "
+                             r"/boot/(\S+)\.new && sync", cmd):
+            assert m.group(1) == m.group(2)
+            self.boot[m.group(2) + ".new"] = self.staging[m.group(1)]
+            self.log.append(f"write {m.group(2)}.new")
+            return ""
+        if m := re.fullmatch(r"sync && echo 3 > /proc/sys/vm/drop_caches && cd /boot && "
+                             r"sha256sum -c /storage/\.lume-push/[^/]+/(\S+) >/dev/null", cmd):
+            self.log.append("check boot")
+            for line in self.staging[m.group(1)].decode().splitlines():
+                d, p = line.split("  ")
+                if p not in self.boot or sha(self.boot[p]) != d:
+                    raise push.PushError(f"on the console, sha256sum failed: {p}: FAILED")
+            return ""
+        if m := re.fullmatch(r"cd /boot/(\w+) && (.*)", cmd):
+            c, steps = m.group(1), m.group(2)
+            self.log.append(f"rename {c}/SLOTS")
+            if self.cut_at == "swap":
+                raise push.PushError("ssh to the console failed: no answer (power cut)")
+            if steps == ("rm -f SLOTS.old && sync && mv SLOTS SLOTS.old && sync && "
+                         "mv SLOTS.new SLOTS && sync"):
+                self.boot.pop(f"{c}/SLOTS.old", None)
+                self.boot[f"{c}/SLOTS.old"] = self.boot.pop(f"{c}/SLOTS")
+                if self.cut_at == "between renames":
+                    raise push.PushError("ssh to the console failed: no answer (power cut)")
+            elif steps == "rm -f SLOTS && sync && mv SLOTS.new SLOTS && sync":
+                self.boot.pop(f"{c}/SLOTS", None)
+            else:
+                raise AssertionError(f"unexpected swap: {cmd}")
+            self.boot[f"{c}/SLOTS"] = self.boot.pop(f"{c}/SLOTS.new")
+            return ""
         if m := re.match(r"dd if=/dev/mmcblk0 bs=512 skip=172032 count=\d+ 2>/dev/null \| "
                          r"head -c (\d+)", cmd):
             self.log.append("read sector")
@@ -143,7 +251,7 @@ class FakeConsole:
             p = m.group(1)
             if f"mv /boot/{p} /boot/{p}.old" in cmd and p in self.boot:
                 self.boot[f"{p}.old"] = self.boot[p]
-            self.boot[p] = self.staging[p]
+            self.boot[p] = self.staging[p] + (b"!" if p == self.damaged_on_boot else b"")
             self.log.append(f"swap {p}")
             return ""
         if m := re.match(r"dd if=\S+/(ga36-android-boot-panel1\.img) of=/dev/mmcblk0 bs=512 "
@@ -220,7 +328,8 @@ def run_push(tmp_path, console, wait=False, **kw):
 
 
 def sent_files(console):
-    return {s[5:] for s in console.log if s.startswith("send ")} - {"SHA256SUMS"}
+    return {s[5:] for s in console.log if s.startswith("send ")} - {"SHA256SUMS",
+                                                                    push.BOOT_SUMS}
 
 
 # --- content-addressed archive (build-speed D10, task 4.3) --------------------------------
@@ -803,3 +912,342 @@ def test_cli_push_hot():
     args = cli._parser().parse_args(["push", "--hot", "lume-core"])
     assert (args.command, args.hot) == ("push", "lume-core")
     assert cli._parser().parse_args(["push"]).hot is None
+
+
+# --- slot sets: push, swap, cleanup and migration (build-speed D9, task 4.6) -------------
+
+OLD_CARD = {"boot.ini": b"ini", "ga36/SYSTEM": b"old ga36 system",
+            "ga36/modules": b"old ga36 modules", "ga36/zImage": b"old z",
+            "r36s/SYSTEM": b"old r36s system", "r36s/modules": b"old r36s modules",
+            "VERSION": b"build: old\n"}
+B, C, D = "20261117-100000", "20261117-110000", "20261117-120000"
+
+
+def slot_set(console, build_id, contents):
+    """BOOT path -> bytes of a console's set: <console>/SLOTS and its slot files."""
+    from r36os import manifests
+
+    ss = manifests.SlotSet(build=build_id, console=console, slots=tuple(
+        manifests.Slot(name=n, sha256=sha(d), size=len(d)) for n, d in contents.items()))
+    files = {f"{console}/SLOTS": manifests.format_slots(ss).encode()}
+    for s in ss.slots:
+        files[f"{console}/{s.file}"] = contents[s.name]
+    return files
+
+
+def contents(console, **changed):
+    c = {n: f"{console} {n} A".encode() for n in ("base", "runtime", "lume", "modules")}
+    c.update({k: v.encode() for k, v in changed.items()})
+    return c
+
+
+def slot_boot(build_id, ga=None, r=None):
+    """The BOOT list of a slot build: both consoles' sets, as the image has them."""
+    files = {"boot.ini": b"ini", "ga36/zImage": b"new zimage"}
+    files.update(slot_set("ga36", build_id, ga or contents("ga36")))
+    files.update(slot_set("r36s", build_id, r or contents("r36s")))
+    files["VERSION"] = f"build: {build_id}\n".encode()
+    return files
+
+
+def slot_file_of(files, console, name):
+    return next(p for p in files if p.startswith(f"{console}/slot/{name}-"))
+
+
+@pytest.fixture
+def builds(tmp_path, monkeypatch):
+    """Builds B, C (GA36 lume changed) and D (changed again) archived with their objects."""
+    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    objects = tmp_path / "out/images/objects"
+    objects.mkdir(parents=True)
+    made = {B: slot_boot(B), C: slot_boot(C, ga=contents("ga36", lume="ga36 lume C")),
+            D: slot_boot(D, ga=contents("ga36", lume="ga36 lume D"))}
+    for build_id, files in made.items():
+        d = tmp_path / "out/images/console" / build_id
+        d.mkdir(parents=True)
+        order = [p for p in files if p != "VERSION"] + ["VERSION"]
+        (d / "boot-files.sha256").write_text("".join(f"{sha(files[p])}  {p}\n"
+                                                     for p in order))
+        for data in files.values():
+            (objects / sha(data)).write_bytes(data)
+    return made
+
+
+def slot_push(console, build_id, wait=False, **kw):
+    lines = []
+    clock = console.clock
+    rc = push.push(build_id, console, yes=True, out=lines.append, wait=wait,
+                   extractor=no_unpacking, sleep=clock.sleep, now=clock.now, **kw)
+    return rc, lines
+
+
+def rebooted(c, **kw):
+    """The same card after the reboot: what the initramfs mounted is held by loops."""
+    return FakeConsole(board=c.board, boot=dict(c.boot), sector=c.sector, **kw)
+
+
+def pushed_to_old_card(builds):
+    c = FakeConsole(board="ga36", boot=OLD_CARD)
+    rc, out = slot_push(c, B)
+    assert rc == 0
+    return c, out
+
+
+def test_old_card_first_push_writes_the_sets_beside_system(builds):
+    c, out = pushed_to_old_card(builds)
+    new = builds[B]
+    assert sent_files(c) == set(new) - {"boot.ini"}
+    # the slot sets of both consoles are on BOOT; SYSTEM and modules stay (the fallback)
+    for p in new:
+        assert c.boot[p] == new[p]
+    for p in ("ga36/SYSTEM", "ga36/modules", "r36s/SYSTEM", "r36s/modules"):
+        assert c.boot[p] == OLD_CARD[p]
+    assert not [p for p in c.boot if p.endswith((".new", ".old"))]
+    assert not [s for s in c.log if s.startswith("delete")]
+    assert not any(line.startswith("migrate:") for line in out)
+    # no SLOTS before: SLOTS.new takes the name with no SLOTS.old to keep
+    assert "cd /boot/ga36 && rm -f SLOTS && sync && mv SLOTS.new SLOTS && sync" in c.cmds
+    # order: slot files and SLOTS.new, checked on BOOT, other files, renames, VERSION last
+    log = c.log
+    copies = [i for i, s in enumerate(log) if s.startswith("swap ") and "/slot/" in s]
+    assert len(copies) == 8
+    assert max(copies) < log.index("write ga36/SLOTS.new") < log.index("check boot")
+    assert log.index("check boot") < log.index("swap ga36/zImage") \
+        < log.index("rename ga36/SLOTS") < log.index("rename r36s/SLOTS") \
+        < log.index("swap VERSION") < log.index("boot ro")
+    # the next boot mounts the slot set of each console
+    assert c.mounted("ga36")[0] == "ga36/SLOTS" and c.mounted("r36s")[0] == "r36s/SLOTS"
+
+
+def test_the_push_after_the_first_deletes_system_and_modules(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    rc, out = slot_push(c, C, wait=True)
+    assert rc == 0 and out[-1].startswith(f"ok: boot 44 completed with build {C}")
+    lume_c = slot_file_of(builds[C], "ga36", "lume")
+    assert sent_files(c) == {lume_c, "ga36/SLOTS", "r36s/SLOTS", "VERSION"}
+    for p in ("ga36/SYSTEM", "ga36/modules", "r36s/SYSTEM", "r36s/modules"):
+        assert p not in c.boot
+    assert c.log.index("swap VERSION") < next(i for i, s in enumerate(c.log)
+                                              if s.startswith("delete"))
+    assert [line for line in out if line.startswith("migrate:")] == [
+        "migrate: ga36 has its slot set since an earlier push: ga36/SYSTEM, ga36/modules "
+        "deleted after the swap",
+        "migrate: r36s has its slot set since an earlier push: r36s/SYSTEM, r36s/modules "
+        "deleted after the swap"]
+    # the set of the first push is SLOTS.old, every file of it kept
+    assert c.boot["ga36/SLOTS.old"] == builds[B]["ga36/SLOTS"]
+    assert c.boot["r36s/SLOTS.old"] == builds[B]["r36s/SLOTS"]
+    for p in builds[B]:
+        if "/slot/" in p:
+            assert p in c.boot
+    assert "slots mounted" in c.log
+
+
+def test_running_system_is_kept_when_the_slots_did_not_mount(builds):
+    # the first set did not mount on the GA36: it runs from SYSTEM, which stays
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first, loops=["/boot/ga36/SYSTEM", "/boot/ga36/modules"])
+    rc, out = slot_push(c, C)
+    assert rc == 0
+    assert "ga36/SYSTEM" in c.boot and "ga36/modules" in c.boot
+    assert "r36s/SYSTEM" not in c.boot and "r36s/modules" not in c.boot
+    assert "note: ga36/SYSTEM kept: the console runs from it (its slot set did not mount, " \
+        "see `r36os dev log`)" in out
+
+
+def test_normal_push_of_a_changed_slot_cleans_the_set_before_the_previous(builds):
+    first, _ = pushed_to_old_card(builds)
+    second = rebooted(first)
+    slot_push(second, C)
+    c = rebooted(second)
+    rc, out = slot_push(c, D)
+    assert rc == 0
+    lume = {b: slot_file_of(builds[b], "ga36", "lume") for b in (B, C, D)}
+    assert sent_files(c) == {lume[D], "ga36/SLOTS", "r36s/SLOTS", "VERSION"}
+    # SLOTS cites D, SLOTS.old cites C: the lume of B goes, after the swap
+    assert c.boot["ga36/SLOTS"] == builds[D]["ga36/SLOTS"]
+    assert c.boot["ga36/SLOTS.old"] == builds[C]["ga36/SLOTS"]
+    assert lume[B] not in c.boot and lume[C] in c.boot and lume[D] in c.boot
+    assert f"delete {lume[B]}" in c.log
+    assert c.log.index(f"delete {lume[B]}") > c.log.index("rename ga36/SLOTS")
+    # the slots every set shares stay
+    for name in ("base", "runtime", "modules"):
+        assert slot_file_of(builds[D], "ga36", name) in c.boot
+    assert "cd /boot/ga36 && rm -f SLOTS.old && sync && mv SLOTS SLOTS.old && sync && " \
+        "mv SLOTS.new SLOTS && sync" in c.cmds
+
+
+def card_after_two_pushes(builds):
+    first, _ = pushed_to_old_card(builds)
+    second = rebooted(first)
+    slot_push(second, C)
+    return second
+
+
+def test_power_cut_between_the_copy_and_the_rename_leaves_slots_intact(builds):
+    c = rebooted(card_after_two_pushes(builds), cut_at="swap")
+    with pytest.raises(push.PushError, match="power cut"):
+        slot_push(c, D)
+    lume_d = slot_file_of(builds[D], "ga36", "lume")
+    assert lume_d in c.boot and "ga36/SLOTS.new" in c.boot      # copied, not swapped
+    assert c.boot["ga36/SLOTS"] == builds[C]["ga36/SLOTS"]
+    assert c.boot["VERSION"] == builds[C]["VERSION"]
+    man, ss = c.mounted("ga36")
+    assert man == "ga36/SLOTS" and ss.build == C                 # the old set, whole
+    assert "reboot" not in c.log
+    # the next push finishes it: the slot file already there is not sent again
+    again = rebooted(c)
+    rc, _ = slot_push(again, D)
+    assert rc == 0 and lume_d not in sent_files(again)
+    assert again.boot["ga36/SLOTS"] == builds[D]["ga36/SLOTS"]
+    assert again.boot["ga36/SLOTS.old"] == builds[C]["ga36/SLOTS"]
+
+
+def test_power_cut_between_the_two_renames_boots_the_previous_set(builds):
+    c = rebooted(card_after_two_pushes(builds), cut_at="between renames")
+    with pytest.raises(push.PushError, match="power cut"):
+        slot_push(c, D)
+    assert "ga36/SLOTS" not in c.boot
+    man, ss = c.mounted("ga36")
+    assert man == "ga36/SLOTS.old" and ss.build == C             # the set that was running
+    again = rebooted(c)
+    rc, _ = slot_push(again, D)
+    assert rc == 0
+    # SLOTS was missing: SLOTS.old (the running set) stays, SLOTS.new takes the name
+    assert "cd /boot/ga36 && rm -f SLOTS && sync && mv SLOTS.new SLOTS && sync" in again.cmds
+    assert again.boot["ga36/SLOTS"] == builds[D]["ga36/SLOTS"]
+    assert again.boot["ga36/SLOTS.old"] == builds[C]["ga36/SLOTS"]
+    assert slot_file_of(builds[B], "ga36", "lume") not in again.boot
+
+
+def test_a_slot_written_damaged_on_boot_stops_before_the_swap(builds):
+    lume_d = slot_file_of(builds[D], "ga36", "lume")
+    c = rebooted(card_after_two_pushes(builds), damaged_on_boot=lume_d)
+    with pytest.raises(push.PushError, match=f"{lume_d}: FAILED"):
+        slot_push(c, D)
+    assert not [s for s in c.log if s.startswith("rename")]
+    assert c.boot["ga36/SLOTS"] == builds[C]["ga36/SLOTS"]
+    assert c.log[-1] == "boot ro"
+
+
+def test_cleanup_keeps_what_slots_and_slots_old_cite(builds):
+    c = rebooted(card_after_two_pushes(builds))
+    stray = "ga36/slot/lume-0123456789ab"          # left by an interrupted push
+    held = "ga36/slot/core-x-0123456789ab"         # cited by nothing but held by a loop
+    c.boot[stray] = b"stray"
+    c.boot[held] = b"held"
+    c.loops.append(f"/boot/{held}")
+    # a SLOTS.old that does not parse: what it cites is unknown, nothing of r36s goes
+    r_stray = "r36s/slot/lume-0123456789ab"
+    c.boot[r_stray] = b"r stray"
+    c.boot["r36s/SLOTS.old"] = b"lume-slots 1\nbuild x\n"
+    rc, _ = slot_push(c, D)
+    assert rc == 0
+    assert stray not in c.boot and held in c.boot
+    # deleted before the copy, for room
+    first_delete = next(i for i, s in enumerate(c.log) if s.startswith("delete"))
+    assert stray in c.log[first_delete]
+    assert first_delete < c.log.index(f"swap {slot_file_of(builds[D], 'ga36', 'lume')}")
+    # every file of SLOTS and SLOTS.old is still there
+    for console in ("ga36", "r36s"):
+        for name in ("SLOTS", "SLOTS.old"):
+            assert c.usable_set(f"{console}/{name}") is not None, f"{console}/{name}"
+    # the unreadable SLOTS.old was replaced by the running SLOTS, then r36s was cleaned
+    assert c.boot["r36s/SLOTS.old"] == builds[C]["r36s/SLOTS"]
+    assert r_stray not in c.boot
+
+
+def test_the_build_must_list_every_slot_its_slots_cites(builds, tmp_path):
+    d = tmp_path / "out/images/console" / D
+    lume_d = slot_file_of(builds[D], "ga36", "lume")
+    lines = [ln for ln in (d / "boot-files.sha256").read_text().splitlines()
+             if not ln.endswith(lume_d)]
+    (d / "boot-files.sha256").write_text("\n".join(lines) + "\n")
+    c = rebooted(card_after_two_pushes(builds))
+    with pytest.raises(push.PushError, match=f"cites {lume_d}, not in its"):
+        slot_push(c, D)
+    assert not [s for s in c.log if s.startswith("send")]
+
+
+def test_boot_room_counts_every_new_slot_and_keeps_the_running_set():
+    sizes = {"ga36/slot/base-0123456789ab": 200 * MiB, "ga36/slot/lume-0123456789ab": 50 * MiB,
+             "ga36/SLOTS": 1 * MiB, "ga36/zImage": 10 * MiB}
+    push.check_room(console_with(boot_free=261 * MiB), sizes)
+    with pytest.raises(push.PushError, match=r"BOOT has 260 MiB free, the push needs 261 MiB "
+                                             r"to swap the files \(251 MiB of new slots; the "
+                                             r"running set is kept as SLOTS.old\)"):
+        push.check_room(console_with(boot_free=260 * MiB), sizes)
+    # slot files no manifest cites are deleted first: their room counts
+    push.check_room(console_with(boot_free=200 * MiB), sizes, reclaim=61 * MiB)
+    with pytest.raises(push.PushError, match=r"with 60 MiB of slots no SLOTS cites"):
+        push.check_room(console_with(boot_free=200 * MiB), sizes, reclaim=60 * MiB)
+
+
+def test_push_counts_the_orphans_as_room(builds):
+    c = rebooted(card_after_two_pushes(builds))
+    c.boot["ga36/slot/runtime-0123456789ab"] = b"x" * (3 * 1024 * 1024)
+    lume_d = slot_file_of(builds[D], "ga36", "lume")
+    # room for the new files only once the 3 MiB orphan goes
+    c.boot_free = 0
+    rc, _ = slot_push(c, D)
+    assert rc == 0 and lume_d in c.boot and "ga36/slot/runtime-0123456789ab" not in c.boot
+
+
+class Answers:
+    def __init__(self, text):
+        self.text = text
+
+    def run(self, cmd, stdin=None):
+        assert cmd == push.SLOTS_MOUNTED
+        return self.text
+
+
+STATE = push.BootState(boot_n="44", build=D, boot_ok="x boot OK completed")
+
+
+@pytest.mark.parametrize("log, problem", [
+    (f"[ 1.0] lume: slots: ga36/SLOTS (build {D})\n[ 1.1] lume: root: ga36/SLOTS (lume, "
+     "runtime, base; read-only) + 32 MiB RAM layer\n", None),
+    (f"[ 0.5] lume: before kexec: lume: root: ga36/SYSTEM (read-only)\n"
+     f"lume: slots: ga36/SLOTS (build {D})\nlume: root: ga36/SLOTS (lume, runtime, base; "
+     "read-only) + 32 MiB RAM layer\n", None),
+    (f"lume: ERROR: ga36/SLOTS is missing; using ga36/SLOTS.old from the previous build\n"
+     f"lume: slots: ga36/SLOTS.old (build {C})\nlume: root: ga36/SLOTS.old (lume, runtime, "
+     "base; read-only) + 32 MiB RAM layer\n",
+     "boot 44 mounted ga36/SLOTS.old (the previous set), not the pushed set ga36/SLOTS "
+     f"(build {D})"),
+    ("lume: ERROR: no slot set of ga36 to mount; trying the old ga36/SYSTEM\n"
+     "lume: root: ga36/SYSTEM (read-only) + 32 MiB RAM layer\n",
+     "boot 44 mounted ga36/SYSTEM (the old root image), not the pushed set ga36/SLOTS"),
+    ("", "no `lume: root:` line in the log of boot 44"),
+    (f"lume: slots: ga36/SLOTS (build {C})\nlume: root: ga36/SLOTS (lume, runtime, base; "
+     "read-only) + 32 MiB RAM layer\n",
+     f"logged `slots: ga36/SLOTS (build {C})`, expected `slots: ga36/SLOTS (build {D})`"),
+])
+def test_after_boot_check_confirms_the_pushed_set_was_mounted(log, problem):
+    found = push.check_slots_mounted(Answers(f"ga36\n{D}\n{log}"), STATE)
+    if problem is None:
+        assert found is None
+    else:
+        assert found is not None and problem in found
+
+
+def test_after_boot_check_skips_a_console_without_slots():
+    text = "ga36\n-\nlume: root: ga36/SYSTEM (read-only) + 32 MiB RAM layer\n"
+    assert push.check_slots_mounted(Answers(text), STATE) is None
+    assert push.check_slots_mounted in push.AFTER_BOOT_CHECKS
+
+
+def test_a_push_whose_console_fell_back_to_slots_old_fails(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    real = c.slots_mounted
+
+    def fell_back():
+        return real().replace("ga36/SLOTS (", "ga36/SLOTS.old (")
+    c.slots_mounted = fell_back
+    with pytest.raises(push.PushError, match=r"boot 44 completed with build .*, but: boot 44 "
+                                             r"mounted ga36/SLOTS.old \(the previous set\)"):
+        slot_push(c, C, wait=True)
