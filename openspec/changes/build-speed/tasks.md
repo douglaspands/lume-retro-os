@@ -179,7 +179,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 ## 8. Fragmentar o resto (D2)
 
 - [ ] 8.1 Dividir o restante do `rootfs/overlay/` nos aports noarch do D2 (`lume-usb`, `lume-net`, `lume-audio`, `lume-saves`, `lume-diag`, `lume-power`, `lume-games`, `lume-launcher-data`, `lume-retroarch-cfg`, `lume-shaders`), com `depends` e serviços de reinício; o `rootfs/overlay/` fica só com o que for da imagem. Verificação: manifesto do rootfs com os mesmos arquivos e SHA256 de antes; `dev check` verde nos dois consoles.
-- [ ] 8.2 Versões dos fragmentos `lume-*`/`r36os-*` no `hw/boot-<n>.txt` (pelo `hwinfo`) e na conferência do `push`. Verificação: `docs/LOGS.md` com o campo; o `push` confere a versão do fragmento enviado.
+- [x] 8.2 Versões dos fragmentos `lume-*`/`r36os-*` no `hw/boot-<n>.txt` (pelo `hwinfo`) e na conferência do `push`. Verificação: `docs/LOGS.md` com o campo; o `push` confere a versão do fragmento enviado.
 
 ## 9. Compilação sem emulação (D7)
 
