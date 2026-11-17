@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -148,7 +149,19 @@ def _work_tree_matches(env: dict[str, str], commit: str) -> bool:
             and _git(env, "diff-index", "--quiet", commit, "--", check=False).returncode == 0)
 
 
+_SOURCE_LOCK = threading.Lock()
+
+
 def source_tree() -> Path:
+    """The patched kernel tree, prepared by one caller at a time: the two arch pipelines of a
+    parallel build (build-speed D17) both ask for it, and git's temporary series index
+    cannot be shared (seen 2026-11-17: `r36os-series.index.lock: File exists`). The second
+    caller finds the tree already on the series and touches nothing."""
+    with _SOURCE_LOCK:
+        return _source_tree()
+
+
+def _source_tree() -> Path:
     """Kernel tree `<cache>/src/linux-<version>/` with the patches applied (build-speed D5).
 
     The pristine tarball is committed once in a repository of its own (tag `upstream`),

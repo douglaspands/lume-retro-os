@@ -85,6 +85,27 @@ def test_same_series_touches_nothing(fake_kernel):
     assert _mtimes(tree) == before
 
 
+def test_two_pipelines_at_once_share_the_tree(fake_kernel):
+    # build-speed 6.6: both arch pipelines ask for the tree at the same time; without the
+    # lock git failed with `r36os-series.index.lock: File exists`
+    import threading
+
+    results, errors = [], []
+
+    def ask():
+        try:
+            results.append(kernel.source_tree())
+        except Exception as e:  # noqa: BLE001 - the test reports any failure
+            errors.append(e)
+
+    threads = [threading.Thread(target=ask) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len(results) == 2 and results[0] == results[1]
+
+
 def test_changed_patch_rewrites_only_its_file(fake_kernel):
     tree = kernel.source_tree()
     _age(tree)

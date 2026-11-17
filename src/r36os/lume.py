@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 
 from r36os.paths import REPO_ROOT, cache_dir, ensure_dir
@@ -134,12 +135,21 @@ def _sync_tree(src: Path, dest: Path, skip: frozenset[str]) -> None:
             shutil.copymode(s, d)
 
 
+_STAGE_LOCK = threading.Lock()
+
+
 def stage() -> Path:
     """Fills aports/lume-launcher/stage/lume with the workspace and its crates.
 
     The stage is updated in place, by content (`_sync_tree`), and its `target/` is left
-    alone: in the abuild container it is the mount point of `target_cache(<arch>)`.
+    alone: in the abuild container it is the mount point of `target_cache(<arch>)`. One
+    caller at a time: both arch pipelines of a parallel build (build-speed D17) stage it.
     """
+    with _STAGE_LOCK:
+        return _stage()
+
+
+def _stage() -> Path:
     tarball = ensure_vendor()
     dest = STAGE / "lume"
     _sync_tree(WORKSPACE, dest, STAGE_SKIP)

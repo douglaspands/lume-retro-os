@@ -36,16 +36,20 @@ def image_exists(name: str) -> bool:
     ).returncode == 0
 
 
+_BUILDER_LOCK = threading.Lock()  # both arch pipelines use the x86_64 builder too
+
+
 def ensure_builder(target: Target) -> str:
     """Build (if missing) the Alpine builder image for the target architecture."""
     name = builder_image(target)
-    if not image_exists(name):
-        run([
-            "podman", "build", "-t", name, "--platform", target.oci_platform,
-            "--build-arg", f"ALPINE_VERSION={ALPINE_VERSION}",
-            "-f", str(REPO_ROOT / "containers/builder.Containerfile"),
-            str(REPO_ROOT / "containers"),
-        ])
+    with _BUILDER_LOCK:
+        if not image_exists(name):
+            run([
+                "podman", "build", "-t", name, "--platform", target.oci_platform,
+                "--build-arg", f"ALPINE_VERSION={ALPINE_VERSION}",
+                "-f", str(REPO_ROOT / "containers/builder.Containerfile"),
+                str(REPO_ROOT / "containers"),
+            ])
     return name
 
 
