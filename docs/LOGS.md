@@ -321,7 +321,17 @@ começa com a hora (`HH:MM:SS`). Uma linha por amostra (a cada `interval` segund
 Além disso:
 
 - `k <mensagem>`: mensagens novas do kernel surgidas depois do início do `logd` (erros do
-  driver de vídeo, de áudio ou do cartão aparecem aqui, com a hora do kernel).
+  driver de vídeo, de áudio ou do cartão aparecem aqui, com a hora do kernel, no formato do
+  `dmesg`). Desde a change `game-governor` (D8) elas vêm do `/dev/kmsg`, lido por um leitor
+  que roda ao lado do `logd` o boot inteiro, e a hora no começo da linha é a da chegada da
+  mensagem, não a da amostra seguinte.
+
+Custo da coleta (change `game-governor`, D8, P-60): a amostra não dispara processos. Os
+arquivos são lidos com o `read` do shell, as contas são do shell, a hora vem de um `date` por
+minuto mais o `uptime`, e o `pid` de cada processo é guardado entre amostras. Sobram: o
+`pidof` quando um processo vigiado mudou (ou o RetroArch é procurado e não está, fora do
+launcher), o `nc` do `GET_STATUS` enquanto o RetroArch roda, um `stat` quando o log do
+frontend mudou e a descarga em lote (`flush`).
 - `usb: <estado>`: a porta OTG vista pelo kernel, uma linha por amostra (change
   `usb-device-access`, D1). Serve para saber como cada console distingue um PC, um
   carregador e um adaptador OTG. Cada campo só aparece quando o console o tem; sem nenhum

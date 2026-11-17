@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")/../.."
 W=$(mktemp -d)
 FAILS=0
-check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
+check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1${3:+ ($3)}"; FAILS=$((FAILS + 1)); fi; }
 
 export LOGS_DIR=$W/storage/logs LOGS_RAM=$W/ram LOGS_CONF=$W/storage/system/etc/logs.conf
 export LOGS_MOUNT=/ FRONTEND_LOG=$W/frontend.log
@@ -148,6 +148,19 @@ FRONTEND_RAM_MAX_BYTES=8388608 FRONTEND_RAM_KEEP_BYTES=1048576
 # Esta parte vale no busybox (pidof do console e do container); no pidof do PC não acha o script.
 export LOGD_LIB=1 LOGD_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os"
 . aports/lume-core/files/usr/libexec/r36os/logd
+# The real pidof, limited to the children of this test: another run of this suite on the same
+# machine has its own fake retroarch, which this one must neither watch nor kill.
+own_pidof() {
+	local p s out=""
+	for p in $(command pidof "$1" 2>/dev/null); do
+		s=""
+		{ read -r s < "/proc/$p/stat"; } 2>/dev/null
+		set -- ${s##*) }
+		[ "${2:-}" = "$$" ] && out="$out $p"
+	done
+	[ -n "$out" ] && echo ${out# }
+}
+pidof() { own_pidof "$@"; }
 RECOVER_MAX=0   # the checks below only observe; the recovery (kill) is tested further down
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/trace/*
 mkdir -p "$W/bin"
@@ -252,7 +265,8 @@ rm -rf "$SYS_ROOT"
 SYS_ROOT=/sys USB_LAST=none USB_CONNECTED=0
 
 ### logd: game FPS from the GET_STATUS frame counter (RetroArch patch 0004)
-pidof() { return 0; }
+# fake pidof: prints a pid, as the real one (logd keeps it and reads /proc/<pid>/comm)
+pidof() { echo $$; }
 nc() { printf '%s' "$NC_REPLY"; }
 NC_REPLY='GET_STATUS PLAYING game_boy_advance,Mario Kart (U) [!],crc32=1a2b3c,frames=1200
 '
@@ -262,7 +276,8 @@ NC_REPLY='GET_STATUS PLAYING game_boy_advance,Mario Kart (U) [!],crc32=1a2b3c
 '
 frontend_state
 check "fps: an older GET_STATUS without frames still parses" '[ "$FE_CONTENT" = "Mario Kart (U) [!]" ] && [ -z "$FE_FRAMES" ]'
-unset -f pidof nc
+unset -f nc
+pidof() { own_pidof "$@"; }
 rm -f "$LOGS_RAM"/events.pending "$LOGS_DIR"/events*.log
 echo "[INFO] [Core] Geometry: 240x160, Aspect: 1.500, FPS: 59.73, Sample rate: 65536.00 Hz." > "$FRONTEND_LOG"
 FE_STATE=game FE_CORE=gba FE_CONTENT=kart FE_FRAMES=100
@@ -307,7 +322,8 @@ rm -f "$LOGS_RAM"/events.pending
 game_track 5.00
 FE_STATE=menu FE_CORE="" FE_FRAMES=""; game_track 9.00
 check "lume: logd writes no opened/closed lines (lume-run does)" '! grep -q " game " $LOGS_RAM/events.pending 2>/dev/null'
-unset -f pidof nc
+unset -f nc
+pidof() { own_pidof "$@"; }
 rm -f "$LUME_STATUS"; LUME=""
 frontend_state
 check "lume: without the status file it is the old logic" '[ "$FE_STATE" != launcher ]'
@@ -540,21 +556,201 @@ check "frozen: the frontend trace line of a sample without retroarch" \
 	'grep -qE "^[0-9]{2}:[0-9]{2}:[0-9]{2} fe=stopped pid=- gpu_mhz=[0-9]* vblank=[0-9]*$" "$LOGS_RAM/trace.pending"'
 check "frozen: the usb trace line of each sample" \
 	'[ "$(grep -cE "^[0-9]{2}:[0-9]{2}:[0-9]{2} usb: " "$LOGS_RAM/trace.pending")" = 2 ]'
-unset -f pidof pgrep
+unset -f pgrep
+pidof() { own_pidof "$@"; }
 check "frozen: no event from two quiet samples but the first usb state" \
 	'! grep -v " usb OK otg: " "$LOGS_RAM/events.pending" 2>/dev/null | grep -q .'
-# the trace of new kernel messages: one "k" line per message, with the dmesg time stamp
+# the trace of new kernel messages: one "k" line per message, with the dmesg time stamp.
+# Since 1.2 they come from /dev/kmsg records (prio,seq,usec,flags;text) read by kmsg_reader
+# from the moment logd run starts (here 2 s); a cat started again replays the buffer, and
+# the sequence numbers drop what was traced already.
 rm -f "$LOGS_RAM"/*.pending
-printf '[    1.000000] old message\n' > "$W/dmesg"
-dmesg() { cat "$W/dmesg"; }
-KMSG_SEEN=1
-printf '[   12.345678] lume: hello kernel\n[  123.000001] second line\n' >> "$W/dmesg"
-trace_kernel
-unset -f dmesg
+printf '%s\n' '6,1,1000000,-;old message' '6,2,12345678,-;lume: hello kernel' ' SUBSYSTEM=usb' \
+	'4,3,123000001,-;second line' '6,1,1000000,-;old message' '6,2,12345678,-;lume: hello kernel' > "$W/kmsg"
+kmsg_reader 2000000 < "$W/kmsg"
 check "frozen: new kernel messages become k lines with the dmesg time stamp" \
 	'[ "$(grep -c " k " "$LOGS_RAM/trace.pending")" = 2 ] && grep -qE "^[0-9]{2}:[0-9]{2}:[0-9]{2} k \[   12\.345678\] lume: hello kernel$" "$LOGS_RAM/trace.pending" && grep -qE "^[0-9:]{8} k \[  123\.000001\] second line$" "$LOGS_RAM/trace.pending"'
 check "frozen: kernel messages already seen are not traced again" '! grep -q "old message" "$LOGS_RAM/trace.pending"'
 rm -f "$LOGS_RAM"/*.pending "$W/dmesg"
+LOGS_MOUNT=/
+
+### Cheap logd (game-governor 1.2, D8): the values on a fake /proc and /sys, the clock without
+### date, the reader of /dev/kmsg and the external processes of a sample
+LOGS_MOUNT=$W/not-mounted
+rm -f "$LOGS_RAM"/*.pending
+F=$W/fake
+mkdir -p "$F/proc" "$F/sys/class/thermal/thermal_zone0" "$F/sys/devices/system/cpu/cpufreq/policy0" \
+	"$F/sys/class/power_supply/axp20x-battery"
+printf '100.50 10.00\n' > "$F/proc/uptime"
+printf 'cpu  150 0 150 1600 100 0 0 0 0 0\ncpu0 100 0 100 700 100 0 0 0 0 0\ncpu1 50 0 50 900 0 0 0 0 0 0\nintr 1 2 3\n' > "$F/proc/stat"
+printf 'MemTotal:         500000 kB\nMemFree:          100000 kB\nMemAvailable:     204800 kB\nSwapTotal:        102400 kB\nSwapFree:          51200 kB\n' > "$F/proc/meminfo"
+Z=$F/sys/class/thermal/thermal_zone0
+echo 45678 > "$Z/temp"; echo cpu-thermal > "$Z/type"
+echo passive > "$Z/trip_point_0_type"; echo 70000 > "$Z/trip_point_0_temp"
+echo 1008000 > "$F/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq"
+B=$F/sys/class/power_supply/axp20x-battery
+echo Battery > "$B/type"; echo 9 > "$B/capacity"; echo 3700000 > "$B/voltage_now"
+echo -250000 > "$B/current_now"; echo Discharging > "$B/status"
+pidof() { return 1; }
+pgrep() { return 1; }
+PROC_ROOT=$F/proc SYS_ROOT=$F/sys
+discover
+check "cheap: the header of the fake console" \
+	'grep -qx "time,uptime_s,temp_cpu_thermal_c,freq_policy0_mhz,cpu0_pct,cpu1_pct,mem_avail_mb,swap_used_mb,bat_pct,bat_mv,bat_ma,bat_status,frontend,core,content,fps,fps_nominal,lume_ui_rss_kb,lume_ui_cpu_pct,lume_run_rss_kb,lume_run_cpu_pct,input_rss_kb,input_cpu_pct" "$LOGS_RAM/metrics.header"'
+sample
+check "cheap: first sample (load since boot), as the awk version gave it" \
+	'tail -n 1 "$LOGS_RAM/metrics.pending" | grep -qE "^[0-9-]{10}T[0-9:]{8},100\.50,45\.7,1008,20,10,200,50,9,3700,-250,Discharging,stopped,,,,,,,,,,$"'
+check "cheap: battery below 10% is an event" 'grep -q " battery FAIL below 10% (9%, 3700 mV, Discharging)$" "$LOGS_RAM/events.pending"'
+printf '101.00 10.00\n' > "$F/proc/uptime"
+printf 'cpu  250 0 200 1900 100 0 0 0 0 0\ncpu0 200 0 100 900 100 0 0 0 0 0\ncpu1 50 0 150 1000 0 0 0 0 0 0\nintr 1 2 3\n' > "$F/proc/stat"
+echo 71000 > "$Z/temp"
+sample
+check "cheap: per-core load from the difference (33.3 -> 33, 50) and the temperature" \
+	'tail -n 1 "$LOGS_RAM/metrics.pending" | grep -qE "^[0-9-]{10}T[0-9:]{8},101\.00,71\.0,1008,33,50,"'
+check "cheap: above the passive trip is an event" 'grep -q " temperature FAIL cpu-thermal 71 °C, above passive trip of 70 °C$" "$LOGS_RAM/events.pending"'
+echo 64000 > "$Z/temp"
+sample
+check "cheap: back 5 °C under the trip is an OK event" 'grep -q " temperature OK cpu-thermal back to 64 °C$" "$LOGS_RAM/events.pending" && [ -z "$HOT_ZONES" ]'
+echo -1250 > "$Z/temp"
+sample
+check "cheap: a temperature below zero" 'tail -n 1 "$LOGS_RAM/metrics.pending" | grep -qE "^[^,]*,[^,]*,-1\.3,"'
+milli_tenths 45650; a=$M1; milli_tenths 0; b=$M1; milli_tenths 99999; c=$M1
+check "cheap: milli-units to one decimal" '[ "$a $b $c" = "45.7 0.0 100.0" ]'
+PROC_ROOT=/proc SYS_ROOT=/sys
+unset -f pgrep
+pidof() { own_pidof "$@"; }
+discover
+
+# the clock: one date per batch, the rest from the uptime; the civil date by arithmetic
+unset EPOCHSECONDS 2>/dev/null
+date() { echo "$FAKE_DATE"; }
+FAKE_DATE="1700000000 -0300" LOG_CLK_UP=-100000 LOG_CLOCK_REFRESH=1000
+log_clock 500.25; a=$LOG_TS
+log_clock 590.99; b=$LOG_TS
+check "clock: epoch and offset from date, then the uptime since it" \
+	'[ "$a" = 2023-11-14T19:13:20 ] && [ "$b" = 2023-11-14T19:14:50 ] && [ "$LOG_HMS" = 19:14:50 ]'
+FAKE_DATE="1709251199 +0000" LOG_CLK_UP=-100000
+log_clock 10; a=$LOG_TS; log_clock 11; b=$LOG_TS
+FAKE_DATE="86400 +0530" LOG_CLK_UP=-100000
+log_clock 10; c=$LOG_TS
+check "clock: leap day, month change and a half-hour offset" \
+	'[ "$a" = 2024-02-29T23:59:59 ] && [ "$b" = 2024-03-01T00:00:00 ] && [ "$c" = 1970-01-02T05:30:00 ]'
+FAKE_DATE="1700000000 +0000" LOG_CLK_UP=-100000 LOG_CLOCK_REFRESH=60
+log_clock 100; log_clock 159; a=$LOG_TS
+FAKE_DATE="1800000000 +0000"
+log_clock 161; b=$LOG_TS
+check "clock: the base is taken again after a batch (a clock set meanwhile is seen)" \
+	'[ "$a" = 2023-11-14T22:14:19 ] && [ "$b" = 2027-01-15T08:00:00 ]'
+unset -f date
+LOG_CLK_UP=-100000
+before=$(date '+%Y-%m-%dT%H:%M:%S'); log_clock; after=$(date '+%Y-%m-%dT%H:%M:%S')
+check "clock: the same as date on this machine" '[ "$LOG_TS" = "$before" ] || [ "$LOG_TS" = "$after" ]' "$before $LOG_TS $after"
+
+# the vblank counter from /sys/kernel/irq (a fake one): only the display controller
+mkdir -p "$W/irq/25" "$W/irq/171" "$W/irq/172"
+echo arch_timer > "$W/irq/25/actions"; echo 9061,8051 > "$W/irq/25/per_cpu_count"
+echo 1c0c000.lcd-controller > "$W/irq/171/actions"; echo 2842,7 > "$W/irq/171/per_cpu_count"
+echo > "$W/irq/172/actions"; echo 5,5 > "$W/irq/172/per_cpu_count"
+IRQ_SYS=$W/irq VB_FILES=unknown
+vblank_scan
+check "vblank: per_cpu_count of the display controller interrupt" '[ "$VB" = 2849 ]'
+rm -rf "$W/irq/171"
+IRQ_SYS=$W/irq VB_FILES=unknown
+vblank_scan
+check "vblank: an irq directory without a display controller is no counter" '[ -z "$VB" ]'
+IRQ_SYS=/sys/kernel/irq VB_FILES=unknown
+
+# the reader of /dev/kmsg (a regular file here: cat ends at once and is started again by
+# kmsg_check, replaying the records, which are traced once)
+rm -f "$LOGS_RAM"/*.pending
+printf '%s\n' '6,1,1000,-;before start' '6,2,999999999999,-;after start' > "$W/kmsg"
+KMSG_DEV=$W/kmsg
+kmsg_start
+i=0; while [ $i -lt 20 ] && ! grep -q "after start" "$LOGS_RAM/trace.pending" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+kmsg_check; sleep 0.3; kmsg_check; sleep 0.3
+check "kmsg: new records traced once, also when cat is started again" \
+	'[ "$(grep -c " k \[999999.999999\] after start$" "$LOGS_RAM/trace.pending")" = 1 ] && ! grep -q "before start" "$LOGS_RAM/trace.pending"'
+rd=$KMSG_RD
+kmsg_stop
+sleep 0.2
+check "kmsg: stop ends the reader and removes the FIFO" '! kill -0 "$rd" 2>/dev/null && [ ! -e "$LOGS_RAM/kmsg.fifo" ]'
+KMSG_DEV=/dev/kmsg
+
+# the wait between samples: no sleep process, a TERM ends it
+LOG_INTERVAL=1
+tick_open
+check "tick: a FIFO open for the wait" '[ -n "$TICK" ] && [ -p "$LOGS_RAM/tick.fifo" ]'
+s0=$(cut -d. -f1 /proc/uptime); tick_wait; s1=$(cut -d. -f1 /proc/uptime)
+check "tick: waits the interval" '[ $((s1 - s0)) -ge 0 ] && [ $((s1 - s0)) -le 2 ]'
+
+# External processes per sample, counted by PATH shims that log each run. Launcher on
+# screen, its three processes running (children of this test): after the first sample,
+# none. A RetroArch game without the launcher: only the GET_STATUS query (nc).
+mkdir -p "$W/fbin" "$W/bin"
+FORK_LOG=$W/forks.log
+export FORK_LOG
+# the file in PATH (command -v would give the name of a function such as pidof above)
+path_of() {
+	local d IFS=:
+	for d in $PATH; do [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }; done
+	return 1
+}
+for c in date cut cat awk sed pidof nc tr wc dmesg tail grep stat mkdir mv rm sleep head \
+	readlink pgrep mountpoint du fsync ls sort chmod cp mkfifo touch dirname basename uname; do
+	real=$(path_of "$c") || continue
+	printf '#!/bin/sh\necho %s >> "$FORK_LOG"\nexec %s "$@"\n' "$c" "$real" > "$W/fbin/$c"
+	chmod +x "$W/fbin/$c"
+done
+printf '#!/bin/sh\necho nc >> "$FORK_LOG"\nprintf "GET_STATUS PLAYING snes,x,crc32=1,frames=10\\n"\n' > "$W/fbin/nc"
+chmod +x "$W/fbin/nc"
+# the fake processes start before the shims are in PATH (their sleep is not counted); the
+# retroarch one holds two descriptors on /dev/null, the fake DRM node below
+for p in lume-run lume-ui r36os-input; do
+	printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$W/bin/$p"
+	chmod +x "$W/bin/$p"
+	"$W/bin/$p" &
+done
+printf '#!/bin/sh\nexec 3</dev/null 4</dev/null\nwhile :; do sleep 1; done\n' > "$W/bin/retroarch"
+chmod +x "$W/bin/retroarch"
+"$W/bin/retroarch" < "$W/kmsg" > "$W/ra.out" 2>&1 &
+FAKE=$!
+: > "$FRONTEND_LOG"
+sleep 1
+OLDPATH=$PATH
+PATH=$W/fbin:$PATH
+LOG_CLOCK_REFRESH=100000
+LUME_STATUS=$W/lume-status
+echo ui > "$LUME_STATUS"
+sample; sample
+: > "$FORK_LOG"
+sample; sample; sample
+# the list read with the shell's read: a sort here would log itself through its shim
+forks_seen() { FORKS=""; while read -r l; do FORKS="$FORKS $l"; done < "$FORK_LOG"; }
+forks_seen
+check "forks: a launcher sample starts no process" '[ -z "$FORKS" ]' "$FORKS"
+check "forks: the launcher processes are in the metrics" \
+	'tail -n 1 "$LOGS_RAM/metrics.pending" | grep -qE ",launcher,,,,,[0-9]+,[0-9.]*,[0-9]+,[0-9.]*,[0-9]+,[0-9.]*$"'
+check "forks: the frontend trace line under the launcher" \
+	'tail -n 2 "$LOGS_RAM/trace.pending" | grep -qE "^[0-9:]{8} fe=launcher pid=- gpu_mhz=[0-9]* vblank=[0-9]*$"'
+rm -f "$LUME_STATUS"
+mkdir -p "$W/dri"
+ln -s /dev/null "$W/dri/card0"
+DRI_DIR=$W/dri
+HANG_LIMIT=1000   # the fake sleeps with no CPU and no vblank: not a hang here
+sample; sample
+: > "$FORK_LOG"
+sample; sample; sample
+forks_seen
+check "forks: a RetroArch game sample starts only nc" '[ "$FORKS" = " nc nc nc" ]' "$FORKS"
+check "forks: the game trace line, with the DRM descriptors counted by the test builtin" \
+	'tail -n 2 "$LOGS_RAM/trace.pending" | grep -qE "^[0-9:]{8} fe=game pid=$FAKE st=[A-Z] utime=[0-9]+ stime=[0-9]+ threads=1 dri_fds=2 gpu_mhz=[0-9]* vblank=[0-9]* pcm=[^ ]+ tasks= $FAKE:[A-Z]:"' \
+	"$(tail -n 2 "$LOGS_RAM/trace.pending" | head -n 1)"
+PATH=$OLDPATH
+kill "$FAKE" 2>/dev/null; wait "$FAKE" 2>/dev/null
+for p in $(own_pidof lume-run) $(own_pidof lume-ui) $(own_pidof r36os-input); do kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done
+exec 9<&-
+HANG_LIMIT=2 DRI_DIR=/dev/dri LOG_CLOCK_REFRESH=60 LOG_INTERVAL=5 FE_STATE=stopped PREV_STATE="" GAME_KEY="" LUME=""
+rm -f "$LOGS_RAM"/*.pending
 LOGS_MOUNT=/
 
 ### persist: the build language only seeds new cards; the menu choice always wins
