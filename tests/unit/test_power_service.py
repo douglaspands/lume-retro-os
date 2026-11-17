@@ -596,6 +596,170 @@ def test_game_priority_does_nothing_if_the_game_ended_first(tmp_path, services):
     assert prio_log(log) == []
 
 
+# ---- the load controller (D12, node 2.3) ----
+
+CTL_PROFILES = PROFILES + "profile heavy governor=ondemand controller=load max=912000\nclass psx heavy\n"
+CC = shutil.which("cc") or shutil.which("gcc")
+
+
+def fake_controller(s: Service, mode="run"):
+    """A controller that records its arguments; `run` waits for SIGTERM and prints a summary,
+    `crash` dies at once with exit 1."""
+    args = s.tmp / "ctl.args"
+    f = s.tmp / "fake-powerctl"
+    if mode == "crash":
+        gov = s.sys / CF / "scaling_governor"
+        body = f"echo userspace > '{gov}'\necho 'segfault here'\nexit 1\n"
+    else:
+        body = ("trap 'echo \"1008000=1.0s 912000=0.5s up=1 down=1 end=stop\"; exit 0' TERM\n"
+                "while :; do sleep 0.05; done\n")
+    f.write_text(f"#!/bin/sh\necho \"$@\" >> '{args}'\n{body}")
+    f.chmod(0o755)
+    s.env["PW_CTL_BIN"] = str(f)
+    return args
+
+
+def lines_of(p: Path):
+    return p.read_text().splitlines() if p.exists() else []
+
+
+def test_controller_starts_in_a_load_profile_and_is_stopped_at_the_end(tmp_path, services):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    cg, _, _ = prio_setup(s)
+    args = fake_controller(s)
+    s.start()
+    s.send("game nes fceumm")                       # no controller=load: never started
+    s.wait_event("profile: game -> game")
+    s.send("end")
+    s.wait_event("profile: menu -> menu")
+    assert lines_of(args) == []
+
+    s.send("game psx pcsx_rearmed")
+    s.wait_event("profile: game -> heavy")
+    s.wait(lambda: lines_of(args), "controller started")
+    a = lines_of(args)[0].split()
+    assert a[a.index("--sys") + 1] == str(s.sys) and a[a.index("--cgroup") + 1] == str(cg)
+    assert a[a.index("--max") + 1] == "912000" and a[a.index("--owner") + 1] == str(s.proc.pid)
+    assert "--min" not in a                          # the floor is already in scaling_min_freq
+    assert s.sysfs(f"{CF}/scaling_min_freq") == "600000"
+    time.sleep(0.3)
+    s.clear_writes()
+    s.send("end")
+    s.wait_event("profile: menu -> menu", count=2)
+    ev = s.events()
+    i = ev.index("power OK controller: 1008000=1.0s 912000=0.5s up=1 down=1 end=stop")
+    assert i < max(j for j, e in enumerate(ev) if "profile: menu -> menu" in e)
+    assert not any("without controller" in e for e in ev)
+    assert f"{CF}/scaling_max_freq 816000" in s.writes()  # the menu profile, after the stop
+
+
+def test_controller_crash_goes_back_to_the_profile_without_it(tmp_path, services):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    prio_setup(s)
+    fake_controller(s, mode="crash")
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait_event("profile: game -> heavy (without controller)")
+    assert "power FAIL controller: exit 1: segfault here" in s.events()
+    assert s.sysfs(f"{CF}/scaling_governor") == "ondemand"
+    # no restart, and the next boundary works as usual
+    s.send("end")
+    s.wait_event("profile: menu -> menu")
+    assert sum("controller: exit" in e for e in s.events()) == 1
+
+
+def test_forged_controller_message_is_ignored(tmp_path, services):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    prio_setup(s)
+    fake_controller(s)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait_event("profile: game -> heavy")
+    s.send("controller 1")
+    s.send("menu")                                   # the service still answers at once
+    s.wait_event("profile: menu -> menu")
+    assert not any("without controller" in e for e in s.events())
+
+
+@pytest.fixture(scope="module")
+def powerctl(tmp_path_factory):
+    if CC is None:
+        pytest.skip("no C compiler")
+    exe = tmp_path_factory.mktemp("powerctl") / "r36os-powerctl"
+    r = subprocess.run([CC, "-Wall", "-Wextra", "-Werror", "-o", str(exe),
+                        str(REPO_ROOT / "aports/r36os-powerctl/powerctl.c")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return exe
+
+
+def test_real_controller_drives_setspeed_and_logs_the_time_per_step(tmp_path, services, powerctl):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    cg, proc, _ = prio_setup(s)
+    make_game_cgroup(cg, proc, "game-1", {20: [20]})
+    (proc / "20/task/20/stat").write_text("20 (retroarch) S" + " 0" * 40 + "\n")
+    (s.sys / CF / "scaling_setspeed").write_text("<unsupported>\n")
+    s.env["PW_CTL_BIN"] = str(powerctl)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait(lambda: s.sysfs(f"{CF}/scaling_setspeed") == "912000", "setspeed at the profile max")
+    assert s.sysfs(f"{CF}/scaling_governor") == "userspace"
+    time.sleep(0.6)
+    s.send("end")
+    s.wait_event("profile: menu -> menu")
+    ctl = [e for e in s.events() if "controller:" in e]
+    assert len(ctl) == 1 and ctl[0].startswith("power OK controller: 912000=")
+    assert ctl[0].endswith("up=0 down=0 end=stop")
+    assert s.sysfs(f"{CF}/scaling_governor") == "ondemand"
+
+
+def test_real_controller_refuses_without_userspace_and_the_profile_stays(tmp_path, services,
+                                                                        powerctl):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    prio_setup(s)
+    (s.sys / CF / "scaling_available_governors").write_text("ondemand performance schedutil\n")
+    s.env["PW_CTL_BIN"] = str(powerctl)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait_event("profile: game -> heavy (without controller)")
+    assert ("power FAIL controller: exit 3: r36os-powerctl: refused: userspace governor not available"
+            in s.events())
+    assert s.sysfs(f"{CF}/scaling_governor") == "ondemand"
+
+
+def test_real_controller_ends_with_the_game_and_the_service_takes_the_profile_back(
+        tmp_path, services, powerctl):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    cg, proc, _ = prio_setup(s)
+    make_game_cgroup(cg, proc, "game-1", {20: [20]})
+    (proc / "20/task/20/stat").write_text("20 (retroarch) S" + " 0" * 40 + "\n")
+    s.env["PW_CTL_BIN"] = str(powerctl)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait(lambda: s.sysfs(f"{CF}/scaling_governor") == "userspace", "userspace")
+    (cg / "game-1/cgroup.procs").write_text("")      # the game is over before the `end`
+    s.wait_event("profile: game -> heavy (without controller)")
+    assert any(e.startswith("power OK controller: ") and e.endswith("end=game")
+               for e in s.events())
+    assert s.sysfs(f"{CF}/scaling_governor") == "ondemand"
+
+
+def test_service_stopped_takes_the_controller_down(tmp_path, services, powerctl):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    cg, proc, _ = prio_setup(s)
+    make_game_cgroup(cg, proc, "game-1", {20: [20]})
+    (proc / "20/task/20/stat").write_text("20 (retroarch) S" + " 0" * 40 + "\n")
+    s.env["PW_CTL_BIN"] = str(powerctl)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait(lambda: s.sysfs(f"{CF}/scaling_governor") == "userspace", "userspace")
+    s.proc.kill()
+    s.proc.wait(5)
+    s.proc = None                                    # wait() must not stop on the dead service
+    s.wait_event("end=owner")
+    assert s.sysfs(f"{CF}/scaling_governor") == "userspace"  # the respawn applies its profile
+
+
 def test_vm_without_cpufreq_or_profiles(tmp_path, services):
     s = services(tmp_path, conf=None, board="vm")
     shutil.rmtree(s.sys / "devices/system/cpu/cpu0/cpufreq")

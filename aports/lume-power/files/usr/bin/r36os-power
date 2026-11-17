@@ -23,12 +23,15 @@
 #   effect at the next message (D16), the manual mode is the only exception;
 # - writes $PW_RUN/power.state at each load and change (D16).
 #
-# Hook points for the load controller (node 2.3) and the game priority (node 2.4):
-# controller_start, controller_stop and priority_apply below.
+# - starts the load controller r36os-powerctl (D12) after a game profile with controller=load,
+#   stops it before the next profile and, when it ends by itself (crash, refusal, game over),
+#   applies the same profile without it (controller_start, controller_stop below);
+# - schedules the game priority (D13, priority_schedule below).
 #
 # Environment for the tests: PP_SYS (sysfs root), PW_RUN, PW_SHARE, PW_CARD, PW_TICK,
 # PW_LIBDIR, PW_RA_PORT, PW_POWEROFF, PW_GROUP, PW_TRACE (file that receives one line
-# "<path under PP_SYS> <value>" per sysfs write), BOARD_FILE, LOGS_RAM, RA_USER_CFG.
+# "<path under PP_SYS> <value>" per sysfs write), PW_CGROOT, PW_PROC, PW_CTL_BIN, BOARD_FILE,
+# LOGS_RAM, RA_USER_CFG.
 
 PW_LIBDIR=${PW_LIBDIR:-/usr/libexec/r36os}
 PW_RUN=${PW_RUN:-/run/r36os}
@@ -46,6 +49,10 @@ PW_RENICE=${PW_RENICE:-renice}
 PW_IONICE=${PW_IONICE:-ionice}
 PW_PRIO_STEP=${PW_PRIO_STEP:-200}
 PW_PRIO_N=0 PW_PRIO_DUE=0
+# load controller (D12): the binary and the file with its output
+PW_CTL_BIN=${PW_CTL_BIN:-/usr/bin/r36os-powerctl}
+PW_CTL_OUT=$PW_RUN/powerctl.out
+PW_CTL_SUP= PW_CTL_KEY= PW_CTL_N=0
 PW_FIFO=$PW_RUN/power
 PW_STATE=$PW_RUN/power.state
 PW_MANUAL_FILE=$PW_RUN/power.manual
@@ -92,10 +99,80 @@ pp_log() { pw_event "$1" "$2"; }
 
 # --- hook points (nodes 2.3 and 2.4) ---------------------------------------------------------
 
+# --- load controller (D12) -------------------------------------------------------------------
+#
+# r36os-powerctl runs under a supervisor subshell: the subshell waits for it, logs its last
+# output line (`controller: <time per step> up=<n> down=<n> end=<why>`, FAIL when it exited
+# non-zero or refused to start) and, unless the service stopped it, writes
+# `controller <key>` into the service's own FIFO, so the service loop learns about an exit
+# without polling and applies the profile again without the controller.
+
+# pw_ctl_supervise <key> <controller args...>: the background subshell
+pw_ctl_supervise() {
+	local key=$1 c= rc stop=0 line= l
+	shift
+	trap 'stop=1; [ -z "$c" ] || kill -TERM "$c" 2>/dev/null' TERM
+	"$PW_CTL_BIN" "$@" >"$PW_CTL_OUT" 2>&1 3>&- &
+	c=$!
+	[ "$stop" = 0 ] || kill -TERM "$c" 2>/dev/null
+	while :; do
+		wait "$c"
+		rc=$?
+		# a trapped TERM interrupts the wait: wait again until the controller is gone
+		kill -0 "$c" 2>/dev/null || break
+	done
+	while read -r l; do
+		[ -z "$l" ] || line=$l
+	done <"$PW_CTL_OUT"
+	if [ "$rc" = 0 ]; then
+		pw_event OK "controller: $line"
+	else
+		pw_event FAIL "controller: exit $rc${line:+: $line}"
+	fi
+	[ "$stop" = 1 ] || printf 'controller %s\n' "$key" >&3
+}
+
 # controller_start <profile args...>: after a game profile with controller=load was applied.
-controller_start() { :; }
-# controller_stop: before any other profile is applied after such a game profile.
-controller_stop() { :; }
+# The profile min (game floor included) is already in scaling_min_freq; the max goes along.
+controller_start() {
+	local kv max=
+	for kv in "$@"; do
+		case $kv in
+		max=*) max=${kv#max=} ;;
+		esac
+	done
+	PW_CTL_KEY=
+	read -r PW_CTL_KEY </proc/sys/kernel/random/uuid 2>/dev/null
+	PW_CTL_N=$((PW_CTL_N + 1))
+	PW_CTL_KEY=${PW_CTL_KEY:-$PW_CTL_N}
+	# shellcheck disable=SC2086
+	pw_ctl_supervise "$PW_CTL_KEY" --sys "$PP_SYS" --proc "$PW_PROC" --cgroup "$PW_CGROOT" \
+		--owner "$$" ${max:+--max $max} &
+	PW_CTL_SUP=$!
+}
+
+# controller_stop: before any other profile is applied after such a game profile. Waits for the
+# controller to exit (it stops at once on SIGTERM), so it never writes after the next profile.
+controller_stop() {
+	[ -n "$PW_CTL_SUP" ] || return 0
+	kill -TERM "$PW_CTL_SUP" 2>/dev/null
+	wait "$PW_CTL_SUP"
+	PW_CTL_SUP=
+}
+
+# controller_exited <key>: the FIFO message of a supervisor whose controller ended by itself
+# (game over, crash, refusal): the same profile again, without the controller
+controller_exited() {
+	[ -n "$PW_CTL_SUP" ] && [ "$1" = "$PW_CTL_KEY" ] || return 0
+	wait "$PW_CTL_SUP"
+	PW_CTL_SUP=
+	[ "$PW_CTL" = load ] || return 0
+	# shellcheck disable=SC2086
+	pw_apply "$PW_GAME" $PW_ARGS
+	PW_CTL=
+	pw_event OK "profile: $PW_SCENARIO -> $PW_NAME (without controller)"
+}
+
 # priority_schedule: after the profile of a `game` message was applied (the game is not running
 # yet: lume-run sends the message before the exec). The service loop then calls priority_apply
 # twice, PW_PRIO_STEP centiseconds apart (D13), through priority_wait and priority_tick.
@@ -428,6 +505,7 @@ pw_message() {
 		PW_SCENARIO=menu PW_SYSTEM= PW_CORE=
 		pw_switch 1
 		;;
+	controller) controller_exited "$2" ;;
 	reload)
 		pw_load
 		if [ "$PW_SCENARIO" = game ] && [ -z "$PW_MANUAL" ]; then
