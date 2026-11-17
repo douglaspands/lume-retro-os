@@ -51,6 +51,10 @@ wpa_supplicant
 bluez
 bluez-openrc
 
+# Core scripts and settings (aports/lume-core, a noarch fragment): logs, session, frontend
+# service, hostname/issue/motd
+lume-core
+
 # Frontend
 retroarch
 libretro-core-info

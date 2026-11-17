@@ -8,8 +8,8 @@ import re
 from r36os.paths import REPO_ROOT
 
 ROOTFS = REPO_ROOT / "rootfs"
-INITD = ROOTFS / "overlay/etc/init.d"
-CONFD = ROOTFS / "overlay/etc/conf.d"
+# the files of the image come from the overlay or from the lume-core fragment (same paths)
+TREES = (ROOTFS / "overlay", REPO_ROOT / "aports/lume-core/files")
 CONFIGURE = (ROOTFS / "configure.sh").read_text()
 
 # depend() of the init scripts that come from Alpine 3.24 packages (not in the repo)
@@ -38,8 +38,9 @@ def default_runlevel():
 
 def init_script(name):
     """The init script in the overlay, or in an aport of the repo (aports/<pkg>/<name>.initd)."""
-    if (INITD / name).exists():
-        return INITD / name
+    for tree in TREES:
+        if (tree / "etc/init.d" / name).exists():
+            return tree / "etc/init.d" / name
     return next((REPO_ROOT / "aports").glob(f"*/{name}.initd"), None)
 
 
@@ -53,11 +54,12 @@ def deps_of(name):
             deps.setdefault(kind, []).extend(args)
     else:
         deps = {k: list(v) for k, v in PACKAGED[name].items()}
-    confd = CONFD / name
-    if confd.exists():
-        for kind, value in re.findall(r'^rc_(need|use|after|before)="([^"]*)"$',
-                                      confd.read_text(), re.M):
-            deps.setdefault(kind, []).extend(value.split())
+    for tree in TREES:
+        confd = tree / "etc/conf.d" / name
+        if confd.exists():
+            for kind, value in re.findall(r'^rc_(need|use|after|before)="([^"]*)"$',
+                                          confd.read_text(), re.M):
+                deps.setdefault(kind, []).extend(value.split())
     return deps
 
 
@@ -144,11 +146,11 @@ def test_packaged_services_get_the_order_from_conf_d():
     # the init scripts of networkmanager-openrc and bluez-openrc stay untouched
     for name in ("networkmanager", "bluetooth"):
         assert not init_script(name), name
-        assert re.search(r'^rc_after="frontend"$', (CONFD / name).read_text(), re.M), name
+        assert re.search(r'^rc_after="frontend"$', (ROOTFS / "overlay/etc/conf.d" / name).read_text(), re.M), name
 
 
 def test_hardware_snapshot_is_taken_after_the_frontend():
-    logd = (ROOTFS / "overlay/usr/libexec/r36os/logd").read_text()
+    logd = (REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/logd").read_text()
     run = re.search(r"^cmd_run\(\) \{(.*?)^\}", logd, re.S | re.M).group(1)
     assert run.index("wait_frontend") < run.index("hw_snapshot")
     assert "/usr/libexec/r36os/hwinfo" in re.search(r"^hw_snapshot\(\) \{(.*?)^\}", logd,

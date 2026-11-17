@@ -7,13 +7,16 @@ import pytest
 from r36os.paths import REPO_ROOT
 
 OVERLAY = REPO_ROOT / "rootfs/overlay"
+# the lume-core fragment ships its files at the image paths; the package keeps the git modes
+CORE = REPO_ROOT / "aports/lume-core/files"
 EXECUTABLES = sorted(
-    p for d in ("etc/init.d", "usr/libexec/r36os", "usr/libexec/r36os/frontends", "usr/bin")
-    for p in (OVERLAY / d).glob("*")
+    p for tree in (OVERLAY, CORE)
+    for d in ("etc/init.d", "usr/libexec/r36os", "usr/libexec/r36os/frontends", "usr/bin")
+    for p in (tree / d).glob("*")
     if p.is_file() and p.suffix != ".sh"  # *.sh are libraries (lib.sh, logs.sh)
 )
 
 
-@pytest.mark.parametrize("path", EXECUTABLES, ids=lambda p: str(p.relative_to(OVERLAY)))
+@pytest.mark.parametrize("path", EXECUTABLES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
 def test_executable(path):
-    assert os.access(path, os.X_OK), f"{path.relative_to(OVERLAY)} is not executable"
+    assert os.access(path, os.X_OK), f"{path.relative_to(REPO_ROOT)} is not executable"

@@ -139,7 +139,7 @@ def test_no_quit_combo_and_menu_pauses():
 
 
 SHARE = REPO_ROOT / "rootfs/overlay/usr/share/r36os"
-FRONTEND = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os/frontends/retroarch"
+FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch"
 
 
 def test_volume_buttons_belong_to_the_input_daemon():

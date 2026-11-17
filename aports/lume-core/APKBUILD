@@ -1,0 +1,39 @@
+# Lume Retro OS: the core fragment (build-speed D2, first fragment). Scripts and settings only:
+# the shell libraries (lib.sh, logs.sh), the log daemon and its service, the OpenRC output
+# filter (rc-tee), the session, the boot log, the frontend service and its frontends, and the
+# identity files (hostname, issue, motd). The files live in files/ at the same paths and modes
+# they have in the image, and the package ships them as they are.
+#
+# Not here: /etc/os-release. The build writes it (version.os_release(), the system version) after
+# the packages are installed, so a copy in the package would only be overwritten; it stays in
+# rootfs/overlay as the fallback of a build without a version.
+#
+# noarch: built once in the x86_64 builder and published as the same .apk for every
+# architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
+pkgname=lume-core
+pkgver=1.0
+pkgrel=0
+pkgdesc="Core scripts and settings of Lume Retro OS (logs, session, frontend service)"
+url="https://example.invalid"
+arch="noarch"
+license="GPL-2.0-or-later"
+depends="openrc"
+options="!check" # tested on the host (tests/unit, tests/logs, tests/session shell suites)
+# etc/hostname, etc/issue, etc/motd and etc/conf.d/dmesg are files of Alpine packages; the
+# image has always carried the Lume version of them. replaces lets apk install them on top
+# and replaces_priority makes the Lume file win whichever package apk unpacks first.
+replaces="alpine-baselayout alpine-baselayout-data alpine-release openrc"
+replaces_priority=100
+builddir="$srcdir"
+
+build() {
+	:
+}
+
+package() {
+	mkdir -p "$pkgdir"
+	cp -a "$startdir"/files/. "$pkgdir"/
+	# a checkout may have any umask: pin the directories (the files keep the git modes)
+	find "$pkgdir" -type d -exec chmod 755 {} +
+	chown -R 0:0 "$pkgdir"
+}

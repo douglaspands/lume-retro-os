@@ -9,7 +9,7 @@ FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 
 LIBDIR=$PWD/rootfs/overlay/usr/libexec/r36os
-export R36OS_LIBDIR=$LIBDIR SELFTEST_DEVICE_SOURCE=1
+export R36OS_LIBDIR=$PWD/aports/lume-core/files/usr/libexec/r36os SELFTEST_DEVICE_SOURCE=1
 
 # One healthy console in $W; a scenario function may then break it
 fake_console() {  # board
