@@ -420,7 +420,8 @@ def test_boot_list_is_the_fat_content(tmp_path):
     (tmp_path / "VERSION").write_text("v\n")
     cmds = image.boot_copy_commands({p: src / p for p in files}, {tmp_path: "/out"})
     script = image._CONSOLE.split("# at least")[0].format(
-        boot_bytes=64 * 2**20, boot_start=0, **cmds)    # FAT32 needs some size
+        boot_bytes=64 * 2**20, boot_start=0, version="/out/VERSION",
+        **cmds)                                         # FAT32 needs some size
     r = subprocess.run(Container(image=ensure_builder(TARGETS["vm"]),
                                  volumes={tmp_path: "/out"}).argv(script),
                        capture_output=True, text=True)
@@ -529,7 +530,13 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(image.bootarea, "write_console_area", fake_area)
     monkeypatch.setattr(image, "Container", FakeContainer)
     monkeypatch.setattr(image, "ensure_builder", lambda target: "builder")
+    stored = {}
+    monkeypatch.setattr(image, "store_build_objects",
+                        lambda out, files, parts: stored.update(files=files, parts=parts))
     image.build_console_image(version.current())
+    # every BOOT file, VERSION and both image parts go to the objects (build-speed D10)
+    assert {"VERSION", "ga36/SYSTEM", "r36s/modules"} <= set(stored["files"])
+    assert set(stored["parts"]) == {image.AREA_PART, image.PANEL1_PART}
 
     mounts = set(captured["volumes"].values())
     assert len(mounts) == len(captured["volumes"])

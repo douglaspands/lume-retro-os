@@ -179,17 +179,29 @@ def build(tmp_path, monkeypatch):
     (d / "boot-files.sha256").write_text("".join(f"{sha(NEW[p])}  {p}\n" for p in order))
     (d / push.PANEL1_IMAGE).write_bytes(PANEL1)
     (tmp_path / "out/images/console/latest").symlink_to(BUILD)
+    # build-speed D10: every BOOT file of the build is out/images/objects/<sha256>
+    objects = tmp_path / "out/images/objects"
+    objects.mkdir()
+    for data in NEW.values():
+        (objects / sha(data)).write_bytes(data)
     return d
 
 
-def extractor(tmp_path):
+def extractor(tmp_path, calls=None):
+    """The image unpacking of a build archived before the objects."""
     def extract(build_dir, wanted):
+        if calls is not None:
+            calls.append(list(wanted))
         stage = tmp_path / "stage"
         for p in wanted:
             (stage / p).parent.mkdir(parents=True, exist_ok=True)
             (stage / p).write_bytes(NEW[p])
         return stage
     return extract
+
+
+def no_unpacking(build_dir, wanted):
+    raise AssertionError(f"the image was unpacked for {wanted}")
 
 
 def console_with(**kw):
@@ -201,9 +213,97 @@ def console_with(**kw):
 def run_push(tmp_path, console, wait=False, **kw):
     lines = []
     clock = getattr(console, "clock", None) or Clock()
-    rc = push.push("latest", console, yes=True, extractor=extractor(tmp_path),
-                   out=lines.append, wait=wait, sleep=clock.sleep, now=clock.now, **kw)
+    kw.setdefault("extractor", no_unpacking)
+    rc = push.push("latest", console, yes=True, out=lines.append, wait=wait,
+                   sleep=clock.sleep, now=clock.now, **kw)
     return rc, lines
+
+
+def sent_files(console):
+    return {s[5:] for s in console.log if s.startswith("send ")} - {"SHA256SUMS"}
+
+
+# --- content-addressed archive (build-speed D10, task 4.3) --------------------------------
+
+def test_nothing_changed_but_version_sends_nothing(build, tmp_path):
+    # VERSION differs in every build: left out of the comparison
+    c = FakeConsole(board="r36s", boot={**NEW, "VERSION": b"build: 20261113-090000\n"})
+    rc, out = run_push(tmp_path, c, wait=True)
+    assert rc == 0 and c.log == ["probe"] and c.clock.sleeps == 0
+    assert out[-1] == ("nothing to send: the console already has every file of this build "
+                       "(only VERSION differs)")
+    # the same on the GA36 when its boot sector already holds the panel 1 image
+    c = FakeConsole(board="ga36", sector=PANEL1, boot={**NEW, "VERSION": b"x"})
+    rc, out = run_push(tmp_path, c)
+    assert rc == 0 and "reboot" not in c.log and "only VERSION differs" in out[-1]
+
+
+def test_version_goes_with_the_ga36_boot_sector_when_only_it_changed(build, tmp_path):
+    c = FakeConsole(board="ga36", boot={**NEW, "VERSION": b"x"})
+    rc, _ = run_push(tmp_path, c)
+    assert rc == 0 and sent_files(c) == {"VERSION", push.PANEL1_IMAGE}
+    assert c.sector == PANEL1 and c.boot["VERSION"] == NEW["VERSION"]
+
+
+def test_one_file_changed_goes_with_version_read_from_the_objects(build, tmp_path):
+    c = FakeConsole(board="r36s", boot={**NEW, "ga36/zImage": b"old z", "VERSION": b"x"})
+    rc, out = run_push(tmp_path, c)                 # the extractor fails if called
+    assert rc == 0 and sent_files(c) == {"ga36/zImage", "VERSION"}
+    assert c.staging["ga36/zImage"] == NEW["ga36/zImage"]
+    swaps = [s for s in c.log if s.startswith("swap")]
+    assert swaps == ["swap ga36/zImage", "swap VERSION"]          # VERSION last
+    assert not any("unpacking" in line or line.startswith("note:") for line in out)
+    assert c.boot == NEW
+
+
+def test_plan_files_puts_version_last_and_only_with_another_file():
+    boot_list = [("a", "1" * 64), ("b", "2" * 64), ("VERSION", "3" * 64)]
+    on_console = console_with(boot_sums={"a": "1" * 64, "b": "0" * 64, "VERSION": "3" * 64})
+    assert push.plan_files(boot_list, on_console) == [("b", "2" * 64), ("VERSION", "3" * 64)]
+    on_console.boot_sums["b"] = "2" * 64
+    assert push.plan_files(boot_list, on_console) == []
+    on_console.boot_sums["VERSION"] = "9" * 64
+    assert push.plan_files(boot_list, on_console) == []
+    assert push.plan_files(boot_list, on_console, other_change=True) == [("VERSION", "3" * 64)]
+
+
+def test_an_older_archived_build_is_unpacked_once_and_its_files_stored(build, tmp_path):
+    # a build archived before the objects: only the .img.zst and the BOOT list
+    objects = tmp_path / "out/images/objects"
+    for f in objects.iterdir():
+        f.unlink()
+    calls = []
+    c = FakeConsole(board="r36s")
+    rc, out = run_push(tmp_path, c, extractor=extractor(tmp_path, calls))
+    assert rc == 0 and c.boot == {**NEW, "r36s/SYSTEM.old": b"old r"}
+    assert calls == [["ga36/SYSTEM", "ga36/zImage", "r36s/SYSTEM", "VERSION"]]
+    assert any(line.startswith(f"note: build {BUILD} has no stored object for 4 file(s)")
+               for line in out)
+    # the files read from the image are now objects: the next push does not unpack
+    assert {f.name for f in objects.iterdir()} == {sha(NEW[p]) for p in calls[0]}
+    c2 = FakeConsole(board="ga36")
+    rc, out = run_push(tmp_path, c2)                # no_unpacking
+    assert rc == 0 and c2.boot == {**NEW, "ga36/SYSTEM.old": b"old"}
+
+
+def test_an_older_build_whose_image_differs_from_its_list_is_refused(build, tmp_path):
+    for f in (tmp_path / "out/images/objects").iterdir():
+        f.unlink()
+
+    def damaged(build_dir, wanted):
+        stage = extractor(tmp_path)(build_dir, wanted)
+        (stage / "ga36/SYSTEM").write_bytes(b"damaged")
+        return stage
+    c = FakeConsole(board="r36s")
+    with pytest.raises(push.PushError, match="ga36/SYSTEM read from the image does not match"):
+        run_push(tmp_path, c, extractor=damaged)
+    assert not [s for s in c.log if s.startswith("send")]
+
+
+def test_a_garbled_boot_list_is_refused(build, tmp_path):
+    (build / "boot-files.sha256").write_text(f"{sha(b'x')}  ga36/SYSTEM\n")   # no VERSION
+    with pytest.raises(push.PushError, match="VERSION is not the last line"):
+        run_push(tmp_path, FakeConsole())
 
 
 def test_push_sends_checks_swaps_and_reboots_in_order(build, tmp_path):

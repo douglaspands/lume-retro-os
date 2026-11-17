@@ -97,7 +97,7 @@ truncate -s {boot_bytes} $W/boot.img
 mkfs.vfat -F 32 -n BOOT -h {boot_start} -S 512 $W/boot.img >/dev/null
 export MTOOLS_SKIP_CHECK=1
 M="mcopy -i $W/boot.img"
-$M /out/VERSION ::VERSION
+$M {version} ::VERSION
 # every other file from console_boot_files() (the same list flash and push use, task 5.1)
 mmd -i $W/boot.img {dirs}
 {copies}
@@ -120,8 +120,8 @@ truncate -s {image_bytes} $W/disk.img
 printf 'label: dos\\nlabel-id: 0x{disk_id}\\nstart={boot_start}, size={boot_sectors}, type=c, bootable\\n' \\
     | sfdisk -q $W/disk.img
 # boot area of both consoles without sector 0 (the MBR is ours), then the panel 1 boot image
-dd if=/out/{area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
-dd if=/ga36/kernel/android-boot-panel1.img of=$W/disk.img bs=512 seek={android} conv=notrunc status=none
+dd if={area_file} of=$W/disk.img bs=512 skip=1 seek=1 count={area_sectors} conv=notrunc status=none
+dd if={panel1} of=$W/disk.img bs=512 seek={android} conv=notrunc status=none
 dd if=$W/boot.img of=$W/disk.img bs=512 seek={boot_start} conv=notrunc,sparse status=none
 mv $W/disk.img /out/console.img
 rm -rf $W
@@ -290,7 +290,7 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     """
     import shutil
 
-    from r36os import bootarea, r36s_vendor, vendor
+    from r36os import r36s_vendor
     from r36os.paths import ensure_dir
     from r36os.targets import IMAGES
 
@@ -315,19 +315,134 @@ def build_console_image(v: version.BuildVersion, language: str = "en") -> Path:
     staged = {**files, **{name: staging / name for name in factory}}
     volumes = {out: "/out", ga36_out: "/ga36", r36s_out: "/r36s",
                REPO_ROOT / "board/r36s": "/board"}
-    script = _CONSOLE.format(
-        **boot_copy_commands(staged, volumes),
+    panel1 = ga36_out / "kernel" / PANEL1_SOURCE
+    script = _console_script(staged, volumes, "/out/VERSION", f"/out/{area.name}",
+                             f"/ga36/kernel/{PANEL1_SOURCE}")
+    # the image does not depend on the target arch: always the x86_64 builder
+    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
+    # build-speed D10: every file of BOOT and both pieces outside it, once in objects/
+    store_build_objects(out, {**staged, VERSION_FILE: out / "VERSION"},
+                        {AREA_PART: area, PANEL1_PART: panel1})
+    area.unlink()
+    return out / "console.img"
+
+
+def _console_script(files: dict[str, Path], volumes: dict[Path, str], version_src: str,
+                    area_src: str, panel1_src: str) -> str:
+    """The script that makes console.img and its BOOT list in /out (paths in the container)."""
+    from r36os import vendor
+
+    return _CONSOLE.format(
+        **boot_copy_commands(files, volumes),
+        version=version_src,
         boot_bytes=boot_sectors("console") * 512,
         boot_start=boot_start("console"),
         boot_sectors=boot_sectors("console"),
         image_bytes=(boot_start("console") + boot_sectors("console")) * 512,
         disk_id=disk_id("console"),
         min_free=BOOT_MIN_FREE,
-        area_file=area.name,
+        area_file=area_src,
         area_sectors=bootarea.AREA_SECTORS - 1,
         android=vendor.ANDROID_BOOT_SECTOR,
+        panel1=panel1_src,
     )
-    # the image does not depend on the target arch: always the x86_64 builder
-    Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
-    area.unlink()
-    return out / "console.img"
+
+
+# --- content-addressed archive (build-speed D10) ----------------------------------------
+#
+# Each file of BOOT is out/images/objects/<sha256>, stored once for every build that has it
+# (boot-files.sha256 names them). The two pieces of the console image outside BOOT are
+# objects too, named by image-parts.sha256 (same `<sha256>  <name>` lines): with both lists
+# `flash` assembles the image of a build that has no .img.zst.
+
+IMAGE_PARTS = "image-parts.sha256"
+AREA_PART = "boot-area"                     # bootarea.write_console_area(), 128 MiB
+PANEL1_PART = "android-boot-panel1"         # GA36 kernel boot image at sector 172032
+PANEL1_SOURCE = "android-boot-panel1.img"   # in out/ga36/kernel/
+VERSION_FILE = "VERSION"
+
+
+def format_image_parts(parts: dict[str, str]) -> str:
+    from r36os import manifests
+
+    if set(parts) != {AREA_PART, PANEL1_PART}:
+        raise manifests.ManifestError(f"{IMAGE_PARTS}: expected {AREA_PART} and "
+                                      f"{PANEL1_PART}, got {sorted(parts)}")
+    for name, sha in parts.items():
+        manifests.object_path(Path("."), sha)           # checks the sha256
+    return "".join(f"{parts[n]}  {n}\n" for n in (AREA_PART, PANEL1_PART))
+
+
+def read_image_parts(path: Path) -> dict[str, str]:
+    """name -> sha256 of the pieces of the image outside BOOT."""
+    from r36os import manifests
+
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        raise manifests.ManifestError(f"{path}: missing") from None
+    parts = {}
+    for n, line in enumerate(text.splitlines(), start=1):
+        sha, sep, name = line.partition("  ")
+        if not sep or name in parts:
+            raise manifests.ManifestError(f"{path}: line {n}: not `<sha256>  <name>`")
+        parts[name] = sha
+    format_image_parts(parts)                           # same checks as the writer
+    return parts
+
+
+def store_build_objects(out: Path, files: dict[str, Path], parts: dict[str, Path]) -> None:
+    """Store every file of out/boot-files.sha256 (BOOT path -> source in `files`) and the
+    image `parts` in objects/, and write out/image-parts.sha256. A source that differs from
+    what the FAT holds stops the build."""
+    from r36os import manifests
+    from r36os.archive import objects_dir
+
+    objects = objects_dir()
+    for path, sha in manifests.read_boot_list(out / BOOT_LIST):
+        src = files.get(path)
+        if src is None:
+            raise ConsoleImageError(f"{path} is on BOOT but not in the files of the build")
+        if manifests.store_object(objects, src) != sha:
+            raise ConsoleImageError(f"{path} on the FAT differs from its source {src}")
+    stored = {name: manifests.store_object(objects, src) for name, src in parts.items()}
+    manifests._write_atomic(out / IMAGE_PARTS, format_image_parts(stored))
+
+
+def assemble_console_image(build_dir: Path, dest: Path, runner=None) -> Path:
+    """The card image of an archived console build, made again from its objects (for a
+    build without .img.zst). The BOOT list read back from the new FAT must be the archived
+    one."""
+    import shutil
+
+    from r36os import manifests
+    from r36os.archive import objects_dir
+
+    objects = objects_dir()
+    boot_list = manifests.read_boot_list(build_dir / BOOT_LIST)
+    parts = read_image_parts(build_dir / IMAGE_PARTS)
+    missing = manifests.missing_objects(objects, [*boot_list, *parts.items()])
+    if missing:
+        raise ConsoleImageError(f"build {build_dir.name}: no object in {objects} for "
+                                + ", ".join(missing))
+    work = dest.parent / f"assemble-{build_dir.name}"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    volumes = {work: "/out", objects: "/obj"}
+    files = {p: manifests.object_path(objects, sha) for p, sha in boot_list
+             if p != VERSION_FILE}
+    script = _console_script(files, volumes, f"/obj/{dict(boot_list)[VERSION_FILE]}",
+                             f"/obj/{parts[AREA_PART]}", f"/obj/{parts[PANEL1_PART]}")
+    try:
+        if runner is not None:
+            runner(volumes, script)
+        else:
+            Container(image=ensure_builder(TARGETS["vm"]), volumes=volumes).sh(script)
+        built = manifests.read_boot_list(work / BOOT_LIST)
+        if dict(built) != dict(boot_list):
+            raise ConsoleImageError(f"the BOOT assembled from the objects of {build_dir.name} "
+                                    f"differs from its {BOOT_LIST}")
+        (work / "console.img").replace(dest)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return dest
