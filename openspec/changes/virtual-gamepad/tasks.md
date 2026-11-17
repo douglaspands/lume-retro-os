@@ -29,7 +29,8 @@ sessão principal (merge, build, aparelho, aprovação do usuário).
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | V1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | V2 |
 
-Modelos: propostos, aguardando aprovação do usuário.
+Modelos aprovados pelo usuário em 2026-11-17 ("crie e execute", como na tabela, ondas em
+paralelo).
 
 **Trilhas e caminho crítico:**
 
