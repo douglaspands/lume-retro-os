@@ -90,6 +90,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         return img
 
     monkeypatch.setattr(build, "build_layer", fake_layer)
+    monkeypatch.setattr(build, "build_noarch_fragments", lambda rebuild, timer: None)
     monkeypatch.setattr(build.image, "build_console_image", fake_console_image)
     build.build_image_target(get_image("console"))
 

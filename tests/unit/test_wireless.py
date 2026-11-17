@@ -59,7 +59,7 @@ def test_services_start_without_holding_the_frontend():
     early = re.search(r'^for s in seatd .*?; do', CONFIGURE, re.S | re.M).group(0)
     assert not re.search(r"\b(dbus|networkmanager|bluetooth)\b", early)
     assert re.search(r"^ga36\|r36s\) add bluetooth default ;;$", CONFIGURE, re.M)
-    deps = (OVERLAY / "etc/init.d/frontend").read_text()
+    deps = (REPO_ROOT / "aports/lume-core/files/etc/init.d/frontend").read_text()
     assert not re.search(r"\b(net|networkmanager|bluetooth|dbus)\b",
                          re.search(r"depend\(\) \{(.*?)\n\}", deps, re.S).group(1))
     # wpa_supplicant is started by NetworkManager through D-Bus, never as a service

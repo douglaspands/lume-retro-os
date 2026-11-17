@@ -69,7 +69,7 @@ export BOARD_FILE="$W/board" CONFIGFS="$W/cfg" UDC_CLASS="$W/udc" FFS_DIR="$W/ff
 	UMTPRD="$W/bin/umtprd" UMTPRD_CONF="$W/umtprd.conf" USB_RUN="$W/run" \
 	SOC0_DIR="$W/soc0" MMC_DEVICE="$W/mmc" GAME_UID=1000 GAME_GID=1000 \
 	MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" MOUNTPOINT="$W/bin/mountpoint" \
-	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os" \
+	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os" \
 	LOGS_RAM="$W/logs" NET_CLASS="$W/net" IP="$W/bin/ip" UDHCPD="$W/bin/udhcpd" \
 	DROPBEAR="$W/bin/dropbear"
 EV="$W/logs/events.pending"

@@ -12,7 +12,10 @@ from r36os import (bootimg, heat, image, kernel, lang, parallel, rootfs, stage_i
                    version)
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
-from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
+from r36os.packages import (REPO_ARCHES, arch_repo_dir, build_noarch, build_packages,
+                            ensure_key, is_noarch_aport, local_aports, publish_noarch,
+                            repo_dir)
+from r36os.paths import REPO_ROOT
 from r36os.stages import StageTimer
 from r36os.targets import TARGETS, ImageTarget, Target
 
@@ -75,6 +78,10 @@ def _build_image_target(img_target: ImageTarget, rebuild_packages: bool, languag
                         ) -> None:
     v = version.current()  # one timestamp per build, in every stage and layer (D15)
     print(f"build {img_target.name} {v.build_id} (language {language})", flush=True)
+    # noarch fragments (build-speed D2) come before any per-arch package and rootfs: built
+    # once, then the same .apk is in the repository of every arch; then the arch
+    # pipelines (in parallel on the console, build-speed D17)
+    build_noarch_fragments(rebuild_packages, timer)
     layers = _build_layers(img_target, v, language, rebuild_packages, timer,
                            [] if arch_timers is None else arch_timers)
     extras = {}
@@ -110,8 +117,10 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     console = target.name in kernel.KERNEL_TARGETS
     # [2] local packages (only those missing from the repository, unless rebuilding)
     ensure_key(target)
-    missing = [n for n in local_aports(target)
-               if rebuild_packages or not _has_package(target, n)]
+    # the noarch fragments were built and published by build_noarch_fragments, not per arch
+    noarch = set(noarch_fragments())
+    missing = [n for n in local_aports(target) if n not in noarch
+               and (rebuild_packages or not _has_package(target, n))]
     if missing:
         with timer.stage(p + "local packages"):
             build_packages(target, missing)
@@ -135,6 +144,39 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
     # [4] VM: the initramfs carries modules from the rootfs
     if not console:
         _initramfs_stage(target, timer, p)
+
+
+def noarch_fragments() -> list[str]:
+    """The aports that say arch="noarch" (fragments built once for every architecture)."""
+    return [n for n in local_aports()
+            if is_noarch_aport(REPO_ROOT / "aports" / n / "APKBUILD")]
+
+
+def _missing_noarch(rebuild_packages: bool) -> list[str]:
+    """Fragments with no .apk in the repository of some architecture (all, if rebuilding)."""
+    return [n for n in noarch_fragments()
+            if rebuild_packages
+            or any(not list(arch_repo_dir(a).glob(f"{n}-[0-9]*.apk")) for a in REPO_ARCHES)]
+
+
+def build_noarch_fragments(rebuild_packages: bool = False,
+                           timer: StageTimer | None = None) -> None:
+    """Build the missing noarch fragments once (x86_64 builder) and publish the same .apk
+    in out/repo/<arch> for every arch, each index rebuilt. Runs before the arch packages."""
+    timer = timer or StageTimer()
+    missing = _missing_noarch(rebuild_packages)
+    if not missing:
+        timer.skip("noarch fragments", "all in the repository")
+        return
+    with timer.stage("noarch fragments"):
+        apks = build_noarch(missing)  # makes the abuild key too
+        if rebuild_packages:
+            # a rebuild is a different file under the same name: publish refuses to mix them
+            for n in missing:
+                for a in REPO_ARCHES:
+                    for old in arch_repo_dir(a).glob(f"{n}-[0-9]*.apk"):
+                        old.unlink()
+        publish_noarch(apks)
 
 
 def _initramfs_stage(target: Target, timer: StageTimer, prefix: str) -> None:

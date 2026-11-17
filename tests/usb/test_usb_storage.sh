@@ -28,7 +28,7 @@ grep -v " \$dir " "$W/mounts" > "$W/mounts.new"; mv "$W/mounts.new" "$W/mounts"
 EOF
 chmod +x "$W/bin/"*
 export USB_MOUNT_ROOT="$W/usb" MOUNTS_FILE="$W/mounts" MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" \
-	DEV_DIR="$W/dev" GAME_UID=1000 GAME_GID=1000 USB_LIBDIR="$PWD/rootfs/overlay/usr/libexec/r36os" \
+	DEV_DIR="$W/dev" GAME_UID=1000 GAME_GID=1000 USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os" \
 	LOGS_RAM="$W/logs" KMSG="$W/kmsg"
 EV="$W/logs/events.pending"
 

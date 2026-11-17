@@ -4,7 +4,8 @@ import re
 
 from r36os.paths import REPO_ROOT
 
-LIBEXEC = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os"
+LIBEXEC = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os"  # lume-core fragment
+OVERLAY_LIBEXEC = REPO_ROOT / "rootfs/overlay/usr/libexec/r36os"  # still in the overlay
 LOGD = (LIBEXEC / "logd").read_text()
 LOGS_SH = (LIBEXEC / "logs.sh").read_text()
 DOC = (REPO_ROOT / "docs/LOGS.md").read_text()
@@ -90,7 +91,7 @@ def test_freeze_is_flushed_at_once():
 
 def test_menu_language_choice_survives_builds():
     # the build language only seeds a new card; the user's menu choice is never rewritten
-    persist = (LIBEXEC / "persist").read_text()
+    persist = (OVERLAY_LIBEXEC / "persist").read_text()
     assert "lang_sync" not in persist and "user_language" not in persist
     doc = (REPO_ROOT / "docs/FRONTEND.md").read_text()
     assert "system/etc/language" not in doc
@@ -103,7 +104,7 @@ def test_single_card_logs_documented():
     assert 'echo "== console: $(board)"' in bootlog and "`== console: r36s`" in DOC
     assert 'event boot OK "started: $(board) ' in LOGD and "boot OK started: <console>" in DOC
     assert "numeração dos boots é uma só" in DOC
-    assert 'kv board "$(board)"' in (LIBEXEC / "hwinfo").read_text() and "o campo `board`" in DOC
+    assert 'kv board "$(board)"' in (OVERLAY_LIBEXEC / "hwinfo").read_text() and "o campo `board`" in DOC
 
 
 def test_conf_defaults_documented():

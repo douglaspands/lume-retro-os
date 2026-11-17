@@ -15,9 +15,21 @@ import pytest
 
 from r36os.paths import REPO_ROOT, out_dir
 
-TARGETS = ("vm", "ga36", "r36s")
 # the VM's Mesa is the local build with virgl (aports/mesa, arch x86_64)
 HW_VARIANTS = re.compile(r"^mesa(-.*)?$")
+
+
+def _targets() -> tuple[str, ...]:
+    """The systems to compare. The vm image is out of the build cycle since build-speed D13:
+    it only takes part when its latest image is of the same build as the console one."""
+    images = out_dir() / "images"
+    vm, console = images / "vm" / "latest", images / "console" / "latest"
+    if vm.exists() and console.exists() and vm.resolve().name == console.resolve().name:
+        return ("vm", "ga36", "r36s")
+    return ("ga36", "r36s")
+
+
+TARGETS = _targets()
 
 
 def _manifest(target: str) -> dict[str, str]:
