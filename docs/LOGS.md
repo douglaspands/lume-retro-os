@@ -118,6 +118,7 @@ Uma linha por evento:
 | `battery` | abaixo de 10% (`FAIL`) |
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
+| `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
 ### O que o `r36os push` e o `r36os dev` leem

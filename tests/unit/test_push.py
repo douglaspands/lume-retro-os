@@ -604,3 +604,194 @@ def test_ssh_drops_a_dead_connection_and_a_hung_probe_is_no_answer(monkeypatch):
     monkeypatch.setattr(push.subprocess, "run", hung)
     assert push.Remote().answers() is False
     assert seen["timeout"] == push.PROBE_TIMEOUT
+
+
+# --- push --hot (build-speed D11, task 5.1) -------------------------------------------------
+
+HOT_VERSION = "1.0-r3"
+HOT_FILES = {"usr/libexec/r36os/session": b"#!/bin/sh\necho new session\n",
+             "etc/init.d/frontend": b"#!/sbin/openrc-run\n",
+             "etc/init.d/r36os-logd": b"#!/sbin/openrc-run\n"}
+
+
+class FakeHotConsole:
+    """Answers the --hot commands: probe, tar extraction (unpacked into a dict), event and
+    service restarts; records every command in order."""
+
+    def __init__(self, machine="armv7l", overlay=True, ram_free=20 << 20,
+                 running=("frontend", "r36os-logd"), failing=()):
+        self.machine, self.overlay, self.ram_free = machine, overlay, ram_free
+        self.running, self.failing = set(running), set(failing)
+        self.cmds = []
+        self.root = {}
+
+    def run(self, cmd, stdin=None):
+        import tarfile
+
+        self.cmds.append(cmd)
+        if cmd.lstrip().startswith("uname -m"):
+            return (f"{self.machine}\nga36\n{'overlay' if self.overlay else 'none'}\n"
+                    f"{self.ram_free >> 10}\n")
+        if cmd == "tar -xf - -C /":
+            with tarfile.open(stdin) as tf:
+                for m in tf:
+                    f = tf.extractfile(m) if m.isreg() else None
+                    self.root[m.name] = (f.read() if f else None, m.pax_headers)
+            return ""
+        if cmd.startswith("for s in"):
+            names = cmd.split("for s in ", 1)[1].split("; do", 1)[0].split()
+            return "".join(("failed" if n in self.failing else "restarted" if n in
+                            self.running else "stopped") + f" {n}\n" for n in names)
+        return ""
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """out/repo/<arch>/ with lume-core published (noarch: the same file in every arch)."""
+    from r36os import manifests
+    from tests.unit.test_fragments import make_apk
+
+    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    for arch in ("armv7", "aarch64", "x86_64"):
+        d = tmp_path / "out/repo" / arch
+        name = f"lume-core-{HOT_VERSION}.apk"
+        make_apk(d / name, "lume-core", HOT_VERSION, files=HOT_FILES)
+        manifests.write_hashes(d / "hashes.json", manifests.RepoHashes(arch, {
+            "lume-core": manifests.PackageHashes(HOT_VERSION, "a" * 64, "b" * 64, name)}))
+    return tmp_path / "out/repo"
+
+
+def hot(console, tmp_path, fragment="lume-core", aports=None):
+    from r36os import push_hot
+
+    lines = []
+    rc = push_hot.push_hot(fragment, console, out=lines.append,
+                           aports=aports or tmp_path / "aports")
+    return rc, lines
+
+
+def test_hot_extracts_the_files_logs_the_event_and_restarts_the_services(repo, tmp_path):
+    console = FakeHotConsole()
+    rc, lines = hot(console, tmp_path)
+    assert rc == 0
+    # only the data files go, without control members or the APK checksum headers
+    files = {n: d for n, (d, _) in console.root.items() if d is not None}
+    assert files == HOT_FILES
+    assert not any(n.lstrip("./").startswith(".") for n in console.root)
+    assert all(not pax for _, pax in console.root.values())
+    probe, extract, event, restart = console.cmds
+    assert extract == "tar -xf - -C /"
+    assert event == (". /usr/libexec/r36os/lib.sh && . /usr/libexec/r36os/logs.sh && "
+                     f"event push OK hot lume-core {HOT_VERSION} && {{ logs_flush; true; }}")
+    assert restart.startswith("for s in frontend r36os-logd; do")
+    assert f"event:   push OK hot lume-core {HOT_VERSION}" in lines
+    assert any("restarts the launcher session" in ln for ln in lines)
+    assert "restart: frontend" in lines and "restart: r36os-logd" in lines
+    assert lines[-1] == f"ok: lume-core {HOT_VERSION} is live until the next reboot"
+    # nothing touches BOOT, the card's SYSTEM or apk
+    assert not any("/boot" in c or "apk add" in c or "reboot" in c for c in console.cmds)
+
+
+def test_hot_takes_the_package_of_the_console_arch(repo, tmp_path):
+    (repo / "armv7/hashes.json").unlink()
+    with pytest.raises(push.PushError, match=r"not in .*armv7/hashes.json"):
+        hot(FakeHotConsole(machine="armv7l"), tmp_path)
+    assert hot(FakeHotConsole(machine="aarch64"), tmp_path)[0] == 0
+
+
+def test_hot_restarts_what_lume_restart_lists_and_leaves_stopped_services(repo, tmp_path):
+    aports = tmp_path / "aports"
+    (aports / "lume-core").mkdir(parents=True)
+    (aports / "lume-core/APKBUILD").write_text(
+        'pkgname=lume-core\n_lume_restart="r36os-logd lume-extra"\n')
+    console = FakeHotConsole(running=("r36os-logd",))
+    rc, lines = hot(console, tmp_path, aports=aports)
+    assert rc == 0 and console.cmds[-1].startswith("for s in r36os-logd lume-extra; do")
+    assert "restart: lume-extra not running, left stopped" in lines
+    assert not any("launcher session" in ln for ln in lines)
+
+
+def test_hot_reports_a_failed_restart_with_a_fail_event(repo, tmp_path):
+    console = FakeHotConsole(failing=("r36os-logd",))
+    with pytest.raises(push.PushError, match="restart of r36os-logd failed"):
+        hot(console, tmp_path)
+    assert f"event push FAIL hot lume-core {HOT_VERSION} restart r36os-logd" in console.cmds[-1]
+
+
+@pytest.mark.parametrize("fragment,why", [
+    ("lume-kernel", "only changes with a reboot"),
+    ("lume-modules", "only changes with a reboot"),
+    ("lume-dtbs", "only changes with a reboot"),
+    ("retroarch", "not a project fragment"),
+    ("busybox", "not a project fragment"),
+])
+def test_hot_refuses_kernel_modules_and_foreign_packages_before_ssh(fragment, why, tmp_path):
+    console = FakeHotConsole()
+    with pytest.raises(push.PushError, match=why) as e:
+        hot(console, tmp_path, fragment)
+    assert "r36os push" in str(e.value) and console.cmds == []
+
+
+def test_hot_refuses_the_base_slot(tmp_path, monkeypatch):
+    from r36os import push_hot
+
+    slots = tmp_path / "slots.toml"
+    slots.write_text('[base]\npackages = ["lume-base-files"]\n')
+    monkeypatch.setattr(push_hot, "SLOTS_MAP", slots)
+    assert push_hot.base_slot_packages(slots) == {"lume-base-files"}
+    assert "base slot" in push_hot.refusal("lume-base-files", push_hot.base_slot_packages(slots))
+    with pytest.raises(push.PushError, match="base slot"):
+        hot(FakeHotConsole(), tmp_path, "lume-base-files")
+    assert push_hot.base_slot_packages(tmp_path / "missing.toml") == set()
+
+
+def test_hot_refuses_a_fragment_that_ships_boot_files(repo, tmp_path):
+    from r36os import manifests
+    from tests.unit.test_fragments import make_apk
+
+    name = "lume-odd-1.0-r0.apk"
+    make_apk(repo / "armv7" / name, "lume-odd", "1.0-r0", files={"boot/zImage": b"k"})
+    hashes = manifests.read_hashes(repo / "armv7/hashes.json", "armv7")
+    hashes.packages["lume-odd"] = manifests.PackageHashes("1.0-r0", "a" * 64, "b" * 64, name)
+    manifests.write_hashes(repo / "armv7/hashes.json", hashes)
+    console = FakeHotConsole()
+    with pytest.raises(push.PushError, match="boot file"):
+        hot(console, tmp_path, "lume-odd")
+    assert len(console.cmds) == 1          # only the probe
+
+
+def test_hot_fragment_not_in_the_repo(repo, tmp_path):
+    with pytest.raises(push.PushError, match="build it first"):
+        hot(FakeHotConsole(), tmp_path, "lume-missing")
+
+
+def test_hot_fragment_whose_apk_is_gone(repo, tmp_path):
+    (repo / f"armv7/lume-core-{HOT_VERSION}.apk").unlink()
+    with pytest.raises(push.PushError, match="missing"):
+        hot(FakeHotConsole(), tmp_path)
+
+
+def test_hot_checks_the_room_of_the_ram_layer_before_writing(repo, tmp_path):
+    console = FakeHotConsole(ram_free=512 << 10)
+    with pytest.raises(push.PushError, match="RAM layer has 512 KiB free"):
+        hot(console, tmp_path)
+    assert len(console.cmds) == 1          # only the probe: nothing written
+
+
+def test_hot_needs_the_ram_overlay_root(repo, tmp_path):
+    console = FakeHotConsole(overlay=False)
+    with pytest.raises(push.PushError, match="would write to the card"):
+        hot(console, tmp_path)
+    assert len(console.cmds) == 1
+
+
+def test_hot_unknown_console_arch(repo, tmp_path):
+    with pytest.raises(push.PushError, match="mips"):
+        hot(FakeHotConsole(machine="mips"), tmp_path)
+
+
+def test_cli_push_hot():
+    args = cli._parser().parse_args(["push", "--hot", "lume-core"])
+    assert (args.command, args.hot) == ("push", "lume-core")
+    assert cli._parser().parse_args(["push"]).hot is None

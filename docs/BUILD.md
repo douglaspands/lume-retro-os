@@ -324,3 +324,33 @@ reboot)`, `the console is back but still runs boot N, the one before the reboot`
 `boot N runs build X from /boot/VERSION, not the pushed build Y` ou `boot N did not reach
 boot OK completed within 120s ... see r36os dev log`. Depois de um `push`, `r36os dev
 check` confirma a saúde do sistema.
+
+### `r36os push --hot <fragmento>`: sem reboot, só na RAM
+
+`r36os push --hot lume-core` põe um fragmento no console em execução sem reiniciar (design
+D11). A raiz do console é um overlay das camadas só de leitura do cartão com uma camada
+gravável de 32 MiB em RAM (`/rw/upper`): os arquivos vão para essa camada e **somem no
+reboot**, quando o console volta ao conjunto do cartão. Nada é gravado no cartão, a não ser a
+linha do `events.log`.
+
+1. pergunta ao console a arquitetura (`uname -m`: `armv7l` → `armv7`, `aarch64`; o mesmo
+   cartão roda no GA36 e no R36S), se `/` é o overlay com a camada em RAM e o espaço livre
+   nela (`df /rw/upper`);
+2. pega a versão mais nova do fragmento em `out/repo/<arch>/hashes.json` (os noarch estão em
+   todas as arquiteturas);
+3. monta no PC um tar só com os arquivos de dados do `.apk` (sem `.PKGINFO`, assinaturas,
+   `.lume-content` nem scripts de instalação; o `apk add` não roda no console, P-14), confere
+   que cabe na camada em RAM (mais 1 MiB de folga) e o extrai com `tar -xf - -C /`;
+4. grava `push OK hot <fragmento> <versão>` no `events.log` pelo `event` do próprio console
+   (`logs.sh`) e descarrega no cartão;
+5. reinicia os serviços do fragmento que estão rodando: os de `_lume_restart="a b"` no
+   `APKBUILD`, quando ele tem a variável (vazia: nenhum), senão os `init.d` que ele traz.
+   Reiniciar o `frontend` reinicia a sessão do launcher (a saída avisa). Uma falha grava
+   `push FAIL hot <fragmento> <versão> restart <serviços>` e sai com código 1.
+
+Recusados, com a indicação do `push` normal: `lume-kernel`, `lume-modules`, `lume-dtbs`, os
+pacotes do slot `base` (`rootfs/slots.toml`), todo pacote que não seja `lume-*` ou `r36os-*`
+e todo fragmento com arquivos em `/boot` ou `/lib/modules`. Também recusa um console cuja raiz
+não é o overlay em RAM (escreveria no cartão), um fragmento fora do `out/repo/<arch>` e falta
+de espaço na camada em RAM (o reboot a esvazia). Um arquivo que a versão nova deixou de trazer
+continua lá até o reboot.

@@ -50,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("--no-wait", action="store_true",
                    help="reboot and return, without waiting for the console to come back "
                         "and checking the new boot")
+    u.add_argument("--hot", metavar="FRAGMENT",
+                   help="extract one lume-*/r36os-* fragment into the console's RAM layer "
+                        "and restart its services, without a reboot (gone after a reboot; "
+                        "not for kernel, modules or base)")
 
     dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
                                     "keys, log)")
@@ -197,6 +201,10 @@ def _main(args: argparse.Namespace) -> int:
 
             return main_flash(get_image(args.target), args.device, args.update,
                               args.build, args.yes, args.eject)
+        if args.command == "push" and args.hot:
+            from r36os.push_hot import main_push_hot
+
+            return main_push_hot(args.hot)
         if args.command == "push":
             from r36os.push import main_push
 
