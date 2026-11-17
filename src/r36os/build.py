@@ -149,24 +149,42 @@ def build_layer(target: Target, v: version.BuildVersion, language: str,
 
 
 def build_console_slots(target: Target, v: version.BuildVersion,
-                        timer: StageTimer | None = None) -> None:
+                        timer: StageTimer | None = None,
+                        level: int = slots.LEVEL_FULL) -> None:
     """out/<console>/slot/: the overlay slots (skipped when rootfs.tar holds the same
     files, slots.toml and the options did not change) and the set of this build (SLOTS
-    with the build id, the modules slot, the 448 MiB limit)."""
+    with the build id, the modules slot, the 448 MiB limit).
+
+    `level` is the zstd level of the slots (D16) and part of the stage inputs: a fast slot
+    is never taken for a full one. A fast set above the limit is made again at the full
+    level, with a warning."""
     timer = timer or StageTimer()
     p = f"{target.name}: "
     out = rootfs.target_out(target)
     tar = out / "rootfs.tar"
     sdir = slots.slots_dir(out)
-    stage_inputs.run_stage(
-        timer, p + "slots", sdir / slots.OVERLAY_RECORD,
-        lambda: stage_inputs.slots_inputs(tar, slots.SLOTS_TOML, rootfs.SQUASHFS_OPTIONS),
-        lambda: slots.build_overlay_slots(tar, sdir, rootfs.SQUASHFS_OPTIONS),
-        required=slots.overlay_files(sdir))
+    modules = out / "kernel" / "modules"
+
+    def stage(lvl: int) -> None:
+        options = slots.with_level(rootfs.SQUASHFS_OPTIONS, lvl)
+        stage_inputs.run_stage(
+            timer, p + "slots", sdir / slots.OVERLAY_RECORD,
+            lambda: stage_inputs.slots_inputs(tar, slots.SLOTS_TOML, options),
+            lambda: slots.build_overlay_slots(tar, sdir, options),
+            required=slots.overlay_files(sdir))
+
+    stage(level)
+    if level != slots.LEVEL_FULL and modules.is_file():
+        size = slots.set_size(sdir, modules)
+        if size > slots.CONSOLE_SLOTS_LIMIT_MIB * 2**20:
+            print(f"warning: the slots of {target.name} take {size / 2**20:.1f} MiB at zstd "
+                  f"level {level}, above the {slots.CONSOLE_SLOTS_LIMIT_MIB} MiB limit; "
+                  f"making them again at level {slots.LEVEL_FULL}", flush=True)
+            stage(slots.LEVEL_FULL)
     release = out / "kernel" / "release"
     build_id = (v or version.current()).build_id
     with timer.stage(p + "slot set"):
-        slots.write_slot_set(target.name, build_id, sdir, out / "kernel" / "modules",
+        slots.write_slot_set(target.name, build_id, sdir, modules,
                              release.read_text().strip() if release.exists() else "")
 
 

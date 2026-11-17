@@ -43,6 +43,21 @@ CONSOLE_SLOTS_LIMIT_MIB = 448
 # rebuilds the slots
 SPLIT_FORMAT = "1"
 APK_DB = "lib/apk/db/installed"
+# zstd level of the slots (build-speed D16): the full console build packs at the maximum,
+# a fragment build at a fast level (bigger slots, much quicker to make)
+LEVEL_FULL = 19
+LEVEL_FAST = 3
+_LEVEL_OPTION = "-Xcompression-level"
+
+
+def with_level(options: str, level: int) -> str:
+    """`options` (the mksquashfs options of rootfs.SQUASHFS_OPTIONS) with the zstd level
+    set to `level`."""
+    words = options.split()
+    if _LEVEL_OPTION not in words or words.index(_LEVEL_OPTION) + 1 >= len(words):
+        raise SlotsError(f"no {_LEVEL_OPTION} in the squashfs options: {options!r}")
+    words[words.index(_LEVEL_OPTION) + 1] = str(level)
+    return " ".join(words)
 
 
 class SlotsError(RuntimeError):
@@ -372,6 +387,11 @@ def read_overlay(slots_dir: Path) -> list[Slot]:
                 for s in record["slots"]]
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise SlotsError(f"{path}: {e}") from None
+
+
+def set_size(slots_dir: Path, modules_image: Path) -> int:
+    """Bytes of the slot set the overlay record and the modules image would make."""
+    return sum(s.size for s in read_overlay(slots_dir)) + modules_image.stat().st_size
 
 
 def write_slot_set(console: str, build_id: str, slots_dir: Path, modules_image: Path,

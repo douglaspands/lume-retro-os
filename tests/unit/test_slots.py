@@ -400,6 +400,77 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
     assert len(runs) == 2
 
 
+def _level_setup(tmp_path, monkeypatch, pad_fast=0):
+    from r36os import rootfs
+
+    out = tmp_path / "ga36"
+    monkeypatch.setattr(rootfs, "target_out", lambda target: out)
+    out.mkdir()
+    _rootfs(out / "rootfs.tar")
+    _modules(out / "kernel" / "modules")
+    (out / "kernel" / "release").write_text("6.18.2\n")
+    levels = []
+
+    def squash(sdir, names, options):
+        levels.append(int(options.split("-Xcompression-level ")[1].split()[0]))
+        _fake_squash(sdir, names, options)
+        if levels[-1] == slots.LEVEL_FAST:
+            for n in names:
+                with (sdir / f"{n}.squashfs").open("a") as f:
+                    f.write("x" * pad_fast)
+
+    real = slots.build_overlay_slots
+    monkeypatch.setattr(slots, "build_overlay_slots",
+                        lambda tar, sdir, options: real(tar, sdir, options, squash=squash))
+    return levels
+
+
+def test_fast_slots_are_not_reused_by_the_full_build_and_back(tmp_path, monkeypatch):
+    from r36os import build, version
+    from r36os.stages import StageTimer
+    from r36os.targets import TARGETS
+
+    levels = _level_setup(tmp_path, monkeypatch)
+    v, timer = version.current(), StageTimer()
+    build.build_console_slots(TARGETS["ga36"], v, timer, level=slots.LEVEL_FAST)
+    build.build_console_slots(TARGETS["ga36"], v, timer, level=slots.LEVEL_FAST)
+    assert levels == [slots.LEVEL_FAST]                  # same level: skipped
+    build.build_console_slots(TARGETS["ga36"], v, timer)
+    assert levels == [slots.LEVEL_FAST, slots.LEVEL_FULL]
+    build.build_console_slots(TARGETS["ga36"], v, timer)
+    assert levels == [slots.LEVEL_FAST, slots.LEVEL_FULL]
+    build.build_console_slots(TARGETS["ga36"], v, timer, level=slots.LEVEL_FAST)
+    assert levels[-1] == slots.LEVEL_FAST and len(levels) == 3
+
+
+def test_fast_slots_over_the_limit_fall_back_to_the_full_level(tmp_path, monkeypatch, capsys):
+    from r36os import build, version
+    from r36os.stages import StageTimer
+    from r36os.targets import TARGETS
+
+    monkeypatch.setattr(slots, "CONSOLE_SLOTS_LIMIT_MIB", 1)
+    levels = _level_setup(tmp_path, monkeypatch, pad_fast=600_000)
+    v, timer = version.current(), StageTimer()
+    build.build_console_slots(TARGETS["ga36"], v, timer, level=slots.LEVEL_FAST)
+    assert levels == [slots.LEVEL_FAST, slots.LEVEL_FULL]
+    assert "warning: the slots of ga36 take" in capsys.readouterr().out
+    out = tmp_path / "ga36"
+    assert (out / manifests.SLOTS_DIR / "SLOTS").is_file()
+    # the full build right after keeps what the fallback made
+    build.build_console_slots(TARGETS["ga36"], v, timer)
+    assert levels == [slots.LEVEL_FAST, slots.LEVEL_FULL]
+
+
+def test_with_level_changes_only_the_zstd_level():
+    from r36os import rootfs
+
+    assert slots.with_level(rootfs.SQUASHFS_OPTIONS, 19) == rootfs.SQUASHFS_OPTIONS
+    fast = slots.with_level(rootfs.SQUASHFS_OPTIONS, 3)
+    assert "-Xcompression-level 3 " in fast and "-b 256K" in fast
+    with pytest.raises(slots.SlotsError):
+        slots.with_level("-comp gzip", 3)
+
+
 def test_two_runs_give_the_same_squashfs(tmp_path):
     """The real mksquashfs (builder container): rootfs.tar made again with other times
     gives byte-identical slots, so a build without changes keeps the slot names."""

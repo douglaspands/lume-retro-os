@@ -495,6 +495,19 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
   desenvolvimento nunca é confundido com o de liberação.
 - O slot de desenvolvimento fica maior (a conta dos 448 MiB vale para os dois; se estourar, o
   build pontual usa o nível 19 nesse slot e avisa).
+- Implementação (6.5): `build_console_slots(..., level=)`; o nível 19 (`slots.LEVEL_FULL`) é o
+  do `build console` e o 3 (`slots.LEVEL_FAST`) é o que o build de fragmento passa. As opções do
+  mksquashfs (com o nível) entram nas entradas da etapa `slots`, então trocar de nível refaz os
+  slots e a mesma etapa não refaz nada quando o nível é o mesmo. Se o conjunto rápido passa dos
+  448 MiB, a etapa roda de novo no 19 (com o aviso `warning: ...`) e o registro fica com o hash do
+  19: um build completo seguinte reaproveita, e um rápido seguinte tenta o 3 de novo.
+- Medido (2026-11-17, divisão real do `rootfs.tar` do GA36, mksquashfs do builder, 8 processadores,
+  tempo inclui o início do container, ~0,2 s): `lume` 0,4 s no 19 (2,3 MiB) contra 0,2 s no 3
+  (2,5 MiB); `base` 1,4 s (19,6 MiB) contra 0,3 s (21,7 MiB); `runtime` 10,8 s (259,0 MiB) contra
+  0,9 s (272,2 MiB). Os três juntos: 12,6 s contra 1,4 s; o conjunto fica ~7% maior (283 contra
+  300 MiB, mais o módulo do kernel), bem abaixo dos 448 MiB. O `lume` sozinho já é pequeno hoje,
+  então o ganho do build pontual de um fragmento nele é de décimos de segundo; o ganho grande é
+  quando o `runtime` é refeito.
 
 ### D17. As duas arquiteturas em paralelo
 
