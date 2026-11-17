@@ -114,7 +114,7 @@
     function items() {
       if (st.view === 'native') return [t('back'), t('end')];
       if (st.view === 'silent') return [t('back'), t('end'), t('force')];
-      return [t('back'), t('reset'), t('app'), t('end')];
+      return [t('back'), t('end'), t('reset'), t('app')];   // a ordem pedida pelo usuário (2026-11-17)
     }
     function render() {
       Lume.themes.apply(stage, st.theme);

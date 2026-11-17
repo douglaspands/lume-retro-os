@@ -80,17 +80,18 @@ impl Menu {
         self.state != State::Closed
     }
 
+    /// The order the user chose (2026-11-17): Back, End, Reset, then the app's own menu.
     pub fn items(&self) -> Vec<Item> {
-        let mut v = vec![Item::Back];
-        if self.has_reset && !self.unresponsive {
-            v.push(Item::Reset);
-        }
-        if self.has_app_menu && !self.unresponsive {
-            v.push(Item::AppMenu);
-        }
-        v.push(Item::End);
+        let mut v = vec![Item::Back, Item::End];
         if self.unresponsive {
             v.push(Item::ForceClose);
+            return v;
+        }
+        if self.has_reset {
+            v.push(Item::Reset);
+        }
+        if self.has_app_menu {
+            v.push(Item::AppMenu);
         }
         v
     }
@@ -250,7 +251,7 @@ mod tests {
         assert_eq!(m.tap(), [Effect::Close]);
         m.tap();
         m.nav(Nav::Down);
-        m.nav(Nav::A); // Reset -> confirm
+        m.nav(Nav::A); // End -> confirm
         assert!(matches!(m.state, State::Confirm { .. }));
         assert_eq!(m.tap(), [Effect::Close]);
         assert_eq!(m.state, State::Closed);
@@ -260,7 +261,8 @@ mod tests {
     fn list_paths() {
         let mut m = ra();
         m.tap();
-        assert_eq!(m.items(), [Item::Back, Item::Reset, Item::AppMenu, Item::End]);
+        // the user's order (2026-11-17): Back, End, Reset, the app's menu last
+        assert_eq!(m.items(), [Item::Back, Item::End, Item::Reset, Item::AppMenu]);
         // A on Back closes
         assert_eq!(m.nav(Nav::A), [Effect::Close]);
         // B closes
@@ -268,6 +270,7 @@ mod tests {
         assert_eq!(m.nav(Nav::B), [Effect::Close]);
         // A on the app menu: closes, then app_menu
         m.tap();
+        m.nav(Nav::Down);
         m.nav(Nav::Down);
         m.nav(Nav::Down);
         assert_eq!(m.nav(Nav::A), [Effect::Close, Effect::AppMenu]);
@@ -286,11 +289,12 @@ mod tests {
         let mut m = ra();
         m.tap();
         m.nav(Nav::Down);
+        m.nav(Nav::Down);
         assert!(m.nav(Nav::A).is_empty());
         assert_eq!(m.state, State::Confirm { item: Item::Reset, yes: false });
         // A without moving the focus is No: back to the list, nothing reset
         assert!(m.nav(Nav::A).is_empty());
-        assert_eq!(m.state, State::List { focus: 1 });
+        assert_eq!(m.state, State::List { focus: 2 });
         m.nav(Nav::A);
         m.nav(Nav::Right);
         assert_eq!(m.nav(Nav::A), [Effect::Reset]);
@@ -298,12 +302,10 @@ mod tests {
         // End: B is No, Yes quits
         m.tap();
         m.nav(Nav::Down);
-        m.nav(Nav::Down);
-        m.nav(Nav::Down);
         m.nav(Nav::A);
         assert_eq!(m.state, State::Confirm { item: Item::End, yes: false });
         m.nav(Nav::B);
-        assert_eq!(m.state, State::List { focus: 3 });
+        assert_eq!(m.state, State::List { focus: 1 });
         m.nav(Nav::A);
         m.nav(Nav::Down);
         m.nav(Nav::Left);
@@ -335,9 +337,9 @@ mod tests {
     #[test]
     fn draw_text_in_three_languages() {
         for (lang, line) in [
-            ("en", "Alpha|Back to game|Reset|RetroArch menu|End game|0"),
-            ("pt", "Alpha|Voltar ao jogo|Reiniciar|Menu do RetroArch|Encerrar jogo|0"),
-            ("es", "Alpha|Volver al juego|Reiniciar|Menú de RetroArch|Salir del juego|0"),
+            ("en", "Alpha|Back to game|End game|Reset|RetroArch menu|0"),
+            ("pt", "Alpha|Voltar ao jogo|Encerrar jogo|Reiniciar|Menu do RetroArch|0"),
+            ("es", "Alpha|Volver al juego|Salir del juego|Reiniciar|Menú de RetroArch|0"),
         ] {
             let mut m = Menu::new(lang, "RetroArch", "Alpha", true, true);
             assert_eq!(m.draw_text(), "");
@@ -346,6 +348,7 @@ mod tests {
         }
         let mut m = Menu::new("pt", "RetroArch", "A|B", true, true);
         m.tap();
+        m.nav(Nav::Down);
         m.nav(Nav::Down);
         m.nav(Nav::A);
         assert_eq!(m.draw_text(), "Reiniciar o jogo?|Não|Sim|0");

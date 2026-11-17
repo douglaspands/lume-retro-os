@@ -75,7 +75,7 @@ No RetroArch, a ação `app_menu` MUST abrir o menu do RetroArch com o jogo paus
 - **THEN** o menu do RetroArch abre com o jogo pausado e, no segundo acorde, fecha e o jogo continua
 
 ### Requirement: Menu do Lume sobre o jogo
-O toque no Fn MUST abrir, sobre a imagem do jogo, o menu do Lume com os itens Voltar ao jogo, Reiniciar, Menu da aplicação (com o nome dela, "Menu do RetroArch" no RetroArch) e Encerrar jogo. B ou outro toque no Fn MUST fechar o menu e voltar ao jogo. Os textos MUST seguir o idioma do usuário.
+O toque no Fn MUST abrir, sobre a imagem do jogo, o menu do Lume com os itens, nesta ordem, Voltar ao jogo, Encerrar jogo, Reiniciar e Menu da aplicação (com o nome dela, "Menu do RetroArch" no RetroArch). B ou outro toque no Fn MUST fechar o menu e voltar ao jogo. Os textos MUST seguir o idioma do usuário.
 
 #### Scenario: Abrir e voltar
 - **WHEN** o usuário toca o Fn durante um jogo do RetroArch e depois aperta B

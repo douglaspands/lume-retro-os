@@ -560,7 +560,7 @@ fn menu_pauses_retroarch_and_unpauses_only_its_own_pause() {
     assert_eq!(ra.plain(), ["GET_STATUS", "PAUSE_TOGGLE", "GET_STATUS"]);
     assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
     let menu = ra.cmds().into_iter().find(|c| c.starts_with("LUME_MENU ")).unwrap();
-    assert_eq!(menu, "LUME_MENU Secret Name|Back to game|Reset|Fake menu|End game|0");
+    assert_eq!(menu, "LUME_MENU Secret Name|Back to game|End game|Reset|Fake menu|0");
     assert_eq!(d.received(), ["capture on"]);
     // B goes back: unpaused, the menu hidden, the controls returned
     d.send("nav b");
@@ -591,6 +591,7 @@ fn menu_reset_and_end_go_through_the_runner() {
     // Reset: A without moving the focus is No; Right then A is Yes
     d.send("fn_tap");
     d.send("nav down");
+    d.send("nav down");
     d.send("nav a");
     assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Reset the game?|No|Yes|0"), "{:?}", ra.cmds());
     d.send("nav a");
@@ -605,12 +606,13 @@ fn menu_reset_and_end_go_through_the_runner() {
     d.send("fn_tap");
     d.send("nav down");
     d.send("nav down");
+    d.send("nav down");
     d.send("nav a");
     assert_eq!(ra.plain().last().unwrap(), "MENU_TOGGLE");
-    // End game: the polite quit (QUIT twice)
+    // End game, second in the list: the polite quit (QUIT twice)
     *ra.state.lock().unwrap() = "PLAYING";
     d.send("fn_tap");
-    for n in ["nav down", "nav down", "nav down", "nav a", "nav right", "nav a"] {
+    for n in ["nav down", "nav a", "nav right", "nav a"] {
         d.send(n);
     }
     ra.wait_for("QUIT");

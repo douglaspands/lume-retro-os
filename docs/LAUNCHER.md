@@ -26,7 +26,7 @@ os atalhos e **segurar + outro botão** faz o atalho. Um atalho nunca vira toque
 
 | Gesto | O que faz |
 |---|---|
-| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Reiniciar, Menu do RetroArch, Encerrar jogo (Reiniciar e Encerrar pedem confirmação, com Não em foco). Com o menu aberto, os botões não chegam ao jogo |
+| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch (Reiniciar e Encerrar pedem confirmação, com Não em foco). Com o menu aberto, os botões não chegam ao jogo |
 | Segurar o Fn (meio segundo) | mostra a lista dos atalhos que valem neste jogo; soltar a esconde |
 | Fn+B | menu do RetroArch (abre e fecha) |
 | Fn+R1 / Fn+L1 | salva / carrega o estado no slot rápido (o slot com que o jogo abriu; pela grade, o 0) |

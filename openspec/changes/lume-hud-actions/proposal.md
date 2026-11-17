@@ -26,8 +26,8 @@ dela.
   - Fn+Start → `quit` (sem mudança: encerra direto, é a saída de emergência);
   - os demais acordes com Fn (Fn+Select incluído) ficam reservados para atalhos futuros e
     não chegam ao jogo.
-- **Menu do Lume sobre o jogo** (toque no Fn): Voltar ao jogo, Reiniciar, Menu do RetroArch e
-  Encerrar jogo, com confirmação em Reiniciar e Encerrar. O controle navega o menu sem chegar
+- **Menu do Lume sobre o jogo** (toque no Fn): Voltar ao jogo, Encerrar jogo, Reiniciar e Menu do RetroArch, nessa ordem (pedido do usuário, 2026-11-17),
+  com confirmação em Reiniciar e Encerrar. O controle navega o menu sem chegar
   ao jogo. O desenho segue o protótipo do launcher, e os textos seguem o idioma do usuário.
 - **Pausa pela própria aplicação** (pedido do usuário, 2026-11-17): ao abrir o menu, o jogo é
   pausado pela ação `pause` do runner; no RetroArch, `GET_STATUS` + `PAUSE_TOGGLE`, a pausa
