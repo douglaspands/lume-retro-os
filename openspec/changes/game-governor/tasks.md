@@ -26,45 +26,50 @@ perfis iguais ao padrão do kernel até a 5.4.
 |---|---|---|---|---|---|---|
 | 1.1 | — | — | AG | sonnet | 0 | |
 | 1.2 | — | — | AG | opus | 0 | J1 |
+| 1.3 | — | — | AG | sonnet | 0 | J1 |
 | 2.1 | — | — | AG | opus | 0 | J1 |
 | 2.2 | 1.1 | — | AG | opus | 1 | J1 |
+| 2.3 | 2.2 | — | AG | opus | 2 | J1 |
+| 2.4 | 2.2 | — | AG | sonnet | 2 | J3 |
 | 3.0 | — | USUARIO | AG+PR | sonnet | 0 | |
 | 3.1 | 1.1 | — | AG | sonnet | 1 | J1 |
 | 3.2 | 1.1, 3.0 | — | AG | sonnet | 1 | J1 |
 | 4.1 | — | — | AG | sonnet | 0 | J1 |
-| 5.1 | 1.2, 2.1, 2.2, 3.1, 3.2, 4.1 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 2 | |
-| 5.2 | 5.1 | GA36, USUARIO | PR | — | 3 | J1 |
-| 5.3 | 5.2 | R36S, USUARIO | PR | — | 4 | J2 |
-| 5.4 | 5.2, 5.3 | — | AG | sonnet | 5 | |
-| 6.1 | 5.4 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 6 | |
-| 6.2 | 6.1 | GA36, USUARIO | PR | — | 7 | J3 |
-| 6.3 | 6.2 | R36S, USUARIO | PR | — | 8 | J4 |
+| 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 5.2 | 1.3, 5.1 | GA36, USUARIO | PR | — | 4 | J1 |
+| 5.3 | 5.2 | R36S, USUARIO | PR | — | 5 | J2 |
+| 5.4 | 5.2, 5.3 | — | AG | sonnet | 6 | |
+| 6.1 | 5.4 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 7 | |
+| 6.2 | 6.1 | GA36, USUARIO | PR | — | 8 | J3 |
+| 6.3 | 6.2 | R36S, USUARIO | PR | — | 9 | J4 |
 
 Modelos: propostos, aguardando aprovação do usuário.
 
 **Trilhas e caminho crítico:**
 
 ```
-  1.1 (FIFO e arquivo de perfis) --+--> 2.2 (serviço r36os-power) --+
-                                   +--> 3.1 (lume-run avisa) -------+
-  3.0 (protótipo, USUARIO) --------+--> 3.2 (lume-ui) --------------+
-  1.2 (logd barato, P-60) ------------------------------------------+--> 5.1 build de medição
-  2.1 (kernel GA36: governors) -------------------------------------+         |
-  4.1 (DRAM no hwinfo, P-23) ---------------------------------------+         v
-                                                         5.2 medir GA36 (J1) --> 5.3 medir R36S (J2)
-                                                                                      |
-                                                         5.4 valores dos perfis <-----+
-                                                              |
-                                                         6.1 build final --> 6.2 GA36 (J3) --> 6.3 R36S (J4)
+  1.1 (FIFO e arquivo de perfis) --+--> 2.2 (serviço r36os-power) --+--> 2.3 (controlador) --+
+                                   |                                +--> 2.4 (prioridade) ----+
+                                   +--> 3.1 (lume-run avisa) ---------------------------------+
+  3.0 (protótipo, USUARIO) --------+--> 3.2 (lume-ui) ----------------------------------------+
+  1.2 (logd barato, P-60) --------------------------------------------------------------------+--> 5.1 build de medição
+  2.1 (kernel GA36: governors) ---------------------------------------------------------------+         |
+  4.1 (DRAM no hwinfo, P-23) -----------------------------------------------------------------+         v
+  1.3 (r36os power report) ---------------------------------------------> 5.2 medir GA36 (J1) --> 5.3 medir R36S (J2)
+                                                                                                        |
+                                                                           5.4 valores dos perfis <-----+
+                                                                                |
+                                                                           6.1 build final --> 6.2 GA36 (J3) --> 6.3 R36S (J4)
 
-  caminho crítico: 1.1 -> 2.2 -> 5.1 -> 5.2 -> 5.3 -> 5.4 -> 6.1 -> 6.2 -> 6.3
+  caminho crítico: 1.1 -> 2.2 -> 2.3 -> 5.1 -> 5.2 -> 5.3 -> 5.4 -> 6.1 -> 6.2 -> 6.3
 ```
 
 **Ondas:**
-- Onda 0: 1.1, 1.2, 2.1, 3.0, 4.1 (AG, em paralelo; a 3.0 termina com a aprovação do usuário).
+- Onda 0: 1.1, 1.2, 1.3, 2.1, 3.0, 4.1 (AG, em paralelo; a 3.0 termina com a aprovação do usuário).
 - Onda 1: 2.2, 3.1, 3.2.
-- Onda 2: 5.1 (build de medição, fila única de CPU, com o kernel do GA36).
-- Onda 3: 5.2 (J1). Onda 4: 5.3 (J2). Onda 5: 5.4. Onda 6: 6.1. Onda 7: 6.2 (J3). Onda 8: 6.3 (J4).
+- Onda 2: 2.3, 2.4 (os dois mexem no `r36os-power`: em worktrees separadas, mesclados um por vez).
+- Onda 3: 5.1 (build de medição, fila única de CPU, com o kernel do GA36).
+- Onda 4: 5.2 (J1). Onda 5: 5.3 (J2). Onda 6: 5.4. Onda 7: 6.1. Onda 8: 6.2 (J3). Onda 9: 6.3 (J4).
 
 **Janelas de aparelho** (depois das provas da `build-speed` e da `card-health`, na fila única do
 cartão):
@@ -74,24 +79,30 @@ cartão):
   Várias sessões, em dias diferentes se preciso.
 - **J2** (R36S, o mesmo cartão): o mesmo da J1.
 - **J3** (GA36, build final): cenários, tela escura, marca de carga, aviso e desligamento com a
-  bateria acabando de verdade numa sessão longa.
+  bateria acabando de verdade numa sessão longa; o controlador num jogo pesado e o Fn+Start com
+  um jogo travado.
 - **J4** (R36S): o mesmo da J3.
 
 ## 1. Interfaces e coletor
 
-- [ ] 1.1 Congelar o protocolo do FIFO `/run/r36os/power` (D1: `menu`, `idle`, `game <sistema> <core>`, `end`, uma por linha; escritor sem bloquear, que ignora a ausência do serviço) e o formato do arquivo de perfis (D3: `profile`, `class`, `core`, `battery`, comentários, sobrescrita pelo `ROMS/system/lume/power.conf`), com o validador em shell (clocks na tabela, governor disponível, `cores` no intervalo) e o escritor do FIFO em Rust no `lume-core`; `docs/LOGS.md` com os eventos `power`. Verificação: testes do shell com árvores falsas do sysfs (arquivo válido, clock fora da tabela recusa o perfil, governor ausente, sobrescrita do cartão, linha desconhecida) e testes Rust do escritor (FIFO sem leitor não bloqueia nem falha o chamador).
+- [ ] 1.1 Congelar o protocolo do FIFO `/run/r36os/power` (D1: `menu`, `idle`, `game <sistema> <core>`, `end`, uma por linha; escritor sem bloquear, que ignora a ausência do serviço) e o formato do arquivo de perfis (D3: `profile`, `class`, `core`, `battery`, `controller=load`, comentários, sobrescrita pelo `ROMS/system/lume/power.conf` com `enabled 0` e `idle after=`), com o validador em shell (clocks na tabela, governor disponível, `cores` no intervalo) e o escritor do FIFO em Rust no `lume-core`; `docs/LOGS.md` com os eventos `power`. Verificação: testes do shell com árvores falsas do sysfs (arquivo válido, clock fora da tabela recusa o perfil, governor ausente, sobrescrita do cartão, linha desconhecida) e testes Rust do escritor (FIFO sem leitor não bloqueia nem falha o chamador).
 - [ ] 1.2 `logd` barato (D8, P-60): cada amostra sem processos externos (leituras com `read`, `/dev/kmsg` no lugar do `dmesg`, um `pidof` por amostra, data sem processo por linha); se não chegar a 1% de um núcleo, o coletor da amostra vira um binário em C com o mesmo formato. Verificação: `tests/logs/test_logs.sh` com as mesmas colunas e eventos de antes (formato congelado antes da troca); no GA36 e no R36S, o `logd` com os filhos abaixo de 1% de um núcleo em 60 s no launcher parado e num jogo, e o `sugov:0` antes e depois anotados no P-60 (J1, J2); spec `boot-runtime`.
+
+- [ ] 1.3 `r36os power report [--since <boot>] [--console ga36|r36s]` (D14): lê pelo cabo as métricas e o `events.log` da `ROMS/logs/` e resume por cenário e por sistema (corrente média, FPS contra o nominal, eventos `game FAIL slow`, CPU por núcleo, clock médio, temperatura máxima, custo do `logd` e da `sugov`), sem nome de jogo; tabela no terminal e CSV em `cache/`. Verificação: testes de unidade com métricas e eventos de exemplo (amostras antigas sem as colunas novas, eventos `power`, nenhum nome de jogo na saída); comando documentado no `docs/BUILD.md`.
 
 ## 2. Kernel e serviço
 
 - [ ] 2.1 Kernel do GA36 (D10): `CONFIG_CPU_FREQ_GOV_ONDEMAND=y` e `CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y` no `board/ga36/kernel.config`, o padrão continua `schedutil`; `tests/unit/test_ga36_kernel_config.py` passa a exigir os dois e a proibir `CPU_FREQ_DEFAULT_GOV_*` e `THERMAL_DEFAULT_GOV_*`. Verificação: teste de unidade; no GA36, `scaling_available_governors` com os dois e o `scaling_governor` ainda `schedutil` no boot (J1).
 - [ ] 2.2 Serviço `r36os-power` no `lume-power` (D2, D4, D6, D7): runlevel `boot`, perfil `boot` ao subir; laço com `read -t 60` no FIFO; aplicação na ordem do D4 (núcleos, mínimo e máximo, governor, parâmetros, núcleos a mais, GPU), nunca o `cpu0`; evento `power OK profile` a cada troca; perfil recusado deixa o padrão do kernel; bateria a cada mensagem e a cada 60 s, aviso uma vez por descarga (`SHOW_MSG` no jogo, texto pelo `ui_lang`) e desligamento com duas leituras críticas seguidas (`power OK shutdown: battery critical` e `poweroff`); modo manual `r36os-power set <perfil>` para a medição; arquivos de perfil iniciais iguais ao padrão do kernel. Verificação: testes do shell com sysfs falso (ordem das escritas, `cpu0` nunca desligado, perfil recusado, aviso uma vez só, crítico só com duas leituras e só descarregando, carregando não avisa) e um RetroArch falso por UDP recebendo o `SHOW_MSG`; no aparelho, J1 a J4.
 
+- [ ] 2.3 Controlador pela carga `r36os-powerctl` (D12): aport em C por arquitetura, governor `userspace`, amostra de 250 ms da thread mais ocupada do processo principal do cgroup do jogo, sobe um degrau acima de 85% por 1 s e desce abaixo de 50% por 3 s, dentro do `min`/`max` do perfil e sob o `scaling_max_freq` atual; o `r36os-power` o liga nos perfis com `controller=load`, mata no `end`, reaplica o perfil sem ele se ele cair, e registra `power OK controller` com o tempo por degrau. Verificação: testes com `/proc` e sysfs falsos e relógio falso (sobe, desce, respeita o teto térmico, para no fim do jogo, queda do controlador volta ao perfil); no GA36, um jogo pesado com o controlador mostra a frequência variando nas métricas (J1, J3).
+- [ ] 2.4 Prioridade do jogo (D13): o `r36os-power`, 2 s depois do `game` e de novo 2 s depois, aplica `nice -5` e `ioprio` best-effort 2 a todos os processos e threads do cgroup mais novo em `/sys/fs/cgroup/lume/game-*`; o init do `r36os-input` passa a `nice -10`; spec `game-runners`. Verificação: teste do shell com um cgroup e um `/proc` falsos (todos os pids recebem a prioridade, nada em tempo real, cgroup vazio não falha) e o init do `r36os-input` conferido em teste; no GA36, Fn+Start encerra um jogo travado (J3).
+
 ## 3. Avisos do supervisor e launcher
 
 - [ ] 3.0 Protótipo (`docs/lume-launcher/prototipo/`, D9): a marca de carga na bateria da barra de status e o aviso de bateria fraca, nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
 - [ ] 3.1 `lume-run` (D1): `game <sistema> <core>` antes do `exec` do jogo e `end` depois de o cgroup esvaziar, pelo escritor da 1.1. Verificação: testes em `lume/lume-run/tests/run.rs` com um FIFO de teste (ordem das mensagens; sem leitor, o jogo abre igual) e o RSS do supervisor sem mudança (requisito do `game-runners`); no aparelho, os eventos `power` no `events.log` (J1).
-- [ ] 3.2 `lume-ui` (D9): `menu` na primeira tela e ao voltar do ocioso; depois de 2 minutos sem botão, `idle` e luz em `min(10%, brilho do usuário)` sem gravar, o primeiro botão devolve o brilho e é consumido; bateria lida a cada 5 s, marca de carga desenhada pela régua da 3.0, aviso de bateria fraca no mesmo limite do serviço, textos en/pt/es. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` (escurecer, botão consumido, brilho salvo intacto, marca de carga, aviso uma vez por descarga) e o teste de régua da marca; o uso de CPU do launcher parado continua abaixo de 1% (requisito "Parado não consome CPU"); no aparelho, J3 e J4.
+- [ ] 3.2 `lume-ui` (D9): `menu` na primeira tela e ao voltar do ocioso; depois de 2 minutos sem botão (ou do `idle after=` do `power.conf`; `0` desliga), `idle` e luz em `min(10%, brilho do usuário)` sem gravar, o primeiro botão devolve o brilho e é consumido; bateria lida a cada 5 s, marca de carga desenhada pela régua da 3.0, aviso de bateria fraca no mesmo limite do serviço, textos en/pt/es. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` (escurecer, botão consumido, brilho salvo intacto, marca de carga, aviso uma vez por descarga) e o teste de régua da marca; o uso de CPU do launcher parado continua abaixo de 1% (requisito "Parado não consome CPU"); no aparelho, J3 e J4.
 
 ## 4. DRAM do A33
 
@@ -100,18 +111,18 @@ cartão):
 ## 5. Medição e valores
 
 - [ ] 5.1 Build de medição: pacotes da onda 0 e 1 e o kernel do GA36, nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push`. Verificação: os `.apk` e o kernel novos no repositório local e o `push` terminando com `ok`.
-- [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual. Verificação: tabela no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5.
+- [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual, com e sem o controlador nos pesados. Verificação: tabela do `r36os power report` (1.3) no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5.
 - [ ] 5.3 Janela J2 no R36S, com o mesmo cartão: o mesmo da 5.2 (sem a DRAM do A33). Verificação: a tabela do R36S no `design.md` e o candidato escolhido por classe.
 - [ ] 5.4 Escrever `ga36.conf` e `r36s.conf` com os perfis escolhidos na 5.2 e na 5.3 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria). Verificação: os testes do validador da 1.1 com os arquivos reais contra as tabelas de OPP de cada console (copiadas do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
 
 ## 6. Build final e provas
 
 - [ ] 6.1 Build final com os perfis da 5.4, nas duas arquiteturas, e `r36os push`. Verificação: `.apk` novos e `push` com `ok`.
-- [ ] 6.2 Janela J3 no GA36: os eventos `power` do boot ao menu, ao jogo de cada classe e de volta; o tempo do boot com o perfil `boot` comparado com o de antes (anotado no P-58); a tela escurece em 2 minutos parada e o primeiro botão só devolve a luz; a marca de carga aparece e some em até 5 s; numa sessão longa sem carregador, o aviso aparece uma vez no jogo e o console desliga sozinho no nível crítico com o save interno gravado e o boot seguinte com `previous clean`; numa sessão de cada classe, nenhum `slow` a mais que na tabela da 5.2. Verificação: resultado no `docs/BRINGUP-GA36.md`, sem nome de jogo.
+- [ ] 6.2 Janela J3 no GA36: os eventos `power` do boot ao menu, ao jogo de cada classe e de volta; o tempo do boot com o perfil `boot` comparado com o de antes (anotado no P-58); a tela escurece em 2 minutos parada e o primeiro botão só devolve a luz; a marca de carga aparece e some em até 5 s; numa sessão longa sem carregador, o aviso aparece uma vez no jogo e o console desliga sozinho no nível crítico com o save interno gravado e o boot seguinte com `previous clean`; numa sessão de cada classe, nenhum `slow` a mais que na tabela da 5.2; o controlador num jogo pesado (frequência variando, linha `power OK controller`); Fn+Start encerra um jogo travado (2.4); `enabled 0` no `power.conf` devolve o padrão do kernel depois do reboot. Verificação: resultado no `docs/BRINGUP-GA36.md`, sem nome de jogo, e o `r36os power report` antes e depois lado a lado no `design.md`.
 - [ ] 6.3 Janela J4 no R36S, com o mesmo cartão: as mesmas provas da 6.2. Verificação: resultado no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, P-20 (etapa 1), P-60, P-78 e P-83 movidos para "Concluídas", P-23 com a medição anotada e o item 3 do P-64 marcado como feito.
 
 ## Workflow follow-up
 
 - Arquivar a change depois das provas da J3 e da J4.
 - Com os perfis medidos, decidir se o modo escolhido pelo usuário (Desempenho, Equilibrado,
-  Economia) e o controlador por FPS (P-20, etapas 2 e 3) viram pendências novas.
+  Economia) e o controlador por FPS (P-20, etapa 3) viram pendências novas.

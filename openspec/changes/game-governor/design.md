@@ -110,7 +110,15 @@ clock tem de estar em `scaling_available_frequencies` (ou entre `cpuinfo_min_fre
 `cpuinfo_max_freq` e num OPP do devfreq), cada governor em `scaling_available_governors`,
 `cores` entre 1 e o número de núcleos. Um perfil inválido é recusado inteiro (log) e o cenário
 usa o padrão do kernel. Um `ROMS/system/lume/power.conf` opcional sobrescreve linhas, para
-ajuste fino pelo PC (avançado, documentado, validado igual).
+ajuste fino pelo PC (avançado, documentado, validado igual), e aceita mais duas linhas:
+
+```
+enabled 0          # desliga os perfis: o serviço devolve o padrão do kernel e só registra
+idle after=300     # segundos sem botão até o launcher parado (padrão 120; 0 desliga)
+```
+
+O `lume-ui` lê a linha `idle` do mesmo arquivo para o prazo de escurecer (D9). Um perfil pode
+ter `controller=load` (D12).
 
 ### D4. Como um perfil é aplicado
 
@@ -171,7 +179,7 @@ consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em 
 - A thread da bateria passa de 30 s para 5 s (duas leituras pequenas do sysfs; conferir o
   requisito "Parado não consome CPU").
 - Marca de carga na bateria: primeiro no protótipo, depois no `lume-ui` com a régua.
-- Ocioso: depois de 2 minutos sem botão no launcher, o `lume-ui` manda `idle` e baixa a luz
+- Ocioso: depois de 2 minutos sem botão no launcher (`idle after=` do `power.conf`, D3), o `lume-ui` manda `idle` e baixa a luz
   para `min(10%, brilho do usuário)` sem gravar o valor; o primeiro botão devolve o brilho,
   manda `menu` e é consumido.
 - Aviso de bateria fraca: o aviso curto (toast) que o tema já tem, em en/pt/es.
@@ -188,6 +196,39 @@ consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em 
 O `hwinfo` lê com o `r36os-devmem` os registradores do P-23 (`PLL_DDR1_CTRL_REG`,
 `PLL_DDR1_PAT_CTRL_REG0/1`, `DRAM_CFG_REG`) e grava o clock efetivo no `hw/boot-<n>.txt` do
 GA36. Nada muda no clock.
+
+### D12. Controlador pela carga (P-20, etapa 2)
+
+Um binário pequeno em C, `r36os-powerctl` (aport por arquitetura, como o `r36os-input`), que o
+`r36os-power` liga ao aplicar um perfil de jogo com `controller=load` e mata no `end`:
+- põe o governor em `userspace` e escolhe a frequência pelo `scaling_setspeed`, entre o `min` e o
+  `max` do perfil e nunca acima do `scaling_max_freq` atual (que o resfriamento do kernel baixa);
+- a cada 250 ms lê o `utime` da thread mais ocupada do processo principal do cgroup do jogo
+  (`/proc/<pid>/task/*/stat`);
+- sobe um degrau da tabela acima de 85% de um núcleo por 1 s, desce um degrau abaixo de 50% por
+  3 s;
+- grava uma linha `power OK controller` no `events.log` ao parar, com o tempo em cada degrau.
+
+*Por que C e não o shell do serviço:* o laço de 250 ms custaria o que o P-60 quer tirar do
+`logd`. *Alternativa descartada:* mexer só no `scaling_min_freq` com outro governor ativo (os
+dois brigariam pela frequência).
+
+### D13. Prioridade do jogo
+
+O `r36os-power` não recebe o pid pelo FIFO (a mensagem `game` sai antes do `exec`): 2 s depois
+do `game`, ele acha o cgroup mais novo em `/sys/fs/cgroup/lume/game-*` e aplica `nice -5` e
+`ioprio` best-effort 2 a todos os processos e threads dele, e repete 2 s depois para os que
+nasceram no meio; os filhos herdam. O `r36os-input` passa a rodar com `nice -10` (acima do
+jogo), para o Fn+Start encerrar um jogo travado. Nada em tempo real. *Alternativa descartada:*
+`cpu.weight` do cgroup (só compara irmãos do mesmo pai; os serviços do OpenRC não são irmãos).
+
+### D14. Relatório de energia no PC
+
+`r36os power report [--since <boot>] [--console ga36|r36s]` (`src/r36os/power_report.py`) lê
+pelo cabo as métricas e o `events.log` da `ROMS/logs/` e resume por cenário e por sistema:
+corrente média (`bat_ma`), FPS contra o nominal, eventos `game FAIL slow`, CPU por núcleo,
+clock médio, temperatura máxima e o custo do `logd` e da `sugov`. Saída em tabela e em CSV em
+`cache/`, sem nome de jogo. É a ferramenta das tabelas do D5 (antes e depois).
 
 ## Risks / Trade-offs
 
@@ -207,6 +248,11 @@ GA36. Nada muda no clock.
   `build-speed` e `card-health`, na fila única do cartão.
 - [O `logd` em C muda o formato] → O formato é congelado pelos testes de `tests/logs/` antes da
   troca.
+- [O controlador cai com o governor em `userspace` e o clock baixo] → O `r36os-power` vigia o
+  filho e, se ele sair antes do `end`, reaplica o perfil do jogo sem o controlador e registra
+  o evento.
+- [O `nice -5` de um jogo travado rouba a CPU do daemon de entrada] → O `r36os-input` roda com
+  `nice -10`; prova de Fn+Start com um jogo travado na J3 e na J4.
 
 ## Migration Plan
 

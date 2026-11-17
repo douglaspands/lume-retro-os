@@ -9,7 +9,7 @@ quando a bateria está acabando.
 ## ADDED Requirements
 
 ### Requirement: Perfil escolhido pelo cenário
-O console MUST aplicar sozinho, sem escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo.
+O console MUST aplicar sozinho, sem escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo; dentro do jogo, só o controlador pela carga, quando o perfil o liga, MAY variar o clock, e sempre dentro da faixa do perfil.
 
 #### Scenario: Do menu ao jogo e de volta
 - **WHEN** o usuário abre um jogo pelo launcher e depois volta ao launcher
@@ -50,6 +50,35 @@ Com o launcher na tela e nenhum botão apertado por alguns minutos, o console MU
 #### Scenario: Voltar do escuro
 - **WHEN** o launcher fica parado até a tela escurecer e o usuário aperta A
 - **THEN** a tela volta ao brilho escolhido e nada é aberto pelo A
+
+### Requirement: Controlador pela carga do jogo
+Um perfil de jogo MAY ligar o controlador pela carga: durante o jogo, a frequência da CPU MUST subir um degrau da tabela quando a thread principal do jogo passar de cerca de 85% de um núcleo por 1 s e descer um degrau abaixo de cerca de 50% por 3 s, sempre dentro da faixa do perfil e do teto que a proteção térmica do kernel impõe.
+
+#### Scenario: Carga alta sobe o clock
+- **WHEN** a thread principal de um jogo com o controlador ligado fica acima de 85% de um núcleo por mais de 1 s
+- **THEN** a frequência sobe um degrau da tabela, sem passar do máximo do perfil
+
+#### Scenario: Fim do jogo
+- **WHEN** o jogo com o controlador ligado termina
+- **THEN** o controlador para e o perfil do menu volta, como em qualquer fim de jogo
+
+### Requirement: Ajustes pelo cartão
+O usuário MUST poder, num arquivo de texto da partição `ROMS`, sobrescrever perfis, mudar o tempo do launcher parado e desligar os perfis. Com os perfis desligados, a CPU e a GPU MUST ficar no padrão do kernel. Um valor inválido MUST ser ignorado com uma linha no log, valendo o padrão.
+
+#### Scenario: Perfis desligados
+- **WHEN** o arquivo de ajustes desliga os perfis e o console reinicia
+- **THEN** a CPU usa o governor padrão do kernel em todos os cenários e o `events.log` registra que os perfis estão desligados
+
+#### Scenario: Tempo do launcher parado
+- **WHEN** o arquivo de ajustes muda o tempo do launcher parado para 5 minutos
+- **THEN** a tela escurece só depois de 5 minutos sem botão
+
+### Requirement: Relatório de energia no PC
+O projeto MUST ter um comando no PC que lê as métricas e os eventos do cartão e resume, por cenário e por sistema, a corrente média da bateria, o FPS contra o nominal, os eventos `game FAIL slow`, a CPU por núcleo, o clock médio, a temperatura máxima e o custo do coletor de métricas. O relatório MUST NOT trazer nome de jogo nem caminho de ROM.
+
+#### Scenario: Antes e depois
+- **WHEN** o relatório é gerado sobre sessões com o governor padrão e com os perfis
+- **THEN** cada sistema aparece com as duas medições lado a lado, sem nome de jogo
 
 ### Requirement: Aviso de bateria fraca
 Descarregando e num nível baixo de bateria, o console MUST avisar o usuário uma vez, no launcher ou por cima do jogo, nos idiomas do sistema.
