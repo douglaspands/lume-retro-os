@@ -205,8 +205,34 @@ no PC ao mesmo tempo**. Os dois respondem no mesmo endereço pelo cabo: **`10.55
 recebe `10.55.0.2`). O `r36os dev` e o `r36os push` usam esse endereço; `--host ADDR` (antes
 da ação, ex. `r36os dev --host 10.55.0.1 wait`) troca o endereço.
 
-Para não testar o console errado, o `check` aceita `--console ga36|r36s` e recusa o outro com
-`error: the console on the cable is the GA36, not the R36S` (código de saída 1).
+### Qual console está no cabo (`--console`)
+
+Como os dois respondem no mesmo endereço, cada comando diz qual console respondeu, pelo que o
+próprio console informa (`/etc/r36os/board`; sem ele, o `uname -m`: `armv7l` = GA36,
+`aarch64` = R36S):
+
+- `r36os push` e `r36os push --hot` já mostram `console: ga36, ...` na primeira linha;
+- toda ação do `r36os dev`, menos `wait` (o console pode estar desligado), escreve antes
+  `console: GA36 (10.55.0.1)` na saída de erro (a saída normal do `sh`, `shot` e `log` fica
+  limpa).
+
+Para não mexer no console errado, `push`, `push --hot` e as ações `sh`, `shot`, `keys`, `log`
+e `check` do `dev` aceitam `--console ga36|r36s` (depois da ação: `r36os dev check --console
+r36s`, `r36os dev sh --console r36s uname -a`). Se o console no cabo for o outro, o comando
+recusa **antes de enviar ou rodar qualquer coisa**, com código de saída 1:
+
+```
+error: the console on the cable is the GA36, not the R36S: nothing was sent   (push)
+error: the console on the cable is the GA36, not the R36S                    (dev)
+```
+
+Um console que não diga qual é (sem `/etc/r36os/board` e com outra arquitetura) também é
+recusado quando `--console` foi dado.
+
+O `r36os flash` **não tem `--console`**: ele grava o cartão num leitor do PC, onde não há
+console para perguntar, e a imagem é a mesma para os dois consoles (o cartão escolhe a árvore
+do aparelho no boot). Quem confere o console é o primeiro `push` ou `dev` depois que o cartão
+volta a um console.
 
 ## `r36os dev`
 
@@ -220,7 +246,9 @@ Rode no PC, na raiz do repositório (`.venv/bin/r36os dev <ação>`):
 | `shot --compare <tela>` / `--update <tela>` | captura de referência (seção abaixo) |
 | `keys <sequência> [--hold MS] [--gap MS]` | aperta botões (sintaxe abaixo) |
 | `log` | imprime o log do boot atual e os eventos desse boot do `events.log` |
-| `check [--console ga36\|r36s]` | roda o autoteste do aparelho; código 0 só se tudo passar |
+| `check` | roda o autoteste do aparelho; código 0 só se tudo passar |
+
+Todas as ações menos `wait` aceitam `--console ga36|r36s` (seção acima).
 
 Exemplos:
 
@@ -299,7 +327,7 @@ está no syslog.
 
 ## `r36os push` e a verificação depois do reboot
 
-`r36os push [--build CARIMBO] [--yes] [--no-wait]` atualiza o `BOOT` do console pelo cabo (ver
+`r36os push [--build CARIMBO] [--yes] [--no-wait] [--console ga36|r36s]` atualiza o `BOOT` do console pelo cabo (ver
 o `README.md`). Depois do reboot ele **espera e confere** o boot novo, a menos que se passe
 `--no-wait`, que só reinicia e volta:
 

@@ -63,6 +63,9 @@ def _parser() -> argparse.ArgumentParser:
                    help="extract one lume-*/r36os-* fragment into the console's RAM layer "
                         "and restart its services, without a reboot (gone after a reboot; "
                         "not for kernel, modules or base)")
+    u.add_argument("--console", choices=("ga36", "r36s"),
+                   help="refuse, before sending anything, when the console on the cable is "
+                        "the other one")
 
     dv = sub.add_parser("dev", help="test the console over the USB cable (wait, sh, shot, "
                                     "keys, log)")
@@ -84,10 +87,11 @@ def _parser() -> argparse.ArgumentParser:
     ky.add_argument("sequence")
     ky.add_argument("--hold", type=int, default=80, metavar="MS", help="press length")
     ky.add_argument("--gap", type=int, default=120, metavar="MS", help="pause after a press")
-    ds.add_parser("log", help="print the boot log of the current boot")
+    lg = ds.add_parser("log", help="print the boot log of the current boot")
     ck = ds.add_parser("check", help="run the on-device self-test; exit 0 only if all pass")
-    ck.add_argument("--console", choices=("ga36", "r36s"),
-                    help="refuse to run when the console on the cable is the other one")
+    for action in (sh, st, ky, lg, ck):     # not wait: the console may still be off
+        action.add_argument("--console", choices=("ga36", "r36s"),
+                            help="refuse to run when the console on the cable is the other one")
 
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
@@ -226,11 +230,11 @@ def _main(args: argparse.Namespace) -> int:
         if args.command == "push" and args.hot:
             from r36os.push_hot import main_push_hot
 
-            return main_push_hot(args.hot)
+            return main_push_hot(args.hot, console=args.console)
         if args.command == "push":
             from r36os.push import main_push
 
-            return main_push(args.build, args.yes, wait=not args.no_wait)
+            return main_push(args.build, args.yes, wait=not args.no_wait, console=args.console)
         if args.command == "dev":
             from r36os.dev import main_dev
 
