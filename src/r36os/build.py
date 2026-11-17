@@ -249,8 +249,8 @@ ANDROID_BOOT = {"ga36": {"panel1": "sun8i-a33-ga36-mb-v1.2-panel1.dtb",
 
 
 def build_console_kernel(target: Target, timer: StageTimer | None = None) -> None:
-    """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (BOOT
-    <console>/modules, outside SYSTEM), validated dtbs/ and boot."""
+    """Stage 1: out/<target>/kernel/ with the image, modules.tar, the modules image (the
+    modules slot of the console, build-speed D9), validated dtbs/ and boot."""
     timer = timer or StageTimer()
     p = f"{target.name}: "
     out = rootfs.target_out(target)
