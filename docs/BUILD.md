@@ -84,3 +84,87 @@ alguns por cento de velocidade, estes ajustes são por sua conta e exigem root:
   `echo balance_power | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference`.
 
 Ambos voltam ao normal ao reiniciar (ou com o valor anterior no mesmo arquivo).
+
+# Build: tarefas, prioridade, resumo e etapas puladas
+
+## Tarefas em paralelo e prioridade (`--jobs`, `R36OS_JOBS`)
+
+O número de tarefas em paralelo vem de um só lugar (`src/r36os/jobs.py`):
+
+1. a opção `--jobs N` (aceita por `build`, `pkg` e `push`), que vence tudo;
+2. a variável de ambiente `R36OS_JOBS`;
+3. o padrão: **metade dos núcleos** (mínimo 1).
+
+```
+uv run r36os build console --jobs 4
+R36OS_JOBS=4 uv run r36os build console
+uv run r36os pkg r36s retroarch --jobs 2
+```
+
+No começo do build sai uma linha com o valor em uso:
+
+```
+jobs: 8 (16 cores), priority: nice 19, ionice idle
+```
+
+O mesmo N vai para o `make -j`, o `JOBS` do `abuild`, o `-processors` do `mksquashfs` e as
+threads do zstd. Todo comando `podman` do build roda sob `nice -n 19 ionice -c 3`, então o
+container e os compiladores herdam prioridade mínima de CPU e de disco e o PC continua
+responsivo. A prioridade deixa o PC fluido, mas o calor só cai com menos tarefas: se o PC
+esquenta, baixe o `--jobs` (a proteção de calor acima pausa o build em último caso).
+
+## Resumo do build
+
+No fim do `r36os build` (também em caso de erro) sai um bloco com uma linha por etapa, o
+total e, depois dele, as linhas `heat:` da proteção de calor:
+
+```
+build summary:
+  <etapa>  4m05s
+  <etapa>  skipped (inputs unchanged (3fa9c1d20b7e))
+  total    4m31s
+heat: max CPU 83.5 C (k10temp Tctl (...)), max disk 41.0 C
+heat: above limit 0 s, paused 0 s (0 pauses)
+```
+
+Tempos abaixo de 1 minuto saem em segundos (`6.2s`), os maiores como `4m05s` ou `1h02m03s`.
+Uma etapa que falhou aparece com `(failed)` e o resumo sai mesmo assim.
+
+## Etapas puladas (`<saída>.inputs`, `--clean`)
+
+Cada etapa que pode ser pulada guarda, ao lado da sua saída, um arquivo `<saída>.inputs` com
+o hash de tudo o que a alimenta (`src/r36os/stage_inputs.py`). No build seguinte, se o hash é
+o mesmo e a saída existe, a etapa não roda e o resumo mostra `skipped (inputs unchanged ...)`.
+O arquivo é apagado antes da etapa rodar, então uma falha nunca deixa um hash velho.
+
+Etapas puladas desse modo:
+
+| Etapa | Roda de novo quando muda |
+| :--- | :--- |
+| DTBs | só os patches que tocam device tree ou bindings (e os DTS de origem) |
+| initramfs | o rootfs e o que entra no initramfs |
+| imagem de módulos | o conteúdo dos módulos e o script que a gera |
+| rootfs | o script, a lista de pacotes, o idioma e o índice do espelho do Alpine |
+| SYSTEM (squashfs) | o conteúdo do rootfs e as opções do `mksquashfs` |
+
+O `BOOT/VERSION` e seu id de build nunca entram: mudam a cada build. Para forçar todas as
+etapas, mesmo com as entradas iguais:
+
+```
+uv run r36os build console --clean
+```
+
+(`r36os clean` é outra coisa: libera o espaço das sobras de build.)
+
+## Ganhos medidos
+
+Medido no PC do projeto (Ryzen 7 5700G, 16 threads); os valores "antes" estão na tabela
+"Medições" do `design.md` da change `build-speed`:
+
+| Caso | Antes | Depois |
+| :--- | :--- | :--- |
+| build sem mudança | 12 min 04 s | 1 min 25 s |
+| patch num driver do GA36 | 13 min 45 s | 1 min 30 s |
+
+O que sobra no build sem mudança é o que não é pulado (preparo, conferências e a gravação da
+imagem).
