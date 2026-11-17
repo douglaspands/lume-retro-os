@@ -14,22 +14,37 @@ root@10.55.0.1 (root has no password on the USB cable, D4):
    archived before the objects is unpacked once and its files stored as objects;
 3. send them to /storage/.lume-push/<build>/ (ROMS) and check them there with
    `sha256sum -c`: nothing on BOOT changes if one differs;
-4. on BOOT (remounted rw): the *.old/*.new of an earlier push deleted (nothing holds them
-   open after its reboot); each file copied to <name>.new, synced and renamed over the old
-   one, VERSION last, so an interrupted push leaves the old VERSION and the next push sends
-   everything again. The SYSTEM and modules image of the running console are held open by
-   their loop devices: the old one is renamed to <name>.old instead of being replaced,
-   because vfat cannot free the clusters of an open file that lost its name (they leak
-   when the console powers off, push-boot-swap D1). On the GA36, the boot image of panel
-   1 at sector 172032 when it changed, read back and compared;
+4. on BOOT (remounted rw), in this order (build-speed D9, task 4.6):
+   a. the *.old/*.new of an earlier push deleted (nothing holds them open after its
+      reboot), except <console>/SLOTS.old; the slot files that neither SLOTS nor SLOTS.old
+      cites (nor the new set, nor a loop device) deleted, for room;
+   b. the new slot files of both consoles (<console>/slot/<name>-<sha12>: names by content,
+      never the name of a file in use) and each new manifest as <console>/SLOTS.new, then
+      all of them checked with `sha256sum -c` on BOOT, read back from the card: a mismatch
+      stops the push before any set is swapped;
+   c. every other file copied to <name>.new, synced and renamed over the old one. A SYSTEM
+      or modules image of an old build held open by its loop device is renamed to
+      <name>.old instead, because vfat cannot free the clusters of an open file that lost
+      its name (push-boot-swap D1). On the GA36, the boot image of panel 1 at sector
+      172032 when it changed, read back and compared;
+   d. each console's set swapped (swap_command): SLOTS.old deleted, SLOTS renamed to
+      SLOTS.old, SLOTS.new renamed to SLOTS, each step synced. The initramfs mounts SLOTS,
+      else SLOTS.old, else the old SYSTEM, so a power cut at any moment boots the old set
+      or the new one, never a mix;
+   e. VERSION last, so an interrupted push leaves the old VERSION and the next push sends
+      what still differs;
+   f. the slot files of the set before the previous one deleted; on an old card, the
+      <console>/SYSTEM and <console>/modules deleted by the push that follows the one that
+      wrote its first slot set (never by that one, and never while a loop holds them);
 5. BOOT read-only again, the staging folder removed, reboot. If vfat still refuses
    read-only ("Resource busy"), something holds a deleted file open: warn that this boot
    may leave lost clusters, for the next push to check (D5).
 6. unless `--no-wait` (build-speed D12): wait for the console to go away and come back over
    the cable, then check that a new boot started (boot number of /run/r36os/logs/boot-n,
    not the clock: the console clock is not reliable), that /boot/VERSION carries the pushed
-   build and that events.log has `boot OK completed` for that boot; print `ok` with the
-   send and boot times, or the step that diverged.
+   build and that events.log has `boot OK completed` for that boot, and that it mounted
+   <board>/SLOTS (check_slots_mounted); print `ok` with the send and boot times, or the
+   step that diverged.
 
 There is no rsync on the console: each file goes as `cat > file` over ssh.
 """
@@ -58,8 +73,13 @@ ANDROID_SECTOR = 172032          # GA36 kernel boot image (r36os.vendor.ANDROID_
 PANEL1_IMAGE = "ga36-android-boot-panel1.img"
 CHUNK = 1 << 22
 LOST_LIMIT = 32 << 20            # BOOT used (df) above what its files take (du): lost clusters
-STALE_CLEANUP = (r"find /boot -type f \( -name '*.old' -o -name '*.new' \) -exec rm -f {} \; "
-                 "&& sync")
+# <console>/SLOTS.old is the previous slot set (build-speed D9), the boot fallback: never stale
+STALE_CLEANUP = (r"find /boot -type f \( -name '*.old' -o -name '*.new' \) ! -name SLOTS.old "
+                 r"-exec rm -f {} \; && sync")
+BOOT_SUMS = "BOOT.SHA256SUMS"    # the slot files and SLOTS.new as written on BOOT
+# legacy root files of an old card (before the slots), deleted by the push that follows the
+# one that wrote the first slot set of that console
+LEGACY_FILES = ("SYSTEM", "modules")
 
 # after the reboot (build-speed D12); measured 2026-11-16: ssh answers again ~40 s after the
 # reboot, `boot OK completed` ~34 s from the kernel
@@ -151,7 +171,7 @@ b=""; for p in /sys/class/power_supply/*; do [ "$(cat $p/type 2>/dev/null)" = Ba
 df -Pk /storage | awk 'NR==2{print $4}'
 df -Pk /boot | awk 'NR==2{print $4}'
 awk '$2=="/boot"{print $1}' /proc/mounts | sed -E 's/p?[0-9]+$//'
-find /boot -type f \( -name '*.old' -o -name '*.new' \) -exec du -k {} \; | awk '{s+=$1} END{print s+0}'
+find /boot -type f \( -name '*.old' -o -name '*.new' \) ! -name SLOTS.old -exec du -k {} \; | awk '{s+=$1} END{print s+0}'
 df -Pk /boot | awk 'NR==2{print $3}'
 du -sk /boot | awk '{print $1}'
 cd /boot && find . -type f ! -name '*.new' ! -name '*.old' | sed 's|^\./||' | while read -r f; do sha256sum "$f"; done
@@ -185,6 +205,222 @@ def lost_clusters_warning(console: Console) -> str | None:
             "older push, or a power cut); recover them from the PC with the card in the "
             "reader: `sudo fsck.vfat -a <BOOT, partition 1 of the card>` and delete "
             "BOOT/FSCK*.REC, or `r36os flash --update`")
+
+
+# --- slot sets on BOOT (build-speed D9, task 4.6) ---------------------------------------
+
+# The manifests <console>/SLOTS and SLOTS.old as they are (a truncated one included), the
+# files held open by loop devices (the running root and modules) and the size of every slot
+# file. Each manifest is "== <path>", its text, a newline and "== eof".
+SLOT_STATE = ('for f in /boot/*/SLOTS /boot/*/SLOTS.old; do [ -f "$f" ] || continue; '
+              'echo "== ${f#/boot/}"; cat "$f"; echo; echo "== eof"; done; '
+              "echo '== loops'; cat /sys/block/loop*/loop/backing_file 2>/dev/null; "
+              "echo '== sizes'; find /boot/*/slot -type f -exec du -k {} \\; 2>/dev/null; true")
+
+
+def is_slot_file(p: str) -> bool:
+    """<console>/slot/<name>-<sha12>."""
+    parts = p.split("/")
+    return len(parts) == 3 and parts[1] == manifests.SLOTS_DIR
+
+
+def is_slots_manifest(p: str) -> bool:
+    """<console>/SLOTS."""
+    parts = p.split("/")
+    return len(parts) == 2 and parts[1] == manifests.SLOTS_FILE
+
+
+@dataclass
+class SlotFolder:
+    """The slot set of one console folder of BOOT, as the push found it."""
+    console: str
+    current: manifests.SlotSet | None = None     # SLOTS, parsed
+    previous: manifests.SlotSet | None = None    # SLOTS.old, parsed
+    current_exists: bool = False
+    previous_exists: bool = False
+    unreadable: bool = False                      # a manifest that does not parse
+
+    def cited(self) -> set[str]:
+        """BOOT paths of the slot files SLOTS or SLOTS.old cites."""
+        return {f"{self.console}/{f}" for ss in (self.current, self.previous) if ss
+                for f in ss.files()}
+
+
+@dataclass
+class SlotState:
+    folders: dict[str, SlotFolder]
+    running: list[str]                  # backing files of the loop devices
+    sizes: dict[str, int]               # BOOT path of each slot file -> bytes (KiB rounded)
+
+    def folder(self, console: str) -> SlotFolder:
+        return self.folders.setdefault(console, SlotFolder(console))
+
+
+def parse_slot_state(text: str) -> SlotState:
+    state = SlotState({}, [], {})
+    mode, cur, buf = None, None, []
+    for line in text.split("\n"):
+        if cur is not None:
+            if line != "== eof":
+                buf.append(line)
+                continue
+            console, _, name = cur.partition("/")
+            folder = state.folder(console)
+            body = "\n".join(buf)
+            try:
+                ss = manifests.parse_slots(body, cur)
+                if ss.console != console:
+                    raise manifests.ManifestError(f"{cur} is the set of {ss.console}")
+            except manifests.ManifestError:
+                ss = None
+                folder.unreadable = True
+            if name == manifests.SLOTS_FILE:
+                folder.current, folder.current_exists = ss, True
+            else:
+                folder.previous, folder.previous_exists = ss, True
+            cur, buf = None, []
+        elif line == "== loops":
+            mode = "loops"
+        elif line == "== sizes":
+            mode = "sizes"
+        elif mode is None and line.startswith("== "):
+            cur = line[3:]
+        elif mode == "loops" and line.strip():
+            state.running.append(line.strip().removesuffix(" (deleted)"))
+        elif mode == "sizes" and line.strip():
+            kib, _, path = line.strip().partition("\t")
+            if not path:
+                kib, _, path = line.strip().partition(" ")
+            path = path.strip().removeprefix("/boot/")
+            if kib.isdigit() and path:
+                state.sizes[path] = int(kib) * 1024
+    return state
+
+
+def read_slot_state(remote) -> SlotState:
+    return parse_slot_state(remote.run(SLOT_STATE))
+
+
+def is_running(p: str, running: list[str]) -> bool:
+    """The BOOT file p is held open by a loop device (its backing file path ends with it;
+    where BOOT is mounted does not matter)."""
+    return any(r == p or r.endswith("/" + p) for r in running)
+
+
+def usable(ss: manifests.SlotSet | None, console: str, present: set[str]) -> bool:
+    """What the initramfs mounts (slots_check): a manifest that parses, for this console,
+    whose slot files are all on BOOT."""
+    return ss is not None and all(f"{console}/{f}" in present for f in ss.files())
+
+
+def slot_orphans(folder: SlotFolder, present: set[str], running: list[str],
+                 keep: set[str]) -> list[str]:
+    """Slot files of the folder cited by none of `keep` and not held open: what may be
+    deleted. Nothing when a manifest of the folder does not parse (what it cites is
+    unknown)."""
+    if folder.unreadable:
+        return []
+    return sorted(p for p in present
+                  if is_slot_file(p) and p.split("/")[0] == folder.console
+                  and p not in keep and not is_running(p, running))
+
+
+def swap_command(console: str, current_usable: bool) -> str:
+    """The swap of a console's set on BOOT. With a usable SLOTS: SLOTS.old deleted, SLOTS
+    renamed to SLOTS.old, SLOTS.new renamed to SLOTS, each step synced. Between the two
+    renames SLOTS is missing and the initramfs mounts SLOTS.old, the set that was running;
+    no rename goes over an existing name (not atomic on vfat). Without a usable SLOTS (an
+    old card, or a push cut between the renames), SLOTS.old stays the fallback and the
+    unusable SLOTS is deleted before SLOTS.new takes its name."""
+    d = _q(f"/boot/{console}")
+    if current_usable:
+        return (f"cd {d} && rm -f SLOTS.old && sync && mv SLOTS SLOTS.old && sync && "
+                "mv SLOTS.new SLOTS && sync")
+    return f"cd {d} && rm -f SLOTS && sync && mv SLOTS.new SLOTS && sync"
+
+
+def rm_command(paths: list[str]) -> str:
+    return "rm -f " + " ".join(_q(f"/boot/{p}") for p in paths) + " && sync"
+
+
+@dataclass
+class SlotPlan:
+    slot_files: list[str]               # <console>/slot/* to write, in list order
+    manifests: list[str]                # <console>/SLOTS written as SLOTS.new, then swapped
+    current_usable: dict[str, bool]     # console -> its SLOTS is a usable set (swap order)
+    orphans: list[str]                  # slot files deleted before the copy
+    after: list[str]                    # slot files deleted after the swap
+    migrate: dict[str, list[str]]       # console -> legacy root files deleted after the swap
+    kept_running: list[str]             # legacy root files kept: the console runs from them
+    slot_sizes: dict[str, int]          # size of the slot files on BOOT
+
+
+def plan_slots(files: list[tuple[str, str]], sources: dict[str, Path],
+               boot_list: list[tuple[str, str]], console: Console,
+               state: SlotState) -> SlotPlan:
+    """What the push does with the slot sets of every console folder of BOOT (both consoles
+    share the card): which slot files and manifests to write, which slot files no set cites
+    any more, and, on an old card (<console>/SYSTEM and <console>/modules), whether its
+    legacy root goes: only when the folder already had a usable slot set before this push,
+    so the push that writes the first set never deletes SYSTEM."""
+    present = set(console.boot_sums)
+    listed = {p for p, _ in boot_list}
+    slot_files = [p for p, _ in files if is_slot_file(p)]
+    manifest_paths = [p for p, _ in files if is_slots_manifest(p)]
+    new_sets: dict[str, manifests.SlotSet] = {}
+    for p in manifest_paths:
+        c = p.split("/")[0]
+        try:
+            ss = manifests.parse_slots(sources[p].read_text(), p)
+        except (OSError, UnicodeDecodeError, manifests.ManifestError) as e:
+            raise PushError(f"the {p} of the build is not a usable slot set: {e}") from None
+        if ss.console != c:
+            raise PushError(f"the {p} of the build is the set of {ss.console}")
+        missing = [f"{c}/{f}" for f in ss.files() if f"{c}/{f}" not in listed]
+        if missing:
+            raise PushError(f"the {p} of the build cites {', '.join(missing)}, not in its "
+                            f"{image.BOOT_LIST}")
+        new_sets[c] = ss
+    consoles = (set(state.folders) | set(new_sets)
+                | {p.split("/")[0] for p in present if is_slot_file(p)}
+                | {p.split("/")[0] for p in present
+                   if p.count("/") == 1 and p.split("/")[1] in LEGACY_FILES})
+    orphans: list[str] = []
+    after: list[str] = []
+    migrate: dict[str, list[str]] = {}
+    kept_running: list[str] = []
+    current_usable: dict[str, bool] = {}
+    for c in sorted(consoles):
+        folder = state.folder(c)
+        new_files = ({f"{c}/{f}" for f in new_sets[c].files()} if c in new_sets else set())
+        # a file the new set cites stays even when no manifest on BOOT cites it: it was
+        # found present, so it is not sent again
+        orphans += slot_orphans(folder, present, state.running, folder.cited() | new_files)
+        cur_ok = usable(folder.current, c, present)
+        prev_ok = usable(folder.previous, c, present)
+        current_usable[c] = cur_ok
+        if c in new_sets:
+            # after the swap: SLOTS is the new set and SLOTS.old the running one (or the
+            # SLOTS.old that stays when SLOTS was not usable)
+            kept = folder.current if cur_ok else folder.previous
+            unknown = not cur_ok and folder.previous_exists and folder.previous is None
+            if not unknown:
+                keep = new_files | ({f"{c}/{f}" for f in kept.files()} if kept else set())
+                now_present = (present - set(orphans)) | set(slot_files)
+                after += sorted(p for p in now_present
+                                if is_slot_file(p) and p.split("/")[0] == c
+                                and p not in keep and not is_running(p, state.running))
+        if cur_ok or prev_ok:
+            for n in LEGACY_FILES:
+                p = f"{c}/{n}"
+                if p not in present or p in listed:
+                    continue
+                if is_running(p, state.running):
+                    kept_running.append(p)
+                else:
+                    migrate.setdefault(c, []).append(p)
+    return SlotPlan(slot_files, manifest_paths, current_usable, orphans, after, migrate,
+                    kept_running, dict(state.sizes))
 
 
 def _sha256(path: Path) -> str:
@@ -256,22 +492,33 @@ def object_sources(build_dir: Path, files: list[tuple[str, str]], extractor,
     return sources
 
 
-def check_room(console: Console, sizes: dict[str, int]) -> None:
+def check_room(console: Console, sizes: dict[str, int], reclaim: int = 0) -> None:
+    """`reclaim`: bytes of the slot files no manifest cites, deleted before the copy."""
     total = sum(sizes.values())
     if console.roms_free < total + (16 << 20):
         raise PushError(f"ROMS has {console.roms_free >> 20} MiB free, the push needs "
                         f"{total >> 20} MiB (plus 16 MiB) for /storage/.lume-push")
-    # every file goes to <name>.new before the rename; the running SYSTEM and modules image
-    # keep their old blocks as <name>.old until the next push (a loop device holds each one
-    # open), and the *.old/*.new of the previous push are deleted before the swap
-    need = (max(sizes.values(), default=0)
+    # the slot files and SLOTS.new are all written before the swap and the running set
+    # stays (it becomes SLOTS.old), as does the set of SLOTS.old until after the swap: the
+    # new slot files need room of their own. Every other file goes to <name>.new before the
+    # rename; the running SYSTEM and modules image of an old build keep their old blocks as
+    # <name>.old until the next push (a loop device holds each one open), and the *.old/*.new
+    # of the previous push are deleted before the swap
+    slots = sum(s for p, s in sizes.items() if is_slot_file(p) or is_slots_manifest(p))
+    others = [s for p, s in sizes.items() if not (is_slot_file(p) or is_slots_manifest(p))]
+    need = (slots + max(others, default=0)
             + sum(sizes.get(p, 0) for p in running_files(console.board)))
-    free = console.boot_free + console.boot_stale
+    free = console.boot_free + console.boot_stale + reclaim
     if free < need:
+        extra = [f"{console.boot_stale >> 20} MiB of an earlier push"] if console.boot_stale \
+            else []
+        if reclaim:
+            extra.append(f"{reclaim >> 20} MiB of slots no SLOTS cites")
         raise PushError(f"BOOT has {free >> 20} MiB free"
-                        + (f" (with {console.boot_stale >> 20} MiB of an earlier push)"
-                           if console.boot_stale else "")
-                        + f", the push needs {need >> 20} MiB to swap the files")
+                        + (f" (with {' and '.join(extra)})" if extra else "")
+                        + f", the push needs {need >> 20} MiB to swap the files"
+                        + (f" ({slots >> 20} MiB of new slots; the running set is kept as "
+                           "SLOTS.old)" if slots else ""))
 
 
 def _q(s: str) -> str:
@@ -299,7 +546,54 @@ def read_boot_state(remote) -> BootState:
 # BootState and returns what diverged, or None. Slots of SLOTS mounted (node 4.6) and the
 # versions of the fragments sent (node 8.2) are added here later.
 AfterBootCheck = Callable[[object, BootState], "str | None"]
-AFTER_BOOT_CHECKS: list[AfterBootCheck] = []
+
+# The board, the build of its <board>/SLOTS on BOOT ("-" without one), then the `lume: slots:`
+# and `lume: root:` lines the initramfs logged in this boot (initramfs/lib/slots.sh), from the
+# boot log in RAM, else the one on ROMS, else the kernel buffer
+SLOTS_MOUNTED = (
+    'n=$(cat /run/r36os/logs/boot-n 2>/dev/null); b=$(cat /etc/r36os/board 2>/dev/null); '
+    'echo "${b:--}"; s=$(sed -n "s/^build //p" "/boot/$b/SLOTS" 2>/dev/null); '
+    'echo "${s:--}"; shown=; '
+    'for f in "/run/r36os/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
+    'if [ -n "$n" ] && [ -f "$f" ]; then grep -E "lume: (slots|root): " "$f"; shown=1; break; '
+    'fi; done; [ -n "$shown" ] || dmesg | grep -E "lume: (slots|root): "; true')
+
+
+def check_slots_mounted(remote, state: BootState) -> str | None:
+    """After a push: the console mounted <board>/SLOTS, the set on BOOT (build-speed 4.6).
+    A fallback to SLOTS.old or to the old SYSTEM is an error naming what was mounted. A
+    console without <board>/SLOTS (an old build) is not checked."""
+    lines = remote.run(SLOTS_MOUNTED).splitlines() + ["", ""]
+    board, on_boot = lines[0].strip(), lines[1].strip()
+    if on_boot in ("", "-"):
+        return None
+    slots = root = None
+    for line in lines[2:]:
+        if "before kexec" in line:              # lines of the first start of a kexec
+            continue
+        if (i := line.find("lume: slots: ")) >= 0:
+            slots = line[i + len("lume: slots: "):].strip()
+        elif (i := line.find("lume: root: ")) >= 0:
+            root = line[i + len("lume: root: "):].strip()
+    want = f"{board}/{manifests.SLOTS_FILE}"
+    if root is None:
+        return (f"no `lume: root:` line in the log of boot {state.boot_n}: could not confirm "
+                f"that it mounted {want} (see `r36os dev log`)")
+    mounted = root.split(" ", 1)[0]
+    if mounted != want:
+        what = ("the previous set" if mounted.endswith(manifests.SLOTS_OLD)
+                else "the old root image" if mounted.endswith(LEGACY_FILES[0])
+                or mounted.endswith(LEGACY_FILES[0] + ".old") else "not the slot set")
+        return (f"boot {state.boot_n} mounted {mounted} ({what}), not the pushed set {want} "
+                f"(build {on_boot}); see the ERROR lines of `r36os dev log`")
+    expected = f"{want} (build {on_boot})"
+    if slots != expected:
+        return (f"boot {state.boot_n} logged `slots: {slots or '(none)'}`, expected "
+                f"`slots: {expected}`")
+    return None
+
+
+AFTER_BOOT_CHECKS: list[AfterBootCheck] = [check_slots_mounted]
 
 
 def _duration(seconds: float) -> str:
@@ -408,9 +702,13 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     sizes = {p: sources[p].stat().st_size for p, _ in files}
     if panel1_changed:
         sizes[PANEL1_IMAGE] = panel1.stat().st_size
-    check_room(console, sizes)
+    plan = plan_slots(files, sources, boot_list, console, read_slot_state(remote))
+    check_room(console, sizes, sum(plan.slot_sizes.get(p, 0) for p in plan.orphans))
     out("files:   " + ", ".join(p for p, _ in files)
         + (f", {PANEL1_IMAGE} (sector {ANDROID_SECTOR})" if panel1_changed else ""))
+    for c, gone in plan.migrate.items():
+        out(f"migrate: {c} has its slot set since an earlier push: {', '.join(gone)} "
+            "deleted after the swap")
     if not yes and input("Send them and reboot the console? [y/N] ").strip().lower() != "y":
         out("cancelled")
         return 1
@@ -429,27 +727,58 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     sums_file = ensure_dir(cache_dir() / "push") / "SHA256SUMS"
     sums_file.write_text(sums)
     remote.run(f"cat > {_q(f'{remote_dir}/SHA256SUMS')}", stdin=sums_file)
+    digests = dict(files)
+    if plan.slot_files or plan.manifests:
+        # what BOOT must hold before any set is swapped: the slot files and each SLOTS.new
+        boot_sums = sums_file.with_name(BOOT_SUMS)
+        boot_sums.write_text("".join(f"{digests[p]}  {p}\n" for p in plan.slot_files)
+                             + "".join(f"{digests[p]}  {p}.new\n" for p in plan.manifests))
+        remote.run(f"cat > {_q(f'{remote_dir}/{BOOT_SUMS}')}", stdin=boot_sums)
     # 3. checked on the console itself: nothing on BOOT changes if one file differs
     remote.run(f"cd {_q(remote_dir)} && sha256sum -c SHA256SUMS >/dev/null")
     out("checked: SHA256 on the console")
 
-    # 4. BOOT, file by file, VERSION last
+    # 4. BOOT: the new slot files and SLOTS.new, checked; the other files one by one; each
+    # console's set swapped by renames; VERSION last; then what no set cites any more
     remote.run("mount -o remount,rw /boot")
     ro_refused = None
     running = running_files(console.board)
+    version = [p for p, _ in files if p == manifests.VERSION_FILE]
+    others = [p for p, _ in files if p != manifests.VERSION_FILE
+              and not is_slot_file(p) and not is_slots_manifest(p)]
+
+    def copy(p: str) -> None:
+        dest = f"/boot/{p}"
+        new, old = _q(dest + ".new"), _q(dest + ".old")
+        # a running file keeps its name as .old: deleting it while its loop holds it open
+        # would leak its clusters when the console powers off (D1)
+        keep_old = (f"{{ [ ! -e {_q(dest)} ] || mv {_q(dest)} {old}; }} && "
+                    if p in running else "")
+        remote.run(f"mkdir -p {_q(str(Path(dest).parent))} && "
+                   f"cp {_q(f'{remote_dir}/{p}')} {new} && sync && "
+                   f"{keep_old}mv {new} {_q(dest)} && sync")
+
     try:
-        # the *.old/*.new of an earlier push: nothing holds them open after its reboot (D2)
+        # the *.old/*.new of an earlier push: nothing holds them open after its reboot (D2);
+        # SLOTS.old stays (the previous set)
         remote.run(STALE_CLEANUP)
-        for p, _ in files:
-            dest = f"/boot/{p}"
-            new, old = _q(dest + ".new"), _q(dest + ".old")
-            # a running file keeps its name as .old: deleting it while its loop holds it
-            # open would leak its clusters when the console powers off (D1)
-            keep_old = (f"{{ [ ! -e {_q(dest)} ] || mv {_q(dest)} {old}; }} && "
-                        if p in running else "")
-            remote.run(f"mkdir -p {_q(str(Path(dest).parent))} && "
-                       f"cp {_q(f'{remote_dir}/{p}')} {new} && sync && "
-                       f"{keep_old}mv {new} {_q(dest)} && sync")
+        if plan.orphans:
+            # slot files no SLOTS nor SLOTS.old cites (the set before the previous one, or
+            # a push cut in the middle): room for the new ones
+            remote.run(rm_command(plan.orphans))
+        # new slot files never take the name of one in use (names by content)
+        for p in plan.slot_files:
+            copy(p)
+        for p in plan.manifests:
+            remote.run(f"mkdir -p {_q(str(Path('/boot', p).parent))} && "
+                       f"cp {_q(f'{remote_dir}/{p}')} {_q(f'/boot/{p}.new')} && sync")
+        if plan.slot_files or plan.manifests:
+            # read back from the card, not from the page cache
+            remote.run("sync && echo 3 > /proc/sys/vm/drop_caches && cd /boot && "
+                       f"sha256sum -c {_q(f'{remote_dir}/{BOOT_SUMS}')} >/dev/null")
+            out("checked: slot files and SLOTS.new on BOOT")
+        for p in others:
+            copy(p)
         if panel1_changed:
             size = panel1.stat().st_size
             remote.run(f"dd if={_q(f'{remote_dir}/{PANEL1_IMAGE}')} of={_q(console.device)} "
@@ -461,6 +790,24 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
                 raise PushError("the boot image read back from sector "
                                 f"{ANDROID_SECTOR} differs: do not reboot; write the card "
                                 "with `r36os flash --update` from the reader")
+        for p in plan.manifests:
+            c = p.split("/")[0]
+            remote.run(swap_command(c, plan.current_usable[c]))
+            out(f"swapped: {c}/SLOTS (the previous set is {c}/SLOTS.old)")
+        for p in version:
+            copy(p)
+        # nothing below can leave a console without a set: a failure is only a warning
+        gone = plan.after + [p for c in plan.migrate for p in plan.migrate[c]]
+        if gone:
+            try:
+                remote.run(rm_command(gone))
+                out("deleted: " + ", ".join(gone))
+            except PushError as e:
+                out(f"warning: could not delete what no set cites ({e}); the next push "
+                    "tries again")
+        for p in plan.kept_running:
+            out(f"note: {p} kept: the console runs from it (its slot set did not mount, see "
+                "`r36os dev log`)")
     finally:
         try:
             remote.run("sync; mount -o remount,ro /boot")

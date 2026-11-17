@@ -13,7 +13,10 @@ Two modes:
   touched. It only accepts a card whose partition 1 has the same start, size and disk
   signature as the image, that is, a card written before with an image of this layout.
   The console image has a 2 GiB BOOT partition, so a card written before with a 1 GiB
-  BOOT (the older ga36 image) is refused and needs a full write.
+  BOOT (the older ga36 image) is refused and needs a full write. BOOT is written whole,
+  so an old card (<console>/SYSTEM and <console>/modules) comes out with the slot layout
+  of the build (<console>/SLOTS and <console>/slot/*, build-speed D9) and nothing of the
+  old one: no SYSTEM, no SLOTS.old.
 
 Pass `--eject` to safely unmount and power off the device after writing and verification.
 
