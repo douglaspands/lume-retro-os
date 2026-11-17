@@ -404,6 +404,322 @@ fn fifo_without_reader_does_not_stop_the_game() {
     assert_eq!(fs::read_to_string(&marker).unwrap().trim(), "ok");
 }
 
+// ---- lume-hud-actions: the runner's actions, the pause and the Lume menu ----
+
+use std::sync::{Arc, Mutex};
+
+/// A fake RetroArch on UDP: records every command and answers GET_STATUS with its state
+/// (PAUSE_TOGGLE flips it); `mute` answers nothing.
+struct FakeRa {
+    port: u16,
+    got: Arc<Mutex<Vec<String>>>,
+    state: Arc<Mutex<&'static str>>,
+}
+
+impl FakeRa {
+    fn new(state: &'static str) -> FakeRa {
+        let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = s.local_addr().unwrap().port();
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let st = Arc::new(Mutex::new(state));
+        let (g, st2) = (got.clone(), st.clone());
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 512];
+            while let Ok((n, from)) = s.recv_from(&mut buf) {
+                let cmd = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let mut state = st2.lock().unwrap();
+                if cmd == "PAUSE_TOGGLE" {
+                    *state = match *state {
+                        "PLAYING" => "PAUSED",
+                        "PAUSED" => "PLAYING",
+                        s => s,
+                    };
+                }
+                if cmd == "GET_STATUS" && *state != "mute" {
+                    let _ = s.send_to(format!("GET_STATUS {} snes,Alpha,crc32=0", *state).as_bytes(), from);
+                }
+                g.lock().unwrap().push(cmd);
+            }
+        });
+        FakeRa { port, got, state: st }
+    }
+
+    fn cmds(&self) -> Vec<String> {
+        self.got.lock().unwrap().clone()
+    }
+
+    /// The commands without the renewals of the widgets.
+    fn plain(&self) -> Vec<String> {
+        self.cmds().into_iter().filter(|c| !c.starts_with("LUME_")).collect()
+    }
+
+    fn wait_for(&self, cmd: &str) {
+        let end = Instant::now() + Duration::from_secs(5);
+        while !self.cmds().iter().any(|c| c == cmd || c.starts_with(&format!("{cmd} "))) {
+            assert!(Instant::now() < end, "RetroArch never got {cmd}: {:?}", self.cmds());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+/// The fake input daemon's side of lume-run's connection.
+struct Daemon(OwnedFd);
+
+impl Daemon {
+    fn accept(listener: &OwnedFd) -> Daemon {
+        let c = unsafe { libc::accept(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut()) };
+        assert!(c >= 0);
+        Daemon(unsafe { OwnedFd::from_raw_fd(c) })
+    }
+
+    fn send(&self, msg: &str) {
+        assert_eq!(unsafe { libc::send(self.0.as_raw_fd(), msg.as_ptr().cast(), msg.len(), 0) }, msg.len() as isize);
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    /// Every message lume-run sent so far.
+    fn received(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        let mut buf = [0u8; 256];
+        loop {
+            let n = unsafe { libc::recv(self.0.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), libc::MSG_DONTWAIT) };
+            if n <= 0 {
+                return v;
+            }
+            v.push(String::from_utf8_lossy(&buf[..n as usize]).into_owned());
+        }
+    }
+}
+
+const RA_ACTIONS: &str = "overlay=retroarch\naction=pause retroarch-pause\naction=app_menu retroarch-cmd:MENU_TOGGLE\n\
+action=reset retroarch-cmd:RESET\naction=save_state retroarch-cmd:SAVE_STATE\naction=load_state retroarch-cmd:LOAD_STATE\n\
+action=screenshot retroarch-cmd:SCREENSHOT\n";
+
+/// A game that runs until `exit` exists and writes its pid; `extra` goes in the launch file.
+fn waiting_game(e: &Env, quit: &str, extra: &str) {
+    let d = e.dir.display().to_string();
+    let game = format!("echo $$ > \"{d}/game\"; while [ ! -f \"{d}/exit\" ]; do sleep 0.05; done");
+    e.step(1, 64, &format!("{extra}{}", launch("snes", quit, 1, &["/bin/sh", "-c", &game])));
+    e.step(2, 0, "");
+}
+
+/// The state letter of a process (R, S, T...).
+fn proc_state(pid: i32) -> char {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    stat.rsplit(')').next().unwrap().trim_start().chars().next().unwrap()
+}
+
+fn spawn_logged(e: &Env, port: u16) -> Child {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_lume-run"));
+    c.env("FAKE", &e.dir)
+        .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
+        .env("LUME_UI", e.dir.join("ui"))
+        .env("LUME_INDEX", "/bin/true")
+        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
+        .env("LUME_CGROUP", e.dir.join("no-cgroup"))
+        .env("LUME_STORAGE", e.dir.join("storage"))
+        .env("LUME_RA_PORT", port.to_string())
+        .stdin(Stdio::null())
+        .stderr(Stdio::from(fs::File::create(e.dir.join("stderr")).unwrap()));
+    c.spawn().unwrap()
+}
+
+fn stderr(e: &Env) -> String {
+    fs::read_to_string(e.dir.join("stderr")).unwrap_or_default()
+}
+
+#[test]
+fn chords_become_retroarch_commands() {
+    let e = setup("chords", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    for m in ["save_state", "load_state", "screenshot", "app_menu", "volume", "unknown thing"] {
+        d.send(m);
+    }
+    assert_eq!(ra.plain(), ["SAVE_STATE", "LOAD_STATE", "SCREENSHOT", "MENU_TOGGLE"]);
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn menu_pauses_retroarch_and_unpauses_only_its_own_pause() {
+    let e = setup("pause", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    ra.wait_for("LUME_MENU");
+    assert_eq!(ra.plain(), ["GET_STATUS", "PAUSE_TOGGLE", "GET_STATUS"]);
+    assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
+    let menu = ra.cmds().into_iter().find(|c| c.starts_with("LUME_MENU ")).unwrap();
+    assert_eq!(menu, "LUME_MENU Secret Name|Back to game|Reset|Fake menu|End game|0");
+    assert_eq!(d.received(), ["capture on"]);
+    // B goes back: unpaused, the menu hidden, the controls returned
+    d.send("nav b");
+    assert_eq!(*ra.state.lock().unwrap(), "PLAYING");
+    assert_eq!(ra.cmds().last().unwrap(), "PAUSE_TOGGLE");
+    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU -"));
+    assert_eq!(d.received(), ["capture off"]);
+    // already paused by the user: the menu does not toggle, and leaves it paused
+    *ra.state.lock().unwrap() = "PAUSED";
+    let before = ra.plain().len();
+    d.send("fn_tap");
+    d.send("fn_tap");
+    assert_eq!(&ra.plain()[before..], ["GET_STATUS"]);
+    assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn menu_reset_and_end_go_through_the_runner() {
+    let e = setup("menuend", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    // Reset: A without moving the focus is No; Right then A is Yes
+    d.send("fn_tap");
+    d.send("nav down");
+    d.send("nav a");
+    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Reset the game?|No|Yes|0"), "{:?}", ra.cmds());
+    d.send("nav a");
+    assert!(!ra.plain().contains(&"RESET".to_string()));
+    d.send("nav a");
+    d.send("nav right");
+    d.send("nav a");
+    // unpaused before the reset, so RetroArch carries it out
+    let plain = ra.plain();
+    assert_eq!(&plain[plain.len() - 2..], ["PAUSE_TOGGLE", "RESET"]);
+    // the RetroArch menu item: closes the Lume menu, then MENU_TOGGLE
+    d.send("fn_tap");
+    d.send("nav down");
+    d.send("nav down");
+    d.send("nav a");
+    assert_eq!(ra.plain().last().unwrap(), "MENU_TOGGLE");
+    // End game: the polite quit (QUIT twice)
+    *ra.state.lock().unwrap() = "PLAYING";
+    d.send("fn_tap");
+    for n in ["nav down", "nav down", "nav down", "nav a", "nav right", "nav a"] {
+        d.send(n);
+    }
+    ra.wait_for("QUIT");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    assert!(e.events().contains("end=menu-quit"), "{}", e.events());
+}
+
+#[test]
+fn silent_retroarch_is_stopped_and_force_closed() {
+    let e = setup("silent", false);
+    let ra = FakeRa::new("mute");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    let t0 = Instant::now();
+    d.send("fn_tap");
+    ra.wait_for("LUME_MENU");
+    // the answer is awaited for 1 s at most
+    assert!(t0.elapsed() < Duration::from_millis(1600), "{:?}", t0.elapsed());
+    assert_eq!(proc_state(pid), 'T', "the game is stopped");
+    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Fake is not responding|Back to game|End game|Force close|2"), "{:?}", ra.cmds());
+    d.send("nav a");
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    assert!(!alive(pid));
+    assert!(e.events().contains("end=force-close"), "{}", e.events());
+}
+
+#[test]
+fn menu_without_a_pause_action_freezes_the_group() {
+    let e = setup("sigstop", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "sigterm", "overlay=retroarch\n");
+    let mut run = spawn_logged(&e, ra.port);
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    assert_eq!(proc_state(pid), 'T');
+    // only Back and End: no reset and no app menu declared
+    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Secret Name|Back to game|End game|0"), "{:?}", ra.cmds());
+    d.send("fn_tap");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_ne!(proc_state(pid), 'T');
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn key_and_signal_actions_and_undeclared_ones() {
+    let e = setup("keysig", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    let d_ = e.dir.display().to_string();
+    let game = format!("trap 'echo usr1 > \"{d_}/usr1\"' USR1; echo $$ > \"{d_}/game\"; while [ ! -f \"{d_}/exit\" ]; do sleep 0.05; done");
+    e.step(1, 64, &format!("action=save_state key:KEY_F2\naction=screenshot signal:SIGUSR1\n{}", launch("snes", "sigterm", 1, &["/bin/sh", "-c", &game])));
+    e.step(2, 0, "");
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("save_state");
+    assert_eq!(d.received(), ["tap KEY_F2"]);
+    d.send("screenshot");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(e.dir.join("usr1").exists(), "SIGUSR1 to the game's group");
+    // not declared: one log line, nothing else; no overlay: the menu, the hint and the bar
+    // are ignored with a line too
+    d.send("load_state");
+    d.send("fn_tap");
+    d.send("fn_hold B=app_menu Start=quit");
+    d.send("hud");
+    assert!(ra.cmds().is_empty(), "{:?}", ra.cmds());
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    let log = stderr(&e);
+    for line in ["action load_state not supported by runner fake", "fn_tap ignored: runner fake draws no overlay",
+                 "fn_hold ignored: runner fake draws no overlay", "hud ignored: runner fake draws no overlay"] {
+        assert!(log.contains(line), "{line}: {log}");
+    }
+}
+
+#[test]
+fn hint_and_bar_go_to_retroarch() {
+    let e = setup("hint", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_hold B=app_menu R1=save_state X=hud Start=quit Vol=brightness");
+    assert_eq!(ra.cmds(), ["LUME_HINT Fn+B\tFake menu|Fn+R1\tSave state|Fn+X\tStatus bar|Fn+Start\tEnd game"]);
+    d.send("fn_release");
+    assert_eq!(ra.cmds().last().unwrap(), "LUME_HINT -");
+    // the bar: on, renewed every second, then off; remembered for the next game
+    d.send("hud");
+    std::thread::sleep(Duration::from_millis(1200));
+    let bars: Vec<String> = ra.cmds().into_iter().filter(|c| c.starts_with("LUME_HUD ")).collect();
+    assert!(bars.len() >= 2 && bars[0].starts_with("LUME_HUD CPU "), "{bars:?}");
+    assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "1\n");
+    d.send("hud");
+    assert_eq!(ra.cmds().last().unwrap(), "LUME_HUD -");
+    assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "0\n");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
 #[test]
 fn session_sigterm_ends_the_game_and_the_supervisor() {
     let e = setup("session", false);

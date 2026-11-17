@@ -276,10 +276,14 @@ pub fn connect_input(path: &Path) -> Option<OwnedFd> {
     }
 }
 
-/// Reads one message from the input socket; None when the daemon closed it.
+/// Reads one message from the input socket (the `fn_hold` table is the longest); None when
+/// the daemon closed it. A spurious wake-up gives an empty message.
 pub fn read_message(fd: RawFd) -> Option<String> {
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 512];
     let n = unsafe { libc::recv(fd, buf.as_mut_ptr().cast(), buf.len(), libc::MSG_DONTWAIT) };
+    if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+        return Some(String::new());
+    }
     if n <= 0 {
         return None;
     }

@@ -13,23 +13,35 @@
 //! SIGTERM to the game's process group), then, after the runner timeout, `cgroup.kill`. A
 //! game that ends in any way never ends lume-run.
 //!
+//! The other Fn gestures and chords (lume-hud-actions) arrive on the same socket: the
+//! runner's actions (actions.rs), the Lume menu and the chord hint (menu.rs), the status bar
+//! (hud.rs). The game loop waits without a timeout unless the quit deadline, the bar, the
+//! menu or the hint need a tick (1 s).
+//!
 //! Environment (defaults in parentheses): LUME_UI (/usr/bin/lume-ui), LUME_INDEX
 //! (/usr/bin/lume-index), LUME_CGROUP (/sys/fs/cgroup/lume), LUME_INPUT_SOCK
 //! (/run/r36os/input.sock), LUME_RA_PORT (55355), R36OS_RUN (/run/r36os), XDG_RUNTIME_DIR.
 
+mod actions;
 mod events;
+mod hud;
 mod launch;
+mod menu;
 mod proc;
 mod states;
 
 use std::net::UdpSocket;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::path::PathBuf;
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use launch::{Launch, Quit};
+use lume_core::input::{Action, Message};
 use proc::Exit;
+
+/// The tick of the bar, the menu and the hint (their widgets vanish after 3 s without one)
+const TICK: Duration = Duration::from_secs(1);
 
 const PROG: &str = "lume-run";
 const EXIT_LAUNCH: i32 = 64;
@@ -58,12 +70,18 @@ struct Run {
     sig: OwnedFd,
     games: u64,
     helpers: Vec<libc::pid_t>,
+    /// an end the menu asked for while carrying out its effects
+    pending_end: std::cell::Cell<Option<End>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum End {
     Normal,
     QuitCombo,
+    /// "End game" of the Lume menu
+    MenuQuit,
+    /// "Force close" of the Lume menu (the application did not answer)
+    ForceClose,
     Killed,
     Session,
 }
@@ -73,10 +91,27 @@ impl End {
         match self {
             End::Normal => "normal",
             End::QuitCombo => "quit-combo",
+            End::MenuQuit => "menu-quit",
+            End::ForceClose => "force-close",
             End::Killed => "killed",
             End::Session => "session",
         }
     }
+}
+
+/// What is on the screen over the game: the Lume menu, the chord hint, the status bar.
+struct Overlay {
+    menu: menu::Menu,
+    /// how the menu paused the game (None: not paused by the menu)
+    paused: Option<actions::Paused>,
+    hint: Option<String>,
+    hud: Option<(hud::Hud, Instant)>,
+    lang: String,
+}
+
+/// The game's title for the menu: the ROM's name without folder and extension.
+fn game_title(l: &Launch) -> String {
+    Path::new(&l.path).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| l.system.clone())
 }
 
 fn polite_quit(l: &Launch, pid: libc::pid_t, port: u16) {
@@ -132,6 +167,7 @@ impl Run {
             sig: proc::signal_fd()?,
             games: 0,
             helpers: Vec::new(),
+            pending_end: std::cell::Cell::new(None),
             runtime,
         })
     }
@@ -196,19 +232,40 @@ impl Run {
         }
         self.status(&format!("game:{}", l.runner));
         self.events.game_start(l);
-        let input = proc::connect_input(&self.input_sock);
+        let mut input = proc::connect_input(&self.input_sock);
         if input.is_none() {
             log("no input daemon: Fn+Start does not end this game");
+        }
+        let lang = lume_core::gametext::language(&lume_core::paths::card());
+        let app = lume_core::gametext::app_name(&l.runner);
+        let mut ov = Overlay {
+            menu: menu::Menu::new(&lang, &app, &game_title(l), l.action("reset").is_some(), l.action("app_menu").is_some()),
+            paused: None,
+            hint: None,
+            hud: None,
+            lang,
+        };
+        // the bar stays on from one game to the next (D6)
+        if l.overlay && !l.menu && hud::load_shown(&self.hud_file()) {
+            self.hud_show(&mut ov, child.pid, true);
         }
         let mut end = End::Normal;
         let mut deadline: Option<Instant> = None;
         let mut session_stop = false;
+        let mut next_tick = Instant::now() + TICK;
         let exit = loop {
             let mut fds = vec![child.pidfd.as_raw_fd(), self.sig.as_raw_fd()];
             if let Some(i) = &input {
                 fds.push(i.as_raw_fd());
             }
-            let wait = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+            let ticking = ov.hud.is_some() || ov.menu.is_open() || ov.hint.is_some();
+            let wake = match (deadline, ticking) {
+                (Some(d), true) => Some(d.min(next_tick)),
+                (Some(d), false) => Some(d),
+                (None, true) => Some(next_tick),
+                (None, false) => None,
+            };
+            let wait = wake.map(|d| d.saturating_duration_since(Instant::now()));
             let r = proc::poll(&fds, wait);
             if r[0] {
                 break proc::reap(child.pid);
@@ -220,17 +277,35 @@ impl Run {
                 quit = true;
             }
             if r.get(2) == Some(&true) {
-                match input.as_ref().and_then(|i| proc::read_message(i.as_raw_fd())) {
-                    Some(m) if m == "quit" && deadline.is_none() => {
-                        end = End::QuitCombo;
-                        quit = true;
+                let fd = input.as_ref().map(|i| i.as_raw_fd());
+                match fd.and_then(proc::read_message) {
+                    Some(m) => match lume_core::input::parse(&m) {
+                        Some(msg) if deadline.is_none() => {
+                            match self.on_message(msg, l, child.pid, fd, &mut ov) {
+                                Some(e @ (End::QuitCombo | End::MenuQuit)) => {
+                                    end = e;
+                                    quit = true;
+                                }
+                                Some(End::ForceClose) => {
+                                    log("force close: the application did not answer");
+                                    end = End::ForceClose;
+                                    self.force_kill(cg.as_ref(), child.pid);
+                                    break proc::reap(child.pid);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    },
+                    // daemon gone: keep the game running without the chords
+                    None => {
+                        log("input daemon gone: the Fn chords do nothing in this game");
+                        input = None;
                     }
-                    Some(_) => {}
-                    // daemon gone: keep the game running without the combo
-                    None => {}
                 }
             }
             if quit && deadline.is_none() {
+                self.close_overlays(l, child.pid, input.as_ref().map(|i| i.as_raw_fd()), &mut ov);
                 log(&format!("{}: asking the game to end ({})", end.as_str(), l.runner));
                 polite_quit(l, child.pid, self.ra_port);
                 deadline = Some(Instant::now() + Duration::from_secs(l.timeout as u64));
@@ -241,7 +316,14 @@ impl Run {
                 self.force_kill(cg.as_ref(), child.pid);
                 break proc::reap(child.pid);
             }
+            if Instant::now() >= next_tick {
+                self.tick(&mut ov, input.as_ref().map(|i| i.as_raw_fd()));
+                next_tick = Instant::now() + TICK;
+            }
         };
+        if ov.hud.is_some() {
+            hud::panfrost_profiling(Path::new("/"), false);
+        }
         drop(input);
         // whatever the game left behind (a daemon started by a script) ends with it
         match &cg {
@@ -261,12 +343,186 @@ impl Run {
         // the cgroup is empty (or given up on): every end path of a started game comes here
         power_end(l);
         let secs = started.elapsed().as_secs();
-        let ok = matches!(exit, Exit::Code(0)) || end == End::QuitCombo;
+        let ok = matches!(exit, Exit::Code(0)) || end == End::QuitCombo || end == End::MenuQuit;
         self.events.game(ok, l, end.as_str(), &exit.describe(), secs);
         if !l.menu && !l.path.is_empty() {
             self.touch(l, &states::changed(&l.states, &before));
         }
         !session_stop
+    }
+
+    /// The bar's state across games (D6); in the runtime folder, which the boot empties.
+    fn hud_file(&self) -> PathBuf {
+        self.runtime.join("hud")
+    }
+
+    fn ra(&self, cmd: &str) {
+        actions::ra_send(self.ra_port, cmd);
+    }
+
+    fn hud_show(&self, ov: &mut Overlay, pid: libc::pid_t, on: bool) {
+        if on {
+            hud::panfrost_profiling(Path::new("/"), true);
+            let mut h = hud::Hud::new(Path::new("/"), pid);
+            let text = h.sample(0.0);
+            self.ra(&format!("LUME_HUD {text}"));
+            ov.hud = Some((h, Instant::now()));
+        } else {
+            ov.hud = None;
+            hud::panfrost_profiling(Path::new("/"), false);
+            // "-" hides (a bare command makes RetroArch read past the end of its argument)
+            self.ra("LUME_HUD -");
+        }
+    }
+
+    fn draw_menu(&self, ov: &Overlay) {
+        let t = ov.menu.draw_text();
+        self.ra(&if t.is_empty() { "LUME_MENU -".to_string() } else { format!("LUME_MENU {t}") });
+    }
+
+    fn hide_hint(&self, ov: &mut Overlay) {
+        if ov.hint.take().is_some() {
+            self.ra("LUME_HINT -");
+        }
+    }
+
+    /// Before the game ends: the menu closes (unpausing), the hint goes, the controls return.
+    fn close_overlays(&self, l: &Launch, pid: libc::pid_t, input: Option<RawFd>, ov: &mut Overlay) {
+        self.hide_hint(ov);
+        if ov.menu.is_open() {
+            ov.menu.state = menu::State::Closed;
+            self.menu_effect(menu::Effect::Close, l, pid, input, ov);
+        }
+    }
+
+    /// The renewal of every second: the bar's numbers, the menu and the hint (their widgets
+    /// vanish after 3 s without one, so a dead lume-run leaves nothing on the screen), the
+    /// capture (the daemon ends it after 2 s of silence).
+    fn tick(&self, ov: &mut Overlay, input: Option<RawFd>) {
+        if let Some((h, since)) = &mut ov.hud {
+            let text = h.sample(since.elapsed().as_secs_f64());
+            self.ra(&format!("LUME_HUD {text}"));
+        }
+        if ov.menu.is_open() {
+            actions::to_daemon(input, lume_core::input::CAPTURE_ON);
+            self.draw_menu(ov);
+        }
+        if let Some(h) = &ov.hint {
+            self.ra(&format!("LUME_HINT {h}"));
+        }
+    }
+
+    /// One message of the input daemon; Some(end) when the game must end.
+    fn on_message(&self, msg: Message, l: &Launch, pid: libc::pid_t, input: Option<RawFd>, ov: &mut Overlay) -> Option<End> {
+        match msg {
+            Message::Action(Action::Quit) => return Some(End::QuitCombo),
+            Message::Action(Action::Hud) => {
+                self.hide_hint(ov);
+                if !l.overlay {
+                    log(&format!("hud ignored: runner {} draws no overlay", l.runner));
+                } else {
+                    let on = ov.hud.is_none();
+                    hud::save_shown(&self.hud_file(), on);
+                    self.hud_show(ov, pid, on);
+                }
+            }
+            Message::Action(a) => {
+                self.hide_hint(ov);
+                if ov.menu.is_open() {
+                    // a chord with the menu open: the menu closes first, the game resumes
+                    ov.menu.state = menu::State::Closed;
+                    self.menu_effect(menu::Effect::Close, l, pid, input, ov);
+                }
+                let name = a.as_str();
+                if !actions::run(l.action(name), self.ra_port, pid, input, &log) {
+                    log(&format!("action {name} not supported by runner {}", l.runner));
+                }
+            }
+            Message::FnTap => {
+                self.hide_hint(ov);
+                if !l.overlay {
+                    // the menu is drawn by RetroArch's widget until the system-drawn menu
+                    // (lume-menu, D14) passes its proof on the consoles
+                    log(&format!("fn_tap ignored: runner {} draws no overlay", l.runner));
+                } else {
+                    for e in ov.menu.tap() {
+                        self.menu_effect(e, l, pid, input, ov);
+                    }
+                }
+            }
+            Message::FnHold(table) => {
+                if ov.menu.is_open() {
+                    // the menu is on the screen already
+                } else if !l.overlay {
+                    log(&format!("fn_hold ignored: runner {} draws no overlay", l.runner));
+                } else {
+                    let declared = |a: &str| if a == "hud" { l.overlay } else { l.action(a).is_some() };
+                    let app = lume_core::gametext::app_name(&l.runner);
+                    let text = menu::hint_text(&ov.lang, &app, &table, &declared);
+                    self.ra(&format!("LUME_HINT {text}"));
+                    ov.hint = Some(text);
+                }
+            }
+            Message::FnRelease => self.hide_hint(ov),
+            Message::Nav(n) => {
+                if ov.menu.is_open() {
+                    for e in ov.menu.nav(n) {
+                        self.menu_effect(e, l, pid, input, ov);
+                    }
+                    if ov.menu.is_open() {
+                        self.draw_menu(ov);
+                    }
+                }
+                if let Some(e) = self.pending_end.take() {
+                    return Some(e);
+                }
+            }
+            Message::Volume | Message::Brightness => {}
+        }
+        self.pending_end.take()
+    }
+
+    /// Carries out what the menu asked for (D10).
+    fn menu_effect(&self, e: menu::Effect, l: &Launch, pid: libc::pid_t, input: Option<RawFd>, ov: &mut Overlay) {
+        use menu::Effect;
+        match e {
+            Effect::Open => {
+                let r = actions::pause(l.action("pause"), self.ra_port, pid, &log);
+                ov.paused = Some(r.paused);
+                if r.unresponsive {
+                    ov.menu.set_unresponsive();
+                }
+                actions::to_daemon(input, lume_core::input::CAPTURE_ON);
+                self.draw_menu(ov);
+            }
+            Effect::Close => {
+                actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
+                self.draw_menu(ov);
+                if let Some(p) = ov.paused.take() {
+                    actions::resume(p, self.ra_port, pid);
+                }
+            }
+            Effect::Reset => {
+                self.menu_effect(Effect::Close, l, pid, input, ov);
+                if !actions::run(l.action("reset"), self.ra_port, pid, input, &log) {
+                    log(&format!("action reset not supported by runner {}", l.runner));
+                }
+            }
+            Effect::AppMenu => {
+                if !actions::run(l.action("app_menu"), self.ra_port, pid, input, &log) {
+                    log(&format!("action app_menu not supported by runner {}", l.runner));
+                }
+            }
+            Effect::Quit => {
+                self.menu_effect(Effect::Close, l, pid, input, ov);
+                self.pending_end.set(Some(End::MenuQuit));
+            }
+            Effect::ForceClose => {
+                actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
+                self.draw_menu(ov);
+                self.pending_end.set(Some(End::ForceClose));
+            }
+        }
     }
 
     fn force_kill(&self, cg: Option<&proc::GameCgroup>, pid: libc::pid_t) {
