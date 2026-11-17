@@ -68,6 +68,12 @@ def _roots():
     return [OVERLAY, *(REPO_ROOT / "aports" / n / "files" for n in FRAGMENTS)]
 
 
+# files created in a fragment after the move (they have no base commit entry)
+ADDED_AFTER_MOVE = {
+    "usr/libexec/r36os/power-profiles.sh",  # game-governor 1.1: profile validator (lume-power)
+}
+
+
 def test_aports_and_overlay_together_are_the_overlay_before_the_move():
     base = _base_overlay()
     seen: dict[str, str] = {}
@@ -75,7 +81,7 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
         for rel in _tree(root):
             assert rel not in seen, f"{rel} is in {seen[rel]} and in {root}"
             seen[rel] = str(root)
-    assert set(seen) == set(base)
+    assert set(seen) - ADDED_AFTER_MOVE == set(base)
 
 
 # files edited on purpose after the move (only their mode is still held to the base commit)
@@ -88,7 +94,7 @@ EDITED_AFTER_MOVE = {
 def test_every_file_keeps_its_content_and_mode():
     base = _base_overlay()
     for root in _roots():
-        for rel in _tree(root):
+        for rel in _tree(root) - ADDED_AFTER_MOVE:
             mode, sha = base[rel]
             if rel in EDITED_AFTER_MOVE:
                 assert _git_mode(root / rel) == mode, rel
