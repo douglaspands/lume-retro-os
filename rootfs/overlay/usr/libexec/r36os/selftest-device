@@ -18,6 +18,7 @@ PROC_MOUNTS=${PROC_MOUNTS:-/proc/mounts}
 PROC_SWAPS=${PROC_SWAPS:-/proc/swaps}
 INPUT_DEVICES=${INPUT_DEVICES:-/proc/bus/input/devices}
 HWSUMMARY=${HWSUMMARY:-$R36OS_RUN/hwsummary}
+SYSLOG=${SYSLOG:-/var/log/messages}
 PASSED=0
 FAILED=0
 
@@ -34,14 +35,23 @@ check() {  # name "condition" [detail]
 svc_up() { rc-service "$1" status >/dev/null 2>&1; }
 svc_state() { rc-service "$1" status 2>&1 | tr -d ' *' | head -c 40; }
 frontend_up() { pidof lume-run >/dev/null 2>&1 && pidof lume-ui >/dev/null 2>&1; }
+# the launcher game-list scan of this boot: still running, or its summary line in the syslog
+# (which starts with the boot) says no system failed
+lume_index_line() { grep "lume-index: scan " "$SYSLOG" 2>/dev/null | tail -n 1; }
+lume_index_ok() {
+	pidof lume-index >/dev/null 2>&1 && return 0
+	lume_index_line | grep -q " failed=0 "
+}
 uid_of() { awk '/^Uid:/{print $2}' "/proc/$1/status" 2>/dev/null; }
 
 # Services of the default runlevel that the consoles run (rootfs/configure.sh); the VM-only
 # r36os-hostshare and r36os-selftest are not here, r36os-audiotest is a bring-up tool.
+# lume-index is not here either: it is a background scan that exits when done, which OpenRC
+# then shows as "crashed" (seen on the GA36, J1 2026-11-16); lume_index_ok checks it.
 device_services() {  # board
 	local s
 	for s in r36os-zram seatd alsa r36os-mixer r36os-persist r36os-logd r36os-usb \
-		r36os-savesync r36os-input r36os-hwsummary frontend r36os-playlists lume-index \
+		r36os-savesync r36os-input r36os-hwsummary frontend r36os-playlists \
 		dbus networkmanager r36os-ssh-wifi bluetooth; do
 		echo "$s"
 	done
@@ -63,6 +73,7 @@ device_checks() {  # board
 	for s in $(device_services "$b"); do
 		check "service-$s" 'svc_up "$s"' "$(svc_state "$s")"
 	done
+	check lume-index-scan 'lume_index_ok' "$(lume_index_line | sed 's/.*lume-index: //' | cut -c1-60)"
 
 	# The frontend runs as game, not as root, and has not given up
 	lume_pid=$(pidof lume-run | awk '{print $1}')

@@ -24,6 +24,7 @@ fake_console() {  # board
 	: > "$W/c/run/logs/boot/boot-7.log"
 	echo "1700000000 7 boot OK completed: 9s" > "$W/c/logs/events.log"
 	: > "$W/c/cg/lume/cgroup.kill"
+	echo "Jan  9 04:24:48 lumeretro user.notice lume-index: lume-index: scan systems=16 games=33 added=0 failed=0 ms=370" > "$W/c/messages"
 	pad=""
 	case "$1" in
 	ga36) pad="GA36-MB Gamepad" ;;
@@ -39,7 +40,7 @@ run_device() {
 		. "$LIBDIR/selftest-device"
 		BOARD_FILE=$W/c/board PROC_MOUNTS=$W/c/mounts PROC_SWAPS=$W/c/swaps
 		INPUT_DEVICES=$W/c/input HWSUMMARY=$W/c/hwsummary LOGS=$W/c/logs CGROUP_ROOT=$W/c/cg
-		R36OS_RUN=$W/c/run
+		R36OS_RUN=$W/c/run SYSLOG=$W/c/messages
 		svc_up() { ! echo " $STOPPED " | grep -q " $1 "; }
 		svc_state() { if svc_up "$1"; then echo started; else echo stopped; fi; }
 		pidof() { case "$1" in lume-run) echo 100 ;; lume-ui) echo 101 ;; r36os-input) echo 50 ;; *) return 1 ;; esac; }
@@ -65,6 +66,14 @@ fake_console r36s; STOPPED="networkmanager"; run_device
 check "stopped service: exit 1" '[ $RC = 1 ]'
 check "stopped service: names the check" 'grep -q "^SELFTEST service-networkmanager FAIL stopped$" "$W/out"'
 check "stopped service: the only failure" '[ "$(grep -c "^SELFTEST .* FAIL" "$W/out")" = 1 ] && grep -q "fail=1$" "$W/out"'
+
+### lume-index is a background scan: done and "crashed" in OpenRC is fine, failures are not
+fake_console ga36; STOPPED="lume-index"; run_device
+check "finished scan: no service check for lume-index, scan check passes" '[ $RC = 0 ] && ! grep -q "service-lume-index" "$W/out" && grep -q "^SELFTEST lume-index-scan PASS scan systems=16" "$W/out"'
+fake_console ga36; sed -i "s/failed=0/failed=2/" "$W/c/messages"; run_device
+check "scan with failed systems: lume-index-scan fails" '[ $RC = 1 ] && grep -q "^SELFTEST lume-index-scan FAIL" "$W/out"'
+fake_console ga36; : > "$W/c/messages"; run_device
+check "no scan line and no scan running: lume-index-scan fails" '[ $RC = 1 ] && grep -q "^SELFTEST lume-index-scan FAIL" "$W/out"'
 
 ### the boot did not finish
 fake_console ga36; echo "1700000000 7 boot FAIL timeout" > "$W/c/logs/events.log"; run_device
