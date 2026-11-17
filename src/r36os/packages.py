@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from r36os import jobs
@@ -11,6 +12,7 @@ from r36os.targets import Target
 
 KEY_NAME = "r36os"
 REPO_NAME = "r36os"  # abuild writes to $REPODEST/<parent dir name>/<arch>
+NO_CCACHE_ENV = "R36OS_CCACHE"  # "0": compile everything (timing and distcc proofs)
 
 
 def aport_arches(apkbuild: Path) -> list[str]:
@@ -50,12 +52,21 @@ def public_key() -> Path:
     return keys_dir() / f"{KEY_NAME}.rsa.pub"
 
 
-def _container(target: Target, aports: Path) -> Container:
+def _container(target: Target, aports: Path, distcc: bool = False) -> Container:
     cache = cache_dir()
     ensure_dir(keys_dir())
     ensure_dir(cache / "distfiles")
-    ensure_dir(cache / "ccache" / target.alpine_arch)
+    # distcc (build-speed D7): its own ccache until the P-36 proof shows equal objects
+    ccache = cache / "ccache" / (target.alpine_arch + ("-distcc" if distcc else ""))
+    ensure_dir(ccache)
     ensure_dir(out_dir() / "repo")
+    env = {"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1",
+           "JOBS": str(jobs.jobs()), "MAKEFLAGS": f"-j{jobs.jobs()}"}
+    if os.environ.get(NO_CCACHE_ENV) == "0":
+        env["CCACHE_DISABLE"] = "1"  # ccache still runs CCACHE_PREFIX (distcc)
+    if distcc:
+        from r36os import distcc as dcc
+        env.update(dcc.client_env(target.alpine_arch, jobs.jobs()))
     return Container(
         image=ensure_builder(target),
         platform=target.oci_platform,
@@ -64,12 +75,11 @@ def _container(target: Target, aports: Path) -> Container:
             out_dir() / "repo": f"/repodest/{REPO_NAME}",
             keys_dir(): "/root/.abuild",
             cache / "distfiles": "/cache/distfiles",
-            cache / "ccache" / target.alpine_arch: "/cache/ccache",
+            ccache: "/cache/ccache",
         },
         # USE_CCACHE=1: without it abuild does not put /usr/lib/ccache/bin in PATH, and
         # under emulation (ARM) each rebuild would take hours
-        env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1",
-             "JOBS": str(jobs.jobs()), "MAKEFLAGS": f"-j{jobs.jobs()}"},
+        env=env,
     )
 
 
@@ -104,11 +114,19 @@ def build_packages(
         from r36os import lume
         lume.stage()
     step = "abuild -F checksum" if checksum else "abuild -F -r -P /repodest"
-    # abuild -r installs the dependencies; at the end it updates and signs the APKINDEX.
-    script = _SETUP_KEY + "".join(
-        f"(cd /aports/{REPO_NAME}/{n} && {step})\n" for n in names
-    )
-    _container(target, aports).sh(script)
+    # R36OS_DISTCC (build-speed D7, P-36): the chosen packages compile through distcc
+    from r36os import distcc as dcc
+    chosen = set() if checksum else dcc.selected()
+    for through_distcc, group in dcc.groups(names, target.alpine_arch, chosen):
+        # abuild -r installs the dependencies; at the end it updates and signs the APKINDEX.
+        script = _SETUP_KEY + ("apk add -q distcc\n" if through_distcc else "") + "".join(
+            f"(cd /aports/{REPO_NAME}/{n} && {step})\n" for n in group
+        )
+        if through_distcc:
+            with dcc.distccd(target.alpine_arch):
+                _container(target, aports, distcc=True).sh(script)
+        else:
+            _container(target, aports).sh(script)
 
 
 def install_test(target: Target, name: str, aports: Path) -> str:
