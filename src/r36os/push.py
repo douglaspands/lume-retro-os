@@ -626,6 +626,61 @@ def check_slots_mounted(remote, state: BootState) -> str | None:
 
 AFTER_BOOT_CHECKS: list[AfterBootCheck] = [check_slots_mounted]
 
+# "name version" of each installed project fragment, from the apk database (one ssh call)
+FRAGMENT_PREFIXES = ("lume-", "r36os-")
+FRAGMENT_VERSIONS = (
+    "awk '/^P:/ { p = substr($0, 3) } "
+    "/^V:/ { if (p ~ /^(lume|r36os)-/) print p, substr($0, 3) }' /lib/apk/db/installed")
+
+
+def read_fragment_versions(remote) -> dict[str, str]:
+    """The lume-* and r36os-* packages installed on the console and their versions."""
+    found = {}
+    for line in remote.run(FRAGMENT_VERSIONS).splitlines():
+        name, _, version = line.strip().partition(" ")
+        if name and version:
+            found[name] = version.strip()
+    return found
+
+
+def expected_fragments(boot_list: list[tuple[str, str]], board: str,
+                       sources: dict[str, Path]) -> dict[str, str]:
+    """The fragment versions of the slot set this push puts on BOOT for `board`: the `pkg`
+    lines of its <board>/SLOTS (the build's own record, so an archived build is checked
+    against what it holds). Empty when the build has no set for the board or its manifest
+    is not stored (an old build): then nothing is checked."""
+    path = f"{board}/{manifests.SLOTS_FILE}"
+    digest = dict(boot_list).get(path)
+    if digest is None:
+        return {}
+    src = sources.get(path) or manifests.object_path(objects_dir(), digest)
+    try:
+        ss = manifests.parse_slots(src.read_text(), path)
+    except (OSError, UnicodeDecodeError, manifests.ManifestError):
+        return {}
+    return {n: v for s in ss.slots for n, v in s.packages if n.startswith(FRAGMENT_PREFIXES)}
+
+
+def fragment_mismatches(expected: dict[str, str], installed: dict[str, str]) -> list[str]:
+    """One sentence per fragment whose installed version is not the one that was sent."""
+    out = []
+    for name, sent in sorted(expected.items()):
+        got = installed.get(name)
+        if got is None:
+            out.append(f"the console has no {name}, the push sent {sent}")
+        elif got != sent:
+            out.append(f"the console runs {name} {got}, the push sent {sent}")
+    return out
+
+
+def make_fragment_check(expected: dict[str, str]) -> AfterBootCheck:
+    """After the boot: every fragment of the pushed set is installed with the version sent
+    (build-speed 8.2)."""
+    def check_fragments(remote, state: BootState) -> str | None:
+        problems = fragment_mismatches(expected, read_fragment_versions(remote))
+        return "; ".join(problems) or None
+    return check_fragments
+
 
 def _duration(seconds: float) -> str:
     s = round(seconds)
@@ -865,6 +920,9 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
     rebooted = now()
     out(f"waiting: the console goes away and comes back (up to {GONE_TIMEOUT}s + "
         f"{BACK_TIMEOUT}s + {BOOT_OK_TIMEOUT}s)")
+    if checks is None:
+        expected = expected_fragments(boot_list, console.board, sources)
+        checks = AFTER_BOOT_CHECKS + ([make_fragment_check(expected)] if expected else [])
     state = verify_boot(remote, build_dir.name, old_boot_n, sleep, now, checks)
     detail = state.boot_ok.split(BOOT_OK, 1)[-1].lstrip(": ").strip()
     out(f"ok: boot {state.boot_n} completed with build {build_dir.name}"

@@ -52,6 +52,7 @@ class FakeConsole:
                  gone_after=1, back_after=40, boot_ok_after=50, booted_build=None,
                  send_seconds=30, loops=None, cut_at=None, damaged_on_boot=None):
         self.clock = clock or Clock()
+        self.fragments = None           # name -> version of the lume-*/r36os-* apk packages
         self.boot_n, self.rebooted_at = boot_n, None
         self.gone_after, self.back_after = gone_after, back_after
         self.boot_ok_after, self.booted_build = boot_ok_after, booted_build
@@ -183,6 +184,9 @@ class FakeConsole:
         if cmd == push.SLOTS_MOUNTED:
             self.log.append("slots mounted")
             return self.slots_mounted()
+        if cmd == push.FRAGMENT_VERSIONS:
+            self.log.append("fragment versions")
+            return "".join(f"{n} {v}\n" for n, v in (self.fragments or {}).items())
         if m := re.fullmatch(r"rm -f ((?:/boot/\S+ ?)+) && sync", cmd):
             gone = [p.removeprefix("/boot/") for p in m.group(1).split()]
             self.log.append("delete " + " ".join(gone))
@@ -1251,3 +1255,81 @@ def test_a_push_whose_console_fell_back_to_slots_old_fails(builds):
     with pytest.raises(push.PushError, match=r"boot 44 completed with build .*, but: boot 44 "
                                              r"mounted ga36/SLOTS.old \(the previous set\)"):
         slot_push(c, C, wait=True)
+
+
+# --- fragment versions after the boot (build-speed task 8.2) ---------------------------------
+
+E = "20261117-130000"
+SENT = {"lume-core": "1.0-r5", "lume-diag": "1.0-r2", "r36os-logd": "1.0-r1"}
+
+
+def build_with_packages(tmp_path):
+    """Build E archived with its objects; the GA36 lume slot carries the fragments SENT (and
+    a package that is not a fragment)."""
+    from r36os import manifests
+
+    files = slot_boot(E)
+    lume = b"ga36 lume E"
+    ss = manifests.SlotSet(build=E, console="ga36", slots=tuple(
+        manifests.Slot(name=n, sha256=sha(d), size=len(d),
+                       packages=(*SENT.items(), ("busybox", "1.36-r0")) if n == "lume" else ())
+        for n, d in {**contents("ga36"), "lume": lume}.items()))
+    files["ga36/SLOTS"] = manifests.format_slots(ss).encode()
+    for s in ss.slots:
+        files[f"ga36/{s.file}"] = {**contents("ga36"), "lume": lume}[s.name]
+    d = tmp_path / "out/images/console" / E
+    d.mkdir(parents=True)
+    order = [p for p in files if p != "VERSION"] + ["VERSION"]
+    (d / "boot-files.sha256").write_text("".join(f"{sha(files[p])}  {p}\n" for p in order))
+    for data in files.values():
+        (tmp_path / "out/images/objects" / sha(data)).write_bytes(data)
+    return files
+
+
+def test_expected_fragments_come_from_the_slots_of_the_pushed_build(builds, tmp_path):
+    files = build_with_packages(tmp_path)
+    boot_list = [(p, sha(d)) for p, d in files.items()]
+    # the manifest is read from the stored object, also when this push does not send it
+    assert push.expected_fragments(boot_list, "ga36", {}) == SENT
+    assert push.expected_fragments([(p, d) for p, d in boot_list if p != "ga36/SLOTS"],
+                                   "ga36", {}) == {}
+    assert push.expected_fragments(boot_list, "r36s", {}) == {}     # the r36s set has none
+
+
+def test_fragment_mismatches_name_both_versions():
+    assert push.fragment_mismatches(SENT, dict(SENT, extra="1")) == []
+    got = push.fragment_mismatches(SENT, {**SENT, "lume-core": "1.0-r4"})
+    assert got == ["the console runs lume-core 1.0-r4, the push sent 1.0-r5"]
+    got = push.fragment_mismatches(SENT, {"lume-core": "1.0-r5"})
+    assert got == ["the console has no lume-diag, the push sent 1.0-r2",
+                   "the console has no r36os-logd, the push sent 1.0-r1"]
+
+
+def test_push_confirms_the_fragments_installed_after_the_boot(builds, tmp_path):
+    build_with_packages(tmp_path)
+    first = FakeConsole(board="ga36", boot=OLD_CARD)
+    rc, _ = slot_push(first, E)
+    assert rc == 0
+    c = rebooted(first)
+    c.fragments = dict(SENT)
+    rc, out = slot_push(c, E, wait=True)
+    assert rc == 0 and out[-1].startswith("ok: boot 44 completed")
+    assert c.log.count("fragment versions") == 1
+
+
+def test_push_fails_when_the_console_runs_another_fragment_version(builds, tmp_path):
+    build_with_packages(tmp_path)
+    first = FakeConsole(board="ga36", boot=OLD_CARD)
+    slot_push(first, E)
+    c = rebooted(first)
+    c.fragments = {**SENT, "lume-core": "1.0-r4"}
+    with pytest.raises(push.PushError) as e:
+        slot_push(c, E, wait=True)
+    assert "but: the console runs lume-core 1.0-r4, the push sent 1.0-r5" in str(e.value)
+
+
+def test_a_build_with_no_fragment_in_its_slots_asks_nothing(builds):
+    first, _ = pushed_to_old_card(builds)
+    c = rebooted(first)
+    rc, _ = slot_push(c, C, wait=True)
+    assert rc == 0 and "fragment versions" not in c.log

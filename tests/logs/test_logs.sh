@@ -524,6 +524,17 @@ check "single card: the boot log header names the console" \
 	'grep -q "echo \"== console: \$(board)\"" aports/lume-core/files/usr/libexec/r36os/bootlog'
 check "single card: the hardware snapshot names the board" \
 	'grep -q "^kv board " aports/lume-diag/files/usr/libexec/r36os/hwinfo'
+### Fragment versions in the hardware snapshot (build-speed 8.2): the function of hwinfo run
+### against a fake apk database
+printf 'P:zlib\nV:1.3-r0\n\nP:lume-core\nV:1.0-r5\nS:10\n\nP:r36os-logd\nV:1.0-r1\n\nP:lume-diag\nV:1.0-r2\n\nP:busybox\nV:1.36-r0\n' > "$W/apk-installed"
+eval "$(sed -n '/^fragment_versions() {/,/^}/p' aports/lume-diag/files/usr/libexec/r36os/hwinfo)"
+APK_DB=$W/apk-installed
+check "hwinfo: fragment versions list only lume-* and r36os-*, sorted" \
+	'[ "$(fragment_versions | tr "\n" ";")" = "lume-core 1.0-r5;lume-diag 1.0-r2;r36os-logd 1.0-r1;" ]'
+APK_DB=$W/none
+check "hwinfo: a missing apk database lists nothing" '[ -z "$(fragment_versions)" ]'
+check "hwinfo: the snapshot has the fragments section" \
+	'grep -q "^sec fragments" aports/lume-diag/files/usr/libexec/r36os/hwinfo'
 
 ### Device tree choice (boot-dtb-select, task 5.2): the running DTB, its confirmation when
 ### the frontend starts and the events of the choice made in the initramfs
