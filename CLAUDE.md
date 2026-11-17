@@ -108,6 +108,20 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
   os nós com o modelo de cada um e esperar a aprovação ou as trocas pedidas; a troca entra na
   tabela do `tasks.md`. Nenhum subagente é criado sem essa aprovação.
 
+## Teste sem o console: perguntar pelo emulador x86 (regra do projeto)
+
+- Sempre que um teste ou uma prova precisar de um console (GA36 ou R36S) e ele não estiver no
+  cabo, **perguntar ao usuário se é para testar no emulador x86** (a imagem `vm`:
+  `r36os build vm`, `r36os vm`, `r36os test-vm`) antes de seguir ou de deixar a prova para
+  depois. Nunca decidir sozinho por um lado ou pelo outro.
+- Nesse cenário o teste fica **exclusivo no emulador**: o resultado vale só para a `vm` e diz
+  isso no registro (tarefa, bring-up, relatório). A prova no aparelho continua pendente e a
+  tarefa só é marcada `[x]` depois dela.
+- Antes de rodar, conferir os limites conhecidos da `vm`: fora do ciclo de build desde a
+  `build-speed` (P-81), `test-vm` só com o driver da NVIDIA no PC (memória do projeto), sem
+  bateria, sem cpufreq nem DRAM do console, controle só se houver um gamepad no PC ou um
+  dispositivo virtual da QEMU.
+
 ## Pendências (regra do projeto)
 
 - `docs/PENDENCIAS.md` lista **só o que exige uma change própria** (design novo, capacidade nova, refatoração grande ou fora do escopo da change ativa). Ao ser perguntado sobre pendências, ou antes de propor uma change, consultar esse arquivo.
