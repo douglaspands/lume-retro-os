@@ -4,6 +4,10 @@
 # Each boot runs one phase, kept in TESTDATA/state. The results go to the serial as
 # "SELFTEST <name> PASS|FAIL [detail]" and to TESTDATA/results.txt. Actions only the host
 # can do (abrupt reset, keys) are asked with "SELFTEST REQUEST <action>".
+#
+# `selftest device` is the mode of the consoles (build-speed D12, run by `r36os dev check`):
+# stateless, without the VM-only cases; it lives in selftest-device.
+[ "$1" = device ] && exec /usr/libexec/r36os/selftest-device
 . /usr/libexec/r36os/lib.sh
 T=$R36OS_RUN/testdata
 SERIAL=/dev/$(cat /etc/r36os/serial-tty)
@@ -486,5 +490,5 @@ run)
 	*) say "PHASE-UNKNOWN $phase" ;;
 	esac
 	;;
-*) echo "usage: $0 run" >&2; exit 2 ;;
+*) echo "usage: $0 run|device" >&2; exit 2 ;;
 esac

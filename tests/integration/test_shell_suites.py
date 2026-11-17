@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
     "tests/usb/test_usb_storage.sh",      # usb-device-access 7.3
     "tests/session/test_session.sh",      # lume-launcher 6.1
     "tests/net/test_ssh_wifi.sh",         # lume-launcher 12.5
+    "tests/selftest/test_selftest_device.sh",  # build-speed 3.2
 ])
 def test_shell_suite(script):
     cmd = Container(

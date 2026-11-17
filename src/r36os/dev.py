@@ -10,6 +10,8 @@ the cable, no known-hosts key); the address is CONSOLE_ADDR of r36os.push, overr
   `shot --compare <screen>` / `--update <screen>`: reference captures (r36os.shots).
 - `keys <sequence>`: press buttons through input_event writes (syntax below).
 - `log`: the boot log of the current boot.
+- `check [--console ga36|r36s]`: run the on-device `selftest device` and report which console
+  answered and the failed checks by name; exit 0 only if all pass.
 
 Key sequence syntax (tokens separated by commas, spaces ignored):
 
@@ -37,7 +39,7 @@ import struct
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from r36os.push import CONSOLE_ADDR, Remote
@@ -336,6 +338,76 @@ def cmd_log(host: str) -> int:
     return 0
 
 
+SELFTEST_COMMAND = "/usr/libexec/r36os/selftest device"
+CONSOLES = ("ga36", "r36s")
+
+
+@dataclass
+class SelftestResult:
+    board: str | None = None
+    passed: int = 0
+    failed: list[tuple[str, str]] = field(default_factory=list)   # (check, detail)
+    done: bool = False          # the SELFTEST-DONE line arrived
+    error: str | None = None    # a SELFTEST-ERROR line (device mode refused)
+
+    @property
+    def ok(self) -> bool:
+        return self.done and self.error is None and not self.failed
+
+
+def parse_selftest(text: str) -> SelftestResult:
+    """Parse the output of `selftest device`: `SELFTEST <name> PASS|FAIL [detail]` lines and
+    the closing `SELFTEST-DONE board=<b> pass=<n> fail=<n>`."""
+    res = SelftestResult()
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("SELFTEST-ERROR"):
+            res.error = line[len("SELFTEST-ERROR"):].strip() or "refused"
+        elif line.startswith("SELFTEST-DONE"):
+            fields = dict(re.findall(r"(\w+)=(\S+)", line))
+            res.board = fields.get("board")
+            res.done = True
+        else:
+            m = re.fullmatch(r"SELFTEST (\S+) (PASS|FAIL)(?: (.*))?", line)
+            if not m:
+                continue
+            if m.group(2) == "PASS":
+                res.passed += 1
+            else:
+                res.failed.append((m.group(1), m.group(3) or ""))
+    return res
+
+
+def cmd_check(host: str, console: str | None) -> int:
+    """Run the self-test in device mode over the cable; exit 0 only if every check passed."""
+    r = subprocess.run(ssh_argv(host, SELFTEST_COMMAND), stdin=subprocess.DEVNULL,
+                       capture_output=True)
+    out = r.stdout.decode(errors="replace")
+    res = parse_selftest(out)
+    if r.returncode == 255:
+        raise DevError(f"ssh to the console failed: "
+                       f"{r.stderr.decode(errors='replace').strip() or 'no answer'}")
+    if res.error:
+        raise DevError(f"self-test refused: {res.error}")
+    if not res.done:
+        err = r.stderr.decode(errors="replace").strip()
+        raise DevError(f"the self-test did not finish (exit {r.returncode}): "
+                       f"{err or out.strip()[-200:] or 'no output'}")
+    name = res.board or "unknown"
+    if console and name != console:
+        print(f"error: the console on the cable is the {name.upper()}, not the "
+              f"{console.upper()}", file=sys.stderr)
+        return 1
+    total = res.passed + len(res.failed)
+    if res.ok and r.returncode == 0:
+        print(f"{name.upper()}: self-test PASS ({total} checks)")
+        return 0
+    print(f"{name.upper()}: self-test FAIL ({len(res.failed)} of {total} checks failed)")
+    for check, detail in res.failed:
+        print(f"  FAIL {check}" + (f": {detail}" if detail else ""))
+    return 1
+
+
 def main_dev(args) -> int:
     host = args.host or CONSOLE_ADDR
     try:
@@ -356,6 +428,8 @@ def main_dev(args) -> int:
             return cmd_keys(host, args.sequence, args.hold, args.gap)
         if args.dev_command == "log":
             return cmd_log(host)
+        if args.dev_command == "check":
+            return cmd_check(host, args.console)
     except DevError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
