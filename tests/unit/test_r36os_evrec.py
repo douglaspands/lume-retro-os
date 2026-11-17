@@ -34,8 +34,13 @@ DEVICES = {
              'N: Name="gpio-keys"\nH: Handlers=kbd event1\n\n'
              'I: Bus=0006 Vendor=1209 Product=3602 Version=0001\n'
              'N: Name="R36S Gamepad"\nH: Handlers=event4 js0\n\n'),
+    "vm": ('I: Bus=0011 Vendor=0001 Product=0001 Version=ab41\n'
+           'N: Name="AT Translated Set 2 keyboard"\nH: Handlers=sysrq kbd event1 leds\n\n'
+           'I: Bus=0006 Vendor=1209 Product=3600 Version=0001\n'
+           'N: Name="Lume VM Keyboard"\nH: Handlers=sysrq kbd event3 leds\n\n'),
 }
-VIRTUAL_NODE = {"ga36": "event3", "r36s": "event4"}
+VIRTUAL_NODE = {"ga36": "event3", "r36s": "event4", "vm": "event3"}
+KEY_ENTER = 28
 
 
 @pytest.fixture(scope="module")
@@ -235,6 +240,28 @@ def test_kernel_pad_on_ga36_and_refused_on_r36s(exe, tmp_path):
     assert (tmp_path / "r36s/input/event1").read_bytes() == b""
 
 
+def test_vm_keyboard_plays_on_the_virtual_node_and_refuses_the_kernel_pad(exe, tmp_path):
+    c = Console(exe, tmp_path / "vm", board="vm")
+    r = c.run("play", c.recording("vm", [f"0 1 {KEY_ENTER} 1", "0 0 0 0"], end=0))
+    assert r.returncode == 0, r.stderr
+    assert [e[1:] for e in c.written()][:2] == [(EV_KEY, KEY_ENTER, 1), SYN]
+    r = c.run("play", c.recording("vm", [f"0 1 {KEY_ENTER} 1", "0 0 0 0"], end=0),
+              "--pad", "kernel")
+    assert r.returncode == 3 and "other codes" in r.stderr
+    assert (tmp_path / "vm/input/event1").read_bytes() == b""
+
+
+def test_vm_and_console_recordings_are_refused_on_each_other(exe, tmp_path):
+    c = Console(exe, tmp_path / "vm", board="vm")
+    r = c.run("play", c.recording("ga36", [f"0 1 {BTN_A} 1", "0 0 0 0"], end=0))
+    assert r.returncode == 3 and "recording is for ga36, not vm" in r.stderr
+    assert c.node.read_bytes() == b""
+    c = Console(exe, tmp_path / "r36s", board="r36s")
+    r = c.run("play", c.recording("vm", [f"0 1 {KEY_ENTER} 1", "0 0 0 0"], end=0))
+    assert r.returncode == 3 and "recording is for vm, not r36s" in r.stderr
+    assert c.node.read_bytes() == b""
+
+
 def test_no_virtual_pad_and_usage(exe, tmp_path):
     c = Console(exe, tmp_path)
     (tmp_path / "devices").write_text(DEVICES["ga36"].replace("Bus=0006", "Bus=0003"))
@@ -252,6 +279,22 @@ def _source_events(path, events):
     """Write events with timestamps in ms (fake clock: relative to the start)."""
     path.write_bytes(b"".join(EVENT.pack(ms // 1000, (ms % 1000) * 1000, t, code, value)
                               for ms, t, code, value in events))
+
+
+def test_record_on_the_vm_keyboard_writes_the_vm_header(exe, tmp_path):
+    c = Console(exe, tmp_path / "rec", board="vm")
+    _source_events(c.node, [(0, EV_KEY, KEY_ENTER, 1), (0, *SYN),
+                            (90, EV_KEY, KEY_ENTER, 0), (90, *SYN)])
+    out = tmp_path / "vm.evrec"
+    p = c.popen("record", out)
+    assert _wait_for(lambda: out.exists() and out.read_text().count("\n") >= 5)
+    p.send_signal(signal.SIGTERM)
+    p.communicate(timeout=3)
+    assert p.returncode == 0
+    assert out.read_text().startswith("# r36os-evrec 1 vm\n")
+    assert evrec.read(out, expect_console="vm").end_ms == 90
+    with pytest.raises(evrec.EvrecError, match="not ga36"):
+        evrec.read(out, expect_console="ga36")
 
 
 def test_record_then_play_round_trip(exe, tmp_path):

@@ -79,6 +79,27 @@ def test_evrec_wrong_console_refused(tmp_path):
         evrec.read(f, "r36s")
 
 
+def test_evrec_vm_recording_round_trip_and_cross_refusal(tmp_path):
+    rec = evrec.Recording("vm", [evrec.Event(0, 1, 28, 1), evrec.Event(0, 0, 0, 0)], 10)
+    f = tmp_path / "vm.evrec"
+    evrec.write(f, rec)
+    assert f.read_text().splitlines()[0] == "# r36os-evrec 1 vm"
+    assert evrec.read(f, "vm") == rec
+    with pytest.raises(evrec.EvrecError, match="recording is for vm, not ga36"):
+        evrec.read(f, "ga36")
+    g = tmp_path / "ga36.evrec"
+    evrec.write(g, REC)
+    with pytest.raises(evrec.EvrecError, match="recording is for ga36, not vm"):
+        evrec.read(g, "vm")
+
+
+def test_script_for_the_vm_console():
+    s = scripts.loads(GOOD.replace('["ga36", "r36s"]', '["vm"]'))
+    scripts.check_console(s, "vm")
+    with pytest.raises(scripts.ScriptError, match="not ga36"):
+        scripts.check_console(s, "ga36")
+
+
 @pytest.mark.parametrize("text,msg", [
     ("", "empty"),
     ("# r36os-evrec 2 ga36\n# end 0\n", "version"),

@@ -1,7 +1,8 @@
 /*
  * r36os-evrec: record and replay the virtual gamepad of the console (change virtual-gamepad,
  * D2). The virtual pad is the one r36os-input publishes through uinput ("GA36-MB Gamepad" or
- * "R36S Gamepad" on BUS_VIRTUAL), the same events the launcher and the games read.
+ * "R36S Gamepad" on BUS_VIRTUAL; "Lume VM Keyboard" on the vm image), the same events the
+ * launcher and the games read.
  *
  *   r36os-evrec record <out>                       read the virtual pad (no EVIOCGRAB) until
  *                                                  SIGTERM/SIGINT and write a recording
@@ -9,7 +10,7 @@
  *
  * Recording format (version 1, src/r36os/evrec.py, docs/BUILD.md):
  *
- *   # r36os-evrec 1 <ga36|r36s>
+ *   # r36os-evrec 1 <ga36|r36s|vm>
  *   <ms> <type> <code> <value>
  *   # end <ms>
  *
@@ -65,6 +66,8 @@ static const struct {
 } BOARDS[] = {
 	{ "ga36", "GA36-MB Gamepad", "GA36-MB Gamepad" },
 	{ "r36s", "R36S Gamepad", "gpio-keys" },
+	/* vm: the published keyboard; the kernel side is the grabbed QEMU keyboard (vm.conf) */
+	{ "vm", "Lume VM Keyboard", "AT Translated Set 2 keyboard" },
 };
 
 static volatile sig_atomic_t stop_signal;
@@ -350,7 +353,7 @@ static int load_recording(const char *path, struct recording *r)
 					r->board = b;
 			}
 			if (r->board < 0)
-				return load_error(path, 1, "bad header (want `# r36os-evrec 1 <ga36|r36s>`)");
+				return load_error(path, 1, "bad header (want `# r36os-evrec 1 <ga36|r36s|vm>`)");
 			continue;
 		}
 		if (ended)
@@ -498,7 +501,8 @@ static int cmd_play(int argc, char **argv)
 		return EXIT_REFUSED;
 	}
 	if (kernel && strcmp(BOARDS[board].kernel_name, BOARDS[board].virtual_name) != 0) {
-		/* R36S gpio-keys use other codes than the virtual pad (dev.py R36S_KERNEL_CODES) */
+		/* R36S gpio-keys and the vm keyboard use other codes than the virtual pad
+		 * (dev.py R36S_KERNEL_CODES, VM_CODES) */
 		fprintf(stderr, "evrec: the %s kernel pad uses other codes; play on the virtual pad\n",
 			BOARDS[board].console);
 		return EXIT_REFUSED;

@@ -106,7 +106,7 @@ def _parser() -> argparse.ArgumentParser:
                                    "or a path); exit 0 only if every step passes")
     rn.add_argument("script", help="script name or path")
     for action in (sh, st, ky, lg, ck, rp, rc, pl, rn):  # not wait: the console may still be off
-        action.add_argument("--console", choices=("ga36", "r36s"),
+        action.add_argument("--console", choices=("ga36", "r36s", "vm"),
                             help="refuse to run when the console on the cable is the other one")
 
     wt = ds.add_parser("watch", help="on every saved file of a lume-*/r36os-* fragment: "

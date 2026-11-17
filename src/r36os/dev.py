@@ -3,7 +3,7 @@
 Every command reaches the console the way `r36os push` does (root over ssh, no password on
 the cable, no known-hosts key); the address is CONSOLE_ADDR of r36os.push, overridable with
 `--host`. One card moves between the GA36 and the R36S and both answer at that address, so
-every action but `wait` first says which console answered and, with `--console ga36|r36s`,
+every action but `wait` first says which console answered and, with `--console ga36|r36s|vm`,
 refuses before running anything when the cable has the other one (build-speed 3.4).
 
 - `wait`: wait until the console answers over the cable (`--timeout` seconds).
@@ -83,11 +83,27 @@ R36S_KERNEL_CODES = {
     "a": 0x131, "b": 0x130, "x": 0x133, "y": 0x134,
     "select": 0x2C0, "start": 0x2C1, "l3": 0x2C2, "r3": 0x2C3, "fn": 0x2C4,
 }
+# vm (aports/r36os-input/vm.conf, `passthrough`): the daemon publishes the QEMU keyboard keys
+# unchanged as "Lume VM Keyboard", so the buttons are keyboard keys: Fn = F1 and Start = Enter
+# come from vm.conf (`fn`, `quit`), Select = right Shift and the face/shoulder keys are the
+# RetroArch defaults the vm keeps (retroarch-lume.cfg: hotkey rshift). No l2/r2/l3/r3 key.
+VM_CODES = {
+    "a": 45, "b": 44, "x": 31, "y": 30, "l1": 16, "r1": 17,       # x, z, s, a, q, w
+    "select": 54, "start": 28, "fn": 59,                          # rshift, enter, f1
+    "up": 103, "down": 108, "left": 105, "right": 106,
+}
+# The kernel side of the vm is the grabbed QEMU keyboard, the SOURCE of the daemon: it builds
+# the Fn chords (fn+start -> "quit") from the keys it reads there, so they must go to that
+# node. The source keys are the published ones (vm.conf has no `key` mapping).
+VM_SOURCE_CODES = VM_CODES
+BOARD_CODES = {"ga36": VIRTUAL_CODES, "r36s": VIRTUAL_CODES, "vm": VM_CODES}
+BOARD_KERNEL_CODES = {"ga36": VIRTUAL_CODES, "r36s": R36S_KERNEL_CODES, "vm": VM_SOURCE_CODES}
 ALIASES = {"mode": "fn", "hotkey": "fn", "dpad_up": "up", "dpad_down": "down",
            "dpad_left": "left", "dpad_right": "right"}
 
-VIRTUAL_NAMES = {"GA36-MB Gamepad": "ga36", "R36S Gamepad": "r36s"}
-KERNEL_NAME = {"ga36": "GA36-MB Gamepad", "r36s": "gpio-keys"}
+VIRTUAL_NAMES = {"GA36-MB Gamepad": "ga36", "R36S Gamepad": "r36s", "Lume VM Keyboard": "vm"}
+KERNEL_NAME = {"ga36": "GA36-MB Gamepad", "r36s": "gpio-keys",
+               "vm": "AT Translated Set 2 keyboard"}
 
 
 class DevError(RuntimeError):
@@ -165,7 +181,7 @@ def parse_input_devices(text: str) -> list[InputDevice]:
 
 @dataclass
 class Pads:
-    board: str          # "ga36" or "r36s"
+    board: str          # "ga36", "r36s" or "vm"
     virtual: int        # event number of the pad published by r36os-input
     kernel: int | None  # event number of the kernel pad (None when absent)
 
@@ -256,10 +272,13 @@ def build_script(steps: list[Step], pads: Pads, machine: str,
         if s.pad == "kernel":
             if pads.kernel is None:
                 raise DevError("no kernel gamepad found for a chord with the hotkey")
-            event, table = pads.kernel, (R36S_KERNEL_CODES if pads.board == "r36s"
-                                         else VIRTUAL_CODES)
+            event, table = pads.kernel, BOARD_KERNEL_CODES[pads.board]
         else:
-            event, table = pads.virtual, VIRTUAL_CODES
+            event, table = pads.virtual, BOARD_CODES[pads.board]
+        missing = [b for b in s.buttons if b not in table]
+        if missing:
+            raise DevError(f"the {pads.board.upper()} has no `{missing[0]}` button "
+                           f"(known: {' '.join(table)})")
         codes = [table[b] for b in s.buttons]
         dev = f"/dev/input/event{event}"
         lines.append(f"printf '{_printf(key_events(codes, 1, wordsize))}' > {dev}")
@@ -358,7 +377,7 @@ def cmd_log(host: str) -> int:
 
 
 SELFTEST_COMMAND = "/usr/libexec/r36os/selftest device"
-CONSOLES = ("ga36", "r36s")
+CONSOLES = ("ga36", "r36s", "vm")
 
 
 @dataclass
@@ -611,10 +630,26 @@ def cmd_play(host: str, console: str, file: Path, send=None) -> int:
     return 0
 
 
+def vm_machine(identify_output: str) -> bool:
+    """True when the identify probe describes the vm image (board `vm`, or x86_64 with no
+    console board): `push` still treats the vm as no console, `dev` has the `vm` console."""
+    lines = identify_output.splitlines() + ["", ""]
+    return lines[0].strip() == "vm" or (lines[0].strip() in ("", "-")
+                                        and lines[1].strip() == "x86_64")
+
+
 def which_console(host: str, wanted: str | None) -> str:
     """Say which console answered on the cable (stderr) and refuse, before anything runs,
     when `--console` names the other one (build-speed 3.4, push.console_refusal)."""
-    name = identify_console(lambda cmd: run_capture(host, cmd))
+    seen: list[str] = []
+
+    def probe(cmd: str) -> str:
+        seen.append(run_capture(host, cmd))
+        return seen[-1]
+
+    name = identify_console(probe)
+    if not name and seen and vm_machine(seen[-1]):
+        name = "vm"
     print(f"console: {name.upper() or 'unknown'} ({host})", file=sys.stderr)
     if reason := console_refusal(name, wanted):
         raise DevError(reason)

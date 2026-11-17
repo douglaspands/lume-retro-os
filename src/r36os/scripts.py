@@ -1,7 +1,7 @@
 """Device test scripts (TOML) of `r36os dev run`: schema and validation (virtual-gamepad, D4).
 
     description = "optional text"
-    consoles = ["ga36", "r36s"]            # non-empty subset of ga36, r36s
+    consoles = ["ga36", "r36s"]            # non-empty subset of ga36, r36s, vm
 
     [[step]]
     name = "open the menu"                 # the step label: never a game
@@ -31,7 +31,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-CONSOLES = ("ga36", "r36s")
+CONSOLES = ("ga36", "r36s", "vm")
 FORBIDDEN_KEYS = ("game", "rom", "path", "content", "title")
 # extensions that mark a ROM or an archive of one; a step name ending in one is refused
 ROM_EXTENSIONS = (

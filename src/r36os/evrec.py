@@ -2,7 +2,7 @@
 
 Text format, version 1:
 
-    # r36os-evrec 1 <ga36|r36s>
+    # r36os-evrec 1 <ga36|r36s|vm>
     <ms> <type> <code> <value>          (one line per event, decimal integers)
     # end <ms>
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 MAGIC = "# r36os-evrec"
 VERSION = 1
-CONSOLES = ("ga36", "r36s")
+CONSOLES = ("ga36", "r36s", "vm")
 
 
 class EvrecError(ValueError):
@@ -58,7 +58,7 @@ def parse(text: str, expect_console: str | None = None) -> Recording:
         raise EvrecError("line 1: empty recording")
     head = lines[0].split(" ")
     if len(head) != 4 or " ".join(head[:2]) != MAGIC:
-        raise EvrecError("line 1: bad header (want `# r36os-evrec 1 <ga36|r36s>`)")
+        raise EvrecError("line 1: bad header (want `# r36os-evrec 1 <ga36|r36s|vm>`)")
     if head[2] != str(VERSION):
         raise EvrecError(f"line 1: unsupported version `{head[2]}`")
     if head[3] not in CONSOLES:
