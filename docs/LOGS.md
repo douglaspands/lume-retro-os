@@ -323,6 +323,49 @@ O aprendido (D15) fica em `ROMS/system/etc/dtb-<soc>-learned.conf`, uma linha
 `panel:<hex>=<id>` por assinatura, comum a todos os aparelhos do SoC que usam o cartão: vale
 para qualquer aparelho cujo painel responda o mesmo ID.
 
+## Raiz do sistema (slots) no `boot/boot-<n>.log`
+
+Nos consoles, o sistema é um conjunto de slots squashfs em `BOOT/<console>/slots/`, descrito
+pelo manifesto `BOOT/<console>/SLOTS` (change `build-speed`, D9). O initramfs monta `lume`,
+`runtime` e `base` como `lowerdir` do overlay (o de cima prevalece), embaixo da camada de 32 MiB
+na RAM, e o slot `modules` em `/lib/modules`. As linhas `core-<nome>` do manifesto são
+ignoradas no boot (P-80). A ordem de tentativa é:
+
+1. `<console>/SLOTS`;
+2. `<console>/SLOTS.old` (o conjunto anterior), quando o `SLOTS` falta, está truncado, cita um
+   arquivo ausente ou algum slot dele não monta;
+3. o `<console>/SYSTEM` antigo (ou o `SYSTEM.old`), como antes dos slots;
+4. o modo de resgate, com a mesma mensagem de antes (`BOOT has no <console>/SYSTEM, …`).
+
+Um conjunto que falha no meio é desmontado inteiro (do último ao primeiro) antes do passo
+seguinte: nunca sobra um overlay pela metade. O cartão antigo, sem `SLOTS` nem `SLOTS.old`, não
+ganha linha nova: monta o `SYSTEM` exatamente como antes. Linhas, com o prefixo `lume:`:
+
+| Linha | Significado |
+| :--- | :--- |
+| `slots: <manifest> (build <id>)` | conjunto montado: `<manifest>` é `<console>/SLOTS` ou `<console>/SLOTS.old`, `<id>` o build dele |
+| `slot <name>: <file> (packages: <n>)` | um slot do conjunto (`base`, `runtime`, `lume`, `modules`), o arquivo na `BOOT` (`<console>/slots/<name>-<sha12>`) e quantos pacotes ele traz |
+| `slot <name> packages: <package>-<version> …` | os pacotes do slot com a versão, em linhas de até ~400 caracteres (cabem num registro do `dmesg`) |
+| `root: <manifest> (lume, runtime, base; read-only) + 32 MiB RAM layer` | raiz montada pelos slots |
+| `root: <file> (read-only) + 32 MiB RAM layer` | raiz montada pelo `SYSTEM` antigo (cartão antigo ou depois das falhas abaixo) |
+| `ERROR: <console>/SLOTS <reason>; using <console>/SLOTS.old from the previous build` | o `SLOTS` falta (`push` cortado entre os dois `mv`), está truncado ou cita um slot ausente; `<reason>` diz qual |
+| `ERROR: <console>/SLOTS <reason> and <console>/SLOTS.old <reason>; no slot set to mount` | nenhum dos dois manifestos serve |
+| `ERROR: no slot set of <console> to mount; trying the old <console>/SYSTEM` | segue para o `SYSTEM` antigo depois da linha acima |
+| `ERROR: failed to mount slot <name> (<file>) of <manifest>` | um slot não montou (squashfs corrompido, sem dispositivo loop, arquivo ruim); o que já estava montado do conjunto é desmontado |
+| `ERROR: failed to mount slot modules (<file>) of <manifest>` | o slot `modules` não montou; o conjunto inteiro é desmontado |
+| `ERROR: failed to mount the RAM layer for <manifest>` | o `tmpfs` da camada de escrita não montou |
+| `ERROR: failed to mount the overlay of <manifest>` | o overlay dos slots não montou |
+| `ERROR: <manifest> gives the overlay lowerdir "<lowerdir>"` | o manifesto não deu os três slots do overlay na ordem esperada |
+| `ERROR: failed to unmount <path>` | um ponto de montagem do conjunto que falhou não desmontou nem com `umount -l` |
+| `ERROR: <console>/SLOTS could not be mounted; using <console>/SLOTS.old from the previous build` | o `SLOTS` estava bom mas não montou: tenta o conjunto anterior |
+| `ERROR: <console>/SLOTS could not be mounted and <console>/SLOTS.old <reason>; trying the old <console>/SYSTEM` | o `SLOTS` não montou e o `SLOTS.old` não serve |
+| `ERROR: <console>/SLOTS.old could not be mounted either; trying the old <console>/SYSTEM` | nenhum dos dois conjuntos montou |
+| `ERROR: <console>/SLOTS.old could not be mounted; trying the old <console>/SYSTEM` | só havia o `SLOTS.old` e ele não montou |
+
+Com os slots, a linha de módulos (seção abaixo) traz o slot: `modules:
+<console>/slots/modules-<sha12> (<release>)`, com a mesma conferência de versão. Na VM não há
+slots: ela monta o `BOOT/SYSTEM` como antes.
+
 ## Módulos do kernel no `boot/boot-<n>.log`
 
 Nos consoles, os módulos do kernel ficam fora do `SYSTEM`, num squashfs por console

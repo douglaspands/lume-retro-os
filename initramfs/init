@@ -1,6 +1,7 @@
 #!/bin/busybox sh
 # Initramfs init of Lume Retro OS (D6).
-# BOOT (FAT32, ro) -> SYSTEM (squashfs, loop, ro) + 32 MiB tmpfs -> overlay -> switch_root.
+# BOOT (FAT32, ro) -> slots lume:runtime:base or the old SYSTEM (squashfs, loop, ro)
+# + 32 MiB tmpfs -> overlay -> switch_root.
 # Creates the ROMS partition on the first boot; never formats an existing partition 2.
 
 /bin/busybox --install -s /bin
@@ -18,6 +19,7 @@ exec 0</dev/console 1>/dev/console 2>&1
 stty -F /dev/tty1 -echo 2>/dev/null
 
 . /lib/storage.sh
+. /lib/slots.sh
 
 # Console of this initramfs (written by the build, one initramfs per hardware layer)
 BOARD=$(cat /etc/board 2>/dev/null)
@@ -142,21 +144,10 @@ select_dtb() {
 }
 select_dtb
 
-SYSTEM=$(system_file "$BOARD")
-# Never falls back to the SYSTEM of another console (another architecture); only to the
-# SYSTEM.old of this one, the previous build left by a push cut between its two renames
-ROOT_FILE=$(boot_file /boot "$SYSTEM") || rescue "BOOT has no $SYSTEM, the system of the $(console_label "$BOARD"); write the card again with the console image"
-mount -t squashfs -o ro,loop "/boot/$ROOT_FILE" /lower || rescue "failed to mount $ROOT_FILE"
-mount -t tmpfs -o size=32m,mode=0755 tmpfs /rw
-mkdir -p /rw/upper /rw/work
-mount -t overlay overlay -o lowerdir=/lower,upperdir=/rw/upper,workdir=/rw/work /newroot \
-	|| rescue "failed to mount overlay"
-log "root: $ROOT_FILE (read-only) + 32 MiB RAM layer"
-
-# Kernel modules of this console (kernel-modules-image D4): BOOT/<console>/modules on
-# /lib/modules of the new root. After select_dtb: an open loop on BOOT would stop the
-# umount before the kexec.
-mount_modules "$BOARD" /boot /modules /newroot
+# Root and kernel modules (lib/slots.sh): the slot set of BOOT/<console>/SLOTS (or SLOTS.old),
+# else the old BOOT/<console>/SYSTEM, else rescue. After select_dtb: an open loop on BOOT
+# would stop the umount before the kexec.
+mount_root "$BOARD" /boot /slots /lower /rw /newroot /modules
 
 if [ -n "$ROMS_MOUNTED" ]; then
 	if mount --move /roms /newroot/storage; then

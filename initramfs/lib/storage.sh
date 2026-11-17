@@ -217,10 +217,9 @@ modules_match() {
 # drivers are built into the kernel) with an ERROR line in the log. Only the .old of an
 # interrupted push (boot_file) still passes the release check.
 mount_modules() {
-	local board="$1" boot="$2" mnt="$3" root="$4" want file running found
+	local board="$1" boot="$2" mnt="$3" root="$4" want file
 	want=$(modules_file "$board")
 	[ -n "$want" ] || return 0
-	running=$(uname -r)
 	if ! file=$(boot_file "$boot" "$want"); then
 		log "ERROR: BOOT has no $want; starting without kernel modules"
 		return 0
@@ -230,6 +229,16 @@ mount_modules() {
 		log "ERROR: failed to mount $file; starting without kernel modules"
 		return 0
 	fi
+	modules_attach "$file" "$mnt" "$root"
+}
+
+# The modules image $1 (its BOOT path, for the log), already mounted at $2: moved to
+# $3/lib/modules when its release folder is the running kernel's; otherwise unmounted, and
+# the system starts without modules with an ERROR line in the log. Shared by mount_modules
+# and the modules slot of a slot set (build-speed D9).
+modules_attach() {
+	local file="$1" mnt="$2" root="$3" running found
+	running=$(uname -r)
 	if ! modules_match "$mnt" "$running"; then
 		found=$(modules_found "$mnt")
 		umount "$mnt"

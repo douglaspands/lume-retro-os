@@ -97,6 +97,18 @@ def test_held_list_key_is_not_echoed_on_the_screen():
     assert "stty -F /dev/tty1 echo" in rescue
 
 
+@pytest.mark.parametrize("board", ["ga36", "r36s", "vm"])
+def test_every_library_the_init_sources_is_staged(staged, board):
+    # build-speed 4.5: a library the init sources and the stage lacks stops the init (no root)
+    stage, _ = staged(board)
+    init = (REPO_ROOT / "initramfs/init").read_text()
+    libs = re.findall(r"^\. (/lib/\S+)$", init, re.M)
+    assert "/lib/slots.sh" in libs and "/lib/storage.sh" in libs
+    for lib in libs:
+        assert (stage / lib.lstrip("/")).read_text() == \
+            (REPO_ROOT / "initramfs" / lib.lstrip("/")).read_text(), lib
+
+
 def test_soc_folders_match_the_image():
     from r36os.image import SOC_DIR
     assert SOC_DIR == {"ga36": "a33", "r36s": "rk3326"}
