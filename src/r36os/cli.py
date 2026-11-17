@@ -62,6 +62,9 @@ def _parser() -> argparse.ArgumentParser:
     ky.add_argument("--hold", type=int, default=80, metavar="MS", help="press length")
     ky.add_argument("--gap", type=int, default=120, metavar="MS", help="pause after a press")
     ds.add_parser("log", help="print the boot log of the current boot")
+    ck = ds.add_parser("check", help="run the on-device self-test; exit 0 only if all pass")
+    ck.add_argument("--console", choices=("ga36", "r36s"),
+                    help="refuse to run when the console on the cable is the other one")
 
     e = sub.add_parser("eject", help="safely flush, unmount and power off the card")
     e.add_argument("device", help="whole card, e.g. /dev/sdc")
