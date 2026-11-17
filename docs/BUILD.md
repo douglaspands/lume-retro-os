@@ -341,6 +341,25 @@ validação dos roteiros em `src/r36os/scripts.py`.
 - só botões, nunca nome de jogo. **Fica em `cache/`: um `.evrec` no repositório faz um teste
   falhar.**
 
+**`r36os-evrec`** (pacote `r36os-input`, `aports/r36os-input/evrec.c`), o que o `dev record` e
+o `dev play` rodam no console:
+
+- `r36os-evrec record <saída>`: lê o controle virtual (nome e barramento virtual, sem
+  `EVIOCGRAB`), grava cada evento com o tempo do próprio evento (`CLOCK_MONOTONIC`), linha a
+  linha, inclusive o `SYN_REPORT` (o `SYN_DROPPED` é pulado e avisado); no `SIGTERM`/`SIGINT`
+  escreve o `# end <ms>` e sai com 0. O `SIGHUP` fica como herdado (o `nohup` do `dev record`);
+- `r36os-evrec play <arquivo> [--pad virtual|kernel]`: confere o arquivo inteiro, recusa
+  (código 3) gravação de outro console e nó sem permissão de escrita (só o root escreve), antes
+  de mandar qualquer botão; manda cada grupo de mesmo `ms` numa escrita no tempo absoluto
+  (`clock_nanosleep` com `TIMER_ABSTIME`), com um `SYN_REPORT` por grupo; espera até o
+  `# end`; solta todo botão apertado no fim, no `SIGTERM`/`SIGINT`/`SIGHUP` (sai com 128+sinal)
+  e num erro de escrita (sai com 1); imprime `delay max=<ms> mean=<ms> events=<n>` (atraso de
+  cada evento que não é `SYN` em relação ao tempo gravado). `--pad kernel` só no GA36 (no
+  R36S o `gpio-keys` usa outros códigos);
+- testes no PC (`tests/unit/test_r36os_evrec.py`): `R36OS_EVREC_DEVICES` e
+  `R36OS_EVREC_INPUT_DIR` trocam o `/proc/bus/input/devices` e o `/dev/input`, e
+  `R36OS_EVREC_CLOCK=fake[:<atraso_us>]` usa um relógio que salta em vez de dormir.
+
 **Roteiro** (`tests/device/scripts/<nome>.toml`):
 
 ```toml

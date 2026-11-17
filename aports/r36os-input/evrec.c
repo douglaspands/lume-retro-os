@@ -4,7 +4,7 @@
  * "R36S Gamepad" on BUS_VIRTUAL), the same events the launcher and the games read.
  *
  *   r36os-evrec record <out>                       read the virtual pad (no EVIOCGRAB) until
- *                                                  SIGTERM/SIGINT/SIGHUP and write a recording
+ *                                                  SIGTERM/SIGINT and write a recording
  *   r36os-evrec play <file> [--pad virtual|kernel] replay a recording on the pad node
  *
  * Recording format (version 1, src/r36os/evrec.py, docs/BUILD.md):
@@ -74,7 +74,9 @@ static void on_signal(int sig)
 	stop_signal = sig;
 }
 
-static void install_signals(void)
+/* `hup`: also stop on SIGHUP (play: the ssh session of `r36os dev play` dropped). record
+ * leaves SIGHUP as inherited: `r36os dev record` starts it under nohup, detached. */
+static void install_signals(int hup)
 {
 	struct sigaction sa = { .sa_handler = on_signal }; /* no SA_RESTART: sleeps wake up */
 	struct sigaction ign = { .sa_handler = SIG_IGN };
@@ -82,7 +84,8 @@ static void install_signals(void)
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGHUP, &sa, NULL); /* the ssh session of `r36os dev play` dropped */
+	if (hup)
+		sigaction(SIGHUP, &sa, NULL);
 	sigaction(SIGPIPE, &ign, NULL); /* a write error is handled, not fatal */
 }
 
@@ -514,7 +517,7 @@ static int cmd_play(int argc, char **argv)
 		fprintf(stderr, "evrec: out of memory\n");
 		return EXIT_ERROR;
 	}
-	install_signals();
+	install_signals(1);
 
 	start = now_ns();
 	while (i < rec.n) {
@@ -620,7 +623,7 @@ static int cmd_record(int argc, char **argv)
 		fprintf(stderr, "evrec: cannot write %s: %s\n", argv[0], strerror(errno));
 		return EXIT_ERROR;
 	}
-	install_signals();
+	install_signals(0);
 	start = now_ns();
 	if (fprintf(out, "# r36os-evrec 1 %s\n", BOARDS[board].console) < 0 || fflush(out)) {
 		fprintf(stderr, "evrec: write to %s failed: %s\n", argv[0], strerror(errno));

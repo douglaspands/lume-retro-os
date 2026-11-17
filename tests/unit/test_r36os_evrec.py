@@ -302,6 +302,23 @@ def test_record_with_the_real_clock_ends_promptly_on_a_signal(exe, tmp_path, sig
     assert rec.events[0].ms >= 250 and rec.end_ms >= rec.events[0].ms
 
 
+def test_record_under_nohup_survives_a_hangup(exe, tmp_path):
+    # `r36os dev record` starts the recorder with nohup: the ssh session ending is not a stop
+    c = Console(exe, tmp_path, clock=None)
+    out = tmp_path / "out.evrec"
+    p = subprocess.Popen([str(exe), "record", str(out)], env=c.env, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True,
+                         preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN))
+    assert _wait_for(lambda: out.exists() and out.stat().st_size > 0)
+    p.send_signal(signal.SIGHUP)
+    time.sleep(0.3)
+    assert p.poll() is None
+    p.send_signal(signal.SIGTERM)
+    p.communicate(timeout=3)
+    assert p.returncode == 0
+    assert evrec.read(out).events == []
+
+
 def test_record_refuses_without_a_virtual_pad(exe, tmp_path):
     c = Console(exe, tmp_path)
     (tmp_path / "devices").write_text(DEVICES["ga36"].split("\n\n")[0] + "\n")
