@@ -154,7 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         return _main(args)
     except Exception as e:
         from r36os.heat import HeatError
+        from r36os.parallel import PipelineError
 
+        if isinstance(e, PipelineError):  # the summaries were printed by the build
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         if isinstance(e, HeatError):
             print(f"error: {e}", file=sys.stderr)
             return 2

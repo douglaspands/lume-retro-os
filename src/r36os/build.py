@@ -1,13 +1,15 @@
 """Build pipeline (D2): each hardware layer up to its SYSTEM, then the image.
 
 `build vm` builds the vm layer and its image. `build console` (design D1) builds the ga36
-and r36s layers one after the other (never in parallel), with one version for both, and
-then the single card image with both systems.
+and r36s layers at the same time (task 6.6: the armv7 and aarch64 pipelines, half the job
+limit each, output prefixed, one summary per arch), with one version for both, and then
+the single card image with both systems.
 """
 
 from __future__ import annotations
 
-from r36os import bootimg, heat, image, kernel, lang, rootfs, stage_inputs, uboot, version
+from r36os import (bootimg, heat, image, kernel, lang, parallel, rootfs, stage_inputs, uboot,
+                   version)
 from r36os.archive import archive_image
 from r36os.initramfs import build_initramfs
 from r36os.packages import build_packages, ensure_key, local_aports, repo_dir
@@ -19,24 +21,62 @@ def build_image_target(img_target: ImageTarget, rebuild_packages: bool = False,
                        language: str = lang.DEFAULT) -> None:
     lang.retro_language(language)  # validate before any stage
     timer = StageTimer()
+    arch_timers: list[StageTimer] = []  # one per pipeline of a parallel build
     try:
-        _build_image_target(img_target, rebuild_packages, language, timer)
+        _build_image_target(img_target, rebuild_packages, language, timer, arch_timers)
     finally:
         # on success and on error alike; the error then propagates as before
         heat.add_summary(timer)  # max temperature and paused time, in the same block
+        if arch_timers:
+            timer.title = "build summary (common steps, image, archive):"
+        for t in arch_timers:  # the summary of each arch, then the common one
+            t.print_summary()
         timer.print_summary()
 
 
+def arch_label(target: Target) -> str:
+    """Prefix and summary label of a layer's pipeline: its Alpine architecture."""
+    return target.alpine_arch
+
+
+def _build_layers(img_target: ImageTarget, v: version.BuildVersion, language: str,
+                  rebuild_packages: bool, timer: StageTimer,
+                  arch_timers: list[StageTimer]) -> dict:
+    """Build every layer of the image. The console layers (two architectures) run at the
+    same time, each with half the job limit; what both use is done once before."""
+    targets = [TARGETS[n] for n in img_target.layers]
+    if len(targets) > 1:
+        if any(t.name in kernel.KERNEL_TARGETS for t in targets):
+            # both kernels build from the one patched source tree: prepare it once
+            with timer.stage("kernel source tree"):
+                kernel.source_tree()
+
+        def pipeline(target: Target):
+            def run(arch_timer: StageTimer) -> None:
+                print(f"layer {target.name} ({target.alpine_arch})", flush=True)
+                build_layer(target, v, language, rebuild_packages, arch_timer)
+            return arch_label(target), run
+
+        def new_timer(label: str) -> StageTimer:
+            t = StageTimer(title=f"build summary [{label}]:")
+            arch_timers.append(t)
+            return t
+
+        parallel.run_pipelines([pipeline(t) for t in targets], timer_factory=new_timer)
+    else:
+        for target in targets:
+            print(f"layer {target.name} ({target.alpine_arch})", flush=True)
+            build_layer(target, v, language, rebuild_packages, timer)
+    return {t.name: _layer_info(t) for t in targets}
+
+
 def _build_image_target(img_target: ImageTarget, rebuild_packages: bool, language: str,
-                        timer: StageTimer) -> None:
+                        timer: StageTimer, arch_timers: list[StageTimer] | None = None
+                        ) -> None:
     v = version.current()  # one timestamp per build, in every stage and layer (D15)
     print(f"build {img_target.name} {v.build_id} (language {language})", flush=True)
-    layers = {}
-    for name in img_target.layers:
-        target = TARGETS[name]
-        print(f"layer {name} ({target.alpine_arch})", flush=True)
-        build_layer(target, v, language, rebuild_packages, timer)
-        layers[name] = _layer_info(target)
+    layers = _build_layers(img_target, v, language, rebuild_packages, timer,
+                           [] if arch_timers is None else arch_timers)
     extras = {}
     with timer.stage("image"):
         if img_target.name == "vm":

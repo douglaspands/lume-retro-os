@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,6 +23,10 @@ def builder_image(target: Target) -> str:
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("+ " + " ".join(cmd), flush=True)
     kw.setdefault("check", True)
+    from r36os import parallel
+
+    if parallel.current() is not None:  # one of two pipelines: prefixed, cancellable
+        return parallel.run_process(cmd, **kw)
     return subprocess.run(cmd, **kw)
 
 
@@ -44,15 +49,19 @@ def ensure_builder(target: Target) -> str:
     return name
 
 
+_CROSS_LOCK = threading.Lock()  # both arch pipelines ask for the one cross image
+
+
 def ensure_cross() -> str:
-    if not image_exists(CROSS_IMAGE):
-        run([
-            # fixed --platform: with qemu-user in binfmt, the base image tag may point
-            # to an ARM variant pulled by another build
-            "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
-            "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
-            str(REPO_ROOT / "containers"),
-        ])
+    with _CROSS_LOCK:
+        if not image_exists(CROSS_IMAGE):
+            run([
+                # fixed --platform: with qemu-user in binfmt, the base image tag may point
+                # to an ARM variant pulled by another build
+                "podman", "build", "-t", CROSS_IMAGE, "--platform", "linux/amd64",
+                "-f", str(REPO_ROOT / "containers/cross.Containerfile"),
+                str(REPO_ROOT / "containers"),
+            ])
     return CROSS_IMAGE
 
 

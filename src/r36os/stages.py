@@ -30,7 +30,9 @@ def format_duration(seconds: float) -> str:
 
 class StageTimer:
     def __init__(self, clock: Callable[[], float] = time.monotonic,
-                 out: Callable[[str], None] = lambda s: print(s, flush=True)) -> None:
+                 out: Callable[[str], None] = lambda s: print(s, flush=True),
+                 title: str = "build summary:") -> None:
+        self.title = title
         self._clock = clock
         self._out = out
         self._start = clock()
@@ -60,7 +62,7 @@ class StageTimer:
 
     def summary(self) -> list[str]:
         width = max((len(r[0]) for r in self._rows), default=0)
-        lines = ["build summary:"]
+        lines = [self.title]
         for name, secs, note in self._rows:
             if secs is None:
                 value = "skipped" + (f" ({note})" if note else "")
