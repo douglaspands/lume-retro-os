@@ -78,6 +78,10 @@ retroarch-joypad-autoconfig
 # controls, Fn+Start for the launcher and the volume buttons, with a profile per board
 r36os-input
 
+# Load controller of the power profiles (game-governor D12, aports/r36os-powerctl): started by
+# r36os-power (lume-power) in the game profiles with controller=load
+r36os-powerctl
+
 # The default frontend (lume-launcher, aports/lume-launcher): interface, game lists and
 # supervisor
 lume-launcher

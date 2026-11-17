@@ -1,0 +1,26 @@
+# Lume Retro OS: the load controller of the power service (openspec game-governor D12). In a
+# game profile with controller=load, r36os-power starts it: the userspace governor, one step of
+# the frequency table up or down by the load of the busiest thread of the game, inside the
+# profile limits and under the thermal cap. Stopped at the end of the game.
+pkgname=r36os-powerctl
+pkgver=1.0
+pkgrel=0
+pkgdesc="CPU frequency by the load of the game, for the power profiles (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+options="!check" # tested on the host (tests/unit/test_r36os_powerctl.py)
+source="powerctl.c"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o r36os-powerctl powerctl.c
+}
+
+package() {
+	install -Dm755 r36os-powerctl "$pkgdir"/usr/bin/r36os-powerctl
+}
+
+sha512sums="
+c982675f56e1d9c865495386706d57db5d480df4bf51116093526d10f0f9e5176f02de29bc0b210ce4b04adeb7e79a6364a72d7f96f05d8e64a2910cea43c32b  powerctl.c
+"
