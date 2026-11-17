@@ -1,0 +1,15 @@
+From: build-speed measurement <noreply@example.invalid>
+Subject: [PATCH] Input: ga36mb-gamepad: temporary comment (build-speed 6.4 proof)
+
+Temporary: proves that a committed armv7-only patch leaves the aarch64 Image unchanged.
+Removed after the proof.
+---
+diff --git a/drivers/input/joystick/ga36mb-gamepad.c b/drivers/input/joystick/ga36mb-gamepad.c
+--- a/drivers/input/joystick/ga36mb-gamepad.c
++++ b/drivers/input/joystick/ga36mb-gamepad.c
+@@ -1,4 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0
++/* build-speed 6.4: temporary driver-only change */
+ /*
+  * GA36-MB gamepad: the buttons wired to GPIOs and the two analog sticks read by a
+  * secondary microcontroller over a UART, presented as one input device.
