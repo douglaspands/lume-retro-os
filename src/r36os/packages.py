@@ -50,22 +50,34 @@ def public_key() -> Path:
     return keys_dir() / f"{KEY_NAME}.rsa.pub"
 
 
-def _container(target: Target, aports: Path) -> Container:
+def _container(target: Target, aports: Path, cargo_target: bool = False) -> Container:
+    """The abuild container of the target architecture.
+
+    With `cargo_target`, the cargo `target/` of lume-launcher is `.cache/cargo/<arch>`,
+    mounted where the APKBUILD builds (`stage/lume/target`), so the path cargo and rustc
+    see is the one of a build without the cache (build-speed D7). One folder per
+    architecture: armv7, aarch64 and x86_64 never share artifacts.
+    """
     cache = cache_dir()
     ensure_dir(keys_dir())
     ensure_dir(cache / "distfiles")
     ensure_dir(cache / "ccache" / target.alpine_arch)
     ensure_dir(out_dir() / "repo")
+    volumes = {
+        aports: f"/aports/{REPO_NAME}",
+        out_dir() / "repo": f"/repodest/{REPO_NAME}",
+        keys_dir(): "/root/.abuild",
+        cache / "distfiles": "/cache/distfiles",
+        cache / "ccache" / target.alpine_arch: "/cache/ccache",
+    }
+    if cargo_target:
+        from r36os import lume
+        volumes[ensure_dir(lume.target_cache(target.alpine_arch))] = (
+            f"/aports/{REPO_NAME}/lume-launcher/stage/lume/target")
     return Container(
         image=ensure_builder(target),
         platform=target.oci_platform,
-        volumes={
-            aports: f"/aports/{REPO_NAME}",
-            out_dir() / "repo": f"/repodest/{REPO_NAME}",
-            keys_dir(): "/root/.abuild",
-            cache / "distfiles": "/cache/distfiles",
-            cache / "ccache" / target.alpine_arch: "/cache/ccache",
-        },
+        volumes=volumes,
         # USE_CCACHE=1: without it abuild does not put /usr/lib/ccache/bin in PATH, and
         # under emulation (ARM) each rebuild would take hours
         env={"REPODEST": "/repodest", "CCACHE_DIR": "/cache/ccache", "USE_CCACHE": "1",
@@ -99,7 +111,8 @@ def build_packages(
     With `checksum=True`, only update the APKBUILD sha512sums (abuild checksum).
     """
     aports = aports or REPO_ROOT / "aports"
-    if "lume-launcher" in names and not checksum and aports == REPO_ROOT / "aports":
+    lume_staged = "lume-launcher" in names and not checksum and aports == REPO_ROOT / "aports"
+    if lume_staged:
         # the Rust workspace and its vendored crates (abuild only sees aports/)
         from r36os import lume
         lume.stage()
@@ -108,7 +121,7 @@ def build_packages(
     script = _SETUP_KEY + "".join(
         f"(cd /aports/{REPO_NAME}/{n} && {step})\n" for n in names
     )
-    _container(target, aports).sh(script)
+    _container(target, aports, cargo_target=lume_staged).sh(script)
 
 
 def install_test(target: Target, name: str, aports: Path) -> str:

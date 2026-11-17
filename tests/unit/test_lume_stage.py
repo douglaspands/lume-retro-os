@@ -1,6 +1,7 @@
 """lume-launcher task 2.3: the package sources (r36os.lume) and the aport."""
 
 import hashlib
+import os
 import re
 
 from r36os import lume
@@ -53,6 +54,58 @@ def test_aport_builds_offline_from_the_stage():
     assert "font-roboto" in APKBUILD and "Apache-2.0" in APKBUILD
     assert "/aports/*/stage/" in (REPO_ROOT / ".gitignore").read_text()
     assert "lume-launcher" in (REPO_ROOT / "rootfs/packages.txt").read_text().split()
+
+
+def test_stage_sync_touches_only_changed_files(tmp_path):
+    # build-speed D7: cargo judges the workspace crates by mtime against the cached target/,
+    # so only files whose content changed may get a new mtime in the stage
+    src, dest = tmp_path / "lume", tmp_path / "stage"
+    (src / "lume-ui/src").mkdir(parents=True)
+    (src / "lume-ui/src/main.rs").write_text("fn main() {}\n")
+    (src / "lume-ui/src/old.rs").write_text("// gone later\n")
+    (src / "Cargo.toml").write_text("[workspace]\n")
+    (src / "target").mkdir()
+    (src / "target/junk").write_text("x")
+    lume._sync_tree(src, dest, lume.STAGE_SKIP)
+    assert not (dest / "target").exists()
+    (dest / "target").mkdir()
+    (dest / "target/cached").write_text("kept")
+    for f in dest.rglob("*.rs"):
+        os.utime(f, (1000, 1000))
+    os.utime(dest / "Cargo.toml", (1000, 1000))
+    # the host file gets an old mtime: content, not mtime, decides
+    (src / "lume-ui/src/main.rs").write_text("fn main() { let _ = 1; }\n")
+    os.utime(src / "lume-ui/src/main.rs", (10, 10))
+    (src / "lume-ui/src/old.rs").unlink()
+    (src / "Cargo.toml").touch()                 # newer mtime, same content
+    lume._sync_tree(src, dest, lume.STAGE_SKIP)
+    assert (dest / "lume-ui/src/main.rs").read_text() == "fn main() { let _ = 1; }\n"
+    assert (dest / "lume-ui/src/main.rs").stat().st_mtime > 1000
+    assert (dest / "Cargo.toml").stat().st_mtime == 1000
+    assert not (dest / "lume-ui/src/old.rs").exists()
+    assert (dest / "target/cached").read_text() == "kept"
+
+
+def test_cargo_target_is_a_cache_volume_per_arch(tmp_path, monkeypatch):
+    from r36os import packages
+    from r36os.targets import TARGETS
+
+    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(packages, "ensure_builder", lambda t: "b")
+    guest = "/aports/r36os/lume-launcher/stage/lume/target"
+    seen = set()
+    for t in TARGETS.values():
+        vols = packages._container(t, REPO_ROOT / "aports", cargo_target=True).volumes
+        host = [h for h, g in vols.items() if g == guest]
+        assert host == [tmp_path / "cache/cargo" / t.alpine_arch], t.name
+        assert host[0].is_dir()
+        seen.add(host[0])
+        plain = packages._container(t, REPO_ROOT / "aports").volumes
+        assert guest not in plain.values()
+    assert len(seen) == len(TARGETS)            # no artifact shared between arches
+    # same path as a build without the cache: nothing new can leak into the binaries
+    assert "target/release/$b" in APKBUILD
+    assert "CARGO_TARGET_DIR" not in APKBUILD
 
 
 def test_workspace_profile_and_msrv():
