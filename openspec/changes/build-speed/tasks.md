@@ -131,7 +131,7 @@ subagentes em paralelo; o GA36 fica no cabo e as provas do R36S ficam para o fim
 - [x] 2.1 Ligar a pausa da proteção de calor em todo container do build e do `pkg`, com a temperatura máxima e o tempo pausado no resumo; documentar no `docs/BUILD.md` os limites, as variáveis e o ajuste manual opcional (boost ou EPP, com root) para quem quiser o PC mais frio. Verificação: teste de unidade do resumo; um build real com `R36OS_TEMP_MAX` baixo de propósito pausa e retoma, com as linhas na saída.
 - [x] 2.2 `container.py`: o `podman` roda sob `nice -n 19 ionice -c 3`; `--jobs`/`R36OS_JOBS` em `build`, `pkg` e `push`, padrão metade dos núcleos, levado ao `make -j`, ao `JOBS` do `abuild`, ao `-processors` do `mksquashfs` e às threads do zstd; o build diz tarefas e prioridade no começo. Verificação: testes de unidade dos argumentos; durante um build, `ps -o ni,cmd` mostra `19` nos compiladores.
 - [x] 2.3 Tempo por etapa no fim do build, com `skipped` e também em erro. Verificação: teste de unidade do resumo e a saída de um build real.
-- [ ] 2.4 Documentar `--jobs`/`R36OS_JOBS` e o resumo no `README.md` e no `docs/BUILD.md` (novo). Verificação: o comando documentado roda como escrito.
+- [x] 2.4 Documentar `--jobs`/`R36OS_JOBS` e o resumo no `README.md` e no `docs/BUILD.md` (novo). Verificação: o comando documentado roda como escrito.
 
 ## 3. Teste no aparelho como ferramenta (D12)
 

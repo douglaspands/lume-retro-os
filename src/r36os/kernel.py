@@ -353,8 +353,14 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
     from r36os import jobs
     from r36os.container import Container, ensure_cross
 
+    from r36os import stage_inputs
+
     arch, cross, defconfig, image = KERNEL_TARGETS[board]
     tree = source_tree()
+    if stage_inputs.is_clean():
+        # `r36os build --clean`: the kernel starts from an empty build folder (build-speed
+        # 7.4 compares it with the incremental one); ccache still serves the objects
+        shutil.rmtree(kbuild_dir(board), ignore_errors=True)
     build = ensure_dir(kbuild_dir(board))
     ccache = ensure_dir(cache_dir() / "ccache" / f"kernel-{board}")
     ensure_dir(out)

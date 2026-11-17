@@ -51,6 +51,22 @@ def test_build_folder_is_fixed_per_architecture(fake_build, tmp_path, monkeypatc
     assert all("O=$B" in c["script"] and "B=/build" in c["script"] for c in calls)
 
 
+def test_clean_build_starts_from_an_empty_build_folder(fake_build, tmp_path, monkeypatch):
+    # build-speed 7.4: `r36os build --clean` gives the clean kernel the incremental one is
+    # compared with
+    from r36os import stage_inputs
+
+    cache, _ = fake_build
+    old = cache / "kbuild" / "armv7" / "drivers" / "x.o"
+    old.parent.mkdir(parents=True)
+    old.write_text("stale")
+    kernel.build_kernel("ga36", tmp_path / "out")
+    assert old.exists()                     # incremental: the folder is kept
+    monkeypatch.setattr(stage_inputs, "_clean", True)
+    kernel.build_kernel("ga36", tmp_path / "out")
+    assert not old.exists() and (cache / "kbuild" / "armv7").is_dir()
+
+
 def test_configuration_is_rebuilt_and_checked_every_run(fake_build, tmp_path):
     _cache, calls = fake_build
     kernel.build_kernel("r36s", tmp_path / "out")
