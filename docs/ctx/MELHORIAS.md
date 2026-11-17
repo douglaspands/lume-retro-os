@@ -505,6 +505,23 @@ O texto abaixo é a proposta original.
     o mesmo prefixo e hash novo; com `--fix`, regrava a fonte.
   - `ctx fact update <id> --source ...` para corrigir a fonte sem perder o id.
 
+### M-29. Receitas do console e da vm no lugar de scripts soltos — feita (policy.toml)
+
+- **Problema (2026-11-17, J1 da `lume-hud-actions`):** cada `r36os dev shot/keys/run` e cada
+  script de apoio em `cache/tmp/` caía fora da lista (`defer`) e pedia permissão ao usuário,
+  dezenas de vezes por janela de aparelho. Liberar `cache/tmp/*` liberaria qualquer código novo.
+- **Feito (escolha do usuário, opção 2):** os ajudantes que se repetem foram para
+  `scripts/dev/` (versionados): `put.py` copia pelo ssh do `r36os dev`, faz `sync` e confere o
+  sha256; `vm_qmp.py` captura a tela e aperta teclas na vm pelo QMP. Receitas no
+  `policy.toml`: `console-put`, `vm-put`, `console-shot`, `console-keys`, `console-run`,
+  `vm-shot`, `vm-keys`, `vm-holdshot`. Só as etapas delas entraram em `commands.allow`
+  (`r36os dev shot`, `keys`, `run`, `wait`, `log`); o `r36os dev sh` (qualquer comando como root
+  no console) continua pedindo.
+- **Achado:** o guardrail toma qualquer argumento absoluto por caminho do PC; o destino no
+  console vai como `console:/caminho` para não ser lido como leitura fora do workspace.
+- **Para o hub:** uma forma de marcar um parâmetro de receita como "caminho remoto" (não
+  checado contra o workspace) evitaria o prefixo; e caminhos com espaço não cabem numa etapa.
+
 ## Avaliação de 2026-11-14
 
 `ctx evaluate` (31 sessões, sem a marca de provisório): **não compensa**. Saldo ≈ −46.486

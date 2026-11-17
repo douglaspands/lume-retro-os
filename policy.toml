@@ -67,6 +67,14 @@ allow = [
     # commits on the feature branch without a prompt (user, 2026-11-15); push still asks
     "git add",
     "git commit",
+    # steps of the console and vm recipes below (user, 2026-11-17: option 2, recipes instead
+    # of allowing any script): reading the screen, pressing buttons, the test scripts and a
+    # checked copy; `r36os dev sh` (any command as root on the console) still asks
+    ".venv/bin/r36os dev shot",
+    ".venv/bin/r36os dev keys",
+    ".venv/bin/r36os dev run",
+    ".venv/bin/r36os dev wait",
+    ".venv/bin/r36os dev log",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
@@ -381,6 +389,49 @@ base_url = "https://raw.githubusercontent.com/libretro/RetroArch/{version}/{path
 # description = "o que a receita faz"
 # params = ["alvo"]
 # steps = ["git status -s -b", "rg -n {alvo} src"]
+
+# Console over the USB cable and the test vm (user, 2026-11-17). Steps: .venv/bin/python
+# (allowed) running the versioned helpers of scripts/dev/, and the `r36os dev` actions allowed
+# above. Paths with spaces do not fit a step: copy them to the workspace first.
+[recipes.console-put]
+description = "Copia um arquivo para o console pelo cabo, faz sync e confere o sha256 (remoto: console:/caminho)"
+params = ["local", "remoto"]
+steps = [".venv/bin/python scripts/dev/put.py {local} {remoto}"]
+
+[recipes.vm-put]
+description = "Copia um arquivo para a vm (ssh 127.0.0.1:2222), faz sync e confere o sha256 (remoto: console:/caminho)"
+params = ["local", "remoto"]
+steps = [".venv/bin/python scripts/dev/put.py {local} {remoto} 127.0.0.1:2222"]
+
+[recipes.console-shot]
+description = "Captura a tela do console pelo cabo num PNG"
+params = ["saida"]
+steps = [".venv/bin/r36os dev shot {saida}"]
+
+[recipes.console-keys]
+description = "Aperta botões do console pelo cabo (ex.: fn+start, a,down*3)"
+params = ["teclas"]
+steps = [".venv/bin/r36os dev keys {teclas}"]
+
+[recipes.console-run]
+description = "Roda um roteiro de teste do console (tests/device/scripts/<nome>.toml ou caminho)"
+params = ["roteiro"]
+steps = [".venv/bin/r36os dev run {roteiro}"]
+
+[recipes.vm-shot]
+description = "Captura a tela da vm pelo QMP em cache/tmp/shots/vm/<nome>.png"
+params = ["nome"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py shot {nome}"]
+
+[recipes.vm-keys]
+description = "Aperta teclas juntas na vm pelo QMP (qcodes: f1, f1+w, down, x, z, ret)"
+params = ["teclas"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py keys {teclas}"]
+
+[recipes.vm-holdshot]
+description = "Segura uma tecla 3 s na vm e captura a tela no meio (a dica do Fn)"
+params = ["nome", "tecla"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py holdshot {nome} {tecla}"]
 
 # ctx:section metrics
 # [metrics]
