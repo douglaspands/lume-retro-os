@@ -482,6 +482,10 @@ pw_switch() {
 	# shellcheck disable=SC2086
 	pw_apply "$PW_GAME" $PW_ARGS
 	[ "$PW_CTL" != load ] || [ "$PW_SCENARIO" != game ] || controller_start $PW_ARGS
+	# the battery is read here, in the new scenario and before the profile event, so the
+	# event marks a finished step; the main loop skips its own read after a switch
+	pw_battery
+	PW_BAT_READ=1
 	if [ "$1" = 1 ] || [ "$rec" != "$PW_REC" ]; then
 		pw_event OK "profile: $PW_SCENARIO -> $PW_NAME${PW_MANUAL:+ (manual)}"
 	fi
@@ -630,11 +634,11 @@ cmd_run() {
 	pw_load
 	[ "$PW_HAS_CPUFREQ" = 1 ] || pw_event OK "no cpufreq: kernel default"
 	pw_switch 1
-	pw_battery
 	while :; do
 		pw_uptime
 		t0=$PW_UP
 		w1= w2= w3=
+		PW_BAT_READ=0
 		priority_wait
 		read -t "$PW_WAIT" -r w1 w2 w3 rest <&3
 		rc=$?
@@ -651,7 +655,7 @@ cmd_run() {
 		fi
 		[ ! -e "$PW_EARLY" ] || [ ! -e "$LOGS_RAM/boot-n" ] || pw_events_flush
 		priority_tick
-		pw_battery
+		[ "$PW_BAT_READ" = 1 ] || pw_battery
 	done
 }
 
