@@ -263,6 +263,10 @@ fragmentos pode crescer sem aumentar o número de mounts no boot.
   arquivos novos. O `ccache` continua.
 - `GIT_CEILING_DIRECTORIES` mantido.
 - O primeiro uso importa a árvore (2 GB) no git uma vez.
+- Medido (2026-11-17): um patch num driver só do GA36 recompila 6 objetos no armv7 e nenhum no
+  aarch64. Se o patch só muda um comentário, o `zImage` sai idêntico byte a byte, o `lume-kernel`
+  não é reempacotado e o `push` não manda kernel nenhum (build em 1 min 53 s). Com código de
+  verdade, só o `lume-kernel` do armv7 sobe de `pkgrel` (build em 2 min 21 s, 7.3).
 
 ### D6. Etapas puladas e build pontual
 
@@ -595,6 +599,13 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
   limite de tarefas (o total continua o do D8), sob a mesma proteção de calor.
 - A saída de cada uma ganha prefixo (`[armv7]`, `[aarch64]`); o resumo por etapa separa as duas.
 - O que é comum (árvore do kernel, fragmentos noarch) é feito uma vez antes de dividir.
+- Visto na implementação (2026-11-17): o `abuild` trabalha em `<aport>/src` e `<aport>/pkg`, dentro
+  da pasta `aports/` que as duas esteiras montam. Com o `lume-launcher` compilado no PC (D7), as duas
+  chegavam ao empacotamento com dois segundos de diferença e o pacote armv7 levou os binários do
+  aarch64 (`libc.musl-aarch64.so.1: path not found`). O passo do `abuild` de cada fragmento por
+  arquitetura agora segura uma trava por nome de aport: o mesmo aport nunca é empacotado por duas
+  esteiras ao mesmo tempo. Também têm trava a preparação da árvore do kernel, o `lume.stage()` e a
+  criação da imagem do builder.
 
 ### D18. Cartão único: um console por vez no cabo
 
@@ -632,6 +643,12 @@ sensor ligado, que não servem para medir nada. O limite do 5700G é 95 °C (Tjm
 - Medido no aparelho: `boot OK completed` antes e depois, nos dois consoles; nenhum jogo abre
   antes de o que ele usa estar pronto.
 - O resto do P-58 (kernel, initramfs, launcher) continua numa change própria.
+- Medido no GA36 (2026-11-17): `boot OK completed` de 33–34 s para 19,6–21,7 s (com a raiz em
+  slots, 20,5–21,6 s). O "boot" que o `push` mostra (37–45 s) conta do pedido de reinício até
+  confirmar o boot pelo ssh: além dos ~21 s do kernel ao frontend, entram o desligamento do
+  sistema antigo e o boot0 + U-Boot de fábrica (~15 s, P-43 e P-58) e a espera do PC entre as
+  perguntas ao console (~6 s, no boot 153 o `boot OK completed` saiu às :56 e o primeiro ssh do
+  PC chegou às :02).
 
 ## Risks / Trade-offs
 
