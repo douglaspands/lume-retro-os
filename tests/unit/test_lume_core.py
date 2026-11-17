@@ -75,6 +75,8 @@ ADDED_AFTER_MOVE = {
     "etc/init.d/r36os-power",
     "usr/share/lume/power/ga36.conf",
     "usr/share/lume/power/r36s.conf",
+    "usr/libexec/r36os/vm-net",             # virtual-gamepad 3.3: the vm's ssh network (lume-net)
+    "etc/init.d/r36os-vmnet",
 }
 
 

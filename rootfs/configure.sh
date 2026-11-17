@@ -12,7 +12,8 @@ for g in video input audio; do addgroup game "$g"; done
 getent group seat >/dev/null && addgroup game seat
 
 # root without a password: on the debug serial (securetty) and over ssh on the USB cable
-# (dropbear -B on 10.55.0.1 only, usb-device-access D4); never on another interface.
+# (dropbear -B on 10.55.0.1 only, usb-device-access D4); never on another interface of a
+# console (the vm only: on its QEMU user network, reachable from the PC's 127.0.0.1 only).
 passwd -d root >/dev/null
 echo "$SERIAL_TTY" > /etc/securetty
 # SSH over Wi-Fi (lume-launcher D18): "console" is root (uid 0) under another name, so the
@@ -70,9 +71,11 @@ done
 for s in r36os-playlists lume-index dbus networkmanager r36os-ssh-wifi; do
 	add "$s" default
 done
-# Board services that live in the common overlay
+# Board services that live in the common overlay. r36os-vmnet (virtual-gamepad 3.3): the vm's
+# local network of `r36os vm --ssh` with root ssh for `r36os dev`; never on a console.
 case "$BOARD" in
 r36s) add r36os-jack default; add r36os-audiotest default ;;
+vm) add r36os-vmnet default ;;
 esac
 # Bluetooth by USB dongle (usb-device-access D10): the consoles' kernels have it
 case "$BOARD" in
