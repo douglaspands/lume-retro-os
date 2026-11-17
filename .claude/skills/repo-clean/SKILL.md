@@ -43,7 +43,7 @@ testadas, e o guardrail barra `rm -rf`.
 
 | O quê | Onde | Por que pode sair |
 |---|---|---|
-| Árvores de build do kernel de conjuntos de patches antigos | `.cache/kbuild/<placa>-<digest>` | o build usa só a do digest atual de `kernel/patches/`; mudou um patch, nasce outra |
+| Gerações antigas do kernel | `.cache/src/linux-<versão>-<hash>/`, `.cache/kbuild/<placa>-<hash>/`, árvores de outra versão do kernel (`linux-<outra>` e `linux-<outra>.git`) | o layout novo tem uma árvore (`src/linux-<versão>/` + `linux-<versão>.git`) e uma pasta de build por arquitetura (`kbuild/armv7`, `kbuild/aarch64`); o próprio build apaga as antigas no início da etapa do kernel e diz numa linha o espaço liberado (`cache: removed N old kernel generations, freed X GiB`) |
 | Imagens arquivadas antigas | `out/images/<imagem>/<carimbo>/` | ficam a `latest`, a `flashed`, as N mais novas e as citadas nos documentos |
 | Imagem descomprimida do flash | `.cache/flash/*.img` | o `flash` descomprime de novo a partir do `.img.zst` arquivado |
 | Pastas de trabalho do abuild | `aports/*/{src,pkg,tmp}` | o `r36os pkg` baixa (do `distfiles`) e monta de novo |
@@ -55,7 +55,10 @@ testadas, e o guardrail barra `rm -rf`.
 - `out/repo`: repositório local de pacotes (horas de compilação sob `qemu-user`).
 - `out/r36s-factory`, `out/r36s-bootlogs`: provas tiradas do aparelho, não se refazem.
 - No cache (`.cache`, ou `$R36OS_CACHE`): `ccache`, `distfiles`, `abuild` (chaves de assinatura),
-  `vendor`, `vm` e a árvore do kernel atual (`src/`, que o próprio build troca).
+  `vendor`, `vm`, `cargo`, `upstream`, a árvore do kernel atual (`src/linux-<versão>/` e
+  `linux-<versão>.git`) e as pastas de build `kbuild/armv7` e `kbuild/aarch64`.
+- Qualquer pasta `*.antes-1.2` (linhas de base renomeadas pelo usuário): só aparecem na lista de
+  revisão, nunca são apagadas, nem pelo build nem pelo `r36os clean`.
 - `.ctx/`, `.venv/`: índice e ambiente do `ctx` (para o índice, `ctx doctor --fix`).
 - Imagens de container do podman: são compartilhadas com outros projetos da máquina.
 

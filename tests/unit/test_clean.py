@@ -6,7 +6,7 @@ import pytest
 
 from r36os import clean
 
-DIGEST = "aaaaaaaaaaaaaaaa"
+DIGEST = VERSION = "6.18.62"  # the second argument of plan() is the kernel version
 
 
 def _mk(path, data=b"x" * 10):
@@ -17,11 +17,11 @@ def _mk(path, data=b"x" * 10):
 @pytest.fixture
 def tree(tmp_path):
     repo, out, cache = tmp_path / "repo", tmp_path / "repo" / "out", tmp_path / "cache"
-    # kernel builds: one current, two old
-    for name in (f"r36s-{DIGEST}", "r36s-bbbbbbbbbbbbbbbb", "ga36-cccccccccccccccc"):
+    # kernel: the current layout, plus old per-console build folders
+    for name in ("armv7", "aarch64", "r36s-bbbbbbbbbbbbbbbb", "ga36-cccccccccccccccc"):
         _mk(cache / "kbuild" / name / ".config")
     for keep in ("ccache/kernel-r36s/x", "distfiles/linux.tar.xz", "abuild/key.rsa",
-                 "src/linux-6.18.62-" + DIGEST + "/Makefile"):
+                 f"src/linux-{VERSION}/Makefile", f"src/linux-{VERSION}.git/HEAD"):
         _mk(cache / keep)
     # archived console images: six, latest is the newest, one old one cited in the docs
     stamps = [f"2026111{d}-120000" for d in range(6)]
@@ -76,7 +76,7 @@ def test_remove_frees_the_plan_and_keeps_the_rest(tree):
     repo, out, cache, stamps = tree
     to_remove, _ = clean.plan(repo, out, cache, DIGEST, keep=3)
     clean.remove(to_remove, repo, out, cache)
-    for p in (cache / "kbuild" / f"r36s-{DIGEST}", cache / "ccache", cache / "distfiles",
+    for p in (cache / "kbuild" / "armv7", cache / "kbuild" / "aarch64", cache / "ccache", cache / "distfiles",
               cache / "abuild", repo / "var" / "sd_roms" / "game.zip",
               repo / "var" / "__pycache__", out / "repo", out / "r36s-factory",
               out / "one-off-test", repo / "aports" / "libretro-ppsspp" / "APKBUILD",
@@ -122,6 +122,50 @@ def test_remove_falls_back_to_podman_unshare_and_goes_on(tree, monkeypatch):
     failed = []
     assert clean.remove(items, repo, out, cache, failed) == 20
     assert calls == [src] and failed == [] and not other.exists()
+
+
+@pytest.fixture
+def generations(tmp_path):
+    cache = tmp_path / "cache"
+    old = [f"src/linux-{VERSION}-0123456789abcdef", "src/linux-6.12.1", "src/linux-6.12.1.git",
+           "kbuild/r36s-0123456789abcdef", "kbuild/ga36-fedcba9876543210"]
+    kept = [f"src/linux-{VERSION}", f"src/linux-{VERSION}.git", "kbuild/armv7",
+            "kbuild/aarch64", "ccache/x", "cargo/x", "distfiles/linux.tar.xz", "upstream/x",
+            "abuild/key.rsa", "src/linux-6.6.1.antes-1.2", "kbuild/ga36-0000.antes-1.2"]
+    for rel in old + kept:
+        _mk(cache / rel / "f", b"x" * 100)
+    return tmp_path / "repo", tmp_path / "repo" / "out", cache, old, kept
+
+
+def test_prune_removes_only_the_old_generations_and_says_how_much(generations, capsys):
+    repo, out, cache, old, kept = generations
+    line = clean.prune_old_generations(cache, VERSION, repo, out)
+    assert line == "cache: removed 5 old kernel generations, freed 500 B"
+    for rel in old:
+        assert not (cache / rel).exists(), rel
+    for rel in kept:
+        assert (cache / rel).exists(), rel
+    # the user's renamed baselines are reported, not removed
+    said = capsys.readouterr().out
+    assert "linux-6.6.1.antes-1.2" in said and "ga36-0000.antes-1.2" in said
+
+
+def test_prune_is_silent_when_there_is_nothing_old(generations):
+    repo, out, cache, old, _kept = generations
+    assert clean.prune_old_generations(cache, VERSION, repo, out)
+    assert clean.prune_old_generations(cache, VERSION, repo, out) is None
+
+
+def test_prune_works_on_a_cache_without_kernel_folders(tmp_path):
+    assert clean.prune_old_generations(tmp_path / "cache", VERSION, tmp_path / "r",
+                                       tmp_path / "r" / "out") is None
+
+
+def test_plan_lists_the_same_generations_as_the_automatic_prune(generations):
+    repo, out, cache, old, _kept = generations
+    remove, review = clean.plan(repo, out, cache, VERSION, cited=set())
+    assert {str(i.path.relative_to(cache)) for i in remove} == set(old)
+    assert {i.path.name for i in review} == {"linux-6.6.1.antes-1.2", "ga36-0000.antes-1.2"}
 
 
 def test_remove_refuses_var_and_the_evidence(tree):
