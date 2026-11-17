@@ -509,6 +509,93 @@ def test_idle_service_does_not_spin(tmp_path, services):
     assert cpu_ticks() - before <= 2  # sleeping in read -t, not polling
 
 
+def prio_setup(s: Service, step=100):
+    """Fake cgroup root, /proc and renice/ionice that log "<tool> <args>" to a file."""
+    cg = s.tmp / "cg"
+    proc = s.tmp / "proc"
+    cg.mkdir()
+    proc.mkdir()
+    log = s.tmp / "prio.log"
+    for tool in ("renice", "ionice"):
+        f = s.tmp / f"fake-{tool}"
+        f.write_text(f"#!/bin/sh\necho {tool} \"$@\" >> '{log}'\n")
+        f.chmod(0o755)
+        s.env[f"PW_{tool.upper()}"] = str(f)
+    s.env.update(PW_CGROOT=str(cg), PW_PROC=str(proc), PW_PRIO_STEP=str(step))
+    return cg, proc, log
+
+
+def prio_log(log: Path):
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def make_game_cgroup(cg: Path, proc: Path, name: str, pids: dict[int, list[int]], age=0):
+    d = cg / name
+    d.mkdir()
+    (d / "cgroup.procs").write_text("".join(f"{p}\n" for p in pids))
+    for pid, tids in pids.items():
+        for t in tids:
+            (proc / str(pid) / "task" / str(t)).mkdir(parents=True)
+    os.utime(d, (time.time() - age, time.time() - age))
+
+
+def test_game_priority_reaches_every_pid_and_thread_twice_and_never_realtime(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES)
+    cg, proc, log = prio_setup(s)
+    make_game_cgroup(cg, proc, "game-1", {10: [10]}, age=50)  # old: must be left alone
+    make_game_cgroup(cg, proc, "game-2", {20: [20, 21, 22], 30: [30]})
+    s.start()
+    s.send("game nes fceumm")
+    s.wait(lambda: len(prio_log(log)) >= 10, "two applications", timeout=8)
+    time.sleep(1.5)
+    lines = prio_log(log)
+    assert len(lines) == 16  # (4 tids) x (renice + ionice) x 2 rounds
+    for tid in (20, 21, 22, 30):
+        assert lines.count(f"renice -5 -p {tid}") == 2
+        assert lines.count(f"ionice -c 2 -n 2 -p {tid}") == 2
+    assert not any(" -p 10" in line for line in lines)
+    assert not any("-c 1" in line or "-c 3" in line for line in lines)
+
+
+def test_game_priority_service_still_reads_messages_while_waiting(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES)
+    prio_setup(s, step=300)
+    s.start()
+    s.send("game nes fceumm")
+    s.wait_event("profile: game -> game")
+    s.send("menu")
+    s.wait_event("profile: menu -> menu")  # answered long before the +3 s application
+
+
+def test_game_priority_empty_or_missing_cgroup_does_not_fail(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES)
+    cg, proc, log = prio_setup(s)
+    (cg / "game-1").mkdir()
+    (cg / "game-1/cgroup.procs").write_text("")
+    s.start()
+    s.send("game nes fceumm")
+    time.sleep(2.6)
+    assert prio_log(log) == []
+    assert s.proc.poll() is None
+    assert not any("FAIL" in e for e in s.events())
+    shutil.rmtree(cg)
+    s.send("game nes fceumm")
+    time.sleep(2.6)
+    assert s.proc.poll() is None
+
+
+def test_game_priority_does_nothing_if_the_game_ended_first(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES)
+    cg, proc, log = prio_setup(s)
+    make_game_cgroup(cg, proc, "game-1", {20: [20]})
+    s.start()
+    s.send("game nes fceumm")
+    s.wait_event("profile: game -> game")
+    s.send("end")
+    time.sleep(2.6)
+    assert prio_log(log) == []
+
+
 def test_vm_without_cpufreq_or_profiles(tmp_path, services):
     s = services(tmp_path, conf=None, board="vm")
     shutil.rmtree(s.sys / "devices/system/cpu/cpu0/cpufreq")

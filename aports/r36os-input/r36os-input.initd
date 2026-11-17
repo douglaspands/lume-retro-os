@@ -9,6 +9,8 @@ command="/usr/bin/r36os-input"
 command_args="--profile /usr/share/r36os/input/$(cat /etc/r36os/board 2>/dev/null).conf"
 respawn_delay=2
 respawn_max=5
+# above the game (nice -5, game-governor D13): Fn+Start must end a hung game
+nice=-10
 
 depend() {
 	need udev

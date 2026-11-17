@@ -39,6 +39,13 @@ PW_RA_PORT=${PW_RA_PORT:-55355}
 PW_POWEROFF=${PW_POWEROFF:-poweroff}
 PW_GROUP=${PW_GROUP:-game}
 PW_TRACE=${PW_TRACE:-}
+# game priority (D13): cgroup root, /proc, the commands and the step in centiseconds
+PW_CGROOT=${PW_CGROOT:-/sys/fs/cgroup/lume}
+PW_PROC=${PW_PROC:-/proc}
+PW_RENICE=${PW_RENICE:-renice}
+PW_IONICE=${PW_IONICE:-ionice}
+PW_PRIO_STEP=${PW_PRIO_STEP:-200}
+PW_PRIO_N=0 PW_PRIO_DUE=0
 PW_FIFO=$PW_RUN/power
 PW_STATE=$PW_RUN/power.state
 PW_MANUAL_FILE=$PW_RUN/power.manual
@@ -89,9 +96,65 @@ pp_log() { pw_event "$1" "$2"; }
 controller_start() { :; }
 # controller_stop: before any other profile is applied after such a game profile.
 controller_stop() { :; }
-# priority_apply: after the profile of a `game` message was applied (the game is not running
-# yet: lume-run sends the message before the exec).
-priority_apply() { :; }
+# priority_schedule: after the profile of a `game` message was applied (the game is not running
+# yet: lume-run sends the message before the exec). The service loop then calls priority_apply
+# twice, PW_PRIO_STEP centiseconds apart (D13), through priority_wait and priority_tick.
+priority_schedule() {
+	pw_uptime
+	PW_PRIO_N=2
+	PW_PRIO_DUE=$((PW_UP + PW_PRIO_STEP))
+}
+
+# priority_apply: nice -5 and best-effort ioprio 2 for every process and thread of the newest
+# game cgroup. Never a real-time class, never below nice -5. An empty or missing cgroup and
+# processes that already exited are not errors.
+priority_apply() {
+	local cg d pid tid
+	cg=
+	for d in $(ls -dt "$PW_CGROOT"/game-* 2>/dev/null); do
+		[ -d "$d" ] || continue
+		cg=$d
+		break
+	done
+	[ -n "$cg" ] && [ -r "$cg/cgroup.procs" ] || return 0
+	while read -r pid; do
+		[ -n "$pid" ] || continue
+		set -- "$PW_PROC/$pid"/task/*
+		[ -e "$1" ] || set -- "$PW_PROC/$pid"
+		for tid in "$@"; do
+			tid=${tid##*/}
+			$PW_RENICE -5 -p "$tid" >/dev/null 2>&1 3>&-
+			$PW_IONICE -c 2 -n 2 -p "$tid" >/dev/null 2>&1 3>&-
+		done
+	done <"$cg/cgroup.procs"
+	return 0
+}
+
+# priority_wait: seconds for the next `read -t` in PW_WAIT: PW_TICK, shortened while an
+# application is pending so that it runs on time without any polling.
+priority_wait() {
+	local rem
+	PW_WAIT=$PW_TICK
+	[ "$PW_PRIO_N" -gt 0 ] || return 0
+	pw_uptime
+	rem=$(((PW_PRIO_DUE - PW_UP + 99) / 100))
+	[ "$rem" -ge 1 ] || rem=1
+	[ "$rem" -ge "$PW_TICK" ] || PW_WAIT=$rem
+}
+
+# priority_tick: runs a pending application that is due; a game that already ended cancels it
+priority_tick() {
+	[ "$PW_PRIO_N" -gt 0 ] || return 0
+	if [ "$PW_SCENARIO" != game ]; then
+		PW_PRIO_N=0
+		return 0
+	fi
+	pw_uptime
+	[ "$PW_UP" -ge "$PW_PRIO_DUE" ] || return 0
+	priority_apply
+	PW_PRIO_N=$((PW_PRIO_N - 1))
+	PW_PRIO_DUE=$((PW_UP + PW_PRIO_STEP))
+}
 
 # --- sysfs -----------------------------------------------------------------------------------
 
@@ -359,7 +422,7 @@ pw_message() {
 	game)
 		PW_SCENARIO=game PW_SYSTEM=${2:--} PW_CORE=${3:--}
 		pw_switch 1
-		priority_apply
+		priority_schedule
 		;;
 	end)
 		PW_SCENARIO=menu PW_SYSTEM= PW_CORE=
@@ -494,7 +557,8 @@ cmd_run() {
 		pw_uptime
 		t0=$PW_UP
 		w1= w2= w3=
-		read -t "$PW_TICK" -r w1 w2 w3 rest <&3
+		priority_wait
+		read -t "$PW_WAIT" -r w1 w2 w3 rest <&3
 		rc=$?
 		if [ -n "$w1" ]; then
 			pw_message "$w1" "$w2" "$w3"
@@ -508,6 +572,7 @@ cmd_run() {
 			fi
 		fi
 		[ ! -e "$PW_EARLY" ] || [ ! -e "$LOGS_RAM/boot-n" ] || pw_events_flush
+		priority_tick
 		pw_battery
 	done
 }

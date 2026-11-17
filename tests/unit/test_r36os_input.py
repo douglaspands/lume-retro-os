@@ -63,6 +63,13 @@ def test_aport_for_every_target_in_the_common_list_and_checksummed():
     assert line.index("r36os-input") < line.index("frontend")
 
 
+def test_init_runs_above_the_game_priority():
+    # game-governor D13: the game gets nice -5, the input daemon nice -10 (Fn+Start on a hang)
+    text = (APORT / "r36os-input.initd").read_text()
+    assert re.search(r"^nice=-10$", text, re.M)
+    assert not re.search(r"^(nice|ionice|ionice_class)=.*(rt|realtime|-20)", text, re.M)
+
+
 def test_every_r36s_dts_button_is_mapped():
     keys = DTS.split("\tgpio-keys {", 1)[1].split("\n\t};", 1)[0]
     dts_codes = set(re.findall(r"linux,code = <(BTN_\w+)>", keys))
