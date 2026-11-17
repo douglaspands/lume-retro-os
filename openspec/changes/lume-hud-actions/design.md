@@ -29,7 +29,9 @@ Estado atual que o desenho reaproveita:
   cartões novos (P-04).
 - **RetroArch 1.22.2**: comandos de rede `MENU_TOGGLE`, `RESET`, `SAVE_STATE`, `LOAD_STATE`,
   `LOAD_STATE_SLOT <n>`, `SCREENSHOT`, `PAUSE_TOGGLE` e `QUIT`; não há "salvar num slot" nem
-  "pausar" sem alternar. `screenshot_directory` já aponta para `/storage/screenshots`.
+  "pausar" sem alternar, mas `GET_STATUS` responde `GET_STATUS PAUSED ...`, `GET_STATUS
+  PLAYING ...` ou `GET_STATUS CONTENTLESS` (`command.c:1048-1067`), o que permite pausar e
+  despausar sabendo o estado. `screenshot_directory` já aponta para `/storage/screenshots`.
 - **Swap**: ZRAM de tamanho fixo (50% da RAM, `lume-power`).
 - **Kernel 6.18**: o `lima` informa o tempo ocupado da GPU por cliente no `fdinfo` (desde o
   6.8); o `panfrost` também, mas só com o `profiling` dele ligado no sysfs.
@@ -39,14 +41,16 @@ Estado atual que o desenho reaproveita:
 **Goals:**
 - Um único caminho para os atalhos do jogo: o `r36os-input` só reconhece acordes e dá nome à
   ação; quem sabe o que a ação significa para o programa aberto é o `lume-run`, pelo runner.
-- A barra e o menu do Lume sem processo novo e sem custo quando escondidos.
+- A barra sem processo novo; a barra e o menu do Lume sem custo quando escondidos.
+- O menu do Lume como camada do sistema: aparece sobre qualquer aplicação, mesmo travada, e
+  permite fechá-la (D14, se a prova da J1 passar).
 - O RetroArch só desenha: os números, os itens e o estado do menu vêm do sistema, para um
   frontend futuro trocar só o desenho.
 
 **Non-Goals:**
 - Barra dentro do launcher, troca de slot por atalho, níveis de detalhe da barra.
-- Menu do Lume sobre runners que não sejam o RetroArch (precisa de compositor ou frontend
-  próprio).
+- Barra e dica sobre runners que não sejam o RetroArch (aparecem com o jogo rodando, então
+  precisariam de compositor ou de um widget em cada programa).
 - Governor, perfis de energia e o custo do `logd` (próxima change).
 
 ## Decisions
@@ -109,6 +113,7 @@ consumidores.
 overlay = "retroarch"            # sabe desenhar a barra e o menu do Lume
 
 [runner.actions]
+pause      = "retroarch-pause"   # GET_STATUS + PAUSE_TOGGLE (D10)
 app_menu   = "retroarch-cmd:MENU_TOGGLE"
 reset      = "retroarch-cmd:RESET"
 save_state = "retroarch-cmd:SAVE_STATE"
@@ -117,9 +122,12 @@ screenshot = "retroarch-cmd:SCREENSHOT"
 ```
 
 Formas aceitas: `retroarch-cmd:<COMANDO>` (UDP em `127.0.0.1:55355`), `key:<KEY_*>` (o
-`lume-run` pede `tap` ao `r36os-input`) e `signal:<NOME>` (ao grupo do jogo). `quit` continua
+`lume-run` pede `tap` ao `r36os-input`) e `signal:<NOME>` (ao grupo do jogo). A ação `pause`
+aceita também `retroarch-pause` (pausa pelo próprio RetroArch, D10); sem `pause` declarada, o
+sistema pausa congelando o grupo do jogo (`SIGSTOP`/`SIGCONT`). `quit` continua
 no campo `quit` (política de encerramento com prazo, que já é spec). `overlay` aceita só
-`retroarch` nesta versão; sem ele, `fn_tap`, `fn_hold` e `hud` são ignorados com uma linha no log. Um
+`retroarch` nesta versão; sem ele, `fn_hold` e `hud` são ignorados com uma linha no log (o menu
+do Lume é do sistema, D14, e não depende do `overlay`). Um
 valor inválido recusa o runner com a mensagem do erro.
 
 O arquivo de lançamento leva as ações resolvidas, uma por linha (`action=save_state
@@ -189,9 +197,9 @@ Patch numerado no `aports/retroarch`, no molde do 0011, com dois comandos de red
   viewport do jogo; some sozinha se não receber texto em 3 s, para a barra não congelar na
   tela se o `lume-run` morrer.
 - `LUME_MENU [título|item1|item2|...|foco]` (vazio esconde): o menu do Lume, desenhado com as
-  medidas do protótipo (D10). Enquanto visível, o widget **pausa** o jogo e o som pelo mesmo
-  caminho da pausa do RetroArch, lembrando se o jogo já estava pausado, e ao esconder volta ao
-  estado anterior. Sem atualização em 3 s, também some e devolve o jogo.
+  medidas do protótipo (D10). **Só existe se a prova do D14 falhar**; se ela passar, o menu é
+  desenhado pelo sistema e este comando não entra no patch. O widget não pausa nada: a pausa é
+  do `lume-run` (D10). Sem atualização em 3 s, some.
 
 - `LUME_HINT [linha1|linha2|...]` (vazio esconde): a dica dos acordes (D13), um painel com
   uma linha por acorde (`Fn+R1  Salvar estado`), sem pausar o jogo. Sem atualização em 3 s,
@@ -222,8 +230,31 @@ O `lume-run` é o dono do menu. Estados:
     |<--Sim: reset (volta ao jogo) ou quit educado; Não/B: lista <--+
 ```
 
-A cada mudança o `lume-run` manda o `LUME_MENU` com os textos e o foco, e durante a captura
-renova a cada 1 s (o mesmo prazo do `poll` da barra). Os textos ficam no `lume-core`, em en, pt
+**Pausa e retomada** (pedido do usuário, 2026-11-17: pausar pelo recurso do próprio
+RetroArch, que vale para qualquer core, e despausar ao voltar):
+
+```
+ toque no Fn --> pause do runner
+                  retroarch-pause: GET_STATUS (espera ate 1 s)
+                    PLAYING --> PAUSE_TOGGLE, guarda "eu pausei"
+                    PAUSED  --> nada, guarda "ja estava"
+                    sem resposta --> app sem resposta: SIGSTOP no grupo, menu com
+                                     "Forcar fechamento" (D14)
+                  sem pause declarada: SIGSTOP no grupo, guarda "eu pausei"
+
+ Voltar ao jogo (A, B ou toque) --> "eu pausei": PAUSE_TOGGLE (ou SIGCONT)
+                                    "ja estava": nada
+ Encerrar / Reiniciar          --> despausa antes de mandar QUIT/RESET, para o
+                                    RetroArch processar o comando
+```
+
+Depois do `PAUSE_TOGGLE`, o `lume-run` confere com outro `GET_STATUS` que o estado mudou; se
+não mudou, registra no log e segue (o menu abre mesmo assim). "Forçar fechamento" manda
+`SIGKILL` ao grupo do jogo, sem esperar o prazo do runner, e só aparece com o app sem
+resposta; com o app respondendo, o menu tem o "Encerrar jogo" educado de sempre.
+
+A cada mudança o `lume-run` atualiza o desenho do menu (D14, ou `LUME_MENU` no caminho de
+reserva), e durante a captura renova a cada 1 s (o mesmo prazo do `poll` da barra). Os textos ficam no `lume-core`, em en, pt
 e es, com o idioma lido como o `lume-ui` lê; o item "Menu do <aplicação>" usa o nome do runner.
 Os gestos do Fn continuam valendo com o menu aberto: Fn+Start encerra direto, o toque fecha
 o menu de qualquer estado (lista ou confirmação). Segurar o Fn com o menu aberto não mostra a
@@ -235,7 +266,8 @@ usuário, e as medidas a 640x480 viram as constantes do widget (regra da régua)
 compara uma captura do aparelho com o protótipo.
 
 *Alternativa descartada:* voltar ao `lume-ui` para mostrar o menu. Encerraria ou congelaria o
-jogo, e o `lume-ui` não pode abrir a tela enquanto o RetroArch é o dono do DRM.
+jogo, e o `lume-ui` não pode abrir a tela enquanto o RetroArch é o dono do DRM (o D14 resolve
+isso pegando a tela emprestada, sem fechar o jogo).
 
 ### D11. Captura do controle
 
@@ -283,11 +315,56 @@ nos controles): toque abre o menu, segurar mostra os atalhos, segurar + botão �
   `lume-ui` os ignora). O menu do sistema e a dica do launcher são da change de ajustes do
   launcher (P-74, P-72).
 
-*Alternativas descartadas:* manter o Fn sozinho sem função e o menu no Fn+Select (decisão
+*Alternativas descartadas (D13):* manter o Fn sozinho sem função e o menu no Fn+Select (decisão
 anterior, trocada pelo usuário pelo modelo do SteamOS); segurar o Fn para o menu de energia,
 como o Xbox (Desligar fica dentro do menu do sistema, como no SteamOS); decidir o gesto no
 `lume-run` (o daemon é o único que vê o tempo real das teclas, e o launcher precisa do mesmo
 gesto).
+
+### D14. Menu do Lume desenhado pelo sistema (condicionado à prova da J1)
+
+Pedido do usuário (2026-11-17): como sistema operacional, o menu do Lume tem que aparecer
+sobre o RetroArch mesmo com ele travado, com a opção de fechar a aplicação. Um widget do
+RetroArch não cumpre isso (quem desenha é quem travou) e não existe nos outros runners.
+
+Sem compositor, a aplicação é a dona do DRM (master) enquanto roda. O sistema pega a tela
+emprestada só com o menu aberto:
+
+```
+ abrir:  pausa (D10) --> SIGSTOP no grupo do jogo (o RetroArch pausado ainda apresenta
+         quadros e cobriria o menu) --> pidfd_getfd do fd do DRM da aplicação (o mesmo
+         arquivo aberto, portanto master) --> GETFB2 do plano primário (o último quadro,
+         fundo do menu, técnica do r36os-shot) --> buffer próprio com o quadro + o menu
+         desenhado em software --> commit atômico no plano primário
+ fechar: commit devolvendo o framebuffer e o estado originais do plano --> fecha o fd
+         duplicado --> SIGCONT --> despausa (D10)
+```
+
+- Custo zero com o menu fechado: nada roda nem fica aberto.
+- Vale para qualquer runner (RetroArch, LÖVE, Ports, standalone), travado ou não; o
+  `overlay` do runner deixa de decidir se o menu existe e passa a valer só para a barra e a
+  dica (que aparecem com o jogo rodando e continuam como widgets do RetroArch).
+- Quem desenha: um binário pequeno (`lume-menu`, Rust, sem SDL, texto com a fonte do tema
+  rasterizada em software), aberto pelo `lume-run` só enquanto o menu está na tela, para o
+  `lume-run` continuar abaixo de 2 MB. O requisito "só três processos durante o jogo" passa a
+  admitir esse processo com o jogo pausado.
+- Permissão: `pidfd_getfd` exige `PTRACE_MODE_ATTACH` sobre a aplicação; o `lume-run` é o pai
+  e roda com o mesmo usuário. Conferir o Yama (`ptrace_scope`) do kernel; se precisar, o
+  helper ganha só `CAP_SYS_PTRACE` por `setcap`.
+- Commit recusado (`EBUSY` de um page flip pendente da aplicação): tenta de novo por até
+  200 ms antes de desistir.
+
+**Prova na J1 (tarefa 4.6), antes do código:** no GA36 (`sun4i-drm`/`lima`) e no R36S
+(`rockchip`/`panfrost`), com um jogo do RetroArch e um Port abertos: pausa, `SIGSTOP`,
+`pidfd_getfd`, um retângulo com o último quadro de fundo, volta ao jogo sem tela preta nem
+quadro trocado; e com o RetroArch travado de propósito (`SIGSTOP` sem pausa). **Se passar**,
+o D14 vale e o `LUME_MENU` sai do patch (D8). **Se falhar**, fica o caminho de reserva: o
+menu pelo widget `LUME_MENU`, só no RetroArch respondendo, e o app travado só se fecha pelo
+Fn+Start (que já força o fim no prazo do runner); os specs são revistos com o resultado.
+
+*Alternativas descartadas:* um compositor do Lume com o jogo como cliente (custo em todo
+quadro, pesado para o Mali-400 do GA36); `DROP_MASTER`/`SET_MASTER` (só quem é master pode
+largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação colaborar).
 
 ## Risks / Trade-offs
 
@@ -297,9 +374,15 @@ gesto).
 - [Captura presa deixa o console sem controle] → Liberação pelo fim da conexão e pelo prazo
   de 2 s sem mensagem (D11); teste de unidade dos três casos; prova na J2 matando o `lume-run`
   com o menu aberto.
-- [O RetroArch pausado pode não redesenhar os widgets] → O widget usa a mesma pausa do menu do
-  RetroArch, que redesenha o último quadro; prova na J2. Se falhar, o patch desenha sobre o
-  quadro guardado.
+- [Pegar a tela da aplicação falha num dos consoles (permissão, `EBUSY`, plano com formato ou
+  rotação diferentes)] → Prova da J1 (4.6) antes de qualquer código do D14; caminho de
+  reserva pelo widget (D8).
+- [A GPU pendura dentro do kernel e nem o `SIGSTOP` nem o commit andam] → O menu não aparece;
+  o Fn+Start continua forçando o fim pelo `SIGKILL` no prazo do runner, e o `lume-run`
+  registra no log.
+- [`PAUSE_TOGGLE` desencontrado deixa o jogo pausado ao voltar] → O `lume-run` guarda se foi
+  ele quem pausou e confere com `GET_STATUS` depois de cada alternância; teste de unidade com
+  o RetroArch falso nos casos PLAYING, PAUSED e sem resposta.
 - [`panfrost` sem `fdinfo` útil sem o `profiling`] → O `lume-run` liga o `profiling` ao
   mostrar a barra e desliga ao esconder, se o sysfs existir; sem leitura, `GPU --`. A prova da
   J1 vem antes do código da GPU.
@@ -321,8 +404,8 @@ gesto).
   primeiro.
 - [Foto do jogo sem o shader] → `video_gpu_screenshot = "false"` grava a imagem do core, sem
   shader, para não levar a barra e o menu; aceitável nesta versão.
-- [Runners fora do RetroArch sem menu do Lume] → Limite declarado no spec; Fn+Start continua
-  encerrando qualquer programa.
+- [Runners fora do RetroArch sem menu do Lume, se a prova do D14 falhar] → Limite declarado
+  no spec revisto; Fn+Start continua encerrando qualquer programa.
 
 ## Migration Plan
 
@@ -337,4 +420,6 @@ gesto).
 - Largura real do texto da barra na fonte dos widgets a 640x480: decide só a ordem de corte.
 - `current_now` e `charge_full` no AXP223 e no RK817: decide qual ramo do D7 cada console usa.
 - Toque no Fn com o menu do RetroArch aberto (pelo Fn+B): abrir o menu do Lume por cima ou
-  fechar o do RetroArch. Decidir na J2, olhando como os widgets aparecem sobre o menu.
+  fechar o do RetroArch. Decidir na J2.
+- Resultado da prova do D14 (J1, tarefa 4.6): decide se o menu é desenhado pelo sistema ou
+  pelo widget de reserva.

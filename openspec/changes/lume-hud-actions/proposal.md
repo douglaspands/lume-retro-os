@@ -27,15 +27,24 @@ dela.
   - os demais acordes com Fn (Fn+Select incluído) ficam reservados para atalhos futuros e
     não chegam ao jogo.
 - **Menu do Lume sobre o jogo** (toque no Fn): Voltar ao jogo, Reiniciar, Menu do RetroArch e
-  Encerrar jogo, com confirmação em Reiniciar e Encerrar. O jogo fica pausado e o controle
-  navega o menu sem chegar ao jogo. O desenho segue o protótipo do launcher, e os textos seguem
-  o idioma do usuário.
+  Encerrar jogo, com confirmação em Reiniciar e Encerrar. O controle navega o menu sem chegar
+  ao jogo. O desenho segue o protótipo do launcher, e os textos seguem o idioma do usuário.
+- **Pausa pela própria aplicação** (pedido do usuário, 2026-11-17): ao abrir o menu, o jogo é
+  pausado pela ação `pause` do runner; no RetroArch, `GET_STATUS` + `PAUSE_TOGGLE`, a pausa
+  dele, que vale para qualquer core. Ao voltar, despausa só se foi o menu que pausou. Runner
+  sem pausa: o sistema congela o programa.
+- **O menu é do sistema, não da aplicação** (pedido do usuário, 2026-11-17): aparece sobre
+  qualquer runner, mesmo travado. O sistema pega a tela emprestada só com o menu aberto
+  (congela a aplicação, duplica o descritor do DRM dela com `pidfd_getfd` e desenha sobre o
+  último quadro). Se a aplicação não responde, o menu oferece "Forçar fechamento". Depende de
+  uma prova técnica na primeira janela de aparelho; se falhar, o menu fica como widget do
+  RetroArch, e o app travado continua fechando pelo Fn+Start.
 - **O runner declara como executa cada ação** (`runners.d/*.toml`) e se sabe desenhar o menu do
   Lume; o `lume-run` executa a ação do jogo em curso. O RetroArch usa comandos de rede que já
   existem (`MENU_TOGGLE`, `RESET`, `SAVE_STATE`, `LOAD_STATE`, `SCREENSHOT`, `QUIT`); um
   emulador standalone pode declarar uma tecla, enviada pelo controle virtual, ou um sinal. Um
-  runner sem a ação ignora o acorde, com uma linha no log. Fora do RetroArch, o menu do Lume
-  não abre nesta versão (o Lume não tem como desenhar sobre outro programa sem um compositor).
+  runner sem a ação ignora o acorde, com uma linha no log. Fora do RetroArch, a barra e a dica
+  não aparecem nesta versão (aparecem com o jogo rodando, o que exigiria um compositor).
 - **BREAKING (atalhos):** o toque no Fn deixa de abrir o menu do RetroArch e passa a abrir o
   menu do Lume (o do RetroArch fica no Fn+B e num item do menu do Lume); Start + Select deixa
   de abrir o menu do RetroArch e volta a ser do jogo.
@@ -46,13 +55,13 @@ dela.
   (% e clock), GPU (%), memória no formato `usada/total/swap` (o swap é o ZRAM em uso),
   bateria (%, potência atual e tempo restante estimado, ou o tempo até encher quando
   carregando). O supervisor do jogo coleta os números só com a barra visível.
-- **O RetroArch só desenha**: a barra, o menu do Lume e a dica dos acordes são widgets de um
-  patch novo,
+- **O RetroArch só desenha**: a barra e a dica dos acordes (e o menu, só no caminho de
+  reserva) são widgets de um patch novo,
   alimentados por comandos de rede, no mesmo caminho da linha de volume (patch 0011).
 - **Foto em todo save state**: a captura da imagem do estado passa a ser fixada pela
   configuração do Lume, e não só pela configuração de fábrica (que só vai para cartões novos).
 
-Fora do escopo: a barra dentro do launcher, o menu do Lume em runners que não sejam o
+Fora do escopo: a barra dentro do launcher, a barra e a dica em runners que não sejam o
 RetroArch, troca de slot por atalho, o governor e os perfis por cenário (próxima change), o
 indicador de carga no launcher (P-78) e o custo do `logd` (P-60), que vão para a change do
 governor.
@@ -77,7 +86,8 @@ governor.
 
 - `aports/r36os-input/input.c` e os perfis `ga36.conf`, `r36s.conf` e `vm.conf` (tabela de
   acordes, captura do controle); testes do `r36os-input`.
-- `lume/lume-run` (ações do runner, menu do Lume, barra), `lume/lume-core` (protocolo,
+- `lume/lume-menu` (novo, se a prova passar: desenha o menu do Lume pegando a tela da
+  aplicação), `lume/lume-run` (ações do runner, pausa, menu do Lume, barra), `lume/lume-core` (protocolo,
   runner, textos do menu nos três idiomas), `lume/lume-ui` (o arquivo de lançamento leva as
   ações) e `aports/lume-games/.../runners.d/*.toml`.
 - `aports/retroarch`: um patch novo com os widgets da barra e do menu do Lume.

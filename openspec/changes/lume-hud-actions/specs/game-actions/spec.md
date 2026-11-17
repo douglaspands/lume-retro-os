@@ -90,11 +90,26 @@ O toque no Fn MUST abrir, sobre a imagem do jogo, o menu do Lume com os itens Vo
 - **THEN** o menu do Lume some e o menu do RetroArch abre, como no Fn+B
 
 ### Requirement: Jogo pausado com o menu do Lume
-Com o menu do Lume aberto, o jogo MUST ficar pausado, sem som, e MUST continuar exatamente de onde parou ao fechar, mesmo que já estivesse pausado antes.
+Ao abrir o menu do Lume, o jogo MUST ser pausado pela ação `pause` do runner (no RetroArch, a pausa do próprio RetroArch, a mesma para qualquer core), sem som. Ao voltar ao jogo, ele MUST ser despausado só se foi o menu que o pausou. Sem `pause` declarada, o sistema MUST congelar o programa enquanto o menu estiver aberto.
 
 #### Scenario: Jogo parado
 - **WHEN** o menu do Lume fica aberto por 10 segundos
 - **THEN** o jogo não avança nesse tempo e volta do mesmo ponto ao fechar o menu
+
+#### Scenario: Jogo que já estava pausado
+- **WHEN** o jogo estava pausado pelo RetroArch e o usuário abre e fecha o menu do Lume
+- **THEN** o jogo continua pausado, como estava
+
+#### Scenario: Runner sem pausa
+- **WHEN** o usuário abre o menu do Lume num Port e volta ao jogo
+- **THEN** o Port fica parado com o menu aberto e continua de onde estava ao voltar
+
+### Requirement: Aplicação sem resposta
+Se a aplicação não responder à pausa em até 1 segundo depois do toque no Fn, o menu do Lume MUST aparecer mesmo assim, com o item "Forçar fechamento", que MUST encerrar todos os processos do jogo na hora e voltar ao launcher.
+
+#### Scenario: RetroArch travado
+- **WHEN** o RetroArch está travado e o usuário toca o Fn
+- **THEN** em até 2 segundos o menu do Lume aparece com "Forçar fechamento", e escolhê-lo fecha o RetroArch e mostra o launcher
 
 ### Requirement: Confirmação de Reiniciar e Encerrar
 Reiniciar e Encerrar jogo MUST pedir confirmação, com Não em foco, antes de agir. Confirmado, Reiniciar MUST reiniciar o jogo pela ação `reset` do runner, e Encerrar MUST seguir o mesmo encerramento educado do Fn+Start. Não ou B MUST voltar ao menu do Lume sem mudar nada.
@@ -118,12 +133,19 @@ Com o menu do Lume aberto, os botões MUST navegar o menu e MUST NOT chegar ao j
 - **WHEN** o supervisor do jogo termina com o menu do Lume aberto
 - **THEN** em até 2 segundos o controle volta a funcionar no jogo
 
-### Requirement: Menu do Lume e dica só em runner que os desenha
-O menu do Lume e a dica dos acordes MUST aparecer só em jogos cujo runner declara que sabe desenhá-los (o RetroArch nesta versão). Nos demais, o toque e o segurar do Fn MUST ser ignorados com uma linha no log, os acordes que o runner declara MUST continuar valendo, e Fn+Start MUST continuar encerrando o jogo.
+### Requirement: Menu do Lume em qualquer runner
+O menu do Lume MUST ser desenhado pelo sistema, e não pela aplicação, para aparecer sobre qualquer runner (RetroArch, LÖVE, Ports, emuladores standalone), travado ou não. Os itens que dependem de ação do runner (Reiniciar, Menu da aplicação) MUST aparecer só quando o runner os declara.
 
 #### Scenario: Port nativo
 - **WHEN** o usuário toca o Fn num script de Ports
-- **THEN** nada muda na tela, o log registra que o runner `sh` não tem o menu do Lume, e Fn+Start ainda encerra o script
+- **THEN** o menu do Lume aparece com Voltar ao jogo e Encerrar jogo, e Voltar ao jogo retoma o script
+
+### Requirement: Dica dos acordes só em runner que a desenha
+A dica dos acordes MUST aparecer só em jogos cujo runner declara que sabe desenhá-la (o RetroArch nesta versão). Nos demais, segurar o Fn MUST ser ignorado com uma linha no log, e os acordes que o runner declara MUST continuar valendo.
+
+#### Scenario: Segurar o Fn num Port
+- **WHEN** o usuário segura o Fn num script de Ports
+- **THEN** nada aparece, o log registra que o runner `sh` não desenha a dica, e Fn+Start ainda encerra o script
 
 ### Requirement: Salvar e carregar no slot rápido
 No RetroArch, `save_state` MUST gravar o estado no slot rápido da sessão e `load_state` MUST carregar desse mesmo slot. O slot rápido MUST ser o 0, ou o slot N quando o jogo foi aberto pelo launcher a partir do slot N. O RetroArch MUST mostrar a confirmação dele. Carregar sem estado salvo MUST deixar o jogo como está.
