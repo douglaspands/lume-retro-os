@@ -24,10 +24,38 @@ PANEL1 = b"android boot image panel 1"
 MiB = 1 << 20
 
 
+class Clock:
+    """Monotonic clock whose sleep only moves the time forward."""
+
+    def __init__(self):
+        self.t = 1000.0
+        self.sleeps = 0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.sleeps += 1
+        assert self.sleeps < 10_000, "runaway wait loop"
+        self.t += s
+
+
 class FakeConsole:
+    """`gone_after`, `back_after` and `boot_ok_after` are seconds after the reboot command:
+    ssh stops answering, answers again (None: never) and events.log gets `boot OK
+    completed`. `booted_build` is the build of /boot/VERSION after the reboot (None: the one
+    swapped in)."""
+
     def __init__(self, board="ga36", battery=80, roms_free=8 << 30, boot_free=1 << 30,
                  boot=None, sector=b"old panel image", corrupt=None, ro_busy=False,
-                 boot_used=300 * MiB, boot_files=300 * MiB):
+                 boot_used=300 * MiB, boot_files=300 * MiB, clock=None, boot_n=43,
+                 gone_after=1, back_after=40, boot_ok_after=50, booted_build=None,
+                 send_seconds=30):
+        self.clock = clock or Clock()
+        self.boot_n, self.rebooted_at = boot_n, None
+        self.gone_after, self.back_after = gone_after, back_after
+        self.boot_ok_after, self.booted_build = boot_ok_after, booted_build
+        self.send_seconds = send_seconds
         self.board, self.battery = board, battery
         self.ro_busy = ro_busy          # vfat refuses ro: a deleted file is still open
         self.roms_free, self.boot_free = roms_free, boot_free
@@ -45,8 +73,33 @@ class FakeConsole:
     def stale(p):
         return p.endswith((".old", ".new"))
 
+    def since_reboot(self):
+        return None if self.rebooted_at is None else self.clock.t - self.rebooted_at
+
+    def answers(self):
+        dt = self.since_reboot()
+        if dt is None or dt < self.gone_after:
+            return True
+        return self.back_after is not None and dt >= self.back_after
+
+    def boot_status(self):
+        if not self.answers():
+            raise push.PushError("ssh to the console failed: no answer")
+        dt = self.since_reboot()
+        n = self.boot_n + (dt is not None)
+        build = self.booted_build or self.boot["VERSION"].decode().removeprefix("build: ")
+        ok = (f"1970-01-01T00:00:43 {n} boot OK completed: frontend in 33.6s from kernel"
+              if dt is not None and dt >= self.boot_ok_after else "")
+        return f"{n}\n{build.strip()}\n{ok}\n"
+
     def run(self, cmd, stdin=None):
         self.cmds.append(cmd)
+        if cmd == push.READ_BOOT_N:
+            self.log.append("read boot-n")
+            return f"{self.boot_n}\n"
+        if cmd == push.BOOT_STATUS:
+            self.log.append("boot status")
+            return self.boot_status()
         if cmd == push._PROBE:
             self.log.append("probe")
             sums = "".join(f"{sha(d)}  {p}\n" for p, d in self.boot.items()
@@ -72,6 +125,7 @@ class FakeConsole:
             if m.group(1) == self.corrupt:
                 data += b"!"
             self.staging[m.group(1)] = data
+            self.clock.t += self.send_seconds
             self.log.append(f"send {m.group(1)}")
             return ""
         if "sha256sum -c SHA256SUMS" in cmd:
@@ -110,6 +164,7 @@ class FakeConsole:
             return ""
         if "reboot" in cmd:
             self.log.append("reboot")
+            self.rebooted_at = self.clock.t
             return ""
         raise AssertionError(f"unexpected command: {cmd}")
 
@@ -143,10 +198,11 @@ def console_with(**kw):
                            "device": "/dev/mmcblk0", "boot_sums": {}, **kw})
 
 
-def run_push(tmp_path, console, **kw):
+def run_push(tmp_path, console, wait=False, **kw):
     lines = []
+    clock = getattr(console, "clock", None) or Clock()
     rc = push.push("latest", console, yes=True, extractor=extractor(tmp_path),
-                   out=lines.append, **kw)
+                   out=lines.append, wait=wait, sleep=clock.sleep, now=clock.now, **kw)
     return rc, lines
 
 
@@ -345,4 +401,89 @@ def test_a_build_without_the_boot_list_is_refused(build, tmp_path):
 
 def test_cli_push():
     args = cli._parser().parse_args(["push", "--build", BUILD, "--yes"])
-    assert (args.command, args.build, args.yes) == ("push", BUILD, True)
+    assert (args.command, args.build, args.yes, args.no_wait) == ("push", BUILD, True, False)
+    assert cli._parser().parse_args(["push", "--no-wait"]).no_wait
+
+
+# --- after the reboot (build-speed D12, task 3.3) ------------------------------------------
+
+def test_push_waits_for_the_new_boot_and_prints_ok_with_the_times(build, tmp_path):
+    c = FakeConsole(board="r36s")
+    rc, out = run_push(tmp_path, c, wait=True)
+    assert rc == 0
+    # the boot number is read before the reboot, the new boot only after
+    assert c.log.index("read boot-n") < c.log.index("reboot") < c.log.index("boot status")
+    # 4 files and SHA256SUMS at 30 s each; boot OK seen at the first poll >= 50 s
+    assert out[-1] == (f"ok: boot 44 completed with build {BUILD} (frontend in 33.6s from "
+                       "kernel); send 2m30s, boot 50s")
+    assert c.clock.sleeps < 60
+
+
+def test_push_reports_a_console_that_does_not_come_back(build, tmp_path):
+    c = FakeConsole(back_after=None)
+    with pytest.raises(push.PushError) as e:
+        run_push(tmp_path, c, wait=True)
+    msg = str(e.value)
+    assert f"did not come back over the cable within {push.BACK_TIMEOUT}s" in msg
+    assert "last step confirmed: the console went away for the reboot" in msg
+    assert "boot status" not in c.log
+
+
+def test_push_reports_a_console_that_never_goes_away(build, tmp_path):
+    c = FakeConsole(gone_after=10_000)
+    with pytest.raises(push.PushError, match=r"still answers 60s after the reboot \(last "
+                                             r"step confirmed: reboot sent\)"):
+        run_push(tmp_path, c, wait=True)
+
+
+def test_push_reports_the_wrong_build_with_both_ids(build, tmp_path):
+    # the console came back, but /boot/VERSION is not the pushed build (e.g. another card)
+    c = FakeConsole(booted_build="20261101-090000")
+    with pytest.raises(push.PushError) as e:
+        run_push(tmp_path, c, wait=True)
+    msg = str(e.value)
+    assert "build 20261101-090000" in msg and f"pushed build {BUILD}" in msg
+    assert "last step confirmed: boot 44 started" in msg
+    assert c.log.count("boot status") == 1      # fails at once, no wait for boot OK
+
+
+def test_push_reports_a_boot_that_does_not_complete(build, tmp_path):
+    c = FakeConsole(boot_ok_after=10_000)
+    with pytest.raises(push.PushError) as e:
+        run_push(tmp_path, c, wait=True)
+    msg = str(e.value)
+    assert f"boot 44 did not reach `boot OK completed` within {push.BOOT_OK_TIMEOUT}s" in msg
+    assert f"last step confirmed: boot 44 started with build {BUILD}" in msg
+
+
+def test_push_reports_the_same_boot_number_after_the_reboot(build, tmp_path):
+    c = FakeConsole()
+    real = c.boot_status
+    c.boot_status = lambda: real().replace("44\n", "43\n", 1)
+    with pytest.raises(push.PushError, match="still runs boot 43"):
+        run_push(tmp_path, c, wait=True)
+
+
+def test_extra_checks_after_the_boot_turn_ok_into_an_error(build, tmp_path):
+    # the hook for the slot and fragment checks of nodes 4.6 and 8.2
+    seen = []
+
+    def slots_mounted(remote, state):
+        seen.append(state.boot_n)
+        return "slot ga36-base-1234 not mounted"
+    c = FakeConsole()
+    with pytest.raises(push.PushError, match="but: slot ga36-base-1234 not mounted"):
+        run_push(tmp_path, c, wait=True, checks=[slots_mounted])
+    assert seen == ["44"]
+    rc, out = run_push(tmp_path, FakeConsole(), wait=True, checks=[lambda r, s: None])
+    assert rc == 0 and out[-1].startswith("ok: ")
+
+
+def test_no_wait_and_nothing_to_send_never_wait(build, tmp_path):
+    c = FakeConsole()
+    rc, out = run_push(tmp_path, c, wait=False)
+    assert rc == 0 and c.log[-1] == "reboot" and "read boot-n" not in c.log
+    assert not any(line.startswith("ok:") for line in out)
+    same = FakeConsole(board="r36s", boot=NEW)
+    rc, out = run_push(tmp_path, same, wait=True)
+    assert rc == 0 and same.log == ["probe"] and same.clock.sleeps == 0

@@ -23,6 +23,11 @@ root@10.55.0.1 (root has no password on the USB cable, D4):
 5. BOOT read-only again, the staging folder removed, reboot. If vfat still refuses
    read-only ("Resource busy"), something holds a deleted file open: warn that this boot
    may leave lost clusters, for the next push to check (D5).
+6. unless `--no-wait` (build-speed D12): wait for the console to go away and come back over
+   the cable, then check that a new boot started (boot number of /run/r36os/logs/boot-n,
+   not the clock: the console clock is not reliable), that /boot/VERSION carries the pushed
+   build and that events.log has `boot OK completed` for that boot; print `ok` with the
+   send and boot times, or the step that diverged.
 
 There is no rsync on the console: each file goes as `cat > file` over ssh.
 """
@@ -33,8 +38,10 @@ import hashlib
 import shlex
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from r36os import image
 from r36os.archive import images_dir
@@ -50,6 +57,21 @@ CHUNK = 1 << 22
 LOST_LIMIT = 32 << 20            # BOOT used (df) above what its files take (du): lost clusters
 STALE_CLEANUP = (r"find /boot -type f \( -name '*.old' -o -name '*.new' \) -exec rm -f {} \; "
                  "&& sync")
+
+# after the reboot (build-speed D12); measured 2026-11-16: ssh answers again ~40 s after the
+# reboot, `boot OK completed` ~34 s from the kernel
+GONE_TIMEOUT = 60                # seconds for the console to stop answering after the reboot
+BACK_TIMEOUT = 180               # seconds for it to answer again over the cable
+BOOT_OK_TIMEOUT = 120            # seconds, once back, for `boot OK completed` in events.log
+POLL_INTERVAL = 2.0
+BOOT_N = "/run/r36os/logs/boot-n"
+EVENTS_LOG = "/storage/logs/events.log"
+BOOT_OK = "boot OK completed"
+READ_BOOT_N = f"cat {BOOT_N} 2>/dev/null || true"
+# one line each: boot number, build of /boot/VERSION, last `boot OK completed` of that boot
+BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null); echo \"${{n:--}}\"; "
+               "sed -n 's/^build: //p' /boot/VERSION; "
+               f"awk -v n=\"$n\" '$2 == n && /{BOOT_OK}/' {EVENTS_LOG} 2>/dev/null | tail -n 1")
 
 
 def running_files(board: str) -> tuple[str, ...]:
@@ -69,6 +91,7 @@ class Remote:
     boot, so nothing is checked against or written to the user's known_hosts."""
 
     def __init__(self, host: str = CONSOLE_ADDR):
+        self.host = host
         self.base = ["ssh", "-o", "UserKnownHostsFile=/dev/null",
                      "-o", "StrictHostKeyChecking=no", "-o", "LogLevel=ERROR",
                      "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"root@{host}"]
@@ -83,6 +106,11 @@ class Remote:
                                 "console on, with the cable on its OTG port?)")
             raise PushError(f"on the console, `{cmd}` failed ({r.returncode}): {err}")
         return r.stdout.decode(errors="replace")
+
+    def answers(self) -> bool:
+        """True when the console answers ssh over the cable now."""
+        return subprocess.run([*self.base, "true"], stdin=subprocess.DEVNULL,
+                              capture_output=True).returncode == 0
 
 
 @dataclass
@@ -209,8 +237,94 @@ def _q(s: str) -> str:
     return shlex.quote(s)
 
 
+# --- after the reboot (build-speed D12) -------------------------------------------------
+
+@dataclass
+class BootState:
+    """What the console says about its current boot."""
+    boot_n: str | None      # /run/r36os/logs/boot-n
+    build: str              # build of /boot/VERSION
+    boot_ok: str | None     # its `boot OK completed: ...` line of events.log, if any
+
+
+def read_boot_state(remote) -> BootState:
+    lines = remote.run(BOOT_STATUS).splitlines() + ["", "", ""]
+    n = lines[0].strip()
+    return BootState(boot_n=None if n in ("", "-") else n, build=lines[1].strip(),
+                     boot_ok=lines[2].strip() or None)
+
+
+# Extra checks of the new boot, run after `boot OK completed`: each takes the remote and the
+# BootState and returns what diverged, or None. Slots of SLOTS mounted (node 4.6) and the
+# versions of the fragments sent (node 8.2) are added here later.
+AfterBootCheck = Callable[[object, BootState], "str | None"]
+AFTER_BOOT_CHECKS: list[AfterBootCheck] = []
+
+
+def _duration(seconds: float) -> str:
+    s = round(seconds)
+    return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
+
+
+def verify_boot(remote, build: str, old_boot_n: str | None, sleep=time.sleep,
+                now=time.monotonic, checks: list[AfterBootCheck] | None = None
+                ) -> BootState:
+    """Wait for the console to go away and come back over the cable, then check that a new
+    boot started with `build` on /boot/VERSION and reached `boot OK completed`. Raises
+    PushError naming the last step confirmed."""
+    from r36os.dev import wait_for_console      # dev imports this module
+
+    host = getattr(remote, "host", CONSOLE_ADDR)
+    if not wait_for_console(host, GONE_TIMEOUT, POLL_INTERVAL, sleep, now,
+                            probe=lambda: not remote.answers()):
+        raise PushError(f"the console still answers {GONE_TIMEOUT}s after the reboot "
+                        "(last step confirmed: reboot sent)")
+    if not wait_for_console(host, BACK_TIMEOUT, POLL_INTERVAL, sleep, now,
+                            probe=remote.answers):
+        raise PushError(f"the console did not come back over the cable within "
+                        f"{BACK_TIMEOUT}s (last step confirmed: the console went away for "
+                        "the reboot)")
+    end = now() + BOOT_OK_TIMEOUT
+    state, last_error = None, None
+    while True:
+        try:
+            state, last_error = read_boot_state(remote), None
+        except PushError as e:                  # ssh dropped while the boot goes on
+            last_error = e
+        if state is not None:
+            if state.boot_n is None:
+                raise PushError(f"the console is back but has no boot number ({BOOT_N}) "
+                                "(last step confirmed: console back over the cable)")
+            if state.boot_n == old_boot_n:
+                raise PushError(f"the console is back but still runs boot {state.boot_n}, "
+                                "the one before the reboot (last step confirmed: console "
+                                "back over the cable)")
+            if state.build != build:
+                raise PushError(f"boot {state.boot_n} runs build {state.build or '?'} from "
+                                f"/boot/VERSION, not the pushed build {build} (last step "
+                                f"confirmed: boot {state.boot_n} started)")
+            if state.boot_ok:
+                break
+        if now() >= end:
+            if state is None:
+                raise PushError(f"the console answered but its boot could not be read within "
+                                f"{BOOT_OK_TIMEOUT}s: {last_error} (last step confirmed: "
+                                "console back over the cable)")
+            raise PushError(f"boot {state.boot_n} did not reach `{BOOT_OK}` within "
+                            f"{BOOT_OK_TIMEOUT}s (last step confirmed: boot {state.boot_n} "
+                            f"started with build {build}); see `r36os dev log`")
+        sleep(POLL_INTERVAL)
+    problems = [p for check in (AFTER_BOOT_CHECKS if checks is None else checks)
+                if (p := check(remote, state))]
+    if problems:
+        raise PushError(f"boot {state.boot_n} completed with build {build}, but: "
+                        + "; ".join(problems))
+    return state
+
+
 def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
-         extractor=extract_boot, out=print) -> int:
+         extractor=extract_boot, out=print, wait: bool = True, sleep=time.sleep,
+         now=time.monotonic, checks: list[AfterBootCheck] | None = None) -> int:
     build_dir = (images_dir(IMAGES["console"]) / build).resolve()
     list_path = build_dir / image.BOOT_LIST
     if not list_path.exists():
@@ -256,6 +370,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
         out("cancelled")
         return 1
 
+    started = now()                     # the send time leaves out the confirmation
     remote_dir = f"{STAGING}/{build_dir.name}"
     remote.run(f"rm -rf {_q(STAGING)} && mkdir -p {_q(remote_dir)}")
     sums = "".join(f"{d}  {p}\n" for p, d in files)
@@ -314,14 +429,27 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
             "deleted file on it open, so this boot may leave lost clusters (the next push "
             "checks)")
     remote.run(f"rm -rf {_q(STAGING)}")
+    # the boot number before the reboot: the new boot must have another one (the console
+    # clock is not reliable, so times are not compared)
+    old_boot_n = (remote.run(READ_BOOT_N).strip() or None) if wait else None
     out("swapped: BOOT updated, rebooting the console")
     remote.run("(sleep 1; reboot) >/dev/null 2>&1 &")
+    if not wait:
+        return 0
+    rebooted = now()
+    out(f"waiting: the console goes away and comes back (up to {GONE_TIMEOUT}s + "
+        f"{BACK_TIMEOUT}s + {BOOT_OK_TIMEOUT}s)")
+    state = verify_boot(remote, build_dir.name, old_boot_n, sleep, now, checks)
+    detail = state.boot_ok.split(BOOT_OK, 1)[-1].lstrip(": ").strip()
+    out(f"ok: boot {state.boot_n} completed with build {build_dir.name}"
+        + (f" ({detail})" if detail else "")
+        + f"; send {_duration(rebooted - started)}, boot {_duration(now() - rebooted)}")
     return 0
 
 
-def main_push(build: str, yes: bool) -> int:
+def main_push(build: str, yes: bool, wait: bool = True) -> int:
     try:
-        return push(build, Remote(), yes)
+        return push(build, Remote(), yes, wait=wait)
     except PushError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
