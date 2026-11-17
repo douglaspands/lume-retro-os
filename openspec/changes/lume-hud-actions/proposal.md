@@ -12,16 +12,21 @@ dela.
 
 ## What Changes
 
-- **Ações do Lume durante o jogo**: o `r36os-input` passa a tratar o Fn como modificador do
-  sistema e transforma cada acorde numa ação com nome, enviada ao supervisor do jogo:
-  - Fn+Select → `lume_menu` (menu do Lume sobre o jogo);
+- **O Fn como o botão Steam do SteamOS** (pedido do usuário, 2026-11-17): o `r36os-input`
+  separa três gestos do Fn e manda cada um com nome ao supervisor do jogo:
+  - **toque** (aperta e solta sozinho) → `fn_tap`: abre e fecha o menu do Lume sobre o jogo;
+  - **segurar** sozinho (500 ms, ajustável no perfil) → `fn_hold`: mostra sobre o jogo a dica
+    com os acordes que valem naquele jogo; soltar fecha a dica sem abrir o menu;
+  - **acorde** (Fn seguro + outra tecla) → a ação da tabela; um acorde nunca vira toque.
+- **Ações do Lume durante o jogo**: cada acorde vira uma ação com nome:
   - Fn+B → `app_menu` (menu da aplicação: o do RetroArch);
   - Fn+R1 → `save_state` e Fn+L1 → `load_state`, no slot rápido;
   - Fn+Y → `screenshot` (foto do jogo em `ROMS/screenshots/`);
   - Fn+X → `hud` (mostra e esconde a barra de status);
   - Fn+Start → `quit` (sem mudança: encerra direto, é a saída de emergência);
-  - os demais acordes com Fn ficam reservados para atalhos futuros e não chegam ao jogo.
-- **Menu do Lume sobre o jogo** (Fn+Select): Voltar ao jogo, Reiniciar, Menu do RetroArch e
+  - os demais acordes com Fn (Fn+Select incluído) ficam reservados para atalhos futuros e
+    não chegam ao jogo.
+- **Menu do Lume sobre o jogo** (toque no Fn): Voltar ao jogo, Reiniciar, Menu do RetroArch e
   Encerrar jogo, com confirmação em Reiniciar e Encerrar. O jogo fica pausado e o controle
   navega o menu sem chegar ao jogo. O desenho segue o protótipo do launcher, e os textos seguem
   o idioma do usuário.
@@ -31,13 +36,18 @@ dela.
   emulador standalone pode declarar uma tecla, enviada pelo controle virtual, ou um sinal. Um
   runner sem a ação ignora o acorde, com uma linha no log. Fora do RetroArch, o menu do Lume
   não abre nesta versão (o Lume não tem como desenhar sobre outro programa sem um compositor).
-- **BREAKING (atalhos):** o Fn sozinho deixa de abrir o menu e não faz nada; Start + Select
-  deixa de abrir o menu do RetroArch e volta a ser do jogo.
+- **BREAKING (atalhos):** o toque no Fn deixa de abrir o menu do RetroArch e passa a abrir o
+  menu do Lume (o do RetroArch fica no Fn+B e num item do menu do Lume); Start + Select deixa
+  de abrir o menu do RetroArch e volta a ser do jogo.
+- **No launcher**, o toque e o segurar do Fn chegam ao `lume-ui` pelos mesmos eventos, mas o
+  uso deles (menu do sistema com Desligar, Reiniciar e Configurações, e a dica no launcher) é
+  da change de ajustes do launcher (P-74, P-72), que vem depois desta.
 - **Barra de status no topo da tela**, à moda do Steam Deck, só enquanto ligada pelo Fn+X: CPU
   (% e clock), GPU (%), memória no formato `usada/total/swap` (o swap é o ZRAM em uso),
   bateria (%, potência atual e tempo restante estimado, ou o tempo até encher quando
   carregando). O supervisor do jogo coleta os números só com a barra visível.
-- **O RetroArch só desenha**: a barra e o menu do Lume são widgets de um patch novo,
+- **O RetroArch só desenha**: a barra, o menu do Lume e a dica dos acordes são widgets de um
+  patch novo,
   alimentados por comandos de rede, no mesmo caminho da linha de volume (patch 0011).
 - **Foto em todo save state**: a captura da imagem do estado passa a ser fixada pela
   configuração do Lume, e não só pela configuração de fábrica (que só vai para cartões novos).
@@ -50,7 +60,8 @@ governor.
 ## Capabilities
 
 ### New Capabilities
-- `game-actions`: atalhos do sistema durante o jogo (o Fn como modificador do Lume), as ações
+- `game-actions`: atalhos do sistema durante o jogo (o Fn como botão do sistema: toque,
+  segurar com a dica dos acordes, e acordes), as ações
   com nome, o menu do Lume sobre o jogo e como cada runner executa as ações, incluindo a foto
   do jogo e a do save state.
 - `performance-hud`: a barra de status sobre o jogo, o que ela mostra, quando a coleta roda e

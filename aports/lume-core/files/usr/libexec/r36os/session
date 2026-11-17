@@ -1,4 +1,5 @@
 #!/bin/sh
+# PROOF-4.7-R36S temporary marker
 # r36os-session (D10): roda o frontend configurado no tty1 como o usuário game.
 #
 #   saída 0           -> grava o pendente (persist flush) e desliga

@@ -19,10 +19,10 @@ Cada forma de abrir um jogo MUST ser um runner descrito num arquivo de dados com
 
 #### Scenario: Runner antigo sem ações
 - **WHEN** um arquivo de runner do cartão só tem o comando e a política de encerramento
-- **THEN** o runner continua aparecendo e abrindo jogos, Fn+B, Fn+R1, Fn+L1 e Fn+Select não fazem nada nele, e Fn+Start continua encerrando
+- **THEN** o runner continua aparecendo e abrindo jogos, Fn+B, Fn+R1, Fn+L1 e o toque no Fn não fazem nada nele, e Fn+Start continua encerrando
 
 ## REMOVED Requirements
 
 ### Requirement: Fn sozinho continua abrindo o menu
-**Reason**: O Fn passa a ser só o modificador do sistema (capability `game-actions`); o menu do emulador abre pelo Fn+B ou pelo menu do Lume (Fn+Select), ações que valem para qualquer runner que as declare.
-**Migration**: Usar Fn+B para abrir e fechar o menu do RetroArch durante o jogo, ou Fn+Select e o item "Menu do RetroArch". Fn+Start continua encerrando o jogo sem abrir menu.
+**Reason**: O Fn passa a ser o botão do sistema, à moda do botão Steam (capability `game-actions`): o toque abre o menu do Lume, segurar mostra a dica dos acordes, e o menu do emulador abre pelo Fn+B ou pelo item dele no menu do Lume, ações que valem para qualquer runner que as declare.
+**Migration**: Usar Fn+B para abrir e fechar o menu do RetroArch durante o jogo, ou tocar o Fn e escolher "Menu do RetroArch". Segurar o Fn mostra os atalhos. Fn+Start continua encerrando o jogo sem abrir menu.

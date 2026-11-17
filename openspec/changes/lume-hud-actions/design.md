@@ -56,7 +56,7 @@ Estado atual que o desenho reaproveita:
 O perfil do console ganha uma tabela de acordes, em códigos de saída:
 
 ```
-chord BTN_SELECT lume_menu
+fn_hold_ms 500                 # toque abaixo disso, segurar a partir disso (D13)
 chord BTN_B      app_menu      # BTN_B do controle virtual (o mapa do R36S já converte)
 chord BTN_TR     save_state
 chord BTN_TL     load_state
@@ -67,8 +67,7 @@ chord BTN_START  quit          # substitui a linha "quit BTN_START"
 
 Regras novas do `key_event`:
 - o Fn nunca sai (some o toque no soltar e o `emit_key(out, p->fn, 1)` do acorde); o Fn
-  sozinho vira só a mensagem `fn` aos clientes, que nesta change ninguém usa (o `lume-run` a
-  ignora) e que deixa pronto o menu do sistema no launcher do P-74;
+  sozinho vira os gestos `fn_tap`, `fn_hold` e `fn_release` aos clientes (D13);
 - Fn + tecla da tabela: manda o nome da ação aos clientes e engole a tecla (pressão, repetição
   e soltura), como o `quit` faz hoje;
 - Fn + tecla fora da tabela: engole a tecla e não manda nada (acordes reservados);
@@ -89,9 +88,9 @@ uma mensagem por linha:
 
 | Sentido | Mensagem | Quem usa |
 |---|---|---|
-| daemon → cliente | `quit`, `lume_menu`, `app_menu`, `save_state`, `load_state`, `screenshot`, `hud` | `lume-run` (o `lume-ui` ignora) |
+| daemon → cliente | `quit`, `app_menu`, `save_state`, `load_state`, `screenshot`, `hud` | `lume-run` (o `lume-ui` ignora) |
 | daemon → cliente | `volume`, `brightness` | `lume-ui` (sem mudança) |
-| daemon → cliente | `fn` (Fn sozinho) | ninguém nesta change; o `lume-ui` no P-74 |
+| daemon → cliente | `fn_tap`, `fn_hold <tabela>`, `fn_release` (D13) | `lume-run` no jogo; o `lume-ui` no launcher, na change de ajustes do launcher (P-74) |
 | daemon → cliente | `nav up\|down\|left\|right\|a\|b` | `lume-run`, só com a captura ligada (D11) |
 | cliente → daemon | `tap <KEY_*>` | `lume-run`, para a ação por tecla (D3) |
 | cliente → daemon | `capture on`, `capture off` | `lume-run`, menu do Lume (D11) |
@@ -120,7 +119,7 @@ screenshot = "retroarch-cmd:SCREENSHOT"
 Formas aceitas: `retroarch-cmd:<COMANDO>` (UDP em `127.0.0.1:55355`), `key:<KEY_*>` (o
 `lume-run` pede `tap` ao `r36os-input`) e `signal:<NOME>` (ao grupo do jogo). `quit` continua
 no campo `quit` (política de encerramento com prazo, que já é spec). `overlay` aceita só
-`retroarch` nesta versão; sem ele, `lume_menu` e `hud` são ignorados com uma linha no log. Um
+`retroarch` nesta versão; sem ele, `fn_tap`, `fn_hold` e `hud` são ignorados com uma linha no log. Um
 valor inválido recusa o runner com a mensagem do erro.
 
 O arquivo de lançamento leva as ações resolvidas, uma por linha (`action=save_state
@@ -194,6 +193,10 @@ Patch numerado no `aports/retroarch`, no molde do 0011, com dois comandos de red
   caminho da pausa do RetroArch, lembrando se o jogo já estava pausado, e ao esconder volta ao
   estado anterior. Sem atualização em 3 s, também some e devolve o jogo.
 
+- `LUME_HINT [linha1|linha2|...]` (vazio esconde): a dica dos acordes (D13), um painel com
+  uma linha por acorde (`Fn+R1  Salvar estado`), sem pausar o jogo. Sem atualização em 3 s,
+  some sozinha.
+
 O RetroArch não interpreta os itens: só desenha o que recebe. Só funciona com os widgets
 gráficos ligados, como a linha de volume.
 
@@ -212,9 +215,9 @@ gráficos ligados, como a linha de volume.
 O `lume-run` é o dono do menu. Estados:
 
 ```
- fechado --Fn+Select--> lista --A em Reiniciar/Encerrar--> confirmação (foco em Não)
+ fechado --toque Fn--> lista --A em Reiniciar/Encerrar--> confirmação (foco em Não)
     ^                    |  |                                 |      |
-    |<--B ou Fn+Select---+  +--A em Voltar ao jogo-----> fechado    |
+    |<--B ou toque Fn----+  +--A em Voltar ao jogo-----> fechado    |
     |<--A em Menu do RetroArch: fecha e manda app_menu              |
     |<--Sim: reset (volta ao jogo) ou quit educado; Não/B: lista <--+
 ```
@@ -222,8 +225,9 @@ O `lume-run` é o dono do menu. Estados:
 A cada mudança o `lume-run` manda o `LUME_MENU` com os textos e o foco, e durante a captura
 renova a cada 1 s (o mesmo prazo do `poll` da barra). Os textos ficam no `lume-core`, em en, pt
 e es, com o idioma lido como o `lume-ui` lê; o item "Menu do <aplicação>" usa o nome do runner.
-Os acordes do jogo continuam valendo com o menu aberto: Fn+Start encerra direto, Fn+Select
-fecha.
+Os gestos do Fn continuam valendo com o menu aberto: Fn+Start encerra direto, o toque fecha
+o menu de qualquer estado (lista ou confirmação). Segurar o Fn com o menu aberto não mostra a
+dica (o menu já está na tela).
 
 O visual é uma tela nova do Lume: entra primeiro no protótipo
 (`docs/lume-launcher/prototipo/`), na família do menu do jogo do launcher, aprovada pelo
@@ -240,13 +244,50 @@ jogo, e o `lume-ui` não pode abrir a tela enquanto o RetroArch é o dono do DRM
 ao cliente que pediu. `capture off`, ou o fim da conexão desse cliente, ou 2 s sem nenhuma
 mensagem dele, encerra a captura e volta a encaminhar. O `lume-run` manda `capture on` de novo
 a cada 1 s enquanto o menu está aberto. O acorde do Fn continua sendo tratado antes da
-captura, então Fn+Start e Fn+Select funcionam com o menu aberto.
+captura, então Fn+Start e o toque no Fn funcionam com o menu aberto.
 
 ### D12. Foto do jogo
 
 `screenshot` é uma ação do runner como as outras; no RetroArch, `SCREENSHOT` com as chaves do
 D9. A pasta é `ROMS/screenshots/`, legível no PC. Isso atende o P-57 para o RetroArch; uma
 captura do sistema para qualquer programa (ler o framebuffer do DRM) continua no P-57.
+
+### D13. Gestos do Fn, à moda do botão Steam
+
+Pedido do usuário (2026-11-17): o Fn se comporta como o botão Steam do SteamOS (e o Xbox/PS
+nos controles): toque abre o menu, segurar mostra os atalhos, segurar + botão é atalho. O
+`r36os-input` decide o gesto; os clientes só reagem.
+
+```
+  Fn down --+-- outra tecla antes de soltar ----> acorde (ação da tabela ou reservado);
+            |                                      se a dica estava na tela: fn_release antes
+            |
+            +-- solto antes de fn_hold_ms -------> fn_tap
+            |
+            +-- fn_hold_ms sem outra tecla -------> fn_hold <tabela>
+                     +-- solto sem outra tecla ---> fn_release (sem fn_tap)
+```
+
+- Um Fn que já foi parte de um acorde nunca gera `fn_tap` nem `fn_hold` até ser solto.
+- `fn_hold` leva a tabela de acordes do perfil, `fn_hold B=app_menu R1=save_state ...`
+  (nomes curtos dos botões, os do glifo da tela), para a dica não ter uma segunda cópia da
+  tabela. O Fn+Vol (brilho) entra na tabela como `Vol=brightness`.
+- O temporizador do segurar entra no `poll` do daemon (prazo só enquanto o Fn está apertado);
+  sem o Fn apertado, o daemon continua sem prazo.
+- **No jogo** (`lume-run`): `fn_tap` abre ou fecha o menu do Lume (D10); `fn_hold` monta a
+  dica só com as ações que o runner declara, mais Fn+Start, com os nomes no idioma do usuário,
+  e manda `LUME_HINT` (renovado a cada 1 s enquanto o Fn estiver seguro); `fn_release`, ou
+  qualquer ação de acorde, manda `LUME_HINT` vazio. Com o menu do Lume aberto, `fn_hold` é
+  ignorado. Runner sem `overlay`: `fn_tap` e `fn_hold` só registram no log.
+- **No launcher** (`lume-ui`): os mesmos eventos chegam, e esta change não os usa (o
+  `lume-ui` os ignora). O menu do sistema e a dica do launcher são da change de ajustes do
+  launcher (P-74, P-72).
+
+*Alternativas descartadas:* manter o Fn sozinho sem função e o menu no Fn+Select (decisão
+anterior, trocada pelo usuário pelo modelo do SteamOS); segurar o Fn para o menu de energia,
+como o Xbox (Desligar fica dentro do menu do sistema, como no SteamOS); decidir o gesto no
+`lume-run` (o daemon é o único que vê o tempo real das teclas, e o launcher precisa do mesmo
+gesto).
 
 ## Risks / Trade-offs
 
@@ -266,8 +307,14 @@ captura do sistema para qualquer programa (ler o framebuffer do DRM) continua no
   grupo `video`, como a da luz da tela (`90-lume-backlight.rules`); senão, `GPU --` no R36S.
 - [Fn+L1 sem querer carrega por cima do progresso] → O RetroArch guarda o "desfazer
   carregamento" no menu rápido; documentar no guia.
-- [Usuários acostumados ao Fn sozinho para o menu] → Mudança documentada no guia; o spec
-  removido explica a migração.
+- [Usuários acostumados ao Fn sozinho para o menu do RetroArch] → O toque continua abrindo
+  um menu (o do Lume, que tem o item "Menu do RetroArch"); mudança documentada no guia, e o
+  spec removido explica a migração.
+- [Toque e segurar confundidos: 500 ms curto ou longo demais] → `fn_hold_ms` no perfil,
+  ajustado na J2 com o usuário; o toque é decidido no soltar, então segurar mais nunca abre o
+  menu por engano.
+- [Acorde desistido vira toque] → Um Fn que tocou outra tecla nunca gera `fn_tap` (teste de
+  unidade do daemon).
 - [O RSS do `lume-run` passa de 2 MB com a barra e o menu] → Leituras em buffers fixos, textos
   estáticos; medir o RSS com os dois ligados.
 - [O texto da barra não cabe em 640 px] → Medir no aparelho; se preciso, cortar o clock da CPU
@@ -289,3 +336,5 @@ captura do sistema para qualquer programa (ler o framebuffer do DRM) continua no
 
 - Largura real do texto da barra na fonte dos widgets a 640x480: decide só a ordem de corte.
 - `current_now` e `charge_full` no AXP223 e no RK817: decide qual ramo do D7 cada console usa.
+- Toque no Fn com o menu do RetroArch aberto (pelo Fn+B): abrir o menu do Lume por cima ou
+  fechar o do RetroArch. Decidir na J2, olhando como os widgets aparecem sobre o menu.

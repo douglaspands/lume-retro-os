@@ -8,19 +8,45 @@ que os atalhos valham em qualquer emulador e não só no RetroArch.
 
 ## ADDED Requirements
 
-### Requirement: Fn é o modificador do sistema
-O Fn MUST pertencer ao Lume e nunca chegar ao programa aberto, sozinho ou junto de outra tecla. O Fn apertado e solto sem outra tecla MUST NOT fazer nada. Um acorde Fn+tecla sem ação MUST NOT ser entregue ao programa, nem a tecla sozinha: esses acordes ficam reservados para atalhos futuros.
-
-#### Scenario: Fn sozinho
-- **WHEN** o usuário aperta e solta o Fn durante um jogo do RetroArch
-- **THEN** nada acontece: nenhum menu abre e o jogo continua
+### Requirement: Fn pertence ao Lume
+O Fn MUST pertencer ao Lume e nunca chegar ao programa aberto, sozinho ou junto de outra tecla. Um acorde Fn+tecla sem ação MUST NOT ser entregue ao programa, nem a tecla sozinha: esses acordes ficam reservados para atalhos futuros.
 
 #### Scenario: Acorde reservado
 - **WHEN** o usuário segura Fn e aperta A durante um jogo
-- **THEN** o jogo não recebe nem o A nem o Fn
+- **THEN** o jogo não recebe nem o A nem o Fn, e nada mais acontece
+
+### Requirement: Três gestos do Fn, à moda do botão Steam
+O daemon de entrada MUST distinguir três gestos do Fn: **toque** (solto antes do tempo de segurar, sem outra tecla), **segurar** (mantido pelo tempo de segurar, sem outra tecla) e **acorde** (outra tecla com o Fn seguro). O tempo de segurar MUST vir do perfil do console (padrão 500 ms). Um Fn que fez acorde MUST NOT virar toque ao ser solto.
+
+#### Scenario: Toque no Fn durante o jogo
+- **WHEN** o usuário aperta e solta o Fn, sem outra tecla, durante um jogo do RetroArch
+- **THEN** o menu do Lume abre sobre o jogo
+
+#### Scenario: Acorde não vira toque
+- **WHEN** o usuário segura Fn, aperta e solta R1, e depois solta o Fn rapidamente
+- **THEN** só o `save_state` acontece e o menu do Lume não abre
+
+### Requirement: Dica dos acordes ao segurar o Fn
+Segurar o Fn durante um jogo MUST mostrar sobre o jogo os acordes que valem nele (as ações que o runner declara, mais Fn+Start), com o botão e o nome da ação no idioma do usuário, sem pausar o jogo. Soltar o Fn MUST esconder a dica sem abrir o menu do Lume; um acorde MUST esconder a dica e ser executado. A lista MUST vir da tabela do daemon de entrada, sem segunda cópia.
+
+#### Scenario: Descobrir os atalhos
+- **WHEN** o usuário segura o Fn sozinho por 1 segundo durante um jogo do RetroArch
+- **THEN** aparece a lista com Fn+B, Fn+R1, Fn+L1, Fn+Y, Fn+X e Fn+Start e o nome de cada ação
+
+#### Scenario: Soltar sem escolher
+- **WHEN** a dica está na tela e o usuário solta o Fn sem apertar outra tecla
+- **THEN** a dica some, o menu do Lume não abre e o jogo continua
+
+#### Scenario: Acorde a partir da dica
+- **WHEN** a dica está na tela e o usuário aperta R1 sem soltar o Fn
+- **THEN** a dica some e o estado é gravado
+
+#### Scenario: Runner com menos ações
+- **WHEN** o usuário segura o Fn num jogo cujo runner só declara `app_menu`
+- **THEN** a dica lista só Fn+B e Fn+Start
 
 ### Requirement: Acordes do sistema
-Durante um jogo, Fn+Select MUST disparar `lume_menu`, Fn+B `app_menu`, Fn+R1 `save_state`, Fn+L1 `load_state`, Fn+Y `screenshot`, Fn+X `hud` e Fn+Start `quit`. As duas teclas de um acorde MUST NOT chegar ao programa. Os acordes MUST ser os mesmos no GA36 e no R36S.
+Durante um jogo, Fn+B MUST disparar `app_menu`, Fn+R1 `save_state`, Fn+L1 `load_state`, Fn+Y `screenshot`, Fn+X `hud` e Fn+Start `quit`. As duas teclas de um acorde MUST NOT chegar ao programa. Os acordes MUST ser os mesmos no GA36 e no R36S.
 
 #### Scenario: Acorde não vaza para o jogo
 - **WHEN** o usuário segura Fn e aperta R1 durante um jogo
@@ -28,17 +54,17 @@ Durante um jogo, Fn+Select MUST disparar `lume_menu`, Fn+B `app_menu`, Fn+R1 `sa
 
 #### Scenario: Mesmos acordes nos dois consoles
 - **WHEN** o mesmo cartão é usado no GA36 e depois no R36S
-- **THEN** Fn+Select, Fn+B, Fn+R1, Fn+L1, Fn+Y, Fn+X e Fn+Start fazem a mesma coisa nos dois
+- **THEN** o toque no Fn, Fn+B, Fn+R1, Fn+L1, Fn+Y, Fn+X e Fn+Start fazem a mesma coisa nos dois
 
 ### Requirement: Ações executadas pelo runner do jogo
-As ações `app_menu`, `reset`, `save_state`, `load_state`, `screenshot` e `quit` MUST ser executadas pelo supervisor do jogo pela forma que o runner do jogo declara. Uma ação que o runner não declara MUST ser ignorada, com uma linha no log que diz a ação e o runner. Fora de um jogo, com o launcher na tela, todos os acordes MUST ser ignorados.
+As ações `app_menu`, `reset`, `save_state`, `load_state`, `screenshot` e `quit` MUST ser executadas pelo supervisor do jogo pela forma que o runner do jogo declara. Uma ação que o runner não declara MUST ser ignorada, com uma linha no log que diz a ação e o runner. Fora de um jogo, com o launcher na tela, todos os acordes do jogo MUST ser ignorados; o toque e o segurar do Fn no launcher pertencem ao launcher e ficam fora desta change.
 
 #### Scenario: Ação não suportada
 - **WHEN** o usuário aperta Fn+R1 num jogo LÖVE cujo runner não declara `save_state`
 - **THEN** o jogo continua sem mudança e o log do supervisor registra `save_state` não suportado pelo runner `love`
 
 #### Scenario: No launcher
-- **WHEN** o usuário aperta Fn+R1 ou Fn+Select na grade de jogos
+- **WHEN** o usuário aperta Fn+R1 ou Fn+B na grade de jogos
 - **THEN** o launcher continua na mesma tela
 
 ### Requirement: Menu da aplicação pelo Fn+B
@@ -49,11 +75,15 @@ No RetroArch, a ação `app_menu` MUST abrir o menu do RetroArch com o jogo paus
 - **THEN** o menu do RetroArch abre com o jogo pausado e, no segundo acorde, fecha e o jogo continua
 
 ### Requirement: Menu do Lume sobre o jogo
-Fn+Select MUST abrir, sobre a imagem do jogo, o menu do Lume com os itens Voltar ao jogo, Reiniciar, Menu da aplicação (com o nome dela, "Menu do RetroArch" no RetroArch) e Encerrar jogo. B ou Fn+Select de novo MUST fechar o menu e voltar ao jogo. Os textos MUST seguir o idioma do usuário.
+O toque no Fn MUST abrir, sobre a imagem do jogo, o menu do Lume com os itens Voltar ao jogo, Reiniciar, Menu da aplicação (com o nome dela, "Menu do RetroArch" no RetroArch) e Encerrar jogo. B ou outro toque no Fn MUST fechar o menu e voltar ao jogo. Os textos MUST seguir o idioma do usuário.
 
 #### Scenario: Abrir e voltar
-- **WHEN** o usuário aperta Fn+Select durante um jogo do RetroArch e depois B
+- **WHEN** o usuário toca o Fn durante um jogo do RetroArch e depois aperta B
 - **THEN** o menu do Lume aparece sobre o jogo e, com o B, some e o jogo continua de onde estava
+
+#### Scenario: Fechar com outro toque
+- **WHEN** o menu do Lume está aberto e o usuário toca o Fn
+- **THEN** o menu some e o jogo continua de onde estava
 
 #### Scenario: Ir ao menu da aplicação
 - **WHEN** o usuário escolhe "Menu do RetroArch" no menu do Lume
@@ -88,11 +118,11 @@ Com o menu do Lume aberto, os botões MUST navegar o menu e MUST NOT chegar ao j
 - **WHEN** o supervisor do jogo termina com o menu do Lume aberto
 - **THEN** em até 2 segundos o controle volta a funcionar no jogo
 
-### Requirement: Menu do Lume só em runner que o desenha
-O menu do Lume MUST abrir só em jogos cujo runner declara que sabe desenhá-lo (o RetroArch nesta versão). Nos demais, Fn+Select MUST ser ignorado com uma linha no log, e Fn+Start MUST continuar encerrando o jogo.
+### Requirement: Menu do Lume e dica só em runner que os desenha
+O menu do Lume e a dica dos acordes MUST aparecer só em jogos cujo runner declara que sabe desenhá-los (o RetroArch nesta versão). Nos demais, o toque e o segurar do Fn MUST ser ignorados com uma linha no log, os acordes que o runner declara MUST continuar valendo, e Fn+Start MUST continuar encerrando o jogo.
 
 #### Scenario: Port nativo
-- **WHEN** o usuário aperta Fn+Select num script de Ports
+- **WHEN** o usuário toca o Fn num script de Ports
 - **THEN** nada muda na tela, o log registra que o runner `sh` não tem o menu do Lume, e Fn+Start ainda encerra o script
 
 ### Requirement: Salvar e carregar no slot rápido
