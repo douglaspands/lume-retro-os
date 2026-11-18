@@ -75,6 +75,8 @@ allow = [
     ".venv/bin/r36os dev run",
     ".venv/bin/r36os dev wait",
     ".venv/bin/r36os dev log",
+    # only reached by an rm that rm_free exempted from the ask below (inside ./cache/)
+    "rm",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
@@ -102,6 +104,11 @@ ask = [
     "systemctl enable",
     "systemctl disable",
 ]
+
+# Pastas de rascunho onde `rm` não pergunta (pedido do usuário, 2026-11-18): todo alvo do rm
+# precisa ficar dentro delas, nunca a própria pasta (`..` e links resolvidos). Só ./cache/
+# (rascunho do projeto, fora do git); a ./.cache/ do build continua perguntando.
+rm_free = ["cache"]
 
 # Wrappers que ocultam o comando real (sempre ask forte)
 wrappers = ["env", "xargs", "sh", "bash", "zsh", "nohup", "timeout", "nice", "exec", "eval", "command", "busybox"]

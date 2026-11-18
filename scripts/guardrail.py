@@ -414,6 +414,35 @@ def is_within(path: Path, base: Path) -> bool:
     return path == base or base in path.parents
 
 
+RM_FREE_OPTIONS = {"-f", "-r", "-R", "-rf", "-fr", "-Rf", "-fR", "-v", "-fv", "-vf", "--"}
+
+
+def rm_in_scratch(seg: list[str], policy: dict[str, Any], cwd: Path | None) -> bool:
+    """`rm` whose every target is strictly inside a scratch folder of commands.rm_free (paths
+    relative to the workspace root, e.g. "cache"): such a removal needs no confirmation. The
+    folder itself, a target outside it (after `..` and symlinks are resolved) or an unknown
+    option keep the usual ask."""
+    if not seg or Path(seg[0]).name != "rm":
+        return False
+    bases = [(WORKSPACE_ROOT / d).resolve() for d in policy.get("commands", {}).get("rm_free", [])]
+    if not bases:
+        return False
+    targets = []
+    for t in seg[1:]:
+        if t.startswith("-"):
+            if t not in RM_FREE_OPTIONS:
+                return False
+            continue
+        targets.append(t)
+    if not targets:
+        return False
+    for t in targets:
+        p = resolve_path(t, cwd)
+        if not any(p != b and is_within(p, b) for b in bases):
+            return False
+    return True
+
+
 def btrfs_path(policy: dict[str, Any]) -> Path:
     raw = policy.get("storage", {}).get("btrfs_nocow", {}).get("path", "~/data")
     return Path(os.path.expanduser(raw)).resolve()
@@ -817,6 +846,8 @@ def evaluate_shell_command(
         if head in wrappers:
             return "ask", f"Wrapper de execução ('{head}') oculta o comando real e requer confirmação do usuário."
         seg_text = " ".join(seg)
+        if rm_in_scratch(seg, policy, cwd):
+            continue
         for ask_item in commands_cfg.get("ask", []):
             if _prefix_match(seg_text, ask_item):
                 return "ask", f"Comando '{ask_item}' requer confirmação explícita do usuário."

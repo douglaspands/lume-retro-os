@@ -522,6 +522,17 @@ O texto abaixo é a proposta original.
 - **Para o hub:** uma forma de marcar um parâmetro de receita como "caminho remoto" (não
   checado contra o workspace) evitaria o prefixo; e caminhos com espaço não cabem numa etapa.
 
+### M-30. `rm` sem pergunta só dentro da pasta de rascunho — feita (guardrail do projeto)
+
+- **Problema (2026-11-18, `game-governor`):** todo `rm` está em `commands.ask`, inclusive o de
+  capturas de tela e rascunhos em `./cache/`, que a regra de privacidade manda apagar logo.
+- **Feito (pedido do usuário):** `commands.rm_free = ["cache"]` no `policy.toml` e
+  `rm_in_scratch` no `scripts/guardrail.py`: um `rm` cujos alvos ficam todos estritamente dentro
+  de `./cache/` (depois de resolver `..` e links) e só com `-f`, `-r`, `-v` passa sem pergunta; a
+  própria pasta, a `./.cache/` do build, alvo de fora, link para fora e opção desconhecida
+  continuam perguntando. Testes em `tests/unit/test_guardrail_rm_scratch.py`.
+- **Para o hub:** a mesma ideia como chave genérica (pastas de rascunho por projeto).
+
 ## Avaliação de 2026-11-14
 
 `ctx evaluate` (31 sessões, sem a marca de provisório): **não compensa**. Saldo ≈ −46.486
