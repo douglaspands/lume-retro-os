@@ -181,7 +181,7 @@ def test_udev_rule_makes_builtin_and_virtual_nodes_read_only_for_the_games():
 
     read_only = [
         dev("gpio-keys", "0019"), dev("adc-joystick", "0019"), dev("adc-keys", "0019"),
-        dev("rk805-pwrkey", "0019"), dev("axp20x-pek", "0019"), dev("1c22800.lradc", "0019"),
+        dev("rk805 pwrkey", "0019"), dev("axp20x-pek", "0019"), dev("1c22800.lradc", "0019"),
         dev("GA36-MB Gamepad", "0019"),                    # GA36 kernel gamepad (BUS_HOST)
         dev("GA36-MB Gamepad", "0006", kernel="event17"),   # GA36 virtual pad (BUS_VIRTUAL)
         dev("R36S Gamepad", "0006", kernel="event12"),      # R36S virtual pad
