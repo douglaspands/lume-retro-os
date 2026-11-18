@@ -436,6 +436,31 @@ CPS-1 e de GBA que tinham queda rodam lisos no perfil com o controlador por garg
 com a bateria acabando de verdade (aviso e desligamento) ficaram para o P-98, por decisão do
 usuário.
 
+### `device-fixes` (2026-11-18)
+
+**J1 (build `20261118-104230`, nomes antigos):** resultados no `design.md` da change (D6, D9,
+D10, D11, D12, D15) e no P-95. Em resumo:
+- read-ahead sem ganho claro (~21 MB/s; no máximo 5%);
+- `Headphone` limpo até 63, sem chiado em silêncio;
+- o fone corta o alto-falante por chave mecânica, sem detecção;
+- suspensão `freeze` 10 de 10 pelo botão, com o gadget USB solto e religado em volta;
+- RTC sobrevive a um desligamento de 6 min;
+- **P-95 reproduzido a ~66 °C** (falha de temporização, não da luz de fundo).
+
+**J0 (1.5), build `20261118-143150`, primeiro `lume push` depois da troca de nomes:**
+- **Compilação e envio:** o build levou 1h26min (todos os pacotes armv7 e o kernel; o
+  `out/repo` foi reassinado com a chave `lume.rsa`, 167 pacotes). O `push` antigo lia
+  `/etc/lume/board`, ausente num console com os nomes velhos; passou a ler também o caminho
+  antigo. O envio levou 3m41s e o boot 38 s.
+- **Boot 193:** subiu até o menu com o kernel `6.18.62-lume`, o `frontend` em 20,5 s, a ROMS
+  limpa e o `kernel OK no error messages`.
+- **Nomes:** `rc-status` só com serviços `lume-*`; nenhum `r36os` nos runlevels nem no
+  `inittab`; `/etc/lume` e `/run/lume` no lugar.
+- **Cartão:** nenhum caminho do cartão precisou de migração (nenhum evento
+  `persist OK migrated`); a indexação viu os mesmos 60 jogos.
+- **`lume-index`:** aparece `crashed` no `rc-status` porque a varredura termina e o processo
+  sai (o OpenRC espera um daemon). É cosmético e anterior à troca.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
