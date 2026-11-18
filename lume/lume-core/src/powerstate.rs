@@ -71,6 +71,8 @@ pub struct PowerState {
     pub profiles: Vec<Profile>,
     pub classes: Vec<Binding>,
     pub core_overrides: Vec<Binding>,
+    /// `game <key> <profile>` lines (D18): `name` is the game key, never a game name.
+    pub games: Vec<Binding>,
     /// `(warn, critical)` in percent, `None` when no `battery` line exists.
     pub battery: Option<(u32, u32)>,
     pub idle_after: u32,
@@ -119,15 +121,15 @@ impl PowerState {
                         st.profiles.push(Profile { origin, name: name.to_string(), params: pairs(kv) });
                     }
                 }
-                "class" | "core" => {
+                "class" | "core" | "game" => {
                     if let Some((origin, tail)) = origin_split(rest) {
                         let mut w = tail.split_whitespace();
                         if let (Some(n), Some(p)) = (w.next(), w.next()) {
                             let b = Binding { origin, name: n.to_string(), profile: p.to_string() };
-                            if key == "class" {
-                                st.classes.push(b);
-                            } else {
-                                st.core_overrides.push(b);
+                            match key {
+                                "class" => st.classes.push(b),
+                                "core" => st.core_overrides.push(b),
+                                _ => st.games.push(b),
                             }
                         }
                     }
@@ -174,11 +176,17 @@ impl PowerState {
         self.profiles.iter().find(|p| p.name == name)
     }
 
-    /// `true` when a game uses this profile (`game`, or a class/core target).
+    /// `true` when a game uses this profile (`game`, or a class/core/game target).
     pub fn is_game_profile(&self, name: &str) -> bool {
         name == "game"
             || self.classes.iter().any(|b| b.profile == name)
             || self.core_overrides.iter().any(|b| b.profile == name)
+            || self.games.iter().any(|b| b.profile == name)
+    }
+
+    /// The profile of one game key, when the card has a `game` line for it.
+    pub fn game_profile(&self, key: &str) -> Option<&str> {
+        self.games.iter().find(|b| b.name == key).map(|b| b.profile.as_str())
     }
 }
 
@@ -202,6 +210,7 @@ profile image game governor=schedutil min=600000 cores=4
 profile card heavy governor=performance cores=4 min=1008000
 class image nes heavy
 core card snes9x2005_plus heavy
+game card 0123456789abcdef heavy
 battery image warn=5 critical=3
 idle default after=120
 scenario game
@@ -228,6 +237,9 @@ mod tests {
         assert_eq!(s.profile("heavy").unwrap().get("min"), Some("1008000"));
         assert_eq!(s.classes[0], Binding { origin: Origin::Image, name: "nes".into(), profile: "heavy".into() });
         assert_eq!(s.core_overrides[0].name, "snes9x2005_plus");
+        assert_eq!(s.games[0], Binding { origin: Origin::Card, name: "0123456789abcdef".into(), profile: "heavy".into() });
+        assert_eq!(s.game_profile("0123456789abcdef"), Some("heavy"));
+        assert_eq!(s.game_profile("ffffffffffffffff"), None);
         assert_eq!(s.battery, Some((5, 3)));
         assert_eq!(s.idle_after, 120);
         assert_eq!((s.scenario.as_str(), s.current_profile.as_str()), ("game", "heavy"));

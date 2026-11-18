@@ -121,7 +121,7 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
-| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
+| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
@@ -167,7 +167,7 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 |---|---|---|
 | `menu` | `lume-ui` | cenário menu |
 | `idle` | `lume-ui` | cenário launcher parado |
-| `game <sistema> <core>` | `lume-run`, antes do `exec` | cenário jogo (perfil pelo `core`, depois pela classe do sistema, depois `game`) |
+| `game <sistema> <core> [<chave>]` | `lume-run`, antes do `exec` | cenário jogo (perfil pela `<chave>` do jogo, depois pelo `core`, depois pela classe do sistema, depois `game`); a chave é `lume_core::power::game_key` da ROM (FNV-1a 64 do caminho relativo a `ROMS/roms/`, 16 dígitos hex), nunca o nome; uma linha de 3 palavras continua valendo |
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
 | `controller <chave>` | o próprio serviço (o subshell do controlador) | o controlador saiu sozinho: o perfil do jogo de novo, sem ele (chave errada é ignorada) |
@@ -212,6 +212,40 @@ subshell manda `controller <chave>` ao FIFO do próprio serviço, que reaplica o
 o controlador (`profile: game -> <perfil> (without controller)`), sem laço de espera. A saída do
 controlador fica em `/run/r36os/powerctl.out`.
 
+**Controlador por gargalo (D17):** com `controller=auto`, o mesmo binário roda com `--mode auto`,
+a faixa da GPU do perfil (`--gpu-min`, `--gpu-max`, o diretório do devfreq em `--gpu`) e
+`--state /run/r36os/powerctl.state`; no R36S o serviço liga antes o `profiling` do `panfrost`.
+Uma decisão por segundo, com três sinais de fora do jogo: a thread mais ocupada da CPU (como
+acima), a ocupação da GPU (o maior `drm-engine-*` do `fdinfo` dos arquivos do DRM que o jogo
+tem abertos, `/proc/<pid>/fd` -> `/dev/dri/*`, achados a cada 2 s, um cliente por
+`drm-client-id`) e os quadros entregues (`drm-page-flips` do mesmo `fdinfo`, patch 0036; alvo =
+maior ritmo dos últimos 30 s, queda = abaixo de 95% dele). Regras: recurso acima de 85% sobe
+um degrau; queda de quadros sem recurso saturado sobe o mais ocupado (`pacing`); recurso abaixo
+de 50% por 3 s, sem queda e sem subida nos últimos 5 s, desce um; nunca acima do teto térmico.
+A CPU vai pelo `scaling_setspeed`; a GPU pelo `min_freq` do devfreq (o `simple_ondemand` segue
+livre acima dele), devolvido ao parar. Faixa de um degrau = recurso travado, não controlado (a
+CPU fica no governor do perfil). Sem `drm-page-flips` ele vira o controlador pela carga nos dois
+recursos. A linha ao parar:
+
+```
+power OK controller: cpu: 1008000=12.0s 912000=3.0s gpu: 384000000=4.0s 240000000=11.0s up=2 down=3 bottleneck cpu=1 gpu=2 pacing=0 thermal=0 memory=0 mem_min=412000k end=stop
+```
+
+`/run/r36os/powerctl.state` (reescrito a cada segundo enquanto o controlador vive, apagado ao
+parar; para a barra de status e a tela futura):
+
+```
+mode auto
+cpu_khz 912000          # degrau atual (ou o clock atual, com a CPU travada)
+cpu_load 63             # % de um núcleo da thread mais ocupada, -1 sem amostra
+gpu_hz 240000000        # piso atual da GPU (ou o clock atual, travada), -1 sem devfreq
+gpu_busy 41             # %, -1 sem drm-engine-*
+fps 59.9                # -1.0 sem drm-page-flips
+fps_target 60.0
+bottleneck gpu          # none, cpu, gpu, pacing, thermal ou memory
+mem_avail_kb 412000     # MemAvailable; memory = abaixo de 32 MiB (só diagnóstico, D19)
+```
+
 Linha de comando (root, pelo cabo): `r36os-power set <perfil|default>` (modo manual da
 medição: aplica já e mantém até `auto` ou reboot), `r36os-power auto`, `r36os-power reload`,
 `r36os-power status` (imprime o `power.state`).
@@ -223,10 +257,11 @@ Duas camadas: `/usr/share/lume/power/<console>.conf` (imagem) e, por cima, o
 linhas em branco e `#` (inclusive no fim da linha) são ignorados.
 
 ```
-profile <nome> chave=valor...   governor min max cores gpu_max up_threshold
-                                sampling_down_factor rate_limit_us controller=load
+profile <nome> chave=valor...   governor min max cores gpu_min gpu_max up_threshold
+                                sampling_down_factor rate_limit_us controller=load|auto
 class <sistema> <perfil>        perfil da classe do sistema
 core <core> <perfil>            exceção por core
+game <chave> <perfil>           perfil de um jogo (só no cartão; chave de 16 dígitos hex)
 battery warn=<%> critical=<%>
 enabled 0|1
 idle after=<segundos>           0 desliga
@@ -234,13 +269,18 @@ limit game_min=<khz>            piso de jogo; só no arquivo da imagem
 ```
 
 - `min` e `max` em kHz na tabela de `scaling_available_frequencies` (ou entre
-  `cpuinfo_min_freq` e `cpuinfo_max_freq` sem tabela), `gpu_max` em Hz na tabela do devfreq,
-  `governor` em `scaling_available_governors`, `cores` de 1 ao número de núcleos, `min` <= `max`.
+  `cpuinfo_min_freq` e `cpuinfo_max_freq` sem tabela), `gpu_min` e `gpu_max` em Hz na tabela
+  do devfreq, `governor` em `scaling_available_governors`, `cores` de 1 ao número de núcleos,
+  `min` <= `max`, `gpu_min` <= `gpu_max`. Ajuste manual por recurso (D18): `min=max` trava a
+  CPU, `gpu_min=gpu_max` trava a GPU; com `controller=auto`, o controlador escolhe dentro da
+  faixa de cada recurso que tenha mais de um degrau.
+- `game <chave> <perfil>` só vale no `power.conf` (na imagem é recusado), com a chave de 16
+  dígitos hex; precedência no jogo: `game`, `core`, `class`, perfil `game`.
 - Um perfil inválido é recusado inteiro. A linha do cartão recusada deixa a da imagem valer;
   `class`/`core` que apontam para perfil recusado ou desconhecido são recusadas (a classe usa o
   perfil `game`). Linha desconhecida é registrada e ignorada. O cartão vale por chave: `profile
-  <nome>`, `class <sistema>`, `core <core>`, `battery`, `idle`, `enabled`.
-- **Piso:** todo perfil usado em jogo (`game` e os alvos de `class`/`core`, de qualquer camada)
+  <nome>`, `class <sistema>`, `core <core>`, `game <chave>`, `battery`, `idle`, `enabled`.
+- **Piso:** todo perfil usado em jogo (`game` e os alvos de `class`/`core`/`game`, de qualquer camada)
   sem `min` recebe `min=<game_min>`; `min` ou `max` abaixo do piso recusa o perfil. Perfis só de
   boot, menu e idle não têm piso. `limit` no `power.conf` é registrado e ignorado. Se o
   `game_min` não é um OPP, o arquivo da imagem é recusado inteiro e o piso vira o maior OPP
@@ -270,6 +310,7 @@ limit image game_min=600000
 profile <origem> <nome> chave=valor...  # perfis em vigor, com o piso já em min=
 class <origem> <sistema> <perfil>
 core <origem> <core> <perfil>
+game card <chave> <perfil>              # perfis por jogo, só a chave
 battery <origem> warn=5 critical=3     # battery default ... sem linha battery
 idle default after=120                  # idle <origem> after=<s>
 scenario game                           # boot, menu, idle ou game
@@ -279,8 +320,8 @@ refused <origem> <tipo> <nome|-> <motivo...>
 ```
 
 Leitor: `lume_core::powerstate::PowerState::read`. Editor do `power.conf`
-(`lume_core::powerconf`): troca ou acrescenta uma linha (`profile`, `class`, `core`, `battery`,
-`idle`, `enabled`) depois de validar contra o `power.state` (valores do console, piso), mantém
+(`lume_core::powerconf`): troca ou acrescenta uma linha (`profile`, `class`, `core`, `game`,
+`battery`, `idle`, `enabled`) depois de validar contra o `power.state` (valores do console, piso), mantém
 comentários, ordem e linhas desconhecidas byte a byte e grava de forma atômica (temporário na
 mesma pasta, `fsync`, `rename`); depois a interface manda `reload`.
 

@@ -350,12 +350,14 @@ fn power_fifo_gets_game_before_the_game_runs_and_end_after_it_exits() {
     read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let mut got = String::new();
     drain(&mut r, &mut got);
-    // the game is running: `game` is there, `end` is not
-    assert_eq!(got, "game snes fakecore\n");
+    // the game is running: `game` is there, `end` is not; the per-game key (D18), never the name
+    let line = format!("game snes fakecore {}\n", lume_core::power::game_key("Secret Name.bin"));
+    assert_eq!(got, line);
+    assert!(!got.contains("Secret"));
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
     drain(&mut r, &mut got);
-    assert_eq!(got, "game snes fakecore\nend\n");
+    assert_eq!(got, format!("{line}end\n"));
 }
 
 #[test]
@@ -373,7 +375,7 @@ fn power_end_comes_after_a_forced_kill() {
     assert_eq!(wait(&mut run, Duration::from_secs(10)), 0);
     let mut got = String::new();
     drain(&mut r, &mut got);
-    assert_eq!(got, "game ports fakecore\nend\n");
+    assert_eq!(got, format!("game ports fakecore {}\nend\n", lume_core::power::game_key("Secret Name.bin")));
     assert!(!alive(game_pid));
     unsafe { libc::kill(grand, libc::SIGKILL) };
 }

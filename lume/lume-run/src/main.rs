@@ -148,14 +148,16 @@ fn polite_quit(l: &Launch, pid: libc::pid_t, port: u16) {
     }
 }
 
-/// `game <system> <core>` to the power FIFO; a native runner has no core, so the runner id
-/// stands in (as in the events log). The menu is not a game: the launcher owns that scenario.
+/// `game <system> <core> <key>` to the power FIFO; a native runner has no core, so the runner id
+/// stands in (as in the events log). The key picks a per-game profile (D18) without the name.
+/// The menu is not a game: the launcher owns that scenario.
 fn power_game(l: &Launch) {
     if l.menu {
         return;
     }
     let core = if l.core.is_empty() { l.runner.clone() } else { l.core.clone() };
-    lume_core::power::notify(&lume_core::power::Message::Game { system: l.system.clone(), core });
+    let key = if l.path.is_empty() { String::new() } else { lume_core::power::game_key(&l.path) };
+    lume_core::power::notify(&lume_core::power::Message::Game { system: l.system.clone(), core, key });
 }
 
 /// `end` to the power FIFO, once the game's cgroup is empty.

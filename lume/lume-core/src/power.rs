@@ -1,6 +1,7 @@
 //! Writer of the power FIFO `/run/r36os/power` (openspec game-governor, D1/D2).
 //!
-//! Protocol: one message per line, `menu`, `idle`, `game <system> <core>`, `end` or `reload`.
+//! Protocol: one message per line, `menu`, `idle`, `game <system> <core> [<key>]`, `end` or
+//! `reload`. `<key>` is [`game_key`] of the ROM (D18): a per-game profile without the name.
 //! The writer opens the FIFO with `O_NONBLOCK` and never creates it: without the service (no
 //! reader, no FIFO, full pipe) the message is dropped and the caller goes on. A game or the
 //! launcher never waits for the power service. English only, and never a game name or path.
@@ -14,7 +15,8 @@ use std::path::PathBuf;
 pub enum Message {
     Menu,
     Idle,
-    Game { system: String, core: String },
+    /// `key` is [`game_key`] of the ROM; empty = no per-game profile (3-word line).
+    Game { system: String, core: String, key: String },
     End,
     /// Read the profile files again and reapply the profile of the current scenario.
     Reload,
@@ -22,7 +24,8 @@ pub enum Message {
 
 impl Message {
     /// The wire line, with the final newline. Whitespace inside `system` and `core` becomes `_`
-    /// (an empty value becomes `-`), so a message is always exactly one line of 1 or 3 words.
+    /// (an empty value becomes `-`), so a message is always exactly one line of 1, 3 or 4 words
+    /// (the key is only sent when it is a valid one).
     pub fn line(&self) -> String {
         fn word(s: &str) -> String {
             let w: String = s.chars().map(|c| if c.is_whitespace() || c.is_control() { '_' } else { c }).collect();
@@ -31,11 +34,35 @@ impl Message {
         match self {
             Message::Menu => "menu\n".to_string(),
             Message::Idle => "idle\n".to_string(),
-            Message::Game { system, core } => format!("game {} {}\n", word(system), word(core)),
+            Message::Game { system, core, key } if is_game_key(key) => {
+                format!("game {} {} {}\n", word(system), word(core), key)
+            }
+            Message::Game { system, core, .. } => format!("game {} {}\n", word(system), word(core)),
             Message::End => "end\n".to_string(),
             Message::Reload => "reload\n".to_string(),
         }
     }
+}
+
+/// The roms root that per-game keys are relative to (`ROMS/roms/`).
+pub const ROMS_ROOT: &str = "/storage/roms/";
+
+/// Key of one game for a per-game power profile (openspec game-governor D18): FNV-1a 64 of the
+/// ROM path relative to `ROMS/roms/` (the whole path when it is elsewhere), as 16 lowercase hex
+/// digits. Stable across boots and builds, and it never carries the game's name.
+pub fn game_key(rom_path: &str) -> String {
+    let rel = rom_path.strip_prefix(ROMS_ROOT).unwrap_or(rom_path);
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in rel.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// `true` for exactly 16 lowercase hex digits (the shell side checks the same).
+pub fn is_game_key(s: &str) -> bool {
+    s.len() == 16 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Path of the FIFO: `$R36OS_RUN/power` (default `/run/r36os/power`).
@@ -83,13 +110,34 @@ mod tests {
         assert_eq!(Message::Idle.line(), "idle\n");
         assert_eq!(Message::End.line(), "end\n");
         assert_eq!(Message::Reload.line(), "reload\n");
-        assert_eq!(Message::Game { system: "snes".into(), core: "snes9x2005_plus".into() }.line(), "game snes snes9x2005_plus\n");
+        assert_eq!(
+            Message::Game { system: "snes".into(), core: "snes9x2005_plus".into(), key: String::new() }.line(),
+            "game snes snes9x2005_plus\n"
+        );
+        let key = game_key("/storage/roms/snes/x.sfc");
+        assert_eq!(
+            Message::Game { system: "snes".into(), core: "snes9x2005_plus".into(), key: key.clone() }.line(),
+            format!("game snes snes9x2005_plus {key}\n")
+        );
     }
 
     #[test]
-    fn game_line_is_always_three_words() {
-        let m = Message::Game { system: "a b\n".into(), core: String::new() };
+    fn game_line_is_always_three_or_four_words() {
+        let m = Message::Game { system: "a b\n".into(), core: String::new(), key: "not a key".into() };
         assert_eq!(m.line(), "game a_b_ -\n");
+    }
+
+    #[test]
+    fn game_key_is_stable_relative_and_nameless() {
+        // FNV-1a 64 reference values
+        assert_eq!(game_key(""), "cbf29ce484222325");
+        assert_eq!(game_key("a"), "af63dc4c8601ec8c");
+        // relative to ROMS/roms/: the same game gives the same key from either form
+        assert_eq!(game_key("/storage/roms/gba/Some Game.gba"), game_key("gba/Some Game.gba"));
+        assert_ne!(game_key("gba/a.gba"), game_key("gba/b.gba"));
+        let k = game_key("/storage/roms/gba/Some Game.gba");
+        assert!(is_game_key(&k) && !k.contains("Some"));
+        assert!(!is_game_key("0123456789ABCDEF") && !is_game_key("0123") && is_game_key("0123456789abcdef"));
     }
 
     #[test]
@@ -120,7 +168,7 @@ mod tests {
         let p = d.join("power");
         mkfifo(&p);
         let mut r = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&p).unwrap();
-        send_to(&p, &Message::Game { system: "nes".into(), core: "fceumm".into() }).unwrap();
+        send_to(&p, &Message::Game { system: "nes".into(), core: "fceumm".into(), key: String::new() }).unwrap();
         send_to(&p, &Message::End).unwrap();
         let mut s = String::new();
         r.read_to_string(&mut s).ok();

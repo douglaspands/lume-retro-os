@@ -13,6 +13,8 @@ pub enum Setting {
     Profile { name: String, params: Vec<(String, String)> },
     Class { system: String, profile: String },
     Core { core: String, profile: String },
+    /// Profile of one game (D18): `key` is `power::game_key` of the ROM, never its name.
+    Game { key: String, profile: String },
     Battery { warn: u32, critical: u32 },
     Idle { after: u32 },
     Enabled(bool),
@@ -41,6 +43,7 @@ impl Setting {
             Setting::Profile { name, .. } => format!("profile {name}"),
             Setting::Class { system, .. } => format!("class {system}"),
             Setting::Core { core, .. } => format!("core {core}"),
+            Setting::Game { key, .. } => format!("game {key}"),
             Setting::Battery { .. } => "battery".into(),
             Setting::Idle { .. } => "idle".into(),
             Setting::Enabled(_) => "enabled".into(),
@@ -58,6 +61,7 @@ impl Setting {
             }
             Setting::Class { system, profile } => format!("class {system} {profile}"),
             Setting::Core { core, profile } => format!("core {core} {profile}"),
+            Setting::Game { key, profile } => format!("game {key} {profile}"),
             Setting::Battery { warn, critical } => format!("battery warn={warn} critical={critical}"),
             Setting::Idle { after } => format!("idle after={after}"),
             Setting::Enabled(on) => format!("enabled {}", if *on { 1 } else { 0 }),
@@ -80,7 +84,7 @@ pub fn validate(setting: &Setting, st: &PowerState) -> Result<(), ConfError> {
             if !token_ok(name) {
                 return Err(ConfError::BadToken(name.clone()));
             }
-            let (mut min, mut max) = (None, None);
+            let (mut min, mut max, mut gmin, mut gmax) = (None, None, None, None);
             for (k, v) in params {
                 if !token_ok(k) || !token_ok(v) {
                     return Err(ConfError::BadToken(format!("{k}={v}")));
@@ -104,17 +108,18 @@ pub fn validate(setting: &Setting, st: &PowerState) -> Result<(), ConfError> {
                             return Err(ConfError::OutOfState(format!("cores={v}")));
                         }
                     }
-                    "gpu_max" => {
+                    "gpu_min" | "gpu_max" => {
                         let hz: u64 = num(k, v)?;
                         if !st.gpu_freqs.contains(&hz) {
-                            return Err(ConfError::OutOfState(format!("gpu_max={v}")));
+                            return Err(ConfError::OutOfState(format!("{k}={v}")));
                         }
+                        if k == "gpu_min" { gmin = Some(hz) } else { gmax = Some(hz) }
                     }
                     "up_threshold" | "sampling_down_factor" | "rate_limit_us" => {
                         let _: u32 = num(k, v)?;
                     }
                     "controller" => {
-                        if v != "load" {
+                        if v != "load" && v != "auto" {
                             return Err(ConfError::OutOfState(format!("controller={v}")));
                         }
                     }
@@ -136,10 +141,18 @@ pub fn validate(setting: &Setting, st: &PowerState) -> Result<(), ConfError> {
                     return Err(ConfError::OutOfState(format!("min {a} above max {b}")));
                 }
             }
+            if let (Some(a), Some(b)) = (gmin, gmax) {
+                if a > b {
+                    return Err(ConfError::OutOfState(format!("gpu_min {a} above gpu_max {b}")));
+                }
+            }
             Ok(())
         }
-        Setting::Class { system: n, profile } | Setting::Core { core: n, profile } => {
+        Setting::Class { system: n, profile } | Setting::Core { core: n, profile } | Setting::Game { key: n, profile } => {
             if !token_ok(n) {
+                return Err(ConfError::BadToken(n.clone()));
+            }
+            if matches!(setting, Setting::Game { .. }) && !crate::power::is_game_key(n) {
                 return Err(ConfError::BadToken(n.clone()));
             }
             let p = st.profile(profile).ok_or_else(|| ConfError::UnknownProfile(profile.clone()))?;
@@ -212,7 +225,7 @@ impl PowerConf {
         let mut w = code.split_whitespace();
         let kind = w.next()?;
         match kind {
-            "profile" | "class" | "core" => Some(format!("{kind} {}", w.next()?)),
+            "profile" | "class" | "core" | "game" => Some(format!("{kind} {}", w.next()?)),
             "battery" | "idle" | "enabled" => Some(kind.to_string()),
             _ => None,
         }
@@ -350,6 +363,35 @@ mod tests {
         // above the floor is fine
         let s = Setting::Profile { name: "heavy".into(), params: vec![("min".into(), "1008000".into())] };
         assert!(c.set(&s, Some(&st())).is_ok());
+    }
+
+    #[test]
+    fn per_resource_and_per_game_settings() {
+        let mut c = PowerConf::parse(FILE);
+        // GPU locked at one clock, CPU left to the bottleneck controller
+        let s = Setting::Profile {
+            name: "mine".into(),
+            params: vec![("controller".into(), "auto".into()), ("gpu_min".into(), "432000000".into()), ("gpu_max".into(), "432000000".into())],
+        };
+        c.set(&s, Some(&st())).unwrap();
+        let key = crate::power::game_key("/storage/roms/gba/x.gba");
+        c.set(&Setting::Game { key: key.clone(), profile: "heavy".into() }, Some(&st())).unwrap();
+        let t = c.to_text();
+        assert!(t.ends_with(&format!("profile mine controller=auto gpu_min=432000000 gpu_max=432000000\ngame {key} heavy\n")));
+        // replaced in place, not appended twice
+        c.set(&Setting::Game { key: key.clone(), profile: "game".into() }, Some(&st())).unwrap();
+        assert_eq!(c.to_text().matches(&format!("game {key}")).count(), 1);
+        let bad = |k: &str, v: &str| Setting::Profile { name: "p".into(), params: vec![(k.into(), v.into())] };
+        assert!(matches!(c.set(&bad("gpu_min", "1"), Some(&st())), Err(ConfError::OutOfState(_))));
+        assert!(matches!(c.set(&bad("controller", "turbo"), Some(&st())), Err(ConfError::OutOfState(_))));
+        let inverted = Setting::Profile {
+            name: "p".into(),
+            params: vec![("gpu_min".into(), "432000000".into()), ("gpu_max".into(), "144000000".into())],
+        };
+        assert!(matches!(c.set(&inverted, Some(&st())), Err(ConfError::OutOfState(_))));
+        // a game is never written by name
+        let named = Setting::Game { key: "Some-Game".into(), profile: "heavy".into() };
+        assert!(matches!(c.set(&named, Some(&st())), Err(ConfError::BadToken(_))));
     }
 
     #[test]
