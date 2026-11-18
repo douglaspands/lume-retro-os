@@ -327,6 +327,13 @@ def split_apk(apk: Path) -> ApkParts:
     raise FragmentError(f"{apk.name}: no .PKGINFO in its control segment")
 
 
+def signers(path: Path) -> list[str]:
+    """The signature files (`.SIGN.RSA.<key>.rsa.pub`) of a signed .apk or APKINDEX.tar.gz:
+    the members of its first gzip stream named `.SIGN.*` (none when it is not signed)."""
+    segs = apk_segments(path.read_bytes())
+    return [m.name for m, _ in _members(segs[0]) if m.name.startswith(".SIGN.")] if segs else []
+
+
 def control_files(apk: Path) -> dict[str, bytes]:
     return {m.name: data for m, data in _members(split_apk(apk).control)}
 

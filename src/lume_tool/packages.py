@@ -116,9 +116,80 @@ _SETUP_KEY = _KEY + "apk update -q\n"
 
 
 def ensure_key(target: Target) -> Path:
-    """Generate the abuild signing key in the cache (once, shared by all arches)."""
+    """Generate the abuild signing key in the cache (once, shared by all arches), then sign
+    again what out/repo still holds signed by another key (resign_published)."""
     _container(target, REPO_ROOT / "aports").sh(_SETUP_KEY)
+    resign_published()
     return public_key()
+
+
+def signature_name() -> str:
+    """The signature file abuild-sign writes with the current key; apk looks the key up in
+    /etc/apk/keys/ by this name, and the image only trusts `<KEY_NAME>.rsa.pub`."""
+    return f".SIGN.RSA.{KEY_NAME}.rsa.pub"
+
+
+_RESIGN_LOCK = threading.Lock()
+_resign_done = False
+
+
+def resign_published(arches: tuple[str, ...] | list[str] | None = None) -> list[Path]:
+    """Sign again, with the current key, every .apk of out/repo/<arch>/ signed by another
+    key, and rebuild the index of an arch that had one or whose index has another signer.
+
+    The key was renamed (device-fixes 1.3: the old project name -> `lume.rsa`, a new key): the
+    published packages keep their content and version, only the signature changes, so the
+    image (which trusts only the new key) can install them and nothing is compiled again
+    for it. Identical files (a noarch fragment in every arch) are signed once and copied, so
+    they stay identical. Runs once per process (both arch pipelines call ensure_key).
+    Returns the files signed again."""
+    global _resign_done
+    from lume_tool import fragments as frag
+    with _RESIGN_LOCK:
+        if _resign_done:
+            return []
+        want = [signature_name()]
+        groups: dict[str, list[Path]] = {}
+        stale_index = []
+        for a in arches or REPO_ARCHES:
+            repo = arch_repo_dir(a)
+            if not repo.is_dir():
+                continue
+            for apk in sorted(repo.glob("*.apk")):
+                if frag.signers(apk) != want:
+                    groups.setdefault(manifests.sha256_file(apk), []).append(apk)
+            index = repo / "APKINDEX.tar.gz"
+            if index.is_file() and frag.signers(index) != want:
+                stale_index.append(a)
+        resigned: list[Path] = []
+        if groups:
+            print(f"repo: {sum(len(g) for g in groups.values())} package file(s) signed "
+                  f"by another key; signing them again with {KEY_NAME}.rsa", flush=True)
+        # one sign_with_lume_content call per arch of the first copy: the work folder
+        # names the files by their name, and an arch package has the same name in each arch
+        by_arch: dict[str, list[Path]] = {}
+        for paths in groups.values():
+            by_arch.setdefault(paths[0].parent.name, []).append(paths[0])
+        for a, apks in sorted(by_arch.items()):
+            sign_with_lume_content(
+                [(apk, frag.apk_lume_content(apk) or frag.apk_content_hash(apk))
+                 for apk in apks], f"resign-{a}")
+        for paths in groups.values():
+            for copy in paths[1:]:
+                shutil.copyfile(paths[0], copy)
+            resigned += paths
+        arches_to_index = sorted({p.parent.name for p in resigned} | set(stale_index))
+        if arches_to_index:
+            # the old index is not reused (`apk index --index`): it carries the old signature
+            # and the control checksums of the files signed again
+            for a in arches_to_index:
+                (arch_repo_dir(a) / "APKINDEX.tar.gz").unlink(missing_ok=True)
+            reindex(arches_to_index)
+        if resigned:
+            print(f"repo: signed again {len(resigned)} package file(s) in "
+                  + ", ".join(sorted({p.parent.name for p in resigned})), flush=True)
+        _resign_done = True
+        return resigned
 
 
 def build_packages(
@@ -147,6 +218,7 @@ def build_packages(
             f"(cd /aports/{REPO_NAME}/{n} && abuild -F checksum)\n" for n in names)
         _container(target, aports).sh(script)
         return []
+    resign_published()   # abuild -r installs published local packages: the current key
     chosen = dcc.selected()
     arch = target.alpine_arch
     published: list[Path] = []
@@ -653,6 +725,7 @@ def build_noarch(names: list[str], aports: Path | None = None,
     aports = aports or REPO_ROOT / "aports"
     for n in names:
         check_noarch_aport(aports / n)
+    resign_published()   # abuild -r installs published local fragments: the current key
     staging = noarch_staging_dir()
     build_arch = NOARCH_BUILD_TARGET.alpine_arch
     shutil.rmtree(staging / build_arch, ignore_errors=True)
