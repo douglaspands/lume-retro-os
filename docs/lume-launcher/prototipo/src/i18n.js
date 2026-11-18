@@ -29,7 +29,9 @@
       free: 'Espaço livre', lastTrim: 'Última otimização', lastCheck: 'Última verificação', bootN: 'boot', never: 'nunca',
       trimNow: 'Otimizar agora', checkNext: 'Verificar no próximo boot', trimming: 'Otimizando…', freed: 'liberados', trimFail: 'Cartão sem suporte', checkSet: '✓ Agendada',
       reported: 'Falha registrada',
-      resetLearn: 'Recomeçar o aprendizado', resetAsk: 'O limite deste aparelho será apagado.', yesNo: 'Sim', resetDone: 'Aprendizado recomeçado'
+      resetLearn: 'Recomeçar o aprendizado', resetAsk: 'O limite deste aparelho será apagado.', yesNo: 'Sim', resetDone: 'Aprendizado recomeçado',
+      clock: 'Mostrar relógio', settime: 'Acertar a hora', clockNever: 'A hora ainda não foi acertada: o relógio só aparece depois de acertar.',
+      fDate: 'Data', fTime: 'Hora', fY: 'Ano', fMo: 'Mês', fD: 'Dia', fH: 'Hora', fMi: 'Min', timeNote: '▲▼ mudam o valor, ◀▶ trocam de campo, L1/R1 saltam.', chg: 'Alterar', fld: 'Campo', apply: 'Acertar', timeDone: 'Hora acertada'
     },
     'en': {
       fav: 'Favorites', set: 'Settings', setsub: 'Device settings', games: 'games', files: 'Files', shots: 'Screenshots', imgs: 'images',
@@ -54,7 +56,9 @@
       free: 'Free space', lastTrim: 'Last optimization', lastCheck: 'Last check', bootN: 'boot', never: 'never',
       trimNow: 'Optimize now', checkNext: 'Check on next boot', trimming: 'Optimizing…', freed: 'freed', trimFail: 'Card not supported', checkSet: '✓ Scheduled',
       reported: 'Failure logged',
-      resetLearn: 'Restart learning', resetAsk: 'This device’s limit will be erased.', yesNo: 'Yes', resetDone: 'Learning restarted'
+      resetLearn: 'Restart learning', resetAsk: 'This device’s limit will be erased.', yesNo: 'Yes', resetDone: 'Learning restarted',
+      clock: 'Show clock', settime: 'Set the time', clockNever: 'The time has not been set yet: the clock appears only after it is set.',
+      fDate: 'Date', fTime: 'Time', fY: 'Year', fMo: 'Month', fD: 'Day', fH: 'Hour', fMi: 'Min', timeNote: '▲▼ change the value, ◀▶ switch field, L1/R1 jump.', chg: 'Change', fld: 'Field', apply: 'Set time', timeDone: 'Time set'
     },
     'es': {
       fav: 'Favoritos', set: 'Ajustes', setsub: 'Ajustes del equipo', games: 'juegos', files: 'Archivos', shots: 'Capturas', imgs: 'imágenes',
@@ -79,7 +83,9 @@
       free: 'Espacio libre', lastTrim: 'Última optimización', lastCheck: 'Última verificación', bootN: 'arranque', never: 'nunca',
       trimNow: 'Optimizar ahora', checkNext: 'Verificar al arrancar', trimming: 'Optimizando…', freed: 'liberados', trimFail: 'Tarjeta no compatible', checkSet: '✓ Pedida',
       reported: 'Fallo registrado',
-      resetLearn: 'Reiniciar el aprendizaje', resetAsk: 'Se borrará el límite de este equipo.', yesNo: 'Sí', resetDone: 'Aprendizaje reiniciado'
+      resetLearn: 'Reiniciar el aprendizaje', resetAsk: 'Se borrará el límite de este equipo.', yesNo: 'Sí', resetDone: 'Aprendizaje reiniciado',
+      clock: 'Mostrar reloj', settime: 'Ajustar la hora', clockNever: 'La hora aún no se ha ajustado: el reloj solo aparece después de ajustarla.',
+      fDate: 'Fecha', fTime: 'Hora', fY: 'Año', fMo: 'Mes', fD: 'Día', fH: 'Hora', fMi: 'Min', timeNote: '▲▼ cambian el valor, ◀▶ cambian de campo, L1/R1 saltan.', chg: 'Cambiar', fld: 'Campo', apply: 'Ajustar', timeDone: 'Hora ajustada'
     }
   };
   Lume.i18n = {

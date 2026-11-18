@@ -39,6 +39,21 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 .batt span { font-variant-numeric: tabular-nums; }      /* digits keep their width: the text does not shift when the state changes */
 .net { display: inline-flex; align-items: center; gap: .5em; color: var(--fg); font-weight: 700; }
 .net svg { height: .9em; width: auto; display: block; }
+/* launcher-adjustments 3.1 · clock (P-102): 24 h, drawn in every header; the stage class clk-a|b|c picks the one position.
+   A = in the right group, before the battery; B = first on the left; C = centred (absolute, same y as the header content). */
+.topbar, .ghead { position: relative; }
+.topbar .l { display: flex; gap: .8em; align-items: center; }
+.clk { display: none; color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clk-a .clk.a, .clk-b .clk.b, .clk-c .clk.c { display: inline-flex; }
+.clk:empty { display: none !important; }
+.clk.c { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ghead > .clk { font-size: calc(var(--fs-s) / 1.75); }
+#s-set .ghead > .clk { font-size: calc(var(--fs-s) / 1.4); }
+.clk-c .ghead .hl, .clk-c .ghead .fpath { max-width: calc(50% - 3.2em); }
+.dtgrp { display: flex; align-items: center; justify-content: space-between; margin: .25em 0; }
+.dtv { display: flex; align-items: center; gap: .15em; font-size: 1.5em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fld { padding: .02em .22em; border-radius: var(--radius-item); }
+.fld.sel { background: var(--sel-bg); color: var(--sel-fg); }
 .hints { margin-top: auto; display: flex; gap: 1.2em; justify-content: center; align-items: center; padding: .35em .8em; font-size: var(--fs-s); color: var(--muted); }
 .hints b { display: inline-grid; place-items: center; min-width: 1.45em; height: 1.45em; padding: 0 .25em; border-radius: 50%; background: var(--hint-bg); color: var(--hint-fg); margin-right: .35em; font-size: .85em; }
 

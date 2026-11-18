@@ -33,6 +33,20 @@
   if (['pt-BR', 'en', 'es'].includes(QS.get('idioma'))) P.lang = QS.get('idioma');   // review override, not saved
   if (/^\d+x\d+$/.test(QS.get('res') || '')) env.res = QS.get('res');
   const t = k => i18n.t(P.lang, k);
+  /* launcher-adjustments 3.1 · clock (P-102). pos = review variant (a: next to the battery, b: top left, c: centred);
+     on = the "Mostrar relógio" setting (saved); set = the time was ever set (false = never: no clock, even when on).
+     Review overrides (not saved): &relogio=a|b|c|off, &hora=nunca (never set) or &hora=HH:MM (frozen, for the ruler). */
+  const CLK = { pos: load('clkpos', 'a'), on: load('clkon', true), set: true, off: 0, fixed: null };
+  if (['a', 'b', 'c'].includes(QS.get('relogio'))) { CLK.pos = QS.get('relogio'); CLK.on = true; }
+  else if (QS.get('relogio') === 'off') CLK.on = false;
+  if (QS.get('hora') === 'nunca') CLK.set = false;
+  else if (/^\d{1,2}:\d{2}$/.test(QS.get('hora') || '')) CLK.fixed = QS.get('hora');
+  const pad2 = n => String(n).padStart(2, '0');
+  const clockNow = () => new Date(Date.now() + CLK.off);
+  /* 24 h text; empty when off or never set (the :empty rule then hides the element and its gap) */
+  const clockText = () => (!CLK.on || !CLK.set ? '' : CLK.fixed ? pad2(+CLK.fixed.split(':')[0]) + ':' + CLK.fixed.split(':')[1] : pad2(clockNow().getHours()) + ':' + pad2(clockNow().getMinutes()));
+  /* the three header slots (only the one that matches the stage class clk-a|b|c is displayed) */
+  const CLK_A = '<span class="clk a"></span>', CLK_B = '<span class="clk b"></span>', CLK_C = '<span class="clk c"></span>';
   /* device-fixes 4.1 · D12: the learned limit is NOT drawn (the red dot was dropped by the user, 2026-11-18); it only lives in the log.
      BL.stick keeps the edge line up for the ruler (?tela=edge). */
   const BL = { stick: false };
@@ -54,7 +68,7 @@
   const WARN_AT = 5;                                // low-battery limit (game-governor D7), same as the service
   if (QS.has('bat')) BAT.p = Math.max(0, Math.min(100, parseInt(QS.get('bat'), 10) || 0));
   if (['charging', 'discharging', 'full'].includes(QS.get('carga'))) BAT.st = QS.get('carga');
-  const bar3 = '<div class="topbar"><span class="net"></span><span class="r"><span class="batt"></span></span></div>';
+  const bar3 = '<div class="topbar"><span class="l"><span class="clk b"></span><span class="net"></span></span><span class="clk c"></span><span class="r"><span class="clk a"></span><span class="batt"></span></span></div>';
   const FOLDER_PATH = '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"';
   const ICON_FOLDER = `<svg class="gi" viewBox="0 0 24 24" aria-hidden="true">${FOLDER_PATH} fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
   const DOC_PATH = '<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>';
@@ -75,6 +89,8 @@
       <label><input type="checkbox" id="dwifi"> Dongle Wi-Fi</label>
       <label><input type="checkbox" id="dbt"> Dongle Bluetooth</label>
       <label title="Battery review: level, state, and the low-battery warning (also ?bat=5&carga=charging&idioma=en)">Bateria <input type="number" id="batp" min="0" max="100"> <select id="bats"><option value="discharging">descarregando</option><option value="charging">carregando</option><option value="full">cheia</option></select> <button id="batw" type="button">Aviso 5%</button></label>
+      <label title="Relógio (launcher-adjustments 3.1): posição A (ao lado da bateria), B (canto superior esquerdo), C (centralizado) ou desligado. Também &relogio=a|b|c|off">Relógio <select id="clkpos"><option value="a">A · ao lado da bateria</option><option value="b">B · canto esquerdo</option><option value="c">C · centralizado</option><option value="off">Desligado</option></select></label>
+      <label title="Estado 'hora nunca acertada': o relógio não aparece. Também &hora=nunca (ou &hora=HH:MM para congelar a hora)"><input type="checkbox" id="tnever"> Hora nunca acertada</label>
       <label title="Cartão (4.1): estado do 'Otimizar agora'. Também ?cartao=idle|running|ok|fail">Cartão <select id="cardst"><option value="idle">ocioso</option><option value="running">otimizando</option><option value="ok">ok (bytes)</option><option value="fail">falha</option></select></label>
       <label title="Atalhos: F1 (toque = menu do sistema, segurar = dica), F2/F3 (Fn+Volume), F4 (Fn+Select)"><button id="fntap" type="button">Fn toque</button> <button id="fnhold" type="button" title="Segure o botão do mouse para ver a dica">Fn segurar</button> <button id="fnup" type="button">Fn+Vol ▲</button> <button id="fndn" type="button">Fn+Vol ▼</button> <button id="fnrep" type="button">Fn+Select</button></label>
       <label title="Inventa save states (com miniatura) em alguns jogos que não têm, para avaliar a tela"><input type="checkbox" id="demo"> Save states de demonstração</label>
@@ -102,7 +118,7 @@
         <div id="toast"></div><div id="launch"></div><div id="dim"></div>
       </div>
     </div></div>
-    <div id="help">Teclado: ←→↑↓ navegam · Enter/Z = A · Esc/Backspace/X = B · PgUp/PgDn (ou L1/R1) = página · Y = opções do console · / = buscar (lista de jogos) · T = próximo tema · F1 = Fn (toque: menu do sistema; segurar: dica) · F2/F3 = Fn+Volume ▲▼ · F4 = Fn+Select (relato da falha de tela) · ?tela=sys|sys-grid|sys-sheet|sys-reboot|sys-power|hold|set|set-games|card|card-act|card-running|card-ok|card-fail|card-check|bri|bri-act|reset|edge|report</div>`;
+    <div id="help">Teclado: ←→↑↓ navegam · Enter/Z = A · Esc/Backspace/X = B · PgUp/PgDn (ou L1/R1) = página · Y = opções do console · / = buscar (lista de jogos) · T = próximo tema · F1 = Fn (toque: menu do sistema; segurar: dica) · F2/F3 = Fn+Volume ▲▼ · F4 = Fn+Select (relato da falha de tela) · ?tela=sys|sys-grid|sys-sheet|sys-reboot|sys-power|hold|set|set-games|card|card-act|card-running|card-ok|card-fail|card-check|bri|bri-act|reset|edge|report · relógio: &relogio=a|b|c|off · &hora=nunca|HH:MM · tela=clk-grid|clk-search|clock|clock-never|time|time-set|time-confirm</div>`;
   const $ = (s, r) => (r || document).querySelector(s);
   const stage = $('#stage'), box = $('#box');
   const cssv = n => getComputedStyle(stage).getPropertyValue(n).trim();
@@ -142,6 +158,8 @@
   /* ------------------------------------------------------------ helpers */
   /* indicadores de estado (sem relógio: estes aparelhos não guardam a hora). Bateria sempre; Wi-Fi/BT só quando conectados */
   function status() {
+    stage.classList.remove('clk-a', 'clk-b', 'clk-c'); stage.classList.add('clk-' + CLK.pos);
+    const ct = clockText(); document.querySelectorAll('.clk').forEach(e => { e.textContent = ct; });
     document.querySelectorAll('.batt').forEach(e => (e.innerHTML = battHtml(BAT.p, BAT.st)));
     const net = (env.wifi && S.wifiConn >= 0 ? ICON_WIFI : '') + (env.bt && S.btConn.length ? '<span>BT</span>' : '');
     document.querySelectorAll('.net').forEach(e => (e.innerHTML = net));
@@ -252,7 +270,7 @@
   function renderGames() {
     syncGrid();
     const it = dockItems()[S.dock], list = curGames();
-    $('#s-games .ghead').innerHTML = `<span class="hl">${it.kind === 'fav' ? t('fav') : it.c.sub}${S.q ? ' · “' + esc(S.q) + '”' : ''}</span><span class="r"><span>${list.length ? (S.g + 1) + ' / ' + list.length : '0'}</span><span class="batt"></span></span>`;
+    $('#s-games .ghead').innerHTML = `${CLK_B}<span class="hl">${it.kind === 'fav' ? t('fav') : it.c.sub}${S.q ? ' · “' + esc(S.q) + '”' : ''}</span>${CLK_C}<span class="r"><span>${list.length ? (S.g + 1) + ' / ' + list.length : '0'}</span>${CLK_A}<span class="batt"></span></span>`;
     const grid = $('#grid');
     if (!list.length) { grid.style.display = 'none'; $('#gtitle').textContent = ''; ensureEmpty(true); }
     else {
@@ -351,10 +369,10 @@
     `<div class="opt${i === cur ? ' sel' : ''}${o.dis ? ' dis' : ''}"><span class="l">${o.th ? `<img class="sth" alt="" src="${o.th}">` : ''}<span class="lt">${o.l}</span></span><span class="v${o.ovr ? ' ov' : ''}">${o.cyc && i === cur ? '‹ ' + o.v + ' ›' : (o.v || '')}</span></div>`).join('');
   function renderMenu() {
     const m = S.menu;
-    if (m.kind === 'power' || m.kind === 'reset') {   // regra de toda confirmação (2026-11-17): a afirmativa em cima, Cancelar embaixo e com o foco; D8: só cima/baixo movem o foco
-      const rs = m.kind === 'reset';                  // 'reset' = Recomeçar o aprendizado (4.1, D12)
-      m.opts = [{ k: 'yes', l: t(rs ? 'yesNo' : 'yes') }, { k: 'no', l: t('no') }];
-      $('#o-menu .sheet').innerHTML = `<div class="sbody"><h2>${t(rs ? 'resetLearn' : 'power')}</h2><div class="sub">${t(rs ? 'resetAsk' : 'powerAsk')}</div>` +
+    if (m.kind === 'power' || m.kind === 'reset' || m.kind === 'settime') {   // regra de toda confirmação (2026-11-17): a afirmativa em cima, Cancelar embaixo e com o foco; D8: só cima/baixo movem o foco
+      const rs = m.kind === 'reset', st = m.kind === 'settime';   // 'reset' = Recomeçar o aprendizado (4.1, D12); 'settime' = Acertar a hora (3.1)
+      m.opts = [{ k: 'yes', l: t(st ? 'apply' : rs ? 'yesNo' : 'yes') }, { k: 'no', l: t('no') }];
+      $('#o-menu .sheet').innerHTML = `<div class="sbody"><h2>${t(st ? 'settime' : rs ? 'resetLearn' : 'power')}</h2><div class="sub">${st ? fmtDT(m.dt) : t(rs ? 'resetAsk' : 'powerAsk')}</div>` +
         m.opts.map((o, i) => `<div class="opt${i === m.i ? ' sel' : ''}"><span class="l">${o.l}</span></div>`).join('') + '</div>';
       return;
     }
@@ -393,6 +411,7 @@
       const o = m.opts[m.i]; if (o.dis) return;
       if (m.kind === 'power') { closeMenu(); if (o.k === 'yes') shutdown(); return; }
       if (m.kind === 'reset') { closeMenu(); if (o.k === 'yes') resetLearning(); return; }
+      if (m.kind === 'settime') { const dt = m.dt; closeMenu(); if (o.k === 'yes') applyTime(dt); return; }   // Cancelar returns to the fields, as they were
       if (o.cyc) { cycleOpt(m, o.k, 1); renderMenu(); return; }
       if (m.kind === 'console') {                    // única ação não cíclica do menu do console: limpar as opções próprias dos jogos
         if (o.k === 'clear') { gamesOf(m.cid).forEach(g => { delete GOV[g.id]; }); save('gov', GOV); toast(t('cleared')); renderMenu(); renderGames(); }
@@ -431,7 +450,7 @@
   const fpath = () => { const s = [files.rootName, ...S.fp]; return (s.length > 2 ? '… / ' : '') + s.slice(-2).join(' / '); };
   function renderFiles() {
     const list = files.list(S.fp), box = $('#flist');
-    $('#s-files .ghead').innerHTML = `<span class="fpath">${esc(fpath())}</span><span class="r"><span>${list.length ? (S.fi + 1) + ' / ' + list.length : '0'}</span><span class="batt"></span></span>`;
+    $('#s-files .ghead').innerHTML = `${CLK_B}<span class="fpath">${esc(fpath())}</span>${CLK_C}<span class="r"><span>${list.length ? (S.fi + 1) + ' / ' + list.length : '0'}</span>${CLK_A}<span class="batt"></span></span>`;
     if (!list.length) box.innerHTML = `<div class="none">${t('emptyDir')}</div>`;
     else {
       if (S.fi < S.ftop) S.ftop = S.fi; if (S.fi > S.ftop + FR - 1) S.ftop = S.fi - FR + 1;
@@ -610,7 +629,7 @@
   function openShots() { S.s = 0; S.stop = 0; show('shots'); renderShots(); }
   function renderShots() {
     const list = data.shots, grid = $('#sgrid');
-    $('#s-shots .ghead').innerHTML = `<span>${t('shots')}</span><span class="r"><span>${list.length ? (S.s + 1) + ' / ' + list.length : '0'}</span><span class="batt"></span></span>`;
+    $('#s-shots .ghead').innerHTML = `${CLK_B}<span>${t('shots')}</span>${CLK_C}<span class="r"><span>${list.length ? (S.s + 1) + ' / ' + list.length : '0'}</span>${CLK_A}<span class="batt"></span></span>`;
     if (!list.length) { grid.innerHTML = `<div class="none">${t('noshots')}</div>`; $('#stitle').textContent = ''; }
     else {
       const row = Math.floor(S.s / SC);
@@ -652,7 +671,7 @@
   }
 
   /* ------------------------------------------------------------ Configurações */
-  const setKeys = () => { const a = []; if (env.wifi) a.push('wifi'); if (env.bt) a.push('bt'); a.push('lang', 'theme', 'lite', 'vol', 'bri', 'system', 'card', 'gamesRow'); return a; };   // D19: no Desligar, Suspender or RetroArch here (they live in the Fn system menu)
+  const setKeys = () => { const a = []; if (env.wifi) a.push('wifi'); if (env.bt) a.push('bt'); a.push('lang', 'theme', 'lite', 'clock', 'settime', 'vol', 'bri', 'system', 'card', 'gamesRow'); return a; };   // D19: no Desligar, Suspender or RetroArch here (they live in the Fn system menu)
   const tn = id => { const k = 'th_' + id, v = t(k); return v === k ? ((themes.list().find(x => x.id === id) || {}).name || id) : v; };   // nome do tema no idioma atual
   const bar = v => `<div class="bar"><i style="width:${v}%"></i></div>`;
   function openSettings() { S.si = 0; S.sub = null; show('set'); renderSettings(); }
@@ -662,11 +681,12 @@
     if (S.sub && !keys.includes(S.sub.k)) { S.sub = null; stopSys(); }       // dongle removido com o menu aberto
     // amostra CPU/memória só enquanto o item Sistema está selecionado; ao sair dele, para de ler
     if (!S.sub && keys[S.si] === 'system') { if (!S.stopSys) startSys(); } else stopSys();
-    $('#s-set .ghead').innerHTML = `<span>${t('set')}</span><span class="r"><span class="batt"></span></span>`;
+    $('#s-set .ghead').innerHTML = `${CLK_B}<span>${t('set')}</span>${CLK_C}<span class="r">${CLK_A}<span class="batt"></span></span>`;
     $('#s-set .slist').innerHTML = keys.map((k, i) => `<div class="sitem${i === S.si ? ' sel' : ''}">${t(k)}</div>`).join('');
     $('#s-set .spanel').innerHTML = S.sub ? subPanel() : panel(keys[S.si]);
-    const cur = keys[S.si], adj = ['lang', 'theme', 'lite', 'vol', 'bri'].includes(cur), act = ['wifi', 'bt', 'card', 'gamesRow', 'bri'].includes(cur);
-    hints($('#s-set .hints'), S.sub ? [['▲▼', t('move')], ['A', t('sel')], ['B', t('back')]]
+    const cur = keys[S.si], adj = ['lang', 'theme', 'lite', 'clock', 'vol', 'bri'].includes(cur), act = ['wifi', 'bt', 'card', 'gamesRow', 'bri', 'settime'].includes(cur);
+    hints($('#s-set .hints'), S.sub && S.sub.k === 'settime' ? [['▲▼', t('chg')], ['◀▶', t('fld')], ['A', t('apply')], ['B', t('no')]]
+      : S.sub ? [['▲▼', t('move')], ['A', t('sel')], ['B', t('back')]]
       : [['▲▼', t('move')], ...(adj ? [['◀▶', t('adj').replace('◀ ▶ ', '')]] : []), ...(act ? [['A', t('openf')]] : []), ['B', t('back')]]);
     status();
   }
@@ -677,6 +697,8 @@
     if (k === 'lang') return pick(t('lang'), LANGS.map(l => l[0]), P.lang, c => LANGS.find(l => l[0] === c)[1]);
     if (k === 'theme') return pick(t('theme'), themes.list().map(x => x.id), env.theme, tn);
     if (k === 'lite') return pick(t('lite'), [false, true], env.lite, v => t(v ? 'on' : 'off')) + `<p class="note">${t('liteNote')}</p>`;
+    if (k === 'clock') return pick(t('clock'), [true, false], CLK.on, v => t(v ? 'on' : 'off')) + (CLK.set ? '' : `<p class="note">${t('clockNever')}</p>`);
+    if (k === 'settime') return timePanel(-1);
     if (k === 'vol') return `<h3>${t('vol')}</h3><div class="big">${P.vol}%</div>${bar(P.vol)}<p class="note">${t('adj')}</p>`;
     if (k === 'bri') return briPanel(-1);
     if (k === 'card') return cardPanel(-1);
@@ -688,9 +710,45 @@
     const k = S.sub.k, i = S.sub.i;
     if (k === 'card') return cardPanel(i);
     if (k === 'bri') return briPanel(i);
+    if (k === 'settime') return timePanel(S.sub.f);
     if (k === 'wifi') return `<h3>${t('wifi')} · ${t('netq')}</h3>` + NETS.map((n, j) => `<div class="row${j === i ? ' sel' : ''}"><span>${n.n}</span><span>${j === S.wifiConn ? '✓ ' : ''}${'▂▄▆'.slice(0, n.q)}</span></div>`).join('');
     if (k === 'bt') return `<h3>${t('bt')} · ${t('devq')}</h3>` + DEVS.map((d, j) => `<div class="row${j === i ? ' sel' : ''}"><span>${d.ic} ${d.n}</span><span>${S.btConn.includes(j) ? '✓' : ''}</span></div>`).join('');
     return sysPanel();
+  }
+  /* "Acertar a hora": fields in the order y, mo, d, h, mi (ISO-like, the same in every language); f = focused field, -1 = preview only.
+     Up/down change the focused value, left/right move between fields, L1/R1 jump (step), A asks the vertical confirmation, B cancels. */
+  const TF = [{ k: 'y', l: 'fY', lo: 2025, hi: 2099, step: 10, w: 4 }, { k: 'mo', l: 'fMo', lo: 1, hi: 12, step: 3 }, { k: 'd', l: 'fD', lo: 1, hi: 31, step: 7 },
+              { k: 'h', l: 'fH', lo: 0, hi: 23, step: 6 }, { k: 'mi', l: 'fMi', lo: 0, hi: 59, step: 10 }];
+  const dimOf = (y, mo) => new Date(y, mo, 0).getDate();
+  const nowFields = () => { const d = clockNow(), f = CLK.fixed ? CLK.fixed.split(':').map(Number) : [d.getHours(), d.getMinutes()]; return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: f[0], mi: f[1] }; };
+  const fmtDT = v => `${v.y}-${pad2(v.mo)}-${pad2(v.d)}  ${pad2(v.h)}:${pad2(v.mi)}`;
+  function timePanel(f) {
+    const v = S.sub && S.sub.k === 'settime' ? S.sub.v : nowFields();
+    const fl = i => `<span class="fld${i === f ? ' sel' : ''}">${i === 0 ? v.y : pad2(v[TF[i].k])}</span>`;
+    return `<h3>${t('settime')}</h3>
+      <div class="dtgrp"><span class="muted">${t('fDate')}</span><div class="dtv">${fl(0)}-${fl(1)}-${fl(2)}</div></div>
+      <div class="dtgrp"><span class="muted">${t('fTime')}</span><div class="dtv">${fl(3)}:${fl(4)}</div></div>
+      <p class="note">${S.sub && S.sub.k === 'settime' ? t('timeNote') : t('open')}</p>`;
+  }
+  function timeKey(k) {
+    const s = S.sub, v = s.v, F = TF[s.f];
+    if (k === 'B') { S.sub = null; return; }
+    if (k === 'L') s.f = (s.f + TF.length - 1) % TF.length;
+    else if (k === 'R') s.f = (s.f + 1) % TF.length;
+    else if (k === 'A') { S.menu = { kind: 'settime', i: 1, dt: Object.assign({}, v) }; renderMenu(); $('#o-menu').classList.add('on'); return; }   // vertical confirmation: Acertar on top, Cancelar focused
+    else {
+      const dir = k === 'U' || k === 'PR' ? 1 : k === 'D' || k === 'PL' ? -1 : 0, n = k === 'PL' || k === 'PR' ? F.step : 1;
+      if (!dir) return;
+      const hi = F.k === 'd' ? dimOf(v.y, v.mo) : F.hi, span = hi - F.lo + 1;
+      v[F.k] = F.k === 'y' ? Math.max(F.lo, Math.min(F.hi, v.y + dir * n)) : F.lo + ((v[F.k] - F.lo + dir * n) % span + span) % span;   // year clamps, the rest wrap
+      v.d = Math.min(v.d, dimOf(v.y, v.mo));
+    }
+  }
+  const openTime = () => { S.sub = { k: 'settime', f: 0, v: nowFields() }; };
+  function applyTime(v) {                              // simulated: on the device this is lume-clock set <epoch> manual (system, RTC and the card's stored time)
+    CLK.off = new Date(v.y, v.mo - 1, v.d, v.h, v.mi).getTime() - Date.now(); CLK.fixed = null; CLK.set = true;
+    const tn = $('#tnever'); if (tn) tn.checked = false;
+    S.sub = null; toast(t('timeDone')); renderSettings();
   }
   function sysPanel() {                                // estatísticas do sistema: aparecem ao apenas selecionar o item
     const s = S.sys;
@@ -713,6 +771,7 @@
     else if (k === 'bri') { P.bri = Math.max(5, Math.min(100, P.bri + dir * 5)); save('bri', P.bri); applyBri(); }
     else if (k === 'lang') { P.lang = LANGS[(LANGS.findIndex(l => l[0] === P.lang) + dir + LANGS.length) % LANGS.length][0]; save('lang', P.lang); renderDock(); }
     else if (k === 'lite') { env.lite = !env.lite; save('lite', env.lite); applyTheme(); return; }   // liga/desliga; applyTheme aplica a classe e redesenha
+    else if (k === 'clock') { CLK.on = !CLK.on; save('clkon', CLK.on); $('#clkpos').value = CLK.on ? CLK.pos : 'off'; }
     else if (k === 'theme') { const l = themes.list(); env.theme = l[(l.findIndex(x => x.id === env.theme) + dir + l.length) % l.length].id; applyTheme(); return; }   // troca na hora; applyTheme redesenha tudo
     else return;
     renderSettings();
@@ -720,6 +779,7 @@
   function settingsKey(k) {
     const keys = setKeys();
     if (S.sub) {
+      if (S.sub.k === 'settime') { timeKey(k); renderSettings(); return; }
       const list = S.sub.k === 'wifi' ? NETS : S.sub.k === 'bt' ? DEVS : S.sub.k === 'card' ? [0, 1] : S.sub.k === 'bri' ? [0] : null;
       if (k === 'B') { S.sub = null; stopSys(); }
       else if (k === 'A' && S.sub.k === 'card') { if (S.sub.i === 0) trimNow(); else { CARD.pending = !CARD.pending; } }   // "Verificar no próximo boot": one request; A again cancels (prototype choice)
@@ -735,10 +795,12 @@
     else if (k === 'D') S.si = (S.si + 1) % keys.length;
     else if (k === 'L') { adjust(keys[S.si], -1); return; }
     else if (k === 'R' && keys[S.si] === 'card') S.sub = { k: 'card', i: 0 };   // ▶ passes to the panel column, as in the list today
+    else if (k === 'R' && keys[S.si] === 'settime') openTime();
     else if (k === 'R') { adjust(keys[S.si], 1); return; }
     else if (k === 'A') {
       const key = keys[S.si];
       if (key === 'wifi' || key === 'bt' || key === 'card' || key === 'bri') S.sub = { k: key, i: 0 };
+      else if (key === 'settime') openTime();
       else if (key === 'gamesRow') { toast(t('refreshed')); return; }   // "Atualizar listas": a panel action that A runs
       else if (key === 'system') return;                  // sem submenu: as estatísticas já estão no painel
       else { adjust(key, 1); return; }
@@ -834,6 +896,11 @@
     const bset = () => { BAT.p = Math.max(0, Math.min(100, parseInt(bp.value, 10) || 0)); BAT.st = bs.value; status(); checkBattery(); };
     bp.onchange = bset; bs.onchange = bset;
     $('#batw').onclick = () => { BAT.p = Math.min(BAT.p, WARN_AT); BAT.st = 'discharging'; bp.value = BAT.p; bs.value = BAT.st; status(); checkBattery(true); };
+    /* 3.1 review controls: clock position (or off) and the "time never set" state */
+    const cp = $('#clkpos'), tnv = $('#tnever');
+    cp.value = CLK.on ? CLK.pos : 'off'; tnv.checked = !CLK.set;
+    cp.onchange = () => { if (cp.value === 'off') CLK.on = false; else { CLK.on = true; CLK.pos = cp.value; save('clkpos', CLK.pos); } save('clkon', CLK.on); renderAll(); };
+    tnv.onchange = () => { CLK.set = !tnv.checked; renderAll(); };
     /* 4.1 review controls: card state, brightness-limit feature (D12), Fn shortcuts */
     const cs = $('#cardst');
     cs.value = CARD.run; cs.onchange = () => { CARD.run = cs.value; if (CARD.run === 'ok' || CARD.run === 'fail') CARD.out = CARD.run; renderSettings(); };
@@ -857,7 +924,14 @@
     else if (n === 'bri') go('bri');
     else if (n === 'bri-act') go('bri', { i: 0 });
     else if (n === 'reset') { go('bri', { i: 0 }); askReset(); }
-    else if (n === 'sys') openSys();                                       // over the Dock
+    else if (n === 'clk-grid') { S.dock = 1; openGames(); }                // clock over the game grid (also &relogio=a|b|c)
+    else if (n === 'clk-search') { S.dock = 1; openGames(); openSearch(); }
+    else if (n === 'clock') go('clock');                                   // Settings, "Mostrar relógio"
+    else if (n === 'clock-never') { CLK.set = false; $('#tnever').checked = true; go('clock'); }
+    else if (n === 'time') go('settime');                                  // "Acertar a hora", preview
+    else if (n === 'time-set') { go('settime'); openTime(); renderSettings(); }
+    else if (n === 'time-confirm') { go('settime'); openTime(); S.sub.f = 4; S.sub.v.mi = (S.sub.v.mi + 7) % 60; timeKey('A'); }
+    else if (n === 'sys') openSys();                                      // over the Dock
     else if (n === 'sys-reboot' || n === 'sys-power') { openSys(); S.fnm.confirm = { kind: n === 'sys-reboot' ? 'reboot' : 'power', i: 1 }; renderSys(); }
     else if (n === 'sys-grid' || n === 'sys-sheet') { S.dock = 1; openGames(); if (n === 'sys-sheet') openMenu(); openSys(); }   // over the game grid / over an open game sheet
     else if (n === 'hold') showHint();
@@ -886,4 +960,7 @@
 
   buildDock(); bindTools(); applyBri(); applyTheme(); applyRes(); checkBattery();
   demoScreen(QS.get('tela'));
+  /* the clock text only changes once a minute: redraw just when it did (the device redraws once a minute, screen on only) */
+  let clkShown = clockText();
+  setInterval(() => { const c = clockText(); if (c !== clkShown && !S.off) { clkShown = c; status(); } }, 5000);
 })();
