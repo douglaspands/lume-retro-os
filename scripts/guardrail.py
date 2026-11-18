@@ -237,6 +237,47 @@ def strip_passthrough(argv: list[str]) -> list[str]:
     return [out[0].lstrip("`"), *out[1:]] if out else out
 
 
+_TIMEOUT_OPT_WITH_VALUE = {"-s", "-k", "--signal", "--kill-after"}
+_DURATION_RE = re.compile(r"[\d.]+[smhd]?")
+
+
+def strip_timeout(seg: list[str]) -> list[str]:
+    """`timeout [opts] <duration> <cmd...>` -> `<cmd...>`: timeout only limits how long the command
+    runs, so the guardrail judges the command inside it with the usual rules (M-31). Only `timeout`
+    is stripped, never `sudo`/`env`/a shell after it, which then hit their own rules. A `timeout`
+    without a duration or without a command is kept as is (it stays a wrapper and asks)."""
+    out = seg
+    while out and Path(out[0]).name == "timeout":
+        i = 1
+        while i < len(out) and out[i].startswith("-") and out[i] != "--":
+            opt = out[i]
+            i += 1
+            if opt in _TIMEOUT_OPT_WITH_VALUE and i < len(out):
+                i += 1
+        if i < len(out) and out[i] == "--":
+            i += 1
+        if i >= len(out) or not _DURATION_RE.fullmatch(out[i]) or i + 1 >= len(out):
+            return out
+        out = out[i + 1:]
+    return out
+
+
+_TIMEOUT_PREFIX_RE = re.compile(
+    r"^\s*(?:\S*/)?timeout(?:\s+(?:-s|-k|--signal|--kill-after)\s+\S+|\s+-[-\w]+(?:=\S+)?)*"
+    r"(?:\s+--)?\s+[\d.]+[smhd]?\s+(?=\S)"
+)
+
+
+def strip_timeout_text(cmd: str) -> str:
+    """The text form of strip_timeout for the checks that read the whole command (file tools,
+    destructive patterns): leading `timeout [opts] <duration>` prefixes removed (M-31)."""
+    while True:
+        m = _TIMEOUT_PREFIX_RE.match(cmd)
+        if not m:
+            return cmd
+        cmd = cmd[m.end():]
+
+
 def pipelines(tokens: list[str]) -> list[list[list[str]]]:
     """Tokens -> pipelines (separadas por ; && || & ( )) -> comandos simples (separados por |), sem operadores."""
     out: list[list[list[str]]] = [[[]]]
@@ -748,6 +789,8 @@ def evaluate_shell_command(
 
     if not cmd_clean:
         return "defer", "Comando vazio ou ausente."
+    # `timeout <duração>` no início é transparente: o resto do comando é julgado sozinho (M-31)
+    cmd_clean = strip_timeout_text(cmd_clean).strip()
 
     # 1. Padrões destrutivos (deny): casados com o argv (programa e alvos), também dentro de `sh -c`/`ssh`
     destructive = destructive_rule(cmd_clean, policy)
@@ -784,6 +827,8 @@ def evaluate_shell_command(
     segments = split_pipeline(tokens)
     if any(not s for s in segments):
         return "defer", "Pipe com segmento vazio; decisão delegada ao harness."
+    # `timeout <duração>` é transparente: o comando de dentro passa pelas regras de sempre (M-31)
+    segments = [strip_timeout(s) for s in segments]
 
     # 3. Segredos em argumentos (deny)
     for t in tokens:
