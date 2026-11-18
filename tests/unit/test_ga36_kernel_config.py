@@ -61,6 +61,17 @@ def test_fragment_enables_thermal_sensor_and_gpu_cooling():
     assert opts.get("CONFIG_DEVFREQ_THERMAL") == "y"
 
 
+def test_fragment_reserves_64_mib_of_cma():
+    # device-fixes 9.14: the A33 display has no IOMMU and 16 MiB (the Kconfig default) ran
+    # out with a GPU game on the screen; set in the fragment only, never on the command line
+    # (CMDLINE_FORCE) nor as a DTS node
+    assert _options(FRAGMENT).get("CONFIG_CMA_SIZE_MBYTES") == "64"
+    assert "cma=" not in _options(FRAGMENT)["CONFIG_CMDLINE"]
+    assert "CMA_SIZE_SEL" not in FRAGMENT and "CMA_SIZE_PERCENTAGE" not in FRAGMENT
+    dts = (REPO_ROOT / "board/ga36/dts/sun8i-a33-ga36-mb-v1.2.dtsi").read_text()
+    assert "linux,cma" not in dts
+
+
 def test_fragment_enables_kexec_and_the_selection_keys():
     # boot-dtb-select D2/D7: kexec to switch the DTB, and the volume keys on the LRADC
     # built in (the build fails if an option of the fragment does not stick)
