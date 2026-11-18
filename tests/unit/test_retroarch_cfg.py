@@ -47,6 +47,8 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "history_list_enable", "content_runtime_log", "content_runtime_log_aggregate",
         # the pictures of the save states and of Fn+Y (lume-hud-actions D5, D9)
         "savestate_thumbnail_enable", "video_gpu_screenshot", "auto_screenshot_filename",
+        # V-Sync on at every start (user, 2026-11-17; P-25, P-91)
+        "video_vsync",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -63,7 +65,7 @@ def test_only_the_installed_cores_info_files_are_read():
 
 
 def test_user_tunable_defaults_are_in_the_factory_config():
-    for key in ("menu_driver", "menu_pause_libretro", "video_vsync", "video_threaded",
+    for key in ("menu_driver", "menu_pause_libretro", "video_threaded",
                 "input_player1_b", "input_player1_a", "input_menu_toggle"):
         assert key in _keys(FACTORY), key
         assert key not in _keys(CFG), key
