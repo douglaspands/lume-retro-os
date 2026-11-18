@@ -229,3 +229,39 @@ Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jog
 
 Apagar `ROMS/system/lume/` volta o launcher ao padrão de fábrica; jogos, saves e states
 continuam.
+
+## Pedidos de manutenção do cartão (interface congelada)
+
+O launcher pede o trabalho ao serviço `lume-card` criando um arquivo vazio, com o nome do
+verbo, em `/run/lume/card/` (pasta do grupo `game`). O módulo `lume-core::cardreq` lê e
+escreve tudo isto; nenhum outro programa deve montar esses caminhos à mão.
+
+| Pedido (arquivo) | Efeito | Resultado |
+|---|---|---|
+| `trim` | `fstrim -v /storage`; um pedido com outro em andamento é apagado sem rodar | `status`, e `ROMS/system/card/last-trim` com o boot |
+| `check-next-boot` | cria `ROMS/system/card/check-next-boot` | `status` = `ok` |
+
+Um arquivo com outro nome é apagado e registrado como recusado.
+
+`/run/lume/card/status` tem uma linha, em um destes formatos:
+
+| Conteúdo | Significado |
+|---|---|
+| `running` | o TRIM está em andamento |
+| `ok <bytes>` | TRIM concluído; `<bytes>` liberados (decimal) |
+| `ok` | pedido sem tamanho concluído (`check-next-boot`) |
+| `fail <motivo>` | falhou; o motivo é texto de uma linha |
+
+Conteúdo fora desses formatos é ignorado (como se não houvesse `status`).
+
+Arquivos no cartão (`ROMS/system/card/`), cada um com o **número do boot em texto decimal**
+(sem data, o console não tem relógio):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `last-trim` | boot do último TRIM concluído |
+| `last-check` | boot que consumiu o último pedido de verificação |
+| `check-next-boot` | pedido de verificação (boot que o fez); o initramfs só testa se o arquivo existe e o apaga ao verificar |
+
+Arquivo ausente ou com conteúdo inválido vale "nunca". Os caminhos seguem `LUME_RUN` (padrão
+`/run/lume`) e `LUME_STORAGE` (padrão `/storage`), movíveis nos testes.
