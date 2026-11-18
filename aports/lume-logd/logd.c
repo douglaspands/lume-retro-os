@@ -422,7 +422,9 @@ static pid_t find_pid(const char *name)
 		if (!isdigit((unsigned char)e->d_name[0]))
 			continue;
 		p = (pid_t)atoi(e->d_name);
-		if (comm_is(p, name) && (!best || p < best))
+		/* the newest one, as busybox pidof lists it first: RetroArch runs under a wrapper
+		 * of the same name (the frontend script), and the emulator is the child */
+		if (comm_is(p, name) && p > best)
 			best = p;
 	}
 	closedir(d);

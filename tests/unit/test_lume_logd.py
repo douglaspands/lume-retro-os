@@ -332,6 +332,17 @@ def test_no_answer_hang_snapshot_and_recovery(exe, world):
                         rf"gpu_mhz= vblank=2849 pcm=- tasks= {ra.pid}:[A-Z]:\S*", t[0]), t[0]
 
 
+def test_the_newest_retroarch_is_watched_not_its_wrapper(exe, world):
+    """the frontend script and the emulator both have the name retroarch: the emulator is
+    the newer process (busybox pidof lists it first, as the shell logd used it)"""
+    old = world.spawn("retroarch")
+    new = world.spawn("retroarch")
+    world.fake_ra([("GET_STATUS CONTENTLESS", None)])
+    world.run(exe, 1, HANG_LIMIT=1000)
+    t = [x for x in world.trace() if x.startswith("fe=menu")]
+    assert t and f"pid={new.pid} " in t[0] and f"pid={old.pid} " not in t[0], t
+
+
 def test_hang_with_recovery_off_only_logs(exe, world):
     world.interrupts.write_text("171:       100          0 GIC-0 118 Level     1c0c000.lcd-controller\n")
     ra = world.spawn("retroarch")
