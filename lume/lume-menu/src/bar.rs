@@ -210,10 +210,11 @@ impl Strip<'_> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn fonts() -> Option<Fonts> {
+    /// Roboto for the tests (also the server's, serve.rs)
+    pub(crate) fn fonts() -> Option<Fonts> {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cache/tmp/fonts");
         // LUME_TEST_FONTS: a worktree has no cache/, point it at the main tree's fonts
         let dirs = [

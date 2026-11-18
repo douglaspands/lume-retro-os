@@ -22,15 +22,15 @@ Cada forma de abrir um jogo MUST ser um runner descrito num arquivo de dados com
 - **THEN** o runner continua aparecendo e abrindo jogos, Fn+B, Fn+R1 e Fn+L1 não fazem nada nele, o toque no Fn abre o menu do Lume com o jogo congelado pelo sistema, e Fn+Start continua encerrando
 
 ### Requirement: Interface fora da memória durante o jogo
-Antes de abrir um jogo, a interface MUST encerrar e liberar a tela, o áudio e a memória. Com o jogo rodando, além do jogo, MUST ficar só o supervisor e o daemon de entrada. Só com o jogo pausado pelo menu do Lume MAY existir também o processo que desenha esse menu, que MUST terminar quando o menu fecha.
+Antes de abrir um jogo, a interface MUST encerrar e liberar a tela, o áudio e a memória. Com o jogo rodando, além do jogo, MUST ficar só o supervisor, o daemon de entrada e o processo que desenha o menu do Lume, a barra e a dica (device-fixes 9.14: ele nasce com o jogo e reserva a memória de vídeo uma vez, antes de o jogo ocupá-la). Esse processo MUST ficar parado na leitura da sua entrada, sem CPU, enquanto nada dele está na tela, e MUST terminar com o jogo.
 
 #### Scenario: Processos durante o jogo
-- **WHEN** um jogo está aberto e o menu do Lume está fechado
-- **THEN** não existe processo da interface nem do menu, e o supervisor tem menos de 2 MB de memória residente
+- **WHEN** um jogo está aberto e o menu do Lume, a barra e a dica estão fechados
+- **THEN** não existe processo da interface, o processo do menu está dormindo (estado S, sem tempo de CPU somado entre duas leituras), e o supervisor tem menos de 2 MB de memória residente
 
-#### Scenario: Menu fechado não deixa processo
+#### Scenario: Menu fechado não deixa nada rodando
 - **WHEN** o usuário abre o menu do Lume e volta ao jogo
-- **THEN** o processo do menu não existe mais e o jogo continua
+- **THEN** o jogo continua com o mesmo FPS de antes, o processo do menu volta a dormir sem ter reservado memória de vídeo nova, e ele termina quando o jogo termina
 
 ## REMOVED Requirements
 

@@ -540,10 +540,11 @@ fn chords_become_retroarch_commands() {
     let ra = FakeRa::new("PLAYING");
     let listener = listen(&e.dir.join("input.sock"));
     waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
-    // a fake lume-menu that records its arguments: the picture of Fn+Y is the system's
+    // a fake lume-menu that records the arguments of --shot: the picture of Fn+Y is the
+    // system's (the --serve of the game waits on its stdin)
     let pm = e.dir.join("lume-menu");
     let d_ = e.dir.display().to_string();
-    fs::write(&pm, format!("#!/bin/sh\necho \"$*\" >> \"{d_}/shot.args\"\n")).unwrap();
+    fs::write(&pm, format!("#!/bin/sh\nif [ \"$1\" = --shot ]; then echo \"$*\" >> \"{d_}/shot.args\"; else cat >/dev/null; fi\n")).unwrap();
     fs::set_permissions(&pm, fs::Permissions::from_mode(0o755)).unwrap();
     let mut run = spawn_logged(&e, ra.port);
     let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
@@ -722,45 +723,52 @@ fn hint_and_bar_are_drawn_by_the_system() {
     let mut run = spawn_logged(&e, ra.port);
     let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
-    // the hint: lume-menu --hint while Fn is held (the picture and the bar are the system's,
-    // always listed), nothing to RetroArch
+    // one lume-menu for the game, started with it (its buffers are made once, 9.14)
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fs::read_to_string(e.dir.join("menu.args")).unwrap().trim(), format!("--serve {pid} --hints Select|Back --warn Force close"));
+    // the hint while Fn is held (the picture and the bar are the system's, always listed),
+    // nothing to RetroArch
     d.send("fn_hold B=app_menu R1=save_state Y=screenshot X=hud Start=quit Vol=brightness");
-    std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(fs::read_to_string(e.dir.join("menu.args")).unwrap().trim(), format!("--hint {pid}"));
-    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().next(),
-               Some("Fn+B\tFake menu|Fn+R1\tSave state|Fn+Y\tScreenshot|Fn+X\tStatus bar|Fn+Start\tEnd game"));
+    assert_eq!(menu_lines(&e), ["hint Fn+B\tFake menu|Fn+R1\tSave state|Fn+Y\tScreenshot|Fn+X\tStatus bar|Fn+Start\tEnd game"]);
     d.send("fn_release");
-    std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().last(), Some("closed"));
+    assert_eq!(menu_lines(&e).last().unwrap(), "hint -");
     assert!(ra.cmds().is_empty(), "{:?}", ra.cmds());
     fs::remove_file(e.dir.join("menu.lines")).unwrap();
-    // the bar: drawn by the system (lume-menu --hud), renewed every second, then off;
-    // remembered for the next game; nothing of it goes to RetroArch (the user, 2026-11-17)
+    // the bar: drawn by the system, renewed every second, then off; remembered for the next
+    // game; nothing of it goes to RetroArch (the user, 2026-11-17)
     d.send("hud");
     std::thread::sleep(Duration::from_millis(1300));
-    let args = fs::read_to_string(e.dir.join("menu.args")).unwrap();
-    assert_eq!(args.trim(), format!("--hud {pid}"));
-    let lines = fs::read_to_string(e.dir.join("menu.lines")).unwrap();
-    let bars: Vec<&str> = lines.lines().collect();
-    assert!(bars.len() >= 2 && bars[0].starts_with("FPS --|CPU "), "{bars:?}");
+    let bars = menu_lines(&e);
+    assert!(bars.len() >= 2 && bars.iter().all(|b| b.starts_with("bar FPS --|CPU ")), "{bars:?}");
     assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "1\n");
     d.send("hud");
-    std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().last(), Some("closed"));
+    assert_eq!(menu_lines(&e).last().unwrap(), "bar -");
     assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "0\n");
     assert!(!ra.cmds().iter().any(|c| c.starts_with("LUME_HUD")), "{:?}", ra.cmds());
+    // the same process all along, ended with the game
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    assert_eq!(fs::read_to_string(e.dir.join("menu.starts")).unwrap().lines().count(), 1);
+    assert_eq!(menu_lines(&e).last().unwrap(), "closed");
 }
 
-/// A fake lume-menu: "ok", then every stdin line into `menu.lines`, "closed" at the end.
+/// The lines lume-run sent to the fake lume-menu so far.
+fn menu_lines(e: &Env) -> Vec<String> {
+    fs::read_to_string(e.dir.join("menu.lines")).unwrap_or_default().lines().map(String::from).collect()
+}
+
+/// A fake `lume-menu --serve`: every stdin line into `menu.lines`; "menu <answer>" to each
+/// opening of the menu, "menu closed" to "menu -"; "closed" at the end of stdin.
 fn fake_lume_menu(e: &Env, answer: &str) -> PathBuf {
     let p = e.dir.join("lume-menu");
     let d = e.dir.display().to_string();
     fs::write(
         &p,
-        format!("#!/bin/sh\necho \"$*\" > \"{d}/menu.args\"\nread first\necho \"$first\" >> \"{d}/menu.lines\"\necho {answer}\n\
-                 while read l; do echo \"$l\" >> \"{d}/menu.lines\"; done\necho closed >> \"{d}/menu.lines\"\n"),
+        format!("#!/bin/sh\necho \"$*\" > \"{d}/menu.args\"\necho start >> \"{d}/menu.starts\"\nopen=\n\
+                 while IFS= read -r l; do echo \"$l\" >> \"{d}/menu.lines\"\n\
+                 case \"$l\" in\n'menu -') open=; echo 'menu closed';;\n\
+                 'menu '*) if [ -z \"$open\" ]; then echo 'menu {answer}'; [ '{answer}' = ok ] && open=1; fi;;\nesac\n\
+                 done\necho closed >> \"{d}/menu.lines\"\n"),
     )
     .unwrap();
     fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
@@ -790,20 +798,53 @@ fn system_drawn_menu_on_a_runner_without_overlay() {
     let mut run = c.spawn().unwrap();
     let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
-    d.send("fn_tap");
-    std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(proc_state(pid), 'T', "the group is stopped while lume-menu draws");
+    for round in 0..2 {
+        d.send("fn_tap");
+        assert_eq!(proc_state(pid), 'T', "the group is stopped while lume-menu draws");
+        d.send("nav down");
+        // B: back to the game, lume-menu gives the screen back, the group continues
+        d.send("nav b");
+        std::thread::sleep(Duration::from_millis(100));
+        assert_ne!(proc_state(pid), 'T', "round {round}");
+    }
     let args = fs::read_to_string(e.dir.join("menu.args")).unwrap();
-    assert!(args.starts_with(&format!("{pid} --hints Select|Back --warn Force close")), "{args}");
-    d.send("nav down");
-    // B: back to the game, lume-menu gets the end of its stdin, the group continues
-    d.send("nav b");
-    std::thread::sleep(Duration::from_millis(300));
-    assert_ne!(proc_state(pid), 'T');
-    let lines = fs::read_to_string(e.dir.join("menu.lines")).unwrap();
-    assert_eq!(lines, "Secret Name|Back to game|End game|0\nSecret Name|Back to game|End game|1\nclosed\n");
+    assert_eq!(args.trim(), format!("--serve {pid} --hints Select|Back --warn Force close"));
+    let open = ["menu Secret Name|Back to game|End game|0", "menu Secret Name|Back to game|End game|1", "menu -"];
+    assert_eq!(menu_lines(&e), [open, open].concat());
     assert!(!ra.cmds().iter().any(|c| c.starts_with("LUME_MENU")), "no widget: {:?}", ra.cmds());
-    assert_eq!(d.received(), ["capture on", "capture off"]);
+    assert_eq!(d.received(), ["capture on", "capture off", "capture on", "capture off"]);
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+    // one process for the whole game: the second opening started nothing new
+    assert_eq!(fs::read_to_string(e.dir.join("menu.starts")).unwrap().lines().count(), 1);
+    assert_eq!(menu_lines(&e).last().unwrap(), "closed");
+}
+
+#[test]
+fn a_tap_stops_a_runner_without_pause_before_the_menu_is_asked_for() {
+    // device-fixes 9.14: the game stops at once; lume-menu takes its time (here 300 ms) and
+    // the game is already frozen while it draws
+    let e = setup("stopfirst", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "sigterm", "");
+    let d_ = e.dir.display().to_string();
+    let p = e.dir.join("lume-menu");
+    fs::write(&p, format!("#!/bin/sh\nwhile IFS= read -r l; do case \"$l\" in\n'menu -') echo 'menu closed';;\n\
+                           'menu '*) cat /proc/$(cat \"{d_}/game\")/stat > \"{d_}/stat.at.open\"; sleep 0.3; echo 'menu ok';;\nesac; done\n")).unwrap();
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut run = spawn_logged(&e, ra.port);
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    std::thread::sleep(Duration::from_millis(400));
+    let stat = fs::read_to_string(e.dir.join("stat.at.open")).unwrap();
+    assert_eq!(stat.rsplit(')').next().unwrap().trim_start().chars().next(), Some('T'), "{stat}");
+    assert_eq!(proc_state(pid), 'T');
+    d.send("nav b");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_ne!(proc_state(pid), 'T');
+    assert!(!ra.cmds().iter().any(|c| c.starts_with("LUME_MENU")), "{:?}", ra.cmds());
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
 }

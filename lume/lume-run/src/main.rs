@@ -107,23 +107,29 @@ struct Overlay {
     menu: menu::Menu,
     /// how the menu paused the game (None: not paused by the menu)
     paused: Option<actions::Paused>,
+    /// the chord hint on the screen (drawn by lume-menu while Fn is held)
     hint: Option<String>,
     hud: Option<(hud::Hud, Instant)>,
-    /// `lume-menu --hud`, the bar drawn by the system over any game (None: not on the screen
-    /// yet; the next tick tries again, a game may not have a screen in its first second)
-    bar: Option<sysmenu::SysMenu>,
-    /// `lume-menu --hint`, the chord hint while Fn is held
-    hint_proc: Option<sysmenu::SysMenu>,
+    /// `lume-menu --serve` of this game (device-fixes 9.14): started with the game, it makes
+    /// its buffers once and draws the menu, the bar and the hint over any runner
+    server: Option<sysmenu::SysMenu>,
+    /// no new start of lume-menu before this (it ended or could not start)
+    server_retry: Option<Instant>,
+    /// the status bar was sent to lume-menu (a "bar -" takes it away)
+    bar_drawn: bool,
     /// `lume-menu --shot` of Fn+Y still writing its picture
     shots: Vec<std::process::Child>,
     lang: String,
-    /// the menu drawn by the system (lume-menu, D14), while it is open
-    sysmenu: Option<sysmenu::SysMenu>,
+    /// the menu is drawn by the system (lume-menu, D14) while it is open
+    menu_drawn: bool,
     /// the group was stopped for the system-drawn menu (SIGCONT when it closes)
     stopped_for_menu: bool,
     /// how the suspension paused the game (None: not paused by a suspension)
     sleep_paused: Option<actions::Paused>,
 }
+
+/// After lume-menu ended or did not start, how long before starting it again
+const SERVER_RETRY: Duration = Duration::from_secs(10);
 
 /// Local time as `YYMMDD-HHMMSS`, the suffix of a screenshot's name (RetroArch's own style,
 /// so the pictures of both ways sort together).
@@ -270,14 +276,20 @@ impl Run {
             paused: None,
             hint: None,
             hud: None,
-            bar: None,
-            hint_proc: None,
+            server: None,
+            server_retry: None,
+            bar_drawn: false,
             shots: Vec::new(),
             lang,
-            sysmenu: None,
+            menu_drawn: false,
             stopped_for_menu: false,
             sleep_paused: None,
         };
+        // lume-menu now, so its buffers are made as soon as the game has a screen, before the
+        // game fills the CMA (device-fixes 9.14); idle on its stdin after that
+        if self.menu_bin().is_some() {
+            self.server(&mut ov, child.pid);
+        }
         // the bar stays on from one game to the next (D6), in any runner: the system draws it
         if !l.menu && hud::load_shown(&self.hud_file()) {
             self.hud_show(&mut ov, child.pid, true);
@@ -292,7 +304,7 @@ impl Run {
                 fds.push(i.as_raw_fd());
             }
             // a picture of Fn+Y still running needs the tick that reaps it
-            let ticking = ov.hud.is_some() || ov.menu.is_open() || ov.hint.is_some() || !ov.shots.is_empty();
+            let ticking = ov.hud.is_some() || ov.menu.is_open() || !ov.shots.is_empty();
             let wake = match (deadline, ticking) {
                 (Some(d), true) => Some(d.min(next_tick)),
                 (Some(d), false) => Some(d),
@@ -355,13 +367,10 @@ impl Run {
                 next_tick = Instant::now() + TICK;
             }
         };
-        // first of all: lume-menu --hud holds a copy of the game's DRM file, which keeps the
-        // screen's master open until it is closed (the launcher could not take the screen)
-        if let Some(b) = ov.bar.take() {
-            b.close();
-        }
-        if let Some(p) = ov.hint_proc.take() {
-            p.close();
+        // first of all: lume-menu takes its bar off the screen and frees its buffers, so the
+        // launcher finds the screen as the game left it
+        if let Some(s) = ov.server.take() {
+            s.close();
         }
         // a picture of Fn+Y still being written holds the game's DRM file too
         for mut c in ov.shots.drain(..) {
@@ -418,30 +427,23 @@ impl Run {
             self.bar_text(ov, pid, &text);
         } else {
             ov.hud = None;
-            if let Some(b) = ov.bar.take() {
-                b.close();
+            if std::mem::take(&mut ov.bar_drawn) {
+                if let Some(s) = ov.server.as_mut() {
+                    s.send("bar -");
+                }
             }
             hud::panfrost_profiling(Path::new("/"), false);
         }
     }
 
-    /// One text of the bar: to lume-menu --hud, started when it is not running yet (a game
-    /// with no screen yet, or a lume-menu that ended: the next second tries again).
+    /// One text of the bar, to lume-menu (a game with no screen yet: lume-menu says so in the
+    /// log once, and the next second tries again).
     fn bar_text(&self, ov: &mut Overlay, pid: libc::pid_t, text: &str) {
-        if let Some(b) = ov.bar.as_mut() {
-            if b.update(text) {
-                return;
-            }
-            log("status bar: lume-menu --hud ended");
-            ov.bar = None;
-        }
-        let Some(bin) = self.menu_bin() else {
-            log("status bar: no lume-menu, the bar is not drawn");
-            return;
-        };
-        match sysmenu::SysMenu::start_hud(&bin, pid, text) {
-            Ok(b) => ov.bar = Some(b),
-            Err(why) => log(&format!("status bar not on the screen yet: {why}")),
+        match self.server(ov, pid).map(|s| s.send(&format!("bar {text}"))) {
+            Some(true) => ov.bar_drawn = true,
+            Some(false) => self.server_ended(ov, "status bar: lume-menu ended"),
+            None if self.menu_bin().is_none() => log("status bar: no lume-menu, the bar is not drawn"),
+            None => {}
         }
     }
 
@@ -451,16 +453,53 @@ impl Run {
         p.exists().then_some(p)
     }
 
+    /// `lume-menu --serve` of this game: the running one, or a new one when it ended (not
+    /// more than once every SERVER_RETRY); None without lume-menu.
+    fn server<'a>(&self, ov: &'a mut Overlay, pid: libc::pid_t) -> Option<&'a mut sysmenu::SysMenu> {
+        if ov.server.as_mut().is_some_and(|s| !s.alive()) {
+            self.server_ended(ov, "lume-menu ended");
+        }
+        if ov.server.is_none() {
+            if ov.server_retry.is_some_and(|t| Instant::now() < t) {
+                return None;
+            }
+            let bin = self.menu_bin()?;
+            use lume_core::gametext::{text, Text};
+            let hints = (text(&ov.lang, Text::HintSelect, ""), text(&ov.lang, Text::HintBack, ""));
+            let warn = text(&ov.lang, Text::ForceClose, "");
+            match sysmenu::SysMenu::serve(&bin, pid, (&hints.0, &hints.1), &warn) {
+                Ok(s) => ov.server = Some(s),
+                Err(why) => {
+                    log(&format!("lume-menu not started: {why}"));
+                    ov.server_retry = Some(Instant::now() + SERVER_RETRY);
+                    return None;
+                }
+            }
+        }
+        ov.server.as_mut()
+    }
+
+    /// lume-menu is gone or stuck: whatever it drew is forgotten, a new one comes later.
+    fn server_ended(&self, ov: &mut Overlay, why: &str) {
+        log(why);
+        if let Some(s) = ov.server.take() {
+            s.close();
+        }
+        ov.server_retry = Some(Instant::now() + SERVER_RETRY);
+        ov.bar_drawn = false;
+        ov.menu_drawn = false;
+        ov.hint = None;
+    }
+
     /// The menu's state on the screen: to lume-menu when it draws, else RetroArch's widget.
     fn draw_menu(&self, ov: &mut Overlay) {
         let t = ov.menu.draw_text();
-        if let Some(m) = ov.sysmenu.as_mut() {
-            if !t.is_empty() && !m.update(&t) {
-                log("lume-menu gone: the menu falls back to RetroArch's widget");
-                ov.sysmenu = None;
-            } else {
+        if ov.menu_drawn {
+            // the menu closes through close_sysmenu
+            if t.is_empty() || ov.server.as_mut().is_some_and(|s| s.send(&format!("menu {t}"))) {
                 return;
             }
+            self.server_ended(ov, "lume-menu gone: the menu falls back to RetroArch's widget");
         }
         self.ra(&if t.is_empty() { "LUME_MENU -".to_string() } else { format!("LUME_MENU {t}") });
     }
@@ -468,47 +507,65 @@ impl Run {
     /// Opens the system-drawn menu (D14): the group stopped, lume-menu on the game's screen.
     /// False when it could not (lume-menu missing or failing): the caller uses the widget.
     fn open_sysmenu(&self, pid: libc::pid_t, ov: &mut Overlay) -> bool {
-        let Some(bin) = self.menu_bin() else { return false };
+        if self.menu_bin().is_none() {
+            return false;
+        }
         if ov.paused != Some(actions::Paused::Stopped) {
             // a paused RetroArch still presents frames and would cover the menu
             proc::kill_group(pid, libc::SIGSTOP);
             ov.stopped_for_menu = true;
         }
-        use lume_core::gametext::{text, Text};
-        let hints = (text(&ov.lang, Text::HintSelect, ""), text(&ov.lang, Text::HintBack, ""));
-        let warn = text(&ov.lang, Text::ForceClose, "");
-        match sysmenu::SysMenu::start(&bin, pid, (&hints.0, &hints.1), &warn, &ov.menu.draw_text()) {
-            Ok(m) => {
-                ov.sysmenu = Some(m);
-                true
+        let line = format!("menu {}", ov.menu.draw_text());
+        let answer = match self.server(ov, pid) {
+            Some(s) => s.ask(&line, "menu ", sysmenu::OPEN_WAIT),
+            None => Err("not running".into()),
+        };
+        let why = match answer {
+            Ok(a) if a == "ok" => {
+                ov.menu_drawn = true;
+                return true;
             }
-            Err(why) => {
-                log(&format!("lume-menu: {why}: the menu falls back to RetroArch's widget"));
-                if ov.stopped_for_menu {
-                    proc::kill_group(pid, libc::SIGCONT);
-                    ov.stopped_for_menu = false;
-                }
-                false
+            Ok(a) => a.strip_prefix("fail").unwrap_or(&a).trim().to_string(),
+            Err(e) => {
+                // stuck or gone: a late answer must never count for the next opening
+                self.server_ended(ov, &format!("lume-menu: {e}"));
+                e
+            }
+        };
+        log(&format!("lume-menu: {why}: the menu falls back to RetroArch's widget"));
+        if ov.stopped_for_menu {
+            proc::kill_group(pid, libc::SIGCONT);
+            ov.stopped_for_menu = false;
+        }
+        false
+    }
+
+    /// The game's picture back from the system-drawn menu.
+    fn undraw_menu(&self, ov: &mut Overlay) {
+        if std::mem::take(&mut ov.menu_drawn) {
+            let r = ov.server.as_mut().map(|s| s.ask("menu -", "menu closed", sysmenu::CLOSE_WAIT));
+            if !matches!(r, Some(Ok(_))) {
+                // the end of its stdin makes it put the game's picture back; killed when stuck
+                self.server_ended(ov, "lume-menu did not give the screen back: ended");
             }
         }
     }
 
     /// Closes the system-drawn menu: the game's screen back, then the group continues.
     fn close_sysmenu(&self, pid: libc::pid_t, ov: &mut Overlay) {
-        if let Some(m) = ov.sysmenu.take() {
-            m.close();
-        }
+        self.undraw_menu(ov);
         if ov.stopped_for_menu {
             proc::kill_group(pid, libc::SIGCONT);
             ov.stopped_for_menu = false;
         }
     }
 
-    /// The hint goes away: `lume-menu --hint` gets the end of its stdin and gives the plane back.
+    /// The hint goes away (lume-menu gives its plane back).
     fn hide_hint(&self, ov: &mut Overlay) {
-        ov.hint = None;
-        if let Some(p) = ov.hint_proc.take() {
-            p.close();
+        if ov.hint.take().is_some() {
+            if let Some(s) = ov.server.as_mut() {
+                s.send("hint -");
+            }
         }
     }
 
@@ -555,7 +612,7 @@ impl Run {
         if ov.menu.is_open() {
             actions::to_daemon(input, lume_core::input::CAPTURE_ON);
             // the widget vanishes after 3 s without a renewal; lume-menu keeps its picture
-            if ov.sysmenu.is_none() {
+            if !ov.menu_drawn {
                 self.draw_menu(ov);
             }
         }
@@ -602,18 +659,16 @@ impl Run {
             Message::FnHold(table) => {
                 if ov.menu.is_open() {
                     // the menu is on the screen already
-                } else if let Some(bin) = self.menu_bin() {
-                    // drawn by the system over any game (lume-menu --hint), only while Fn is
-                    // held; the bar and the picture are the system's, so they are always listed
+                } else if self.menu_bin().is_some() {
+                    // drawn by the system over any game (lume-menu), only while Fn is held;
+                    // the bar and the picture are the system's, so they are always listed
                     let declared = |a: &str| matches!(a, "hud" | "screenshot") || l.action(a).is_some();
                     let app = lume_core::gametext::app_name(&l.runner);
                     let text = menu::hint_text(&ov.lang, &app, &table, &declared);
-                    match sysmenu::SysMenu::start_mode(&bin, "--hint", pid, &text) {
-                        Ok(p) => {
-                            ov.hint_proc = Some(p);
-                            ov.hint = Some(text);
-                        }
-                        Err(why) => log(&format!("hint not shown: {why}")),
+                    match self.server(ov, pid).map(|s| s.send(&format!("hint {text}"))) {
+                        Some(true) => ov.hint = Some(text),
+                        Some(false) => self.server_ended(ov, "hint not shown: lume-menu ended"),
+                        None => log("hint not shown: lume-menu not running"),
                     }
                 } else {
                     log(&format!("fn_hold ignored: no lume-menu to draw the hint (runner {})", l.runner));
@@ -667,7 +722,8 @@ impl Run {
                 }
                 // D14: drawn by the system on any runner, frozen or not; the widget otherwise
                 if !self.open_sysmenu(pid, ov) && !l.overlay {
-                    log(&format!("menu not shown: no lume-menu and runner {} draws no overlay", l.runner));
+                    let why = if self.menu_bin().is_some() { "lume-menu could not draw it" } else { "no lume-menu" };
+                    log(&format!("menu not shown: {why} and runner {} draws no overlay", l.runner));
                     ov.menu.state = menu::State::Closed;
                     if let Some(p) = ov.paused.take() {
                         actions::resume(p, self.ra_port, pid);
@@ -675,14 +731,14 @@ impl Run {
                     return;
                 }
                 actions::to_daemon(input, lume_core::input::CAPTURE_ON);
-                if ov.sysmenu.is_none() {
-                    // lume-menu got the first state when it started
+                if !ov.menu_drawn {
+                    // lume-menu got the first state with the opening
                     self.draw_menu(ov);
                 }
             }
             Effect::Close => {
                 actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
-                if ov.sysmenu.is_some() || ov.stopped_for_menu {
+                if ov.menu_drawn || ov.stopped_for_menu {
                     self.close_sysmenu(pid, ov);
                 } else {
                     self.draw_menu(ov);
@@ -709,10 +765,8 @@ impl Run {
             Effect::ForceClose => {
                 actions::to_daemon(input, lume_core::input::CAPTURE_OFF);
                 // the game's screen back before the kill (the plane keeps our buffer otherwise)
-                if ov.sysmenu.is_some() {
-                    if let Some(m) = ov.sysmenu.take() {
-                        m.close();
-                    }
+                if ov.menu_drawn {
+                    self.undraw_menu(ov);
                 } else {
                     self.draw_menu(ov);
                 }
