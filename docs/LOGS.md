@@ -506,6 +506,12 @@ O sono (device-fixes D11) deixa no log do kernel só o que não vira evento do `
 
 ```
 lume-input: no sleep service (/run/lume/sleep missing): power button request dropped
+lume-input: suspend request already pending
+lume-input: suspend 4: 1 of 2 client(s) answered within 2 s
+lume-input: resume 4: 37 queued event(s) dropped, 1 key(s) released
+lume-input: power tap within 1 s of the resume dropped: the press that woke the console
+lume-input: no resume within 60 s of suspend 4: input back
+lume-input: bad phase "hibernate 2"
 lume-sleep: suspend request dropped: busy (suspending 4)
 lume-sleep: suspend request dropped: the press that woke the console
 lume-sleep: suspend cancelled: power off requested
@@ -520,6 +526,11 @@ O pedido de suspensão feito durante uma sequência (um segundo toque, o item Su
 apagado no fim dela com a linha `busy (suspending <seq>)`. Com o botão segurado durante a
 espera dos clientes, a suspensão é cancelada (tudo volta, sem evento `sleep OK suspend`) e o
 desligamento roda em seguida.
+
+A linha `resume <seq>` sai a cada volta e conta o que o `lume-input` descartou ao acordar
+(achado da J1: a entrada acumulada). `no resume within 60 s` quer dizer que o `lume-sleep`
+avisou `suspend` e não avisou `resume` em 60 s de tempo acordado: o controle volta sozinho e
+os clientes recebem `resume <seq>`, para o console não ficar sem controle.
 
 ## Escolha do device tree no `boot/boot-<n>.log`
 

@@ -207,6 +207,18 @@ depois `mem` em `/sys/power/state`, e só vale num console que acordou 10 vezes 
    descarta tudo o que está na fila das origens, solta as teclas seguradas no controle virtual
    e ignora o botão de energia até vê-lo solto (o toque que acordou não vira outro pedido).
 
+**Lado do `lume-input` (tarefa 8.2):** a origem do botão vem da linha `power <nome>` do
+perfil (`axp20x-pek` no GA36, `rk805 pwrkey` no R36S; opcional, só a tecla `KEY_POWER` dela é
+lida); um `KEY_POWER` de outra origem também é o botão, e nunca vai para os jogos. O aviso
+`power_tap`/`power_hold` só sai quando o pedido foi criado (sem a pasta, ou com o pedido ainda
+pendente, fica só a linha no log). Soltar entre 1 s e 2 s não faz nada; segurado, o
+`power_hold` sai uma vez por aperto. Ao acordar, além do que está acima, os analógicos são
+relidos do kernel (o movimento feito dormindo foi descartado) e um toque começado até 1 s
+depois do `resume` não vira pedido (a mesma guarda do `lume-sleep`); segurar 2 s ainda
+desliga. Um `phase` repetido igual é ignorado, e um `phase` existente quando a pasta aparece
+não é seguido. Sem `resume` em 60 s de tempo acordado depois do `suspend`, o controle volta
+sozinho e os clientes recebem `resume <seq>`.
+
 ## Dock
 
 Favoritos (primeiro), os consoles que têm jogos, Recentes e Configurações (último). Um console
