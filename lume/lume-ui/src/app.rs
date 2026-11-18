@@ -1138,7 +1138,10 @@ impl<S: SystemAdapter> App<S> {
             }
             Overlay::Confirm { mut focus } => {
                 match a {
-                    Action::Left | Action::Right | Action::Up | Action::Down => focus ^= 1,
+                    // vertical options: Up picks the upper one (the action), Down the lower one
+                    // (Cancel); Left and Right do nothing (design D8)
+                    Action::Up => focus = 0,
+                    Action::Down => focus = 1,
                     Action::B => return None,
                     Action::A => {
                         if focus == 0 {
