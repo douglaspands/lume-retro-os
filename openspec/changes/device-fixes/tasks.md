@@ -35,13 +35,14 @@ sessão principal (merge, build, aparelho, aprovação do usuário).
 - kernel e DTS: 6.3 e 7.1 -> 8.1.
 - áudio (`mixer`, `jack`): 7.3 e 7.4 -> 7.2.
 
-**Ordem de merge que importa:** a 5.1 (pular a verificação com o volume limpo) só é mesclada
-depois de a 2.1 mostrar o bit limpo após um desligamento normal, ou junto da 5.2.
+**Ordem de merge que importa:** a 5.1 (pular a verificação com o volume limpo) é mesclada
+junto da 5.2 (decisão do usuário em 2026-11-18: a 2.1 não dá para medir no build atual e
+passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 
 | Nó | Depende de | Recursos | Executor | Modelo | Onda | Janela |
 |---|---|---|---|---|---|---|
 | 1.1 | — | — | AG | sonnet | 0 | |
-| 2.1 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
+| 2.1 | 5.1, 5.2 | GA36, R36S, USUARIO | PR | — | 10, 11 | J2, J3 |
 | 2.2 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
 | 2.3 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
 | 2.4 | — | GA36, R36S | PR | — | 0 | J1 |
@@ -58,8 +59,9 @@ depois de a 2.1 mostrar o bit limpo após um desligamento normal, ou junto da 5.
 | 3.4 | 1.4, 2.5 | — | AG | sonnet | 4 | |
 | 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
 | 9.5 | 1.4 | — | AG | sonnet | 4 | |
+| 9.6 | 1.4 | — | AG | sonnet (a aprovar) | 4 | J2 |
 | 5.1 | 3.1 | — | AG | opus | 5 | J2, J3 |
-| 5.2 | 1.4, 2.1 | — | AG | opus | 5 | J2, J3 |
+| 5.2 | 1.4 | — | AG | opus | 5 | J2, J3 |
 | 5.3 | 3.1 | — | AG | sonnet | 5 | J2, J3 |
 | 5.5 | 1.4, 2.2 | — | AG | sonnet | 5 | J2, J3 |
 | 6.3 | 1.4, 2.7 | — | AG | opus | 5 | J2 |
@@ -98,7 +100,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
   1.1 mapa --> 1.2 TREE console --> 1.3 TREE PC --> 1.4 TREE docs --+        |
                                                                     v        v
           +--> 1.5 J0 (lume push no GA36 com nomes antigos)
-          +--> 3.1 cartão --> 5.1, 5.3 ; 5.2 (2.1) ; 5.5 (2.2)
+          +--> 3.1 cartão --> 5.1 + 5.2, 5.3 ; 5.5 (2.2)
           +--> 4.1 protótipo (USUARIO) --+
           +--> 9.2 nav --> 5.4 Cartão ---+--> 8.5 Suspender --> 6.2 pontinho (ui)
           +--> 3.2 sono (2.3) --> 8.2 botão --> 9.4 calibração --> 6.1 brilho --> 7.2 volume
@@ -118,7 +120,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - **Onda 0:** 1.1 (AG); J1 com 2.1 a 2.7 (PR, build atual, sem código novo).
 - **Ondas 1, 2 e 3:** 1.2, 1.3 e 1.4, uma por onda e sozinhas (`TREE`). Antes da 1.2, nenhuma
   worktree aberta em `out/worktrees/`, de nenhuma change.
-- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1 e 9.5 (AG). A 4.1 termina com a aprovação
+- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1, 9.5 e 9.6 (AG). A 4.1 termina com a aprovação
   do usuário.
 - **Onda 5:** 5.1, 5.2, 5.3, 5.5, 6.3, 6.4, 7.1, 7.3, 7.4, 8.2, 8.3, 8.4, 8.6, 9.1, 9.2 e 9.3.
   A 8.4 só começa com a 3.1 da `lume-hud-actions` mesclada.
@@ -127,7 +129,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 **Janelas de aparelho:**
 - **J1** (build atual, nomes antigos; primeiro o GA36, depois o R36S com o mesmo cartão):
-  - bit do exFAT depois de desligar pelo menu, pelo botão e por corte (2.1);
+  - bit do exFAT: movido para a J2 e a J3 (2.1, decisão de 2026-11-18);
   - medição do read-ahead (2.2);
   - suspensão `mem`/`freeze` e corrente (2.3);
   - RTC depois de desligar (2.4);
@@ -152,7 +154,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 ## 2. Janela J1: provas no build atual
 
-- [ ] 2.1 Ler o `VolumeFlags` (deslocamento 106 do setor de boot da `ROMS`) depois de um desligamento pelo menu, de um pelo botão e de um corte de energia, no GA36 e no R36S. Verificação: tabela no `docs/BRINGUP-GA36.md` e no `docs/BRINGUP-R36S.md` com o bit em cada caso, e a decisão do D2 anotada no `design.md`.
+- [ ] 2.1 Ler o `VolumeFlags` (deslocamento 106 do setor de boot da `ROMS`) depois de um desligamento pelo menu, de um pelo botão e de um corte de energia, no GA36 e no R36S. **Movida para a J2 e a J3 (usuário, 2026-11-18):** o bit é lido pelos eventos da 5.1 (`clean: check skipped` / `dirty: checked`), e a 5.2 entra sempre (D2). Verificação: tabela no `docs/BRINGUP-GA36.md` e no `docs/BRINGUP-R36S.md` com o bit em cada caso, a partir dos eventos da 5.1.
 - [ ] 2.2 Medir o tempo de abrir uma ROM grande de PS1 e uma de arcade com `read_ahead_kb` em 128, 256, 512 e 1024, com o cache limpo entre as medidas, três vezes cada, nos dois consoles. Verificação: tabela no `design.md` (D6) só com os tempos por sistema, sem nome de jogo, e o valor escolhido (ou "nenhum ganho claro").
 - [ ] 2.3 Suspensão: `/sys/power/mem_sleep` de cada console; suspender pelo cabo com `freeze` e com `mem` (se houver), acordar pelo botão de energia (com o `wakeup-source` aplicado por overlay de teste, se faltar) 10 vezes cada, e a corrente da bateria suspenso em cada modo. Verificação: tabela no `design.md` (D11) com o modo escolhido por console e a corrente; falhas de despertar registradas.
 - [ ] 2.4 Acertar a hora pelo cabo, desligar 5 minutos, ligar e ler o `rtc0`, nos dois consoles. Verificação: resultado no `design.md` (D15): a hora sobreviveu ou não.
@@ -197,7 +199,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 - [ ] 8.1 DTS e kernel (D11): `wakeup-source` no `axp20x-pek` (GA36) e no `rk805-pwrkey` (R36S), o resto sem despertar, e as opções que a 2.3 pediu. Verificação: testes do DTS e do `.config` dos dois consoles; na J2 e na J3, só o botão de energia acorda.
 - [ ] 8.2 `lume-input`, botão de energia (D11): lê a fonte do botão de cada console; toque solto antes de 1 s manda `power_tap`; segurado 2 s manda `power_hold` uma vez; nada vai para os jogos. Verificação: testes do `lume-input` em modo `--test` (toque curto, segurado 2 s, segurado e solto em 1,5 s, repetição sem duplicar); no aparelho, J2 e J3.
-- [ ] 8.3 Serviço `lume-sleep` (D11) no `lume-power`: a sequência do D11 com prazos, o modo do console pela 3.2, a volta na ordem inversa, a falha que devolve o estado de antes com a tela acesa, eventos `sleep OK|FAIL`; o `power_hold` vai ao desligamento da sessão. Verificação: testes do shell com sysfs falso e clientes falsos (ordem dos passos, cliente mudo não trava a suspensão, falha do kernel volta com a tela acesa, `power_hold` chama o desligamento); no aparelho, suspender e acordar 20 vezes seguidas, com e sem jogo (J2, J3).
+- [ ] 8.3 Serviço `lume-sleep` (D11) no `lume-power`: a sequência do D11 com prazos, o gadget USB solto do UDC antes do `freeze` e religado depois (achado da J1 no GA36: sem isso o `musb` não volta e o PC perde o console), a entrada acumulada durante a suspensão descartada ao acordar (achado da J1), o modo do console pela 3.2, a volta na ordem inversa, a falha que devolve o estado de antes com a tela acesa, eventos `sleep OK|FAIL`; o `power_hold` vai ao desligamento da sessão. Verificação: testes do shell com sysfs falso e clientes falsos (ordem dos passos, cliente mudo não trava a suspensão, falha do kernel volta com a tela acesa, `power_hold` chama o desligamento); no aparelho, suspender e acordar 20 vezes seguidas, com e sem jogo (J2, J3).
 - [ ] 8.4 `lume-run` (D11): `suspend` pausa o jogo pelo caminho de pausa da `lume-hud-actions` 3.1 e `resume` continua sozinho. Verificação: teste em `lume/lume-run/tests/run.rs` com o RetroArch falso (pausa no `suspend`, continua no `resume`, runner sem pausa usa `SIGSTOP`/`SIGCONT`); no aparelho, J2 e J3.
 - [ ] 8.5 `lume-ui` (D11): item Suspender acima de Desligar, que pede a suspensão sem confirmação; para de desenhar no `suspend` e redesenha no `resume`; textos en/pt/es. Verificação: testes de tela (item na ordem, A pede a suspensão, nada desenhado entre `suspend` e `resume`) e o teste de régua do protótipo; no aparelho, J2 e J3.
 - [ ] 8.6 Governor (D11): cenário `suspend` no `lume-power`, aplicado no `suspend` e trocado de volta no `resume`, e a bateria lida no `freeze` para o desligamento pelo crítico. Verificação: testes do `power` com sysfs falso (cenário aplicado e restaurado, crítico durante o `freeze` desliga); no aparelho, J2 e J3.
@@ -208,6 +210,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - [ ] 9.2 Navegação vertical (D8): no `lume-ui`, esquerda e direita não trocam de item em listas e confirmações verticais, só mudam o valor de um seletor ou passam para a coluna ao lado; no `lume-run`, o mesmo na confirmação do menu do jogo. Verificação: testes em `lume/lume-ui/tests/ui.rs` e `lume/lume-run/src/menu.rs` (confirmação ignora esquerda e direita, cima escolhe a opção de cima, seletor continua mudando, ▶ na lista ainda entra no painel); no aparelho, J2 e J3.
 - [ ] 9.3 Nós de entrada (D16): regra do udev com `0640 root input` para o controle do aparelho, o controle virtual e os botões; controles USB com `0660`. Verificação: teste da regra; no aparelho, como `game`, escrever no controle virtual falha, e o launcher e o RetroArch continuam lendo; um controle USB com vibração funciona, se houver um (J2).
 - [ ] 9.4 `lume-input`, calibração dos analógicos (D17): repouso lido nas primeiras amostras, `valor - repouso + centro` com a zona morta do perfil; repouso fora da faixa usa o centro do DTS e registra o aviso. Verificação: testes do `lume-input` com eixos falsos (repouso deslocado vira centro, stick segurado no início usa o DTS e avisa); no aparelho, os sticks soltos no centro no teste de entrada do RetroArch (J2, J3).
+- [ ] 9.6 `lume-usb`, rede depois de um VBUS falso (achado da J1 no GA36, 2026-11-18): duas vezes o `axp20x-usb` leu VBUS = 0 por um instante com o UDC em `configured`; o serviço tratou como "PC desconectado" e a rede `usb0` só voltou ao recolocar o cabo. O serviço passa a decidir pela troca de estado do UDC (não pelo VBUS sozinho) e religa a rede quando o UDC volta a `configured`. Verificação: teste do `usb-gadget` com sysfs falso (VBUS 0 com o UDC `configured` não derruba a rede; UDC que sai e volta religa); no aparelho, J2.
 - [ ] 9.5 `flashed` (D18): `mark_flashed()` resolve o `latest` antes de criar o link, e o `flash` avisa quando roda com `sudo`. Verificação: teste do `flash` pelo `latest` (o link aponta para o build real) e do aviso.
 
 ## 10. Build e provas nos consoles

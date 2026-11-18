@@ -90,11 +90,20 @@ um mês.
 
 ### D2. Desligamento que deixa o volume limpo (condicionado à prova)
 
-A prova 2.1 (J1) lê o bit depois de três desligamentos: pelo menu, pelo botão e por um
-corte de energia. Se o desligamento normal deixar o bit ligado, o fim da sessão remonta a
-`/storage` como somente leitura depois do `sync` e antes do `poweroff`; se nem isso bastar,
-desmonta. A suspensão (D11) usa o mesmo `sync`, mas não remonta, porque o console volta ao
-mesmo ponto.
+O kernel (`fs/exfat/super.c`, 6.18.62) liga o *VolumeDirty* ao montar e só o limpa no
+`exfat_put_super` (desmontar) e no `exfat_reconfigure` (qualquer remontagem, depois de um
+`sync_filesystem`); o `sync` sozinho não limpa. O `mount-ro` do runlevel `shutdown` remonta
+a `/storage` só leitura, então o desligamento pelo menu deve deixar o bit limpo, a menos que
+a remontagem falhe (arquivo aberto para escrita depois do `killprocs`). Medido no GA36 com a
+`/storage` montada: `VolumeFlags` = `0x0002` (sujo, como esperado).
+
+**Decisão (usuário, 2026-11-18):** o build atual não tem como ler o bit antes do `fsck` do
+boot seguinte (o initramfs fica dentro do kernel e não registra o bit), e ler o cartão no PC
+arrisca a corrupção do leitor USB. Por isso a 5.2 entra sempre, junto da 5.1: o fim da
+sessão remonta a `/storage` como somente leitura depois do `sync` e antes do `poweroff` (se
+falhar, desmonta, e registra a falha sem impedir o desligamento). A tabela da 2.1 sai dos
+eventos da 5.1 na J2 e na J3. A suspensão (D11) usa o mesmo `sync`, mas não remonta, porque
+o console volta ao mesmo ponto.
 
 ### D3. Pedido de verificação dentro da ROMS
 
