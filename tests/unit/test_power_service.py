@@ -52,6 +52,7 @@ def make_sysfs(root: Path, cores=4, gov="schedutil") -> Path:
     gpu.mkdir(parents=True)
     (gpu / "available_frequencies").write_text("144000000 240000000 384000000\n")
     (gpu / "max_freq").write_text("384000000\n")
+    (gpu / "min_freq").write_text("144000000\n")
     bat = root / "class/power_supply/axp20x-battery"
     bat.mkdir(parents=True)
     (bat / "type").write_text("Battery\n")
@@ -264,7 +265,9 @@ def test_cpu0_is_never_taken_offline(tmp_path, services):
 
 def test_no_class_uses_game_with_the_floor_and_menu_without_profile_is_the_kernel_default(
         tmp_path, services):
-    s = services(tmp_path, conf=GA36_CONF.read_text()).start()
+    s = services(tmp_path, conf=GA36_CONF.read_text())
+    fake_controller(s)                       # the GA36 game profiles run controller=auto
+    s.start()
     s.wait_event("profile: boot -> default")
     assert s.writes() == []  # no boot profile: nothing changes
     assert "current -" in s.state()
@@ -760,6 +763,84 @@ def test_service_stopped_takes_the_controller_down(tmp_path, services, powerctl)
     assert s.sysfs(f"{CF}/scaling_governor") == "userspace"  # the respawn applies its profile
 
 
+# ---- bottleneck controller and per-game profiles (D17, D18, nodes 2.5 and 2.6) ----
+
+AUTO_PROFILES = PROFILES + (
+    "profile auto controller=auto gpu_min=144000000 gpu_max=384000000\n"
+    "profile gpulock min=816000 gpu_min=240000000 gpu_max=240000000\n"
+    "class snes auto\n"
+)
+KEY = "0123456789abcdef"
+
+
+def test_auto_profile_starts_the_controller_with_the_gpu_range(tmp_path, services):
+    s = services(tmp_path, conf=AUTO_PROFILES)
+    prio_setup(s)
+    args = fake_controller(s)
+    s.start()
+    s.send("game snes snes9x2005_plus")
+    s.wait_event("profile: game -> auto")
+    s.wait(lambda: lines_of(args), "controller started")
+    a = lines_of(args)[0].split()
+    assert a[a.index("--mode") + 1] == "auto"
+    assert a[a.index("--gpu-min") + 1] == "144000000" and a[a.index("--gpu-max") + 1] == "384000000"
+    assert a[a.index("--gpu") + 1] == str(s.sys / "class/devfreq/1c40000.gpu")
+    assert a[a.index("--state") + 1] == str(s.run / "powerctl.state")
+    s.send("end")
+    s.wait_event("power OK controller:")
+
+
+def test_load_profile_does_not_get_the_auto_mode(tmp_path, services):
+    s = services(tmp_path, conf=CTL_PROFILES)
+    prio_setup(s)
+    args = fake_controller(s)
+    s.start()
+    s.send("game psx pcsx_rearmed")
+    s.wait(lambda: lines_of(args), "controller started")
+    assert "--mode" not in lines_of(args)[0].split()
+
+
+def test_gpu_min_and_max_are_applied_raising_the_ceiling_first(tmp_path, services):
+    s = services(tmp_path, conf=AUTO_PROFILES, card=f"game {KEY} gpulock\n")
+    prio_setup(s)
+    s.start()
+    (s.sys / "class/devfreq/1c40000.gpu/max_freq").write_text("144000000\n")
+    s.clear_writes()
+    s.send(f"game nes fceumm {KEY}")
+    s.wait_event("profile: game -> gpulock")
+    w = [x for x in s.writes() if "devfreq" in x]
+    assert w == ["class/devfreq/1c40000.gpu/max_freq 240000000",
+                 "class/devfreq/1c40000.gpu/min_freq 240000000"]
+    s.clear_writes()
+    s.send("end")
+    s.wait_event("profile: menu -> menu")
+    w = [x for x in s.writes() if "devfreq" in x]
+    # the menu profile (gpu_max=144000000, default floor): the floor goes down first
+    assert w == ["class/devfreq/1c40000.gpu/min_freq 144000000",
+                 "class/devfreq/1c40000.gpu/max_freq 144000000"]
+
+
+def test_game_key_wins_over_core_and_class_and_keeps_the_floor(tmp_path, services):
+    s = services(tmp_path, conf=AUTO_PROFILES + "core snes9x2005_plus gba\n",
+                 card=f"profile mine gpu_min=384000000\ngame {KEY} mine\n")
+    prio_setup(s)
+    s.start()
+    s.send(f"game snes snes9x2005_plus {KEY}")
+    s.wait_event("profile: game -> mine")
+    assert s.sysfs(f"{CF}/scaling_min_freq") == "600000"        # the GA36 game floor
+    assert f"game card {KEY} mine" in s.state()
+    s.send("end")
+    s.send("game snes snes9x2005_plus ffffffffffffffff")       # another game: the core
+    s.wait_event("profile: game -> gba")
+    s.send("end")
+    s.send("game snes snes9x2005_plus")                         # an old 3-word writer
+    s.wait_event("profile: game -> gba", count=2)
+    s.send("end")
+    s.send("game snes snes9x2005_plus not-a-key")               # a bad key is ignored
+    s.wait_event("profile: game -> gba", count=3)
+    assert not any("ffff" in e or "not-a-key" in e for e in s.events())
+
+
 def test_vm_without_cpufreq_or_profiles(tmp_path, services):
     s = services(tmp_path, conf=None, board="vm")
     shutil.rmtree(s.sys / "devices/system/cpu/cpu0/cpufreq")
@@ -780,9 +861,9 @@ def test_ga36_conf_initial_values():
     entries = [line.split("#")[0].split() for line in text.splitlines()]
     entries = [e for e in entries if e]
     assert ["limit", "game_min=600000"] in entries
-    assert ["profile", "gba", "min=1008000"] in entries
-    assert ["profile", "heavy", "min=1008000"] in entries
-    assert ["profile", "game"] in entries
+    assert ["profile", "gba", "min=1008000", "controller=auto"] in entries
+    assert ["profile", "heavy", "min=1008000", "controller=auto"] in entries
+    assert ["profile", "game", "controller=auto"] in entries
     for sysid in ("n64", "psp", "nds"):
         assert ["class", sysid, "heavy"] in entries
     assert ["class", "gba", "gba"] in entries

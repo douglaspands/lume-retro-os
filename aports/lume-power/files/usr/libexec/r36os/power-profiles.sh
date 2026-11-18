@@ -5,17 +5,20 @@
 # Two layers: the image console file (/usr/share/lume/power/<console>.conf) and, on top of it,
 # the optional card file (ROMS/system/lume/power.conf). Grammar, one entry per line; blank lines
 # and `#` comments (also trailing) are ignored:
-#   profile <name> key=value...   keys: governor min max cores gpu_max up_threshold
+#   profile <name> key=value...   keys: governor min max cores gpu_min gpu_max up_threshold
 #                                 sampling_down_factor rate_limit_us controller
-#                                 (min/max in kHz, gpu_max in Hz, controller=load)
+#                                 (min/max in kHz, gpu_min/gpu_max in Hz, controller=load|auto;
+#                                 a range of one step locks that resource, D18)
 #   class <system> <profile>      profile of a system class
 #   core <core> <profile>         exception per libretro core
+#   game <key> <profile>          profile of one game (D18); ONLY in the card file. <key> is the
+#                                 16 hex digits of lume_core::power::game_key (never a name)
 #   battery warn=<%> critical=<%>
 #   enabled 0|1
 #   idle after=<seconds>          0 disables
 #   limit game_min=<khz>          game clock floor; ONLY in the image file (ignored on the card)
 #
-# Game floor: a profile used in a game (`game`, and the targets of `class` and `core`, from any
+# Game floor: a profile used in a game (`game`, and the targets of `class`, `core`, `game`, from any
 # layer) without `min` gets min=<game_min>; with min (or max) below game_min the profile is
 # refused. A profile only named for boot/menu/idle is not subject to the floor. If game_min is
 # not an OPP the whole image file is refused and the effective floor is the largest OPP <= 600000.
@@ -23,7 +26,8 @@
 # pp_load <image.conf> [card.conf]
 #   stdout, one record per line (origin is image or card):
 #     <kind> <origin> <args...>        accepted entry, merged (card wins per key: profile <name>,
-#                                      class <system>, core <name>, battery, idle, enabled);
+#                                      class <system>, core <name>, game <key>, battery, idle,
+#                                      enabled);
 #                                      profiles come with the floor already in min=
 #     refused <origin> <kind> <name|-> <reason...>
 #   An entry the card refuses leaves the image entry for the same key in force. Each refused line
@@ -49,6 +53,14 @@ pp_is_uint() {
 	'' | *[!0-9]*) return 1 ;;
 	esac
 	return 0
+}
+
+# pp_is_game_key <word>: exactly 16 lowercase hex digits (lume_core::power::game_key)
+pp_is_game_key() {
+	case $1 in
+	[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+	esac
+	return 1
 }
 
 pp_cpufreq() { echo "$PP_SYS/devices/system/cpu/cpu0/cpufreq"; }
@@ -173,6 +185,8 @@ pp_check_profile() {
 	_PP_ADD=
 	_pc_min=
 	_pc_max=
+	_pc_gmin=
+	_pc_gmax=
 	for _pc_kv in "$@"; do
 		case $_pc_kv in
 		*=*) ;;
@@ -195,15 +209,16 @@ pp_check_profile() {
 			{ [ "$_pc_v" -ge 1 ] && [ "$_pc_v" -le "$(pp_cpu_count)" ]; } ||
 				{ _pp_no "cores=$_pc_v out of range 1..$(pp_cpu_count)"; return; }
 			;;
-		gpu_max)
-			pp_is_uint "$_pc_v" || { _pp_no "gpu_max=$_pc_v is not a number"; return; }
-			pp_gpu_freq_ok "$_pc_v" || { _pp_no "gpu_max=$_pc_v not in the devfreq table"; return; }
+		gpu_min | gpu_max)
+			pp_is_uint "$_pc_v" || { _pp_no "$_pc_k=$_pc_v is not a number"; return; }
+			pp_gpu_freq_ok "$_pc_v" || { _pp_no "$_pc_k=$_pc_v not in the devfreq table"; return; }
+			if [ "$_pc_k" = gpu_min ]; then _pc_gmin=$_pc_v; else _pc_gmax=$_pc_v; fi
 			;;
 		up_threshold | sampling_down_factor | rate_limit_us)
 			pp_is_uint "$_pc_v" || { _pp_no "$_pc_k=$_pc_v is not a number"; return; }
 			;;
 		controller)
-			[ "$_pc_v" = load ] || { _pp_no "controller=$_pc_v unknown"; return; }
+			[ "$_pc_v" = load ] || [ "$_pc_v" = auto ] || { _pp_no "controller=$_pc_v unknown"; return; }
 			;;
 		*)
 			_pp_no "unknown key $_pc_k"
@@ -229,6 +244,10 @@ pp_check_profile() {
 		_pp_no "min $_pc_min above max $_pc_max"
 		return
 	fi
+	if [ -n "$_pc_gmin" ] && [ -n "$_pc_gmax" ] && [ "$_pc_gmin" -gt "$_pc_gmax" ]; then
+		_pp_no "gpu_min $_pc_gmin above gpu_max $_pc_gmax"
+		return
+	fi
 	return 0
 }
 
@@ -237,7 +256,7 @@ pp_check_profile() {
 # pass 0: collect the profiles a game can use (any layer, valid or not: the conservative side)
 _pp_cb_targets() {
 	case $1 in
-	class | core) [ $# -eq 3 ] && _PP_GAME="$_PP_GAME|$3|" ;;
+	class | core | game) [ $# -eq 3 ] && _PP_GAME="$_PP_GAME|$3|" ;;
 	esac
 	return 0
 }
@@ -262,6 +281,20 @@ _pp_validate() {
 		_pv_n=$1
 		shift
 		pp_check_profile "$_pv_isg" "$_PP_FLOOR" "$@"
+		;;
+	game)
+		if [ "$_PP_ORIGIN" != card ]; then
+			_pp_no "game is only accepted in the card file"
+		elif [ $# -ne 2 ]; then
+			_pp_no "game line needs <key> <profile>"
+		elif ! pp_is_game_key "$1"; then
+			_pp_no "game key $1 is not 16 hex digits"
+		else
+			case "$_PP_OK" in
+			*"|$2|"*) ;;
+			*) _pp_no "profile $2 is refused or unknown" ;;
+			esac
+		fi
 		;;
 	class | core)
 		if [ $# -ne 2 ]; then
@@ -310,7 +343,7 @@ _pp_cb_entry() {
 	limit | profile)
 		[ "$_PP_PASS" = 1 ] || return 0
 		;;
-	class | core | battery | idle | enabled)
+	class | core | game | battery | idle | enabled)
 		[ "$_PP_PASS" = 2 ] || return 0
 		;;
 	*)
@@ -324,14 +357,14 @@ _pp_cb_entry() {
 		;;
 	esac
 	case $_pe_kind in
-	profile | class | core) _pe_key="$_pe_kind ${2:-}" ;;
+	profile | class | core | game) _pe_key="$_pe_kind ${2:-}" ;;
 	*) _pe_key=$_pe_kind ;;
 	esac
 	case "$_PP_SEEN" in
 	*"|$_pe_key|"*) return 0 ;; # taken by the card entry already
 	esac
 	case $_pe_kind in
-	profile | class | core) _pe_name=${2:--} ;;
+	profile | class | core | game) _pe_name=${2:--} ;;
 	*) _pe_name=- ;;
 	esac
 	_pp_validate "$@"

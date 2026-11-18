@@ -132,22 +132,32 @@ pw_ctl_supervise() {
 	[ "$stop" = 1 ] || printf 'controller %s\n' "$key" >&3
 }
 
-# controller_start <profile args...>: after a game profile with controller=load was applied.
-# The profile min (game floor included) is already in scaling_min_freq; the max goes along.
+# controller_start <profile args...>: after a game profile with controller=load|auto was
+# applied. The profile min (game floor included) is already in scaling_min_freq; the max goes
+# along. controller=auto (D17) also gets the GPU range the profile applied (PW_GMIN, PW_GMAX)
+# and, on panfrost, the per-client GPU time (`profiling`, off by default) is switched on.
 controller_start() {
-	local kv max=
+	local kv max= mode=$PW_CTL d
 	for kv in "$@"; do
 		case $kv in
 		max=*) max=${kv#max=} ;;
 		esac
 	done
+	set --
+	if [ "$mode" = auto ]; then
+		set -- --mode auto ${PW_GMIN:+--gpu-min $PW_GMIN} ${PW_GMAX:+--gpu-max $PW_GMAX} \
+			${PW_GPU_DIR:+--gpu $PW_GPU_DIR}
+		for d in "$PP_SYS"/bus/platform/drivers/panfrost/*/profiling; do
+			[ ! -w "$d" ] || pw_write "$d" 1
+		done
+	fi
 	PW_CTL_KEY=
 	read -r PW_CTL_KEY </proc/sys/kernel/random/uuid 2>/dev/null
 	PW_CTL_N=$((PW_CTL_N + 1))
 	PW_CTL_KEY=${PW_CTL_KEY:-$PW_CTL_N}
 	# shellcheck disable=SC2086
 	pw_ctl_supervise "$PW_CTL_KEY" --sys "$PP_SYS" --proc "$PW_PROC" --cgroup "$PW_CGROOT" \
-		--owner "$$" ${max:+--max $max} &
+		--owner "$$" ${max:+--max $max} --state "$PW_RUN/powerctl.state" "$@" &
 	PW_CTL_SUP=$!
 }
 
@@ -166,7 +176,7 @@ controller_exited() {
 	[ -n "$PW_CTL_SUP" ] && [ "$1" = "$PW_CTL_KEY" ] || return 0
 	wait "$PW_CTL_SUP"
 	PW_CTL_SUP=
-	[ "$PW_CTL" = load ] || return 0
+	[ -n "$PW_CTL" ] || return 0
 	# shellcheck disable=SC2086
 	pw_apply "$PW_GAME" $PW_ARGS
 	PW_CTL=
@@ -261,7 +271,9 @@ pw_defaults() {
 	g=$(pp_gpu_file)
 	PW_GPU_DIR=${g%/available_frequencies}
 	if [ -r "$PW_DEFAULT_FILE" ]; then
-		read -r PW_D_GOV PW_D_MIN PW_D_MAX PW_D_GPU <"$PW_DEFAULT_FILE"
+		read -r PW_D_GOV PW_D_MIN PW_D_MAX PW_D_GPU PW_D_GPUMIN <"$PW_DEFAULT_FILE"
+		# a file from an older service has no GPU min: the lowest step of the table
+		[ -n "$PW_D_GPUMIN" ] || PW_D_GPUMIN=-
 	else
 		pw_read "$PW_CF/scaling_governor"
 		PW_D_GOV=${PW_V:--}
@@ -269,17 +281,26 @@ pw_defaults() {
 		PW_D_MIN=${PW_V:--}
 		pw_read "$PW_CF/cpuinfo_max_freq"
 		PW_D_MAX=${PW_V:--}
-		PW_D_GPU=-
+		PW_D_GPU=- PW_D_GPUMIN=-
 		if [ -n "$PW_GPU_DIR" ]; then
 			pw_read "$PW_GPU_DIR/max_freq"
 			PW_D_GPU=${PW_V:--}
+			pw_read "$PW_GPU_DIR/min_freq"
+			PW_D_GPUMIN=${PW_V:--}
 		fi
-		echo "$PW_D_GOV $PW_D_MIN $PW_D_MAX $PW_D_GPU" >"$PW_DEFAULT_FILE"
+		echo "$PW_D_GOV $PW_D_MIN $PW_D_MAX $PW_D_GPU $PW_D_GPUMIN" >"$PW_DEFAULT_FILE"
+	fi
+	if [ "$PW_D_GPUMIN" = - ] && [ -n "$PW_GPU_DIR" ]; then
+		for PW_D_GPUMIN in $(pp_table "$PW_GPU_DIR/available_frequencies"); do
+			break
+		done
+		[ -n "$PW_D_GPUMIN" ] || PW_D_GPUMIN=-
 	fi
 	[ "$PW_D_GOV" != - ] || PW_D_GOV=
 	[ "$PW_D_MIN" != - ] || PW_D_MIN=
 	[ "$PW_D_MAX" != - ] || PW_D_MAX=
 	[ "$PW_D_GPU" != - ] || PW_D_GPU=
+	[ "$PW_D_GPUMIN" != - ] || PW_D_GPUMIN=
 }
 
 # pw_param <governor> <key> <value>: per-policy tunables when the governor has them, else global
@@ -293,9 +314,9 @@ pw_param() {
 
 # pw_apply <is_game 0|1> <key=value...>: the profile over the kernel default, in the D4 order
 pw_apply() {
-	local game=$1 kv gov min max cores gpu params ctl i
+	local game=$1 kv gov min max cores gpu gmin params ctl i
 	shift
-	gov=$PW_D_GOV min=$PW_D_MIN max=$PW_D_MAX cores=$PW_NCPU gpu=$PW_D_GPU params= ctl=
+	gov=$PW_D_GOV min=$PW_D_MIN max=$PW_D_MAX cores=$PW_NCPU gpu=$PW_D_GPU gmin=$PW_D_GPUMIN params= ctl=
 	for kv in "$@"; do
 		case $kv in
 		governor=*) gov=${kv#*=} ;;
@@ -303,6 +324,7 @@ pw_apply() {
 		max=*) max=${kv#*=} ;;
 		cores=*) cores=${kv#*=} ;;
 		gpu_max=*) gpu=${kv#*=} ;;
+		gpu_min=*) gmin=${kv#*=} ;;
 		controller=*) ctl=${kv#*=} ;;
 		*=*) params="$params $kv" ;;
 		esac
@@ -340,8 +362,19 @@ pw_apply() {
 		[ ! -e "$PW_CPU/cpu$i/online" ] || pw_write "$PW_CPU/cpu$i/online" 0
 		i=$((i + 1))
 	done
-	# 6. GPU (only at the boundaries: every profile change is one)
-	[ -z "$PW_GPU_DIR" ] || [ -z "$gpu" ] || pw_write "$PW_GPU_DIR/max_freq" "$gpu"
+	# 6. GPU (only at the boundaries: every profile change is one; inside a game only the
+	# bottleneck controller moves the GPU floor, D17). Same order rule as the CPU: a floor
+	# above the current ceiling raises the ceiling first.
+	[ -n "$PW_GPU_DIR" ] || return 0
+	pw_read "$PW_GPU_DIR/max_freq"
+	if [ -n "$gmin" ] && [ -n "$PW_V" ] && [ "$gmin" -gt "$PW_V" ]; then
+		[ -z "$gpu" ] || pw_write "$PW_GPU_DIR/max_freq" "$gpu"
+		pw_write "$PW_GPU_DIR/min_freq" "$gmin"
+	else
+		[ -z "$gmin" ] || pw_write "$PW_GPU_DIR/min_freq" "$gmin"
+		[ -z "$gpu" ] || pw_write "$PW_GPU_DIR/max_freq" "$gpu"
+	fi
+	PW_GMIN=$gmin PW_GMAX=$gpu
 	return 0
 }
 
@@ -446,7 +479,10 @@ pw_resolve() {
 	p=$PW_SCENARIO
 	if [ "$PW_GAME" = 1 ]; then
 		p=game
-		if pw_rec core "$PW_CORE"; then
+		# precedence (D18): game key, core, class, then the `game` profile
+		if [ -n "$PW_GAMEKEY" ] && pw_rec game "$PW_GAMEKEY"; then
+			p=$PW_F
+		elif pw_rec core "$PW_CORE"; then
 			p=$PW_F
 		elif pw_rec class "$PW_SYSTEM"; then
 			p=$PW_F
@@ -478,10 +514,10 @@ pw_switch() {
 	local rec
 	pw_resolve
 	rec="$PW_SCENARIO|$PW_NAME|$PW_GAME|$PW_ARGS"
-	[ "$PW_CTL" != load ] || controller_stop
+	[ -z "$PW_CTL" ] || controller_stop
 	# shellcheck disable=SC2086
 	pw_apply "$PW_GAME" $PW_ARGS
-	[ "$PW_CTL" != load ] || [ "$PW_SCENARIO" != game ] || controller_start $PW_ARGS
+	[ -z "$PW_CTL" ] || [ "$PW_SCENARIO" != game ] || controller_start $PW_ARGS
 	# the battery is read here, in the new scenario and before the profile event, so the
 	# event marks a finished step; the main loop skips its own read after a switch
 	pw_battery
@@ -497,16 +533,18 @@ pw_message() {
 	case $1 in
 	menu | idle)
 		[ "$PW_SCENARIO" != "$1" ] || return 0
-		PW_SCENARIO=$1 PW_SYSTEM= PW_CORE=
+		PW_SCENARIO=$1 PW_SYSTEM= PW_CORE= PW_GAMEKEY=
 		pw_switch 0
 		;;
 	game)
-		PW_SCENARIO=game PW_SYSTEM=${2:--} PW_CORE=${3:--}
+		# `game <system> <core> [<key>]`: the key (D18) is optional, older writers send 3 words
+		PW_SCENARIO=game PW_SYSTEM=${2:--} PW_CORE=${3:--} PW_GAMEKEY=
+		! pp_is_game_key "${4:-}" || PW_GAMEKEY=$4
 		pw_switch 1
 		priority_schedule
 		;;
 	end)
-		PW_SCENARIO=menu PW_SYSTEM= PW_CORE=
+		PW_SCENARIO=menu PW_SYSTEM= PW_CORE= PW_GAMEKEY=
 		pw_switch 1
 		;;
 	controller) controller_exited "$2" ;;
@@ -617,7 +655,7 @@ pw_open_fifo() {
 }
 
 cmd_run() {
-	local w1 w2 w3 rest rc t0
+	local w1 w2 w3 w4 rest rc t0
 	mkdir -p "$PW_RUN"
 	PW_CONSOLE=$(board)
 	[ -n "$PW_CONSOLE" ] || PW_CONSOLE=unknown
@@ -626,7 +664,7 @@ cmd_run() {
 	PW_HAS_CPUFREQ=0
 	[ ! -d "$PW_CF" ] || PW_HAS_CPUFREQ=1
 	PW_NCPU=$(pp_cpu_count)
-	PW_SCENARIO=boot PW_SYSTEM= PW_CORE= PW_REC= PW_CTL= PW_BAT= PW_WARNED=0 PW_CRITN=0 PW_DOWN=0
+	PW_SCENARIO=boot PW_SYSTEM= PW_CORE= PW_GAMEKEY= PW_REC= PW_CTL= PW_BAT= PW_WARNED=0 PW_CRITN=0 PW_DOWN=0
 	pw_defaults
 	pw_read "$PW_MANUAL_FILE"
 	PW_MANUAL=$PW_V
@@ -637,13 +675,13 @@ cmd_run() {
 	while :; do
 		pw_uptime
 		t0=$PW_UP
-		w1= w2= w3=
+		w1= w2= w3= w4=
 		PW_BAT_READ=0
 		priority_wait
-		read -t "$PW_WAIT" -r w1 w2 w3 rest <&3
+		read -t "$PW_WAIT" -r w1 w2 w3 w4 rest <&3
 		rc=$?
 		if [ -n "$w1" ]; then
-			pw_message "$w1" "$w2" "$w3"
+			pw_message "$w1" "$w2" "$w3" "$w4"
 		elif [ "$rc" -ne 0 ]; then
 			# a timeout takes PW_TICK s; returning at once means the FIFO broke: never spin
 			pw_uptime

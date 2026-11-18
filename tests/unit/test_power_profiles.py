@@ -235,6 +235,46 @@ def test_enabled_and_idle_values_are_checked(tmp_path):
     assert any(x.startswith("refused card battery -") for x in got)
 
 
+def test_gpu_min_and_controller_auto(tmp_path):
+    sys = make_sysfs(tmp_path / "sys")
+    img = write(tmp_path / "x.conf",
+                "profile a controller=auto gpu_min=144000000 gpu_max=432000000\n"
+                "profile b gpu_min=1\n"
+                "profile c gpu_min=432000000 gpu_max=144000000\n"
+                "profile d controller=turbo\n")
+    rc, out, _ = run(sys, f'pp_load "{img}"')
+    assert rc == 1
+    got = lines(out)
+    assert "profile image a controller=auto gpu_min=144000000 gpu_max=432000000" in got
+    assert "refused image profile b gpu_min=1 not in the devfreq table" in got
+    assert "refused image profile c gpu_min 432000000 above gpu_max 144000000" in got
+    assert "refused image profile d controller=turbo unknown" in got
+
+
+KEY = "0123456789abcdef"
+
+
+def test_game_lines_only_on_the_card_with_a_hex_key(tmp_path):
+    sys = make_sysfs(tmp_path / "sys")
+    img = write(tmp_path / "ga36.conf", VALID + f"game {KEY} heavy\n")
+    card = write(tmp_path / "power.conf",
+                 f"profile mine min=240000\ngame {KEY} light\n"
+                 "game Some-Game-Name light\ngame fedcba9876543210 nope\n"
+                 "game 1111222233334444 mine\n")
+    rc, out, _ = run(sys, f'pp_load "{img}" "{card}"')
+    assert rc == 1
+    got = lines(out)
+    assert f"game card {KEY} light" in got
+    assert f"refused image game {KEY} game is only accepted in the card file" not in got  # card won
+    assert "refused card game Some-Game-Name game key Some-Game-Name is not 16 hex digits" in got
+    assert "refused card game fedcba9876543210 profile nope is refused or unknown" in got
+    # a profile used by a game line is a game profile: the floor applies
+    assert "refused card profile mine min 240000 below game floor 600000" in got
+    img2 = write(tmp_path / "b.conf", VALID + f"game {KEY} heavy\n")
+    _, out2, _ = run(sys, f'pp_load "{img2}"')
+    assert f"refused image game {KEY} game is only accepted in the card file" in lines(out2)
+
+
 def test_state_header_and_records(tmp_path):
     sys = make_sysfs(tmp_path / "sys")
     img = write(tmp_path / "ga36.conf", VALID)
