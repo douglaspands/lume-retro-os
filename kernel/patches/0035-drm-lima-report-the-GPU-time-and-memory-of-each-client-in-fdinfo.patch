@@ -1,12 +1,13 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Douglas Panhota <douglaspands@gmail.com>
 Date: Tue, 17 Nov 2026 23:30:00 -0300
-Subject: [PATCH] drm/lima: report the GPU time of each client in fdinfo
+Subject: [PATCH] drm/lima: report the GPU time and memory of each client in
+ fdinfo
 
 The status bar over a game (lume-hud-actions D6) shows the use of the
-GPU from the drm-engine-* keys of the game's DRM file, as panfrost
-reports them on the R36S. lima reported nothing, so the GA36 bar could
-only show the GPU clock.
+GPU and the memory the game holds on it from the drm-* keys of the
+game's DRM file, as panfrost reports them on the R36S. lima reported
+nothing, so the GA36 bar could only show the GPU clock.
 
 Count, per DRM file, the time each job ran on the GP and on the PP
 pipe, from run_job to the done interrupt as the CPU sees it, and print
@@ -15,9 +16,13 @@ small reference counted object: each task holds a reference, so a job
 still on the GPU when its file is closed adds its time to memory that
 is still there. A task that ends in error adds nothing.
 
+Print the memory keys too (drm_show_memory_stats): the buffer objects
+get a status callback (resident when backed by pages) and an rss one
+(a heap buffer counts only the part it grew to).
+
 
 diff --git a/drivers/gpu/drm/lima/lima_drv.c b/drivers/gpu/drm/lima/lima_drv.c
-index 65210ab..4c390e5 100644
+index 65210ab..b1926ab 100644
 --- a/drivers/gpu/drm/lima/lima_drv.c
 +++ b/drivers/gpu/drm/lima/lima_drv.c
 @@ -10,6 +10,7 @@
@@ -79,7 +84,7 @@ index 65210ab..4c390e5 100644
  err_out0:
  	kfree(priv);
  	return err;
-@@ -241,9 +267,25 @@ static void lima_drm_driver_postclose(struct drm_device *dev, struct drm_file *f
+@@ -241,9 +267,28 @@ static void lima_drm_driver_postclose(struct drm_device *dev, struct drm_file *f
  
  	lima_ctx_mgr_fini(&priv->ctx_mgr);
  	lima_vm_put(priv->vm);
@@ -100,12 +105,15 @@ index 65210ab..4c390e5 100644
 +		   (u64)atomic64_read(&priv->usage->elapsed_ns[lima_pipe_gp]));
 +	drm_printf(p, "drm-engine-pp:\t%llu ns\n",
 +		   (u64)atomic64_read(&priv->usage->elapsed_ns[lima_pipe_pp]));
++
++	/* drm-total-memory, drm-resident-memory, ...: the buffers of this file */
++	drm_show_memory_stats(p, file);
 +}
 +
  static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
  	DRM_IOCTL_DEF_DRV(LIMA_GET_PARAM, lima_ioctl_get_param, DRM_RENDER_ALLOW),
  	DRM_IOCTL_DEF_DRV(LIMA_GEM_CREATE, lima_ioctl_gem_create, DRM_RENDER_ALLOW),
-@@ -254,7 +296,11 @@ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
+@@ -254,7 +299,11 @@ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
  	DRM_IOCTL_DEF_DRV(LIMA_CTX_FREE, lima_ioctl_ctx_free, DRM_RENDER_ALLOW),
  };
  
@@ -118,7 +126,7 @@ index 65210ab..4c390e5 100644
  
  /*
   * Changelog:
-@@ -269,6 +315,7 @@ static const struct drm_driver lima_drm_driver = {
+@@ -269,6 +318,7 @@ static const struct drm_driver lima_drm_driver = {
  	.ioctls             = lima_drm_driver_ioctls,
  	.num_ioctls         = ARRAY_SIZE(lima_drm_driver_ioctls),
  	.fops               = &lima_drm_driver_fops,
@@ -163,10 +171,41 @@ index 6706c19..917d092 100644
  
  struct lima_submit {
 diff --git a/drivers/gpu/drm/lima/lima_gem.c b/drivers/gpu/drm/lima/lima_gem.c
-index 9722b84..2430291 100644
+index 9722b84..9a7374c 100644
 --- a/drivers/gpu/drm/lima/lima_gem.c
 +++ b/drivers/gpu/drm/lima/lima_gem.c
-@@ -345,6 +345,8 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
+@@ -208,8 +208,30 @@ static int lima_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
+ 	return drm_gem_shmem_mmap(&bo->base, vma);
+ }
+ 
++/* for the drm-*-memory keys of fdinfo: a buffer with pages is resident */
++static enum drm_gem_object_status lima_gem_status(struct drm_gem_object *obj)
++{
++	struct lima_bo *bo = to_lima_bo(obj);
++
++	if (drm_gem_is_imported(obj) || bo->base.pages)
++		return DRM_GEM_OBJECT_RESIDENT;
++	return 0;
++}
++
++/* a heap buffer grows on demand: only the part already backed by pages counts */
++static size_t lima_gem_rss(struct drm_gem_object *obj)
++{
++	struct lima_bo *bo = to_lima_bo(obj);
++
++	if (bo->heap_size)
++		return bo->base.pages ? bo->heap_size : 0;
++	return bo->base.pages ? obj->size : 0;
++}
++
+ static const struct drm_gem_object_funcs lima_gem_funcs = {
+ 	.free = lima_gem_free_object,
++	.status = lima_gem_status,
++	.rss = lima_gem_rss,
+ 	.open = lima_gem_object_open,
+ 	.close = lima_gem_object_close,
+ 	.print_info = drm_gem_shmem_object_print_info,
+@@ -345,6 +367,8 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
  	if (err)
  		goto err_out1;
  

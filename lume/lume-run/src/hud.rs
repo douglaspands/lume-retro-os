@@ -5,13 +5,14 @@
 //! in white, and a thin divider between groups (the user's choice, 2026-11-17):
 //!
 //! ```text
-//! FPS 59.7|CPU 47% 1008|GPU 62%|MEM 124/492 sw 20|BAT 74% 1.9W 2:40
+//! FPS 59.7|CPU 47% 1008|GPU 62% 38M|MEM 124/492 sw 20|BAT 74% 1.9W 2:40
 //! ```
 //!
 //! `--` stands for a value that cannot be read and `--:--` for no estimate yet; charging,
 //! `BAT 74% + 0:50` (the time until full). FPS: the game's frames per second, from the frame
 //! counter of RetroArch's GET_STATUS between two samples. CPU: the use (mean of the cores) and
-//! the clock in MHz. MEM is used/total and the swap only when in use, in MiB.
+//! the clock in MHz. GPU: the use (else the clock in MHz) and the memory the game holds on it
+//! in MiB (system RAM: the GPU has none of its own), from the game's DRM fdinfo. MEM is used/total and the swap only when in use, in MiB.
 //!
 //! Every path hangs from `root` (`/` on the console), so the tests use fake trees.
 
@@ -172,6 +173,29 @@ impl Hud {
         Some(pct.round().clamp(0.0, 100.0) as u32)
     }
 
+    /// The memory the game holds on the GPU, in MiB: `drm-resident-memory` of its DRM file
+    /// (else `drm-total-memory`), printed by panfrost and by lima with kernel patch 0035. On
+    /// these consoles the GPU has no memory of its own: these are buffers in the system RAM.
+    fn gpu_mem(&mut self) -> Option<u64> {
+        if self.drm_fd.is_none() {
+            self.drm_fd = Some(self.find_drm_fd());
+        }
+        let fd = self.drm_fd.clone().flatten()?;
+        let info = read(&self.path(&format!("/proc/{}/fdinfo/{fd}", self.pid)))?;
+        let value = |key: &str| -> Option<u64> {
+            let line = info.lines().find(|l| l.starts_with(key))?;
+            let mut f = line.split(':').nth(1)?.split_whitespace();
+            let n: u64 = f.next()?.parse().ok()?;
+            Some(match f.next().unwrap_or("") {
+                "KiB" => n / 1024,
+                "MiB" => n,
+                "GiB" => n * 1024,
+                _ => n / (1024 * 1024),
+            })
+        };
+        value("drm-resident-memory:").or_else(|| value("drm-total-memory:"))
+    }
+
     fn mem(&self) -> Option<(u64, u64, u64)> {
         let text = read(&self.path("/proc/meminfo"))?;
         let get = |k: &str| -> Option<u64> {
@@ -288,6 +312,12 @@ impl Hud {
             Some(g) => format!("{g}%"),
             None => self.gpu_mhz().map(|m| m.to_string()).unwrap_or_else(|| "--".into()),
         };
+        // the memory the game holds on the GPU (the user, 2026-11-17: to find the bottleneck);
+        // with an M, as the use and the clock have no unit
+        let gpu = match self.gpu_mem() {
+            Some(m) => format!("{gpu} {m}M"),
+            None => gpu,
+        };
         let mem = self
             .mem()
             .map(|(u, t, s)| if s > 0 { format!("{u}/{t} sw {s}") } else { format!("{u}/{t}") })
@@ -386,6 +416,29 @@ mod tests {
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
         h.frames(Some(1060), 1.0);
         assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
+    }
+
+    #[test]
+    fn gpu_memory_from_the_fdinfo() {
+        let d = tree("gpumem");
+        stat(&d, 0, 0);
+        gpu(&d, &[("gp", 0), ("pp", 0)]);
+        let info = fs::read_to_string(d.join("proc/42/fdinfo/7")).unwrap();
+        // the kernel prints KiB below 1 MiB of rounding and MiB above (drm_print_memory_stats)
+        fs::write(d.join("proc/42/fdinfo/7"), format!("{info}drm-total-memory:\t40 MiB\ndrm-resident-memory:\t39424 KiB\n")).unwrap();
+        let mut h = Hud::new(&d, 42);
+        h.sample(0.0);
+        gpu(&d, &[("gp", 100_000_000), ("pp", 500_000_000)]);
+        let info = fs::read_to_string(d.join("proc/42/fdinfo/7")).unwrap();
+        fs::write(d.join("proc/42/fdinfo/7"), format!("{info}drm-total-memory:\t40 MiB\ndrm-resident-memory:\t39424 KiB\n")).unwrap();
+        assert!(h.sample(1.0).contains("|GPU 50% 38M|"), "{}", h.sample(1.0));
+        // only the total (no status callback): that one
+        let d2 = tree("gpumem-total");
+        gpu(&d2, &[("gp", 0)]);
+        let info = fs::read_to_string(d2.join("proc/42/fdinfo/7")).unwrap();
+        fs::write(d2.join("proc/42/fdinfo/7"), format!("{info}drm-total-memory:\t12 MiB\n")).unwrap();
+        let mut h2 = Hud::new(&d2, 42);
+        assert!(h2.sample(0.0).contains(" 12M|"), "{}", h2.sample(0.0));
     }
 
     #[test]
