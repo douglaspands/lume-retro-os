@@ -40,7 +40,15 @@ menu do sistema da `device-fixes` já mesclado.
 | 5.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
 | 5.2 | — | — | AG | opus (a aprovar: toca o boot e o fim da sessão) | 1 | J1, J2 |
 | 5.3 | 5.1, 5.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
-| 4.1 | 2.1, 2.2, 2.3, 3.3, 5.3 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 6.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 6.2 | — | GA36 | AG+PR | opus (a aprovar: root e senhas) | 1 | J1 |
+| 6.3 | 6.1, 6.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
+| 7.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 7.2 | `device-fixes` 3.4 | — | AG | opus (a aprovar: caminho de som do jogo) | 1 | J1, J2 |
+| 7.3 | 7.1, 7.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
+| 8.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 8.2 | 8.1, `device-fixes` 9.9 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
+| 4.1 | 2.1, 2.2, 2.3, 3.3, 5.3, 6.3, 7.3, 8.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | J2 |
 
@@ -60,9 +68,9 @@ Modelos aprovados pelo usuário em 2026-11-17.
 ```
 
 **Ondas:**
-- Onda 0: 1.1, 1.4, 3.1, 5.1 (AG, em paralelo; a 3.1 e a 5.1 terminam com a aprovação do usuário).
-- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2, 5.2.
-- Onda 2: 2.1, 2.3, 3.3, 5.3.
+- Onda 0: 1.1, 1.4, 3.1, 5.1, 6.1, 7.1, 8.1 (AG, em paralelo; os protótipos terminam com a aprovação do usuário).
+- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2, 5.2, 6.2, 7.2, 8.2.
+- Onda 2: 2.1, 2.3, 3.3, 5.3, 6.3, 7.3.
 - Onda 3: 4.1 (build dos pacotes, fila única de CPU).
 - Onda 4: 4.2 (janela J1). Onda 5: 4.3 (janela J2).
 
@@ -95,6 +103,23 @@ Modelos aprovados pelo usuário em 2026-11-17.
 - [ ] 5.1 Protótipo das telas de carregamento (`docs/lume-launcher/prototipo/`): (1) inicialização do sistema; (2) carregamento do jogo, do A no launcher até o primeiro quadro; (3) finalização do jogo, da gravação da SRAM até a volta ao launcher; (4) encerramento e reinício do sistema; (5) tarefa demorada genérica (verificação e TRIM do cartão, indexação das listas, `push`, migrações). Todas com barra de progresso; **o tipo de barra de cada tela é decidido com o usuário tela a tela** (por etapas conhecidas, por bytes, ou indeterminada quando não há como medir); temas, três idiomas e medidas a 640x480 no `design-das-telas.md`. Verificação: o usuário aprova cada tela e o tipo de barra no navegador (aprovação anotada com a data).
 - [ ] 5.2 Fonte do progresso: um protocolo único e barato para quem tem etapas publicar o andamento (por exemplo um arquivo em `/run/lume/progress/` com etapa, total e texto, lido pela tela), usado pelo boot (só as etapas que ele já registra: nada novo no caminho do boot, P-58), pelo `lume-run` (core carregado, conteúdo carregado, primeiro quadro pelo contador de quadros), pelo fim da sessão (gravar, `sync`, remontar, desligar) e pelos scripts demorados. Verificação: testes do formato e de cada publicador com relógio falso; o boot não fica mais lento (tempo de boot medido antes e depois na J1).
 - [ ] 5.3 Desenho das telas no sistema (o `lume-ui` ou uma tela leve própria onde o `lume-ui` ainda não roda, como no initramfs e no fim do boot), no tema ativo, com a barra aprovada na 5.1. Verificação: testes de tela de cada uma com o progresso falso da 5.2 e a régua igual à tabela da 5.1; no aparelho, J1 e J2 (cada tela vista, sem piscar entre elas e o launcher ou o jogo).
+
+## 6. Wi-Fi completo nas Configurações (P-66, incluído pelo usuário em 2026-11-18)
+
+- [ ] 6.1 Protótipo do painel Wi-Fi: ligar e desligar, rede conectada (nome e endereço), procurar redes (nome, sinal, cadeado), redes salvas com Conectar e Esquecer, e o teclado da tela para a senha (maiúsculas, números e símbolos, mostrada como pontos); temas, três idiomas, régua a 640x480. Verificação: o usuário aprova no navegador.
+- [ ] 6.2 Acesso à rede pelo usuário `game`: conferir no GA36 se o `nmcli` liga, procura, conecta e apaga sem polkit e se as redes sobrevivem ao reboot; senão, o ajudante root `lume-netd` (verbos fixos, socket em `/run/lume/`, senha por stdin ou arquivo `0600`, nunca em argumento nem log); autoconexão no boot e quando o adaptador aparece, fora do caminho do boot. Verificação: testes com backend falso (lista, conectar, senha errada, esquecer, argv sem a senha).
+- [ ] 6.3 `lume-ui`, painel Wi-Fi e teclado da tela, com as chamadas numa thread com tempo limite. Verificação: testes de tela com o backend falso; no aparelho (J1), conectar com o dongle RTL8821CU, reboot com a rede salva, e a prova do SSH pela rede (código novo derruba o antigo, `root` sem senha recusado).
+
+## 7. Bluetooth nas Configurações, com foco em fone (P-67, incluído pelo usuário em 2026-11-18)
+
+- [ ] 7.1 Protótipo do painel Bluetooth: ligar e desligar, pareados (Conectar, Desconectar, Esquecer), procurar só a pedido (15 s, fones primeiro), escolher = parear, confiar e conectar. Verificação: o usuário aprova no navegador.
+- [ ] 7.2 Som no fone Bluetooth com `bluez-alsa` (sem PulseAudio nem PipeWire): o ALSA padrão vai para o fone enquanto conectado e volta ao alto-falante quando ele cai, sem reiniciar o jogo; as teclas de volume mexem no fone (uma saída a mais na escala da `device-fixes` 3.4); latência do A2DP medida. Verificação: testes com backend falso da troca de saída; no aparelho (J1), som do launcher e de um jogo no fone e a volta ao alto-falante.
+- [ ] 7.3 `lume-ui`, painel Bluetooth; um controle pareado pelo painel continua virando o jogador seguinte. Verificação: testes de tela com backend falso; no aparelho (J1), parear um fone e um controle.
+
+## 8. Modo avançado: acesso completo ao RetroArch (P-101, incluído pelo usuário em 2026-11-18)
+
+- [ ] 8.1 Protótipo da opção "Modo avançado" nas Configurações (com confirmação vertical e aviso do que muda); o que o modo libera além do RetroArch fica decidido com o usuário no protótipo. Verificação: o usuário aprova no navegador.
+- [ ] 8.2 Com o modo ligado, o script do frontend desliga a `lume_menu_lock` (patch da `device-fixes` 9.9) e mostra de novo os itens da tela principal do RetroArch; com ele desligado, volta a trava; o valor fica no cartão e vale a partir do próximo jogo. Verificação: testes do script (as chaves certas em cada modo, o valor sobrevive ao reboot); no aparelho (J1), entrar na tela principal do RetroArch só com o modo ligado.
 
 ## 4. Build e provas nos consoles
 

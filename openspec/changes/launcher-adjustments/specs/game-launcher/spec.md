@@ -65,6 +65,27 @@ O sistema MUST mostrar uma tela própria do Lume, no tema ativo e com barra de p
 - **WHEN** o console liga com a tela de inicialização
 - **THEN** o tempo de boot até o launcher não aumenta em relação ao boot sem ela
 
+### Requirement: Wi-Fi nas Configurações
+As Configurações MUST permitir ligar e desligar o Wi-Fi, procurar redes, conectar com senha pelo teclado da tela e esquecer redes salvas, só com o controle. A senha MUST NOT aparecer em argumento de processo nem em log.
+
+#### Scenario: Conectar a uma rede nova
+- **WHEN** o usuário escolhe uma rede com cadeado, digita a senha e confirma
+- **THEN** o console conecta, a rede fica salva e reconecta sozinha depois do reboot
+
+### Requirement: Bluetooth nas Configurações
+As Configurações MUST permitir ligar e desligar o Bluetooth, procurar a pedido, parear, conectar, desconectar e esquecer aparelhos. Com um fone conectado, o som MUST ir para ele e voltar ao alto-falante quando ele desconecta, sem reiniciar o jogo.
+
+#### Scenario: Fone Bluetooth
+- **WHEN** o usuário pareia um fone pelo painel e abre um jogo
+- **THEN** o som do jogo sai no fone, as teclas de volume mexem nele, e ao desligar o fone o som volta ao alto-falante
+
+### Requirement: Modo avançado
+As Configurações MUST oferecer um "Modo avançado", desligado de fábrica, que, ligado com confirmação, libera o menu completo do RetroArch durante o jogo; desligado, o menu do RetroArch MUST ficar preso ao Quick Menu.
+
+#### Scenario: Liberar o RetroArch
+- **WHEN** o usuário liga o Modo avançado e abre o menu do RetroArch num jogo
+- **THEN** ele consegue sair do Quick Menu para a tela principal do RetroArch, e com o modo desligado não consegue
+
 ## MODIFIED Requirements
 
 ### Requirement: Ícones de console próprios
