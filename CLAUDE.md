@@ -94,8 +94,11 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
   recursos exclusivos que usa, o executor e a onda. As regras completas estão em
   `openspec/config.yaml` (`rules.tasks` e `operations.apply`).
 - Recursos exclusivos deste projeto: `CPU` (um build pesado por vez, sob a proteção de calor),
-  `ARCH:<arch>` (um `r36os pkg` por arquitetura), `GA36`, `R36S`, `USUARIO` (ação física ou
-  olho humano) e `MERGE` (um merge por vez).
+  `ARCH:<arch>` (um build de pacotes por arquitetura), `GA36`, `R36S`, `USUARIO` (ação física
+  ou olho humano), `MERGE` (um merge por vez) e `TREE` (nó que mexe no repositório inteiro,
+  como uma troca de nomes: roda sozinho, sem nenhuma worktree aberta).
+- Várias changes no mesmo branch dividem esses recursos e as janelas de aparelho; um nó `TREE`
+  de uma delas bloqueia os nós das outras e atualiza as tarefas abertas delas.
 - Executar onda por onda: o código de nós independentes vai em paralelo, cada um na sua
   worktree em `out/worktrees/<nó>`; builds numa fila única; as provas que precisam do usuário
   ficam juntas em janelas de aparelho. Vários subagentes ao mesmo tempo, ou a ferramenta
