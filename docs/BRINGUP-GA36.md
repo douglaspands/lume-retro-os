@@ -430,6 +430,12 @@ gastava **30%** com o `rate_limit_us` padrão do kernel (366 µs); com 50 ms, 6,
 **DRAM (P-23):** o retrato mostra `PLL_DDR1` com sigma-delta ligado e o clock efetivo de 540 MHz
 (controlador a 270 MHz), sem variação.
 
+**Provas à mão do usuário (2026-11-18, J3):** o menu do sistema (Fn) abre durante um jogo com o
+vídeo em thread; a marca de carga aparece e some ao ligar e desligar o carregador; os jogos de
+CPS-1 e de GBA que tinham queda rodam lisos no perfil com o controlador por gargalo. As provas
+com a bateria acabando de verdade (aviso e desligamento) ficaram para o P-98, por decisão do
+usuário.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |

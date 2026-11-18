@@ -125,9 +125,10 @@ cartão; ordem J1, J3, J2, J4):
   thread). 5.3/5.4: o `ga36.conf` já leva o controlador por gargalo e os `rate_limit_us`; o piso
   do GBA (1008 MHz, decisão do usuário) ficou, mas com o vídeo em thread o controlador rodou uma
   corrida de GBA a 912 MHz sem perder velocidade: decidir com o usuário.
-- 5.5, para o usuário: o menu do sistema (Fn) com o vídeo em thread (o Fn injetado pelo cabo não
-  abre o menu), a marca de carga, e jogar de verdade os jogos que tinham queda (CPS-1, GBA) para
-  sentir a diferença.
+- 5.5: as provas à mão do usuário passaram (2026-11-18): o menu do sistema (Fn) abre no jogo com
+  o vídeo em thread, a marca de carga aparece e some, e os jogos de CPS-1 e de GBA que tinham
+  queda rodam lisos. **O GA36 está fechado**; falta o ciclo do R36S (6.1 a 6.4, J2 e J4), que
+  também marca os itens provados só no GA36 (1.2, 2.2, 2.3, 3.2, 4.2, 5.x).
 - **Bateria fora desta change (decisão do usuário, 2026-11-18):** as sessões sem carregador da
   5.2 (corrente por classe e candidato) e o aviso e o desligamento com a bateria acabando de
   verdade da 5.5 e da J4 ficam para a change futura de aprendizado da bateria (P-98). Aqui vale
