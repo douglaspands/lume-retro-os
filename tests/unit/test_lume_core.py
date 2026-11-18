@@ -107,6 +107,9 @@ EDITED_AFTER_MOVE = {
     "usr/share/r36os/factory/retroarch/retroarch.cfg",
     "usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg",
     "usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg",
+    # game-governor P-93: threaded video on both consoles
+    "usr/share/r36os/retroarch-ga36.cfg",
+    "usr/share/r36os/retroarch-r36s.cfg",
 }
 
 
