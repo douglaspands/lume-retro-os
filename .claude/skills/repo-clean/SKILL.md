@@ -1,11 +1,11 @@
 ---
 name: repo-clean
-description: Libera o espaço das sobras de build do r36os (árvores de kernel de conjuntos de patches antigos, imagens arquivadas antigas, cópia descomprimida do flash, pastas de trabalho do abuild, caches do Python) sem tocar no que não se refaz. Use quando o usuário pedir para limpar o repositório, liberar espaço em disco, ou quando `out/` ou `.cache` estiverem grandes.
+description: Libera o espaço das sobras de build do lume (árvores de kernel de conjuntos de patches antigos, imagens arquivadas antigas, cópia descomprimida do flash, pastas de trabalho do abuild, caches do Python) sem tocar no que não se refaz. Use quando o usuário pedir para limpar o repositório, liberar espaço em disco, ou quando `out/` ou `.cache` estiverem grandes.
 ---
 
-# Limpeza do repositório r36os
+# Limpeza do repositório lume
 
-A limpeza é feita pelo comando do projeto `uv run r36os clean` (`src/r36os/clean.py`, testes em
+A limpeza é feita pelo comando do projeto `uv run lume clean` (`src/lume_tool/clean.py`, testes em
 `tests/unit/test_clean.py`). Ele sabe o que um build novo recria e o que não se refaz.
 **Nunca apague à mão** (`rm`, `rmtree`, gerenciador de arquivos): as regras ficam no código,
 testadas, e o guardrail barra `rm -rf`.
@@ -14,7 +14,7 @@ testadas, e o guardrail barra `rm -rf`.
 
 1. **Simular** (padrão, não apaga nada):
    ```
-   uv run r36os clean
+   uv run lume clean
    ```
    Mostra duas listas com tamanhos: **a remover** e **para revisão** (nunca removida).
 2. **Conferir a lista "a remover"** antes de seguir:
@@ -31,7 +31,7 @@ testadas, e o guardrail barra `rm -rf`.
    irreversível; não confirme sozinho.
 4. **Apagar** só com o OK do usuário:
    ```
-   uv run r36os clean --yes
+   uv run lume clean --yes
    ```
 5. **Lista de revisão** (o comando não apaga):
    - entradas desconhecidas em `out/` (testes avulsos, como `out/kpatch-work`): pergunte ao
@@ -46,7 +46,7 @@ testadas, e o guardrail barra `rm -rf`.
 | Gerações antigas do kernel | `.cache/src/linux-<versão>-<hash>/`, `.cache/kbuild/<placa>-<hash>/`, árvores de outra versão do kernel (`linux-<outra>` e `linux-<outra>.git`) | o layout novo tem uma árvore (`src/linux-<versão>/` + `linux-<versão>.git`) e uma pasta de build por arquitetura (`kbuild/armv7`, `kbuild/aarch64`); o próprio build apaga as antigas no início da etapa do kernel e diz numa linha o espaço liberado (`cache: removed N old kernel generations, freed X GiB`) |
 | Imagens arquivadas antigas | `out/images/<imagem>/<carimbo>/` | ficam a `latest`, a `flashed`, as N mais novas e as citadas nos documentos |
 | Imagem descomprimida do flash | `.cache/flash/*.img` | o `flash` descomprime de novo a partir do `.img.zst` arquivado |
-| Pastas de trabalho do abuild | `aports/*/{src,pkg,tmp}` | o `r36os pkg` baixa (do `distfiles`) e monta de novo |
+| Pastas de trabalho do abuild | `aports/*/{src,pkg,tmp}` | o `lume pkg` baixa (do `distfiles`) e monta de novo |
 | Caches do Python | `__pycache__`, `.pytest_cache` | recriados na próxima execução |
 
 ## O que nunca sai
@@ -54,11 +54,11 @@ testadas, e o guardrail barra `rm -rf`.
 - `var/`: ROMs de teste do usuário (privadas; não citar nomes nem caminhos de jogos).
 - `out/repo`: repositório local de pacotes (horas de compilação sob `qemu-user`).
 - `out/r36s-factory`, `out/r36s-bootlogs`: provas tiradas do aparelho, não se refazem.
-- No cache (`.cache`, ou `$R36OS_CACHE`): `ccache`, `distfiles`, `abuild` (chaves de assinatura),
+- No cache (`.cache`, ou `$LUME_CACHE`): `ccache`, `distfiles`, `abuild` (chaves de assinatura),
   `vendor`, `vm`, `cargo`, `upstream`, a árvore do kernel atual (`src/linux-<versão>/` e
   `linux-<versão>.git`) e as pastas de build `kbuild/armv7` e `kbuild/aarch64`.
 - Qualquer pasta `*.antes-1.2` (linhas de base renomeadas pelo usuário): só aparecem na lista de
-  revisão, nunca são apagadas, nem pelo build nem pelo `r36os clean`.
+  revisão, nunca são apagadas, nem pelo build nem pelo `lume clean`.
 - `.ctx/`, `.venv/`: índice e ambiente do `ctx` (para o índice, `ctx doctor --fix`).
 - Imagens de container do podman: são compartilhadas com outros projetos da máquina.
 
@@ -66,4 +66,4 @@ testadas, e o guardrail barra `rm -rf`.
 
 Relatar ao usuário o espaço liberado (última linha do comando) e o que ficou na lista de
 revisão. Se aparecer um tipo novo de sobra que se repete, acrescente a regra em
-`src/r36os/clean.py` com teste, não um comando avulso.
+`src/lume_tool/clean.py` com teste, não um comando avulso.
