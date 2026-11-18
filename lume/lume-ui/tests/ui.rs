@@ -1127,9 +1127,38 @@ fn settings_adapters_language_and_power() {
     press(&mut a, Action::A);
     assert_eq!(a.exit, None);
     press(&mut a, Action::A);
+    // Left and Right never change the choice: A still cancels
+    press(&mut a, Action::Left);
+    press(&mut a, Action::Right);
+    press(&mut a, Action::A);
+    assert_eq!(a.exit, None);
+    // reopen; Left and Right keep the focus on Cancel, Up picks the upper option (Power off)
+    press(&mut a, Action::A);
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Left);
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Left);
     press(&mut a, Action::Right);
     press(&mut a, Action::A);
     assert_eq!(a.exit, Some(Exit::Shutdown));
+}
+
+#[test]
+fn power_confirmation_down_returns_to_cancel_and_the_list_ignores_left() {
+    let c = card("confirm-nav", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    a.settings_focus = a.set_rows().len() - 1;
+    press(&mut a, Action::A);
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert_eq!(a.exit, None, "Down went back to Cancel");
+    // in the list, Left does not change the item or enter the panel
+    let f = a.settings_focus;
+    press(&mut a, Action::Left);
+    assert_eq!(a.settings_focus, f);
 }
 
 #[test]

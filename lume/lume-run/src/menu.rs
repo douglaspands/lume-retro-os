@@ -153,17 +153,19 @@ impl Menu {
                 }
                 vec![]
             }
-            // Yes on top (or left), No below: the project's rule for every confirmation (user,
-            // 2026-11-17); the focus still starts on No
+            // Yes on top, No below: the project's rule for every confirmation (user,
+            // 2026-11-17); the focus still starts on No. Only Up and Down move the focus;
+            // Left and Right do nothing here (design D8)
             State::Confirm { item, yes } => match n {
-                Nav::Left | Nav::Up => {
+                Nav::Up => {
                     self.state = State::Confirm { item, yes: true };
                     vec![]
                 }
-                Nav::Right | Nav::Down => {
+                Nav::Down => {
                     self.state = State::Confirm { item, yes: false };
                     vec![]
                 }
+                Nav::Left | Nav::Right => vec![],
                 Nav::A if yes => {
                     self.state = State::Closed;
                     vec![if item == Item::Reset { Effect::Reset } else { Effect::Quit }]
@@ -312,10 +314,20 @@ mod tests {
         assert_eq!(m.state, State::List { focus: 1 });
         m.nav(Nav::A);
         m.nav(Nav::Up);
+        // Down goes back to No; Left and Right never change the choice
+        m.nav(Nav::Down);
+        m.nav(Nav::Left);
         m.nav(Nav::Right);
-        assert!(m.nav(Nav::A).is_empty(), "Right went back to No");
+        assert_eq!(m.state, State::Confirm { item: Item::End, yes: false });
+        assert!(m.nav(Nav::A).is_empty(), "No stays No");
         m.nav(Nav::A);
         m.nav(Nav::Left);
+        m.nav(Nav::Right);
+        assert_eq!(m.state, State::Confirm { item: Item::End, yes: false }, "Left and Right do nothing");
+        m.nav(Nav::Up);
+        m.nav(Nav::Left);
+        m.nav(Nav::Right);
+        assert_eq!(m.state, State::Confirm { item: Item::End, yes: true }, "Yes stays Yes");
         assert_eq!(m.nav(Nav::A), [Effect::Quit]);
     }
 
