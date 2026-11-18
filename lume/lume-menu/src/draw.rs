@@ -56,6 +56,9 @@ pub struct Fonts {
     pub regular: fontdue::Font,
     pub medium: fontdue::Font,
     pub bold: fontdue::Font,
+    /// glyphs rasterized once (a move of the focus redraws the same letters; rasterizing them
+    /// again on the Cortex-A7 made the menu slow to answer, J2 on the GA36)
+    cache: std::cell::RefCell<std::collections::HashMap<(usize, char, u32), (fontdue::Metrics, Vec<u8>)>>,
 }
 
 fn load(env: &str, path: &str) -> Option<fontdue::Font> {
@@ -72,7 +75,19 @@ impl Fonts {
         let bold = load("LUME_FONT_BOLD", "/usr/share/lume/fonts/Roboto-Bold.ttf");
         let medium = medium.unwrap_or_else(|| regular.clone());
         let bold = bold.unwrap_or_else(|| medium.clone());
-        Some(Fonts { regular, medium, bold })
+        Some(Fonts::new(regular, medium, bold))
+    }
+
+    pub fn new(regular: fontdue::Font, medium: fontdue::Font, bold: fontdue::Font) -> Fonts {
+        Fonts { regular, medium, bold, cache: Default::default() }
+    }
+
+    /// A glyph of `font`, rasterized once per size.
+    fn glyph<R>(&self, font: &fontdue::Font, c: char, size: f32, f: impl FnOnce(&fontdue::Metrics, &[u8]) -> R) -> R {
+        let key = (font as *const fontdue::Font as usize, c, (size * 8.0).round() as u32);
+        let mut cache = self.cache.borrow_mut();
+        let (m, bitmap) = cache.entry(key).or_insert_with(|| font.rasterize(c, size));
+        f(m, bitmap)
     }
 }
 
@@ -84,8 +99,8 @@ pub struct Image<'a> {
     pub pitch: usize,
 }
 
-fn rgb(c: u32) -> (f32, f32, f32) {
-    (((c >> 16) & 0xff) as f32, ((c >> 8) & 0xff) as f32, (c & 0xff) as f32)
+fn rgb(c: u32) -> (u32, u32, u32) {
+    ((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff)
 }
 
 impl Image<'_> {
@@ -95,19 +110,33 @@ impl Image<'_> {
         u32::from_le_bytes([self.px[o], self.px[o + 1], self.px[o + 2], self.px[o + 3]]) & 0xffffff
     }
 
-    fn blend(&mut self, x: i32, y: i32, color: u32, a: f32) {
-        if x < 0 || y < 0 || x as usize >= self.w || y as usize >= self.h || a <= 0.0 {
+    /// Blends `color` at `a` (0-256) into one pixel; integer math (the Cortex-A7 of the GA36).
+    fn blend(&mut self, x: i32, y: i32, color: u32, a: u32) {
+        if x < 0 || y < 0 || x as usize >= self.w || y as usize >= self.h || a == 0 {
             return;
         }
         let o = y as usize * self.pitch + x as usize * 4;
         let (r, g, b) = rgb(color);
-        let a = a.min(1.0);
-        let mix = |old: u8, new: f32| (old as f32 * (1.0 - a) + new * a).round() as u8;
+        let a = a.min(256);
+        let mix = |old: u8, new: u32| ((old as u32 * (256 - a) + new * a) >> 8) as u8;
         // XRGB8888 little endian: B G R X
         self.px[o] = mix(self.px[o], b);
         self.px[o + 1] = mix(self.px[o + 1], g);
         self.px[o + 2] = mix(self.px[o + 2], r);
         self.px[o + 3] = 0xff;
+    }
+
+    /// The whole image darkened toward black at `a` (0-1): the menu's background.
+    pub fn dim(&mut self, a: f32) {
+        let k = ((1.0 - a) * 256.0).round() as u32;
+        for y in 0..self.h {
+            let row = &mut self.px[y * self.pitch..y * self.pitch + self.w * 4];
+            for p in row.chunks_exact_mut(4) {
+                p[0] = ((p[0] as u32 * k) >> 8) as u8;
+                p[1] = ((p[1] as u32 * k) >> 8) as u8;
+                p[2] = ((p[2] as u32 * k) >> 8) as u8;
+            }
+        }
     }
 
     /// A rectangle with rounded corners (radius in px), blended at `a`.
@@ -116,35 +145,48 @@ impl Image<'_> {
         for py in y0..y1 {
             for px in x0..x1 {
                 let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
-                // distance into the nearest corner circle
+                // distance into the nearest corner circle (only near the corners)
                 let dx = (x + r - cx).max(cx - (x + w - r)).max(0.0);
                 let dy = (y + r - cy).max(cy - (y + h - r)).max(0.0);
-                let cover = if r > 0.0 { (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+                let cover = if r > 0.0 && dx > 0.0 && dy > 0.0 {
+                    (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
                 let inside = (cx - x).min(x + w - cx).min(cy - y).min(y + h - cy).clamp(0.0, 1.0);
-                self.blend(px, py, color, a * cover.min(inside + 0.5).min(1.0));
+                let cov = a * cover.min(inside + 0.5).min(1.0);
+                self.blend(px, py, color, (cov * 256.0).round() as u32);
             }
         }
     }
 
     /// Text with its top-left corner of the line at (x, line_top), line height `line_h`
     /// (the text is centred in it, like the prototype's line boxes).
-    pub fn text(&mut self, font: &fontdue::Font, s: &str, size: f32, x: f32, line_top: f32, line_h: f32, color: u32) {
+    pub fn text(&mut self, fonts: &Fonts, font: &fontdue::Font, s: &str, size: f32, x: f32, line_top: f32, line_h: f32, color: u32) {
         let lm = font.horizontal_line_metrics(size);
         let (asc, desc) = lm.map(|m| (m.ascent, m.descent)).unwrap_or((size * 0.93, -size * 0.24));
         let baseline = line_top + (line_h - (asc - desc)) / 2.0 + asc;
         let mut pen = x;
         for c in s.chars() {
-            let (m, bitmap) = font.rasterize(c, size);
-            let gx = pen.round() as i32 + m.xmin;
-            let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
-            for row in 0..m.height {
-                for col in 0..m.width {
-                    let cov = bitmap[row * m.width + col] as f32 / 255.0;
-                    self.blend(gx + col as i32, gy + row as i32, color, cov);
+            pen += fonts.glyph(font, c, size, |m, bitmap| {
+                let gx = pen.round() as i32 + m.xmin;
+                let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
+                for row in 0..m.height {
+                    for col in 0..m.width {
+                        let cov = bitmap[row * m.width + col] as u32;
+                        self.blend(gx + col as i32, gy + row as i32, color, cov + (cov >> 7));
+                    }
                 }
-            }
-            pen += m.advance_width;
+                m.advance_width
+            });
         }
+    }
+}
+
+/// `dst = from + (to - from) * a` per byte, a in 0-256: one step of the fade-in.
+pub fn mix_into(dst: &mut [u8], from: &[u8], to: &[u8], a: u32) {
+    for ((d, f), t) in dst.iter_mut().zip(from).zip(to) {
+        *d = ((*f as u32 * (256 - a) + *t as u32 * a) >> 8) as u8;
     }
 }
 
@@ -168,13 +210,28 @@ pub fn panel_rect(fonts: &Fonts, st: &MenuState, w: f32, h: f32) -> (f32, f32, f
 /// words of A and B ("Escolher", "Voltar"); `warn` is the item drawn in the warning color
 /// out of focus ("Force close").
 pub fn draw(img: &mut Image, fonts: &Fonts, st: &MenuState, hints: (&str, &str), warn: Option<&str>) {
+    draw_base(img, fonts, st, hints);
+    draw_items(img, fonts, st, warn);
+}
+
+/// What does not change with the focus: the dimmed game, the panel, the title, the A/B
+/// hints. Drawn once per list; a move of the focus only redraws the items over a copy.
+pub fn draw_base(img: &mut Image, fonts: &Fonts, st: &MenuState, hints: (&str, &str)) {
     let (w, h) = (img.w as f32, img.h as f32);
     let s = h / 480.0;
-    img.round_rect(0.0, 0.0, w, h, 0.0, OVERLAY.0, OVERLAY.1);
+    img.dim(OVERLAY.1);
     let (x, y, pw, ph) = panel_rect(fonts, st, w, h);
     img.round_rect(x, y, pw, ph, px::PANEL_RADIUS * s, PANEL, 1.0);
-    img.text(&fonts.medium, &st.title, px::TITLE_SIZE * s, x + px::TEXT_X * s, y, px::TITLE_H * s, FG);
+    img.text(fonts, &fonts.medium, &st.title, px::TITLE_SIZE * s, x + px::TEXT_X * s, y, px::TITLE_H * s, FG);
     img.round_rect(x + px::ROW_INSET * s, y + px::TITLE_H * s - 1.0, pw - 2.0 * px::ROW_INSET * s, 1.0, 0.0, MUTED, 0.35);
+    draw_hints(img, fonts, hints);
+}
+
+/// The items and the focused row, over the base.
+pub fn draw_items(img: &mut Image, fonts: &Fonts, st: &MenuState, warn: Option<&str>) {
+    let (w, h) = (img.w as f32, img.h as f32);
+    let s = h / 480.0;
+    let (x, y, pw, _) = panel_rect(fonts, st, w, h);
     for (i, item) in st.items.iter().enumerate() {
         let ry = y + (px::ITEMS_TOP + px::ROW_STEP * i as f32) * s;
         let focused = i == st.focus;
@@ -182,9 +239,14 @@ pub fn draw(img: &mut Image, fonts: &Fonts, st: &MenuState, hints: (&str, &str),
             img.round_rect(x + px::ROW_INSET * s, ry, pw - 2.0 * px::ROW_INSET * s, px::ROW_H * s, px::ROW_RADIUS * s, ACCENT, 1.0);
         }
         let color = if focused { ACCENT_FG } else if Some(item.as_str()) == warn { WARN } else { FG };
-        img.text(&fonts.regular, item, px::ITEM_SIZE * s, x + px::TEXT_X * s, ry, px::ROW_H * s, color);
+        img.text(fonts, &fonts.regular, item, px::ITEM_SIZE * s, x + px::TEXT_X * s, ry, px::ROW_H * s, color);
     }
-    // the A / B hints at the bottom, like the launcher's footer
+}
+
+/// The A / B hints at the bottom, like the launcher's footer.
+fn draw_hints(img: &mut Image, fonts: &Fonts, hints: (&str, &str)) {
+    let (w, h) = (img.w as f32, img.h as f32);
+    let s = h / 480.0;
     let size = px::HINT_SIZE * s;
     let badge = px::HINT_BADGE * s;
     let gap = 0.35 * 16.0 * s;
@@ -195,9 +257,9 @@ pub fn draw(img: &mut Image, fonts: &Fonts, st: &MenuState, hints: (&str, &str),
     for (letter, word) in [("A", hints.0), ("B", hints.1)] {
         img.round_rect(pen, top, badge, badge, badge / 2.0, ACCENT, 1.0);
         let lw = text_width(&fonts.bold, letter, size * 0.85);
-        img.text(&fonts.bold, letter, size * 0.85, pen + (badge - lw) / 2.0, top, badge, ACCENT_FG);
+        img.text(fonts, &fonts.bold, letter, size * 0.85, pen + (badge - lw) / 2.0, top, badge, ACCENT_FG);
         pen += badge + gap;
-        img.text(&fonts.regular, word, size, pen, top, badge, MUTED);
+        img.text(fonts, &fonts.regular, word, size, pen, top, badge, MUTED);
         pen += text_width(&fonts.regular, word, size) + space;
     }
 }
@@ -243,7 +305,7 @@ mod tests {
                 .into_iter()
                 .find(|p| std::path::Path::new(p).exists())?;
             let f = fontdue::Font::from_bytes(std::fs::read(p).ok()?, fontdue::FontSettings::default()).ok()?;
-            Some(Fonts { regular: f.clone(), medium: f.clone(), bold: f })
+            Some(Fonts::new(f.clone(), f.clone(), f))
         })
     }
 
@@ -305,6 +367,7 @@ mod tests {
         }
     }
 
+    /// A PPM, which the review converts or opens as it is (no image crate here).
     fn write_ppm(img: &Image, path: &std::path::Path) {
         let mut out = format!("P6\n{} {}\n255\n", img.w, img.h).into_bytes();
         for y in 0..img.h {
@@ -314,5 +377,14 @@ mod tests {
             }
         }
         std::fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn the_fade_mixes_toward_the_menu() {
+        let mut dst = [0u8; 4];
+        mix_into(&mut dst, &[0, 100, 200, 255], &[200, 100, 0, 255], 128);
+        assert_eq!(dst, [100, 100, 100, 255]);
+        mix_into(&mut dst, &[0, 100, 200, 255], &[200, 100, 0, 255], 256);
+        assert_eq!(dst, [200, 100, 0, 255]);
     }
 }

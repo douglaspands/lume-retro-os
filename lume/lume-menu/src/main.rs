@@ -73,22 +73,45 @@ fn main() -> ExitCode {
     };
     let pitch = ov.pitch;
     let mut ok_sent = false;
+    // the base (dimmed game, panel, title, hints) of the current list, drawn once
+    let mut base: Vec<u8> = Vec::new();
+    let mut base_key: Option<(String, Vec<String>)> = None;
+    let mut next = vec![0u8; w * h * 4];
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         if line.trim() == "-" {
             break;
         }
         let Some(st) = draw::parse(&line) else { continue };
-        // drawn off the screen, then swapped in: no blink on a change of the focus
-        let buf = ov.back_pixels();
-        for y in 0..h {
-            buf[y * pitch..y * pitch + w * 4].copy_from_slice(&frame[y * w * 4..(y + 1) * w * 4]);
+        let t = std::time::Instant::now();
+        let key = (st.title.clone(), st.items.clone());
+        if base_key.as_ref() != Some(&key) {
+            base = frame.clone();
+            let mut img = draw::Image { px: &mut base, w, h, pitch: w * 4 };
+            draw::draw_base(&mut img, &fonts, &st, (&hints.0, &hints.1));
+            base_key = Some(key);
         }
-        let mut img = draw::Image { px: buf, w, h, pitch };
-        draw::draw(&mut img, &fonts, &st, (&hints.0, &hints.1), warn.as_deref());
-        if let Err(e) = ov.present() {
-            return fail(&format!("SETPLANE: {e}"));
+        next.copy_from_slice(&base);
+        let mut img = draw::Image { px: &mut next, w, h, pitch: w * 4 };
+        draw::draw_items(&mut img, &fonts, &st, warn.as_deref());
+        // the first picture fades in over a few frames (the user asked for a smoother
+        // appearance, J2 on the GA36); later ones are drawn off the screen and swapped in
+        let steps: &[u32] = if ok_sent { &[256] } else { &[72, 140, 200, 256] };
+        for &a in steps {
+            let buf = ov.back_pixels();
+            for y in 0..h {
+                let (row, from, to) = (y * pitch, &frame[y * w * 4..(y + 1) * w * 4], &next[y * w * 4..(y + 1) * w * 4]);
+                if a == 256 {
+                    buf[row..row + w * 4].copy_from_slice(to);
+                } else {
+                    draw::mix_into(&mut buf[row..row + w * 4], from, to, a);
+                }
+            }
+            if let Err(e) = ov.present() {
+                return fail(&format!("SETPLANE: {e}"));
+            }
         }
+        eprintln!("lume-menu: {} in {} ms", if ok_sent { "redraw" } else { "shown" }, t.elapsed().as_millis());
         if !ok_sent {
             say("ok");
             ok_sent = true;

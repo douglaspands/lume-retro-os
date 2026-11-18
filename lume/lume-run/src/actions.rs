@@ -10,8 +10,8 @@ use lume_core::runner::ActionForm;
 /// How long the pause waits for RetroArch's GET_STATUS (D10)
 pub const STATUS_WAIT: Duration = Duration::from_secs(1);
 /// Checks of the PAUSED state after PAUSE_TOGGLE, and the gap before each one
-const PAUSE_CHECKS: usize = 5;
-const PAUSE_CHECK_GAP: Duration = Duration::from_millis(40);
+const PAUSE_CHECKS: usize = 8;
+const PAUSE_CHECK_GAP: Duration = Duration::from_millis(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
