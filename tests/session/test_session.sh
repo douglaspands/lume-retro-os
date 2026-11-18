@@ -109,7 +109,37 @@ check "both fail: the shutdown failure event written to the card" \
 run_off unmounted
 check "no ROMS: nothing to release, poweroff" '[ "$(calls)" = "persist flush|sync|mountpoint -q $W/storage|poweroff|" ]'
 check "session: exit 0 of the frontend goes through power_off" \
-	'grep -A 2 "if \[ \"\$rc\" -eq 0 \]; then" $S | grep -q "^		power_off$" && [ "$(grep -c "^[[:space:]]*poweroff$" $S)" = 1 ]'
+	'grep -A 2 "if \[ \"\$rc\" -eq 0 \] || \[ -n \"\$closed_by\" \]; then" $S | grep -q "^		power_off$" && [ "$(grep -c "^[[:space:]]*poweroff$" $S)" = 1 ]'
+
+### device-fixes 8.3 (D11): the power button held. lume-sleep sends SIGUSR1 to the session;
+### the session ends the frontend (SIGTERM), waits until it is gone (a game still saving),
+### then runs the same power_off as exit 0
+cat >"$W/usr1.sh" <<EOF
+PATH="$W/bin:\$PATH"
+SESSION_LIB=1
+SESSION_LIBDIR=$L
+STORAGE=$W/storage
+. $PWD/aports/lume-core/files/usr/libexec/lume/session
+kmsg() { echo "\$*" >> "$W/kmsg"; }
+sync() { echo sync >> "\$CALLS"; }
+mountpoint() { return 1; }
+poweroff() { echo poweroff >> "\$CALLS"; }
+# the frontend: on SIGTERM it takes a while to end (lume-run closing the game)
+( trap 'sleep 0.4; echo "frontend ended" >> "\$CALLS"; exit 0' TERM; while :; do sleep 0.05; done ) &
+child=\$!
+( sleep 0.2; kill -USR1 \$\$ ) &
+wait_frontend
+[ -n "\$closed_by" ] && power_off
+EOF
+: > "$CALLS"; : > "$W/kmsg"
+rm -f "$LOGS_RAM"/*.pending
+busybox sh "$W/usr1.sh"
+check "power button: the frontend ends before the power off, then persist, sync, poweroff" \
+	'[ "$(calls)" = "frontend ended|persist flush|sync|poweroff|" ]'
+check "power button: the closing event names the power button" \
+	'grep -q " frontend OK retroarch closed by the power button: shutting down" "$LOGS_RAM/events.pending" && grep -qx "frontend closed by the power button: saving and powering off" "$W/kmsg"'
+check "session: SIGUSR1 trapped and checked between two runs of the frontend" \
+	'grep -q "^trap .closed_by=\"the power button\"" $S && grep -B1 -A3 "if \[ -n \"\$closed_by\" \]; then" $S | grep -q "power_off"'
 
 rm -rf "$W"
 echo "failures: $FAILS"

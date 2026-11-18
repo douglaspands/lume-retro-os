@@ -22,7 +22,8 @@ PACKAGED = {
 }
 
 # What no game uses: started after the frontend
-LATE = ("bluetooth", "networkmanager", "lume-playlists", "lume-index", "lume-card")
+LATE = ("bluetooth", "networkmanager", "lume-playlists", "lume-index", "lume-card",
+        "lume-sleep")
 # What a game, the cable or the screen before the game uses: started before the frontend
 EARLY = ("seatd", "alsa", "lume-mixer", "lume-jack", "lume-persist", "lume-logd",
          "lume-usb", "lume-savesync", "lume-hostshare", "lume-input", "lume-hwsummary")

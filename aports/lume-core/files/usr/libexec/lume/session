@@ -4,6 +4,9 @@
 #   exit 0            -> writes what is pending (persist flush) and powers off
 #   exit != 0         -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
 #   SIGTERM (service) -> ends the frontend without powering off
+#   SIGUSR1 (lume-sleep, the power button held 2 s, device-fixes D11) -> ends the frontend
+#                        (SIGTERM: lume-run quits the game politely), waits for it, then the
+#                        same power_off as exit 0
 # SESSION_LIBDIR and STORAGE only change for the tests; SESSION_LIB=1 loads only the functions.
 LIBEXEC=${SESSION_LIBDIR:-/usr/libexec/lume}
 STORAGE=${STORAGE:-/storage}
@@ -28,7 +31,21 @@ kmsg() {
 
 stopping=""
 child=""
+closed_by=""
 trap 'stopping=1; [ -n "$child" ] && kill "$child" 2>/dev/null' TERM INT
+trap 'closed_by="the power button"; [ -n "$child" ] && kill "$child" 2>/dev/null' USR1
+
+# wait_frontend: waits for $child and sets rc. A trapped signal interrupts the wait while the
+# frontend is still ending (lume-run closing the game), so on the power button it waits again
+# until the frontend is gone: power_off must not run under a game still writing its save.
+wait_frontend() {
+	wait "$child"
+	rc=$?
+	while [ -n "$closed_by" ] && kill -0 "$child" 2>/dev/null; do
+		wait "$child"
+	done
+	child=""
+}
 
 # Cópia do log do frontend, legível no PC: ROMS/logs/frontend/boot-<n>.log (descarga
 # imediata dos logs); só sem ROMS vai para BOOT/logs/frontend-error.log.
@@ -131,10 +148,11 @@ release_storage() {
 	return 0
 }
 
-# Exit 0 of the frontend: what is pending goes to the card, the card is left clean, power off.
+# Exit 0 of the frontend, or the power button held (SIGUSR1, $closed_by): what is pending goes
+# to the card, the card is left clean, power off.
 power_off() {
-	kmsg "frontend closed by user: saving and powering off"
-	event frontend OK "$FRONTEND closed by user: shutting down"
+	kmsg "frontend closed by ${closed_by:-user}: saving and powering off"
+	event frontend OK "$FRONTEND closed by ${closed_by:-user}: shutting down"
 	"$LIBEXEC/persist" flush
 	sync
 	release_storage
@@ -161,6 +179,11 @@ events_shared game || kmsg "events buffer not shared with the game user"
 
 fail_times=""
 while :; do
+	# the power button held between two runs of the frontend (during the restart pause)
+	if [ -n "$closed_by" ]; then
+		power_off
+		exit 0
+	fi
 	[ -x "$EXE" ] || give_up missing
 	kmsg "frontend started: $FRONTEND"
 	event frontend OK "started: $FRONTEND"
@@ -171,15 +194,13 @@ while :; do
 		XDG_RUNTIME_DIR=/run/user/1000 exec su -s /bin/sh -c "exec $EXE" game
 	) < "$TTY" >> "$LOG" 2>&1 &
 	child=$!
-	wait "$child"
-	rc=$?
-	child=""
+	wait_frontend
 	if [ -n "$stopping" ]; then
 		kmsg "session terminated by service"
 		event frontend OK "$FRONTEND closed by service (code $rc)"
 		exit 0
 	fi
-	if [ "$rc" -eq 0 ]; then
+	if [ "$rc" -eq 0 ] || [ -n "$closed_by" ]; then
 		power_off
 		exit 0
 	fi

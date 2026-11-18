@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# Suspend and power off by the power button (openspec device-fixes D11). Waits in inotifyd on
+# /run/lume/sleep/ (root:game, 1770): no loop, no CPU while idle. After the frontend: the
+# power off goes through the session (/run/frontend.pid), and nothing here is needed to reach
+# the launcher. See /usr/libexec/lume/lume-sleep.
+
+description="Suspend and power off by the power button"
+command=/usr/libexec/lume/lume-sleep
+command_args=run
+command_background=yes
+pidfile=/run/lume-sleep.pid
+
+depend() {
+	need localmount
+	after frontend lume-input lume-power
+}
+
+stop_post() {
+	# no folder: lume-input knows there is no service and drops the button's requests
+	rm -rf /run/lume/sleep
+	return 0
+}

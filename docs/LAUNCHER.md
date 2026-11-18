@@ -160,6 +160,28 @@ apagado sem rodar, só com uma linha no log do kernel; dentro da guarda de 1 s d
 acordar também. `poweroff` roda em qualquer estado, menos depois de outro `poweroff`. O
 `poweroff` leva ao desligamento da sessão, pelo mesmo caminho do item Desligar.
 
+**Como o `poweroff` chega à sessão (8.3):** o `lume-sleep` grava `status` `poweroff`, registra
+`sleep OK poweroff: power button held` e manda `SIGUSR1` ao `session` (o pid de
+`/run/frontend.pid`). O `session` termina o frontend com `SIGTERM`, como quando o serviço o
+para (o `lume-run` fecha o jogo pelo pedido educado do runner, o RetroArch grava o save), espera
+o frontend acabar e chama a mesma `power_off` do código 0: `persist flush`, a hora (9.1),
+`sync`, `release_storage` (para o `lume-logd`, remonta a `ROMS` só leitura) e `poweroff`. O
+evento do frontend sai como `closed by the power button: shutting down`. Sem sessão viva, ou
+se ela não desligar em 30 s (frontend travado), o `lume-sleep` chama `poweroff` sozinho, e a
+`ROMS` fica com o `mount-ro` do runlevel `shutdown`.
+
+**Ordem da suspensão no `lume-sleep` (8.3):** `status` `suspending <seq>` e `phase`
+`suspend <seq>`; espera o `clients` (3 s); som: nada (a pausa do jogo já fecha o PCM, D9);
+`lume-clock save` se a imagem tiver (9.1); `sync` (sem remontar, D2); luz em 0 (o nível
+guardado); rádio do Wi-Fi desligado, se estava ligado (`nmcli`); `suspend` na FIFO do
+`lume-power` (`/run/lume/power`); gadget USB solto do UDC (nome guardado); o modo do console
+(`deep` em `mem_sleep` antes do `mem`); `sleep OK suspend <modo>`, `status`
+`suspended <seq> <modo>` e a gravação em `/sys/power/state`. Na volta (ou na recusa do
+kernel), ao contrário: gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
+`lume-power`, Wi-Fi, luz no nível guardado, `status` `resuming`, `phase` `resume <seq>`,
+`status` `awake` e `sleep OK resume after <s>` (ou `sleep FAIL suspend <modo>: <motivo>`).
+Cada comando externo tem prazo de 5 s, para nenhum segurar a suspensão.
+
 **Modo de cada console:** `/usr/share/lume/sleep/<placa>.conf` (pacote `lume-power`), linha
 `mode freeze` ou `mode mem` (`#` comenta); sem arquivo ou com valor inválido, `freeze`.
 `freeze` grava `freeze` em `/sys/power/state`; `mem` grava `deep` em `/sys/power/mem_sleep` e
