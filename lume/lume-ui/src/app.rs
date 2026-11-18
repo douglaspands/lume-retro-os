@@ -292,6 +292,10 @@ pub struct App<S: SystemAdapter> {
     slot_pic: Option<(PathBuf, Option<(TextureId, Rect)>)>,
     pub jump: Jump,
     pub exit: Option<Exit>,
+    /// suspended (D11): no frame until `resume`
+    pub sleeping: bool,
+    /// the `suspend <seq>` still to answer with `suspend_ok <seq>` (the main loop takes it)
+    pub suspend_reply: Option<u32>,
     pub updating: Option<(usize, usize)>,
     /// asks the main loop to start `lume-index --progress`
     pub start_update: bool,
@@ -397,6 +401,8 @@ impl<S: SystemAdapter> App<S> {
             slot_pic: None,
             jump: Jump { last: None, speed: 1 },
             exit: None,
+            sleeping: false,
+            suspend_reply: None,
             updating: None,
             start_update: false,
             anim: None,
@@ -586,6 +592,39 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The sleep notices (D11, task 8.5). `suspend <seq>`: nothing is drawn from now on and the
+    /// answer `suspend_ok <seq>` is queued in `suspend_reply` (the main loop writes it to the
+    /// input socket once this returns). `resume <seq>`: one redraw of the current screen.
+    fn on_sleep_notice(&mut self, n: lume_core::sleep::Notice, now: Instant) -> bool {
+        use lume_core::sleep::Notice;
+        match n {
+            Notice::Suspend(seq) => {
+                self.sleeping = true;
+                self.suspend_reply = Some(seq);
+                false
+            }
+            Notice::Resume(_) => {
+                let was = std::mem::replace(&mut self.sleeping, false);
+                if was {
+                    self.last_input = now; // the idle timer starts from the wake
+                }
+                was
+            }
+            Notice::PowerTap | Notice::PowerHold => false,
+        }
+    }
+
+    /// An event while suspended: never a frame. Input and the timers are dropped (lume-input
+    /// already drops the input; this is defence in depth), the data events still update the state.
+    fn handle_asleep(&mut self, ev: Ev) -> bool {
+        if matches!(ev, Ev::Battery(..) | Ev::Network(..) | Ev::Reload | Ev::Progress(..) | Ev::UpdateDone(_)) {
+            self.sleeping = false;
+            self.handle(ev);
+            self.sleeping = true;
+        }
+        false
+    }
+
     fn page(&self) -> usize {
         self.cols * self.rows
     }
@@ -595,6 +634,12 @@ impl<S: SystemAdapter> App<S> {
     /// Handles one event; true when the screen must be drawn again.
     pub fn handle(&mut self, ev: Ev) -> bool {
         let now = Instant::now();
+        if let Ev::Sleep(n) = ev {
+            return self.on_sleep_notice(n, now);
+        }
+        if self.sleeping {
+            return self.handle_asleep(ev);
+        }
         match ev {
             Ev::Tick => {
                 let mut redraw = false;
@@ -733,6 +778,9 @@ impl<S: SystemAdapter> App<S> {
 
     /// How long the main loop may wait for an event (None: until one comes).
     pub fn wait(&self) -> Option<Duration> {
+        if self.sleeping {
+            return None;
+        }
         let now = Instant::now();
         let mut w: Option<Duration> = None;
         let mut min = |d: Duration| w = Some(w.map_or(d, |x: Duration| x.min(d)));
@@ -871,7 +919,7 @@ impl<S: SystemAdapter> App<S> {
     /// time is up. The main loop uses it as the timeout of its event wait, so the timer costs
     /// one wake-up at its end, not one per frame (`wait` stays None on an idle screen).
     pub fn idle_wait(&self) -> Option<Duration> {
-        let after = self.idle_after.filter(|_| !self.idle)?;
+        let after = self.idle_after.filter(|_| !self.idle && !self.sleeping)?;
         Some((self.last_input + after).saturating_duration_since(Instant::now()))
     }
 
