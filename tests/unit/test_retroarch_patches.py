@@ -19,7 +19,8 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
            "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch",
-           "0012-lume-hud-hint-menu.patch", "0013-lume-menu-lock.patch"]
+           "0012-lume-hud-hint-menu.patch", "0013-lume-menu-lock.patch",
+           "0014-alsa-close-the-stream-while-paused.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
@@ -167,6 +168,28 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert barrier.index("menu_lume_locked()") < barrier.index(
         "if (menu_st->flags & MENU_ST_FLAG_PENDING_QUICK_MENU)")
     assert "menu_driver_ctl(RARCH_MENU_CTL_SET_PENDING_QUICK_MENU, NULL);" in barrier[:800]
+    # 0014 (device-fixes 7.3, D9): stopped, the ALSA driver closes the stream (never pauses
+    # it); a start opens nothing; the first write opens it again; pausing the game stops it
+    stop = alsa.split("static bool alsa_stop(void *data)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert "alsa_free_pcm(alsa->pcm);" in stop and "alsa->pcm = NULL;" in stop
+    assert "snd_pcm_pause(" not in alsa.split("typedef struct alsa\n", 1)[1]  # mic code is above
+    start = alsa.split("static bool alsa_start(void *data, bool is_shutdown)\n{", 1)[1]
+    start = start.split("\n}\n", 1)[0]
+    assert "alsa_init_pcm" not in start and "alsa_reopen" not in start
+    write = alsa.split("static ssize_t alsa_write(void *data, const void *buf_, size_t len)\n{", 1)[1]
+    write = write.split("\n}\n", 1)[0]
+    assert write.index("if (!alsa->pcm && !alsa_reopen(alsa))") < write.index("snd_pcm_writei")
+    # the frame size is read after the reopen, from the stream it opened
+    assert write.index("alsa_reopen(alsa)") < write.index("BYTES_TO_FRAMES(len")
+    reopen = alsa.split("static bool alsa_reopen(alsa_t *alsa)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert "alsa->device, SND_PCM_STREAM_PLAYBACK" in reopen and "alsa->latency" in reopen
+    avail = alsa.split("static size_t alsa_write_avail(void *data)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert avail.index("if (!alsa->pcm)") < avail.index("snd_pcm_avail(")
+    assert "free(alsa->device);" in alsa
+    pause = loop.split("void runloop_pause_checks(void)\n{", 1)[1].split("\n}\n", 1)[0]
+    paused, resumed = pause.split("\n   if (is_paused)\n   {", 1)[1].split("\n   else\n", 1)
+    assert "audio_driver_stop();" in paused
+    assert "audio_driver_start" not in resumed                 # the first write opens it
 
 
 @pytest.mark.skipif(not SRC.exists(), reason="needs the cached RetroArch tarball")
@@ -214,6 +237,36 @@ def test_volume_curve_steps_and_cap():
     assert db == 0
     assert round(db_to_level(press(12.0, up=False))) == 95   # an old +12 dB joins the grid
     assert round(db_to_level(press(-29.5, up=True))) == 25    # -29.5 dB is ~18% -> 20% -> 25%
+
+
+def test_alsa_close_patch_touches_only_the_driver_and_the_pause():
+    text = (APORT / "0014-alsa-close-the-stream-while-paused.patch").read_text()
+    assert re.findall(r"^\+\+\+ b/(\S+)", text, re.M) == ["audio/drivers/alsa.c", "runloop.c"]
+    assert "-      int ret = snd_pcm_pause(alsa->pcm, 1);" in text
+    assert "snd_pcm_pause(" not in "".join(ln for ln in text.splitlines(True) if ln.startswith("+"))
+    assert "[ALSA] Stream closed while stopped." in text and "[ALSA] Stream opened again." in text
+
+
+KERNEL = cache_dir() / "src/linux-6.18.62/sound/soc"
+
+
+@pytest.mark.skipif(not (KERNEL / "soc-pcm.c").exists(), reason="needs the cached kernel source")
+def test_dapm_powers_down_only_when_the_stream_is_freed():
+    # The premise of 0014 (D9): ASoC powers the playback path down (with the speaker
+    # amplifier) only when the hardware parameters are freed (hw_free or close), never on a
+    # trigger (pause, drop, underrun). The GA36 codec components skip the power-down delay
+    # (off at once); the R36S codec (rk817) keeps it (pmdown_time, 5 s by default).
+    pcm = (KERNEL / "soc-pcm.c").read_text()
+    clean = pcm.split("static int soc_pcm_hw_clean(", 1)[1].split("\n}\n", 1)[0]
+    assert "snd_soc_dapm_stream_stop(rtd, substream->stream);" in clean
+    assert pcm.count("snd_soc_dapm_stream_stop(") == 1
+    trigger = pcm.split("static int soc_pcm_trigger(", 1)[1].split("\n}\n", 1)[0]
+    assert "dapm" not in trigger
+    assert "static int pmdown_time = 5000;" in (KERNEL / "soc-core.c").read_text()
+    for name in ("sunxi/sun8i-codec.c", "sunxi/sun8i-codec-analog.c", "sunxi/sun4i-i2s.c",
+                 "codecs/simple-amplifier.c"):
+        assert "use_pmdown_time" not in (KERNEL / name).read_text(), name
+    assert ".use_pmdown_time = 1," in (KERNEL / "codecs/rk817_codec.c").read_text()
 
 
 def test_alsa_patch_only_bounds_the_playback_wait():
