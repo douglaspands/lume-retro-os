@@ -121,6 +121,8 @@ struct Overlay {
     sysmenu: Option<sysmenu::SysMenu>,
     /// the group was stopped for the system-drawn menu (SIGCONT when it closes)
     stopped_for_menu: bool,
+    /// how the suspension paused the game (None: not paused by a suspension)
+    sleep_paused: Option<actions::Paused>,
 }
 
 /// Local time as `YYMMDD-HHMMSS`, the suffix of a screenshot's name (RetroArch's own style,
@@ -274,6 +276,7 @@ impl Run {
             lang,
             sysmenu: None,
             stopped_for_menu: false,
+            sleep_paused: None,
         };
         // the bar stays on from one game to the next (D6), in any runner: the system draws it
         if !l.menu && hud::load_shown(&self.hud_file()) {
@@ -631,7 +634,22 @@ impl Run {
                 }
             }
             Message::Volume | Message::Brightness => {}
-            // the sleep protocol (device-fixes D11): suspend/resume of the game come with 8.4
+            // the sleep protocol (device-fixes D11): the game is paused for the suspension and
+            // continues on its own at the wake-up; the power taps are the daemon's business
+            Message::Sleep(lume_core::sleep::Notice::Suspend(seq)) => {
+                // the Lume menu open: the game is paused already, keep it as is; a repeated
+                // suspend keeps the first pause
+                if !ov.menu.is_open() && ov.sleep_paused.is_none() {
+                    ov.sleep_paused = Some(actions::pause(l.action("pause"), self.ra_port, pid, &log).paused);
+                }
+                actions::to_daemon(input, &lume_core::sleep::suspend_ok(seq));
+            }
+            Message::Sleep(lume_core::sleep::Notice::Resume(_)) => {
+                // only the pause made here is undone: a game the user had paused stays paused
+                if let Some(p) = ov.sleep_paused.take() {
+                    actions::resume(p, self.ra_port, pid);
+                }
+            }
             Message::Sleep(_) => {}
         }
         self.pending_end.take()

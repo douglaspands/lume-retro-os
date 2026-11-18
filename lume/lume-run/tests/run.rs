@@ -853,3 +853,91 @@ fn session_sigterm_ends_the_game_and_the_supervisor() {
     assert!(!alive(game_pid));
     assert_eq!(e.ui_runs(), 1);
 }
+
+// ---- device-fixes 8.4: the sleep protocol (D11) ----
+
+#[test]
+fn suspend_pauses_retroarch_answers_and_resume_continues() {
+    let e = setup("sleep-ra", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("suspend 7");
+    assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
+    assert_eq!(d.received(), ["suspend_ok 7"]);
+    d.send("resume 7");
+    assert_eq!(*ra.state.lock().unwrap(), "PLAYING");
+    assert!(d.received().is_empty(), "resume has no answer");
+    // a second cycle, another sequence number
+    d.send("suspend 8");
+    assert_eq!(d.received(), ["suspend_ok 8"]);
+    d.send("resume 8");
+    assert_eq!(*ra.state.lock().unwrap(), "PLAYING");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn suspend_leaves_a_game_the_user_paused_paused() {
+    let e = setup("sleep-already", false);
+    let ra = FakeRa::new("PAUSED");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("suspend 3");
+    assert_eq!(d.received(), ["suspend_ok 3"]);
+    d.send("resume 3");
+    assert!(!ra.plain().contains(&"PAUSE_TOGGLE".to_string()), "{:?}", ra.plain());
+    assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn suspend_of_a_runner_without_pause_uses_sigstop_and_sigcont() {
+    let e = setup("sleep-sigstop", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "sigterm", "overlay=retroarch\n");
+    let mut run = spawn_logged(&e, ra.port);
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("suspend 12");
+    assert_eq!(proc_state(pid), 'T');
+    assert_eq!(d.received(), ["suspend_ok 12"]);
+    d.send("resume 12");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_ne!(proc_state(pid), 'T');
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
+
+#[test]
+fn suspend_with_the_lume_menu_open_keeps_the_menu() {
+    let e = setup("sleep-menu", false);
+    let ra = FakeRa::new("PLAYING");
+    let listener = listen(&e.dir.join("input.sock"));
+    waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    let mut run = spawn_logged(&e, ra.port);
+    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let d = Daemon::accept(&listener);
+    d.send("fn_tap");
+    ra.wait_for("LUME_MENU");
+    d.received();
+    let before = ra.plain().len();
+    d.send("suspend 5");
+    assert_eq!(d.received(), ["suspend_ok 5"]);
+    d.send("resume 5");
+    // no second toggle and no unpause: the menu still owns the pause
+    assert!(!ra.plain()[before..].contains(&"PAUSE_TOGGLE".to_string()), "{:?}", ra.plain());
+    assert_eq!(*ra.state.lock().unwrap(), "PAUSED");
+    d.send("nav b");
+    assert_eq!(*ra.state.lock().unwrap(), "PLAYING");
+    fs::write(e.dir.join("exit"), "").unwrap();
+    assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
+}
