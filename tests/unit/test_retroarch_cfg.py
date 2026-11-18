@@ -49,6 +49,14 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "savestate_thumbnail_enable", "video_gpu_screenshot", "auto_screenshot_filename",
         # V-Sync on at every start (user, 2026-11-17; P-25, P-91)
         "video_vsync",
+        # RetroArch's own pop-ups stay off: the console speaks through Lume (device-fixes 9.8)
+        "notification_show_autoconfig", "notification_show_autoconfig_fails",
+        "notification_show_cheats_applied", "notification_show_patch_applied",
+        "notification_show_remap_load", "notification_show_config_override_load",
+        "notification_show_set_initial_disk", "notification_show_disk_control",
+        "notification_show_save_state", "notification_show_fast_forward",
+        "notification_show_screenshot", "notification_show_refresh_rate",
+        "notification_show_netplay_extra",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
