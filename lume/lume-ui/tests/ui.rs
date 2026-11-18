@@ -130,6 +130,43 @@ fn no_frame_without_an_event() {
 }
 
 #[test]
+fn suspend_stops_drawing_answers_with_its_sequence_and_resume_redraws_once() {
+    use lume_core::sleep::Notice;
+    let c = card("sleep", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let frames = canvas.frames;
+    let focus = a.dock_focus;
+
+    // suspend: no frame, the answer is queued with the same sequence
+    assert!(!a.handle(Ev::Sleep(Notice::Suspend(4))));
+    assert_eq!(a.suspend_reply.take(), Some(4));
+    assert!(a.sleeping);
+    assert_eq!(a.wait(), None);
+    assert_eq!(a.idle_wait(), None);
+
+    // between suspend and resume nothing asks for a frame and the input does nothing
+    for ev in [Ev::Input(Action::Right, false), Ev::Tick, Ev::Volume(30), Ev::Brightness(30), Ev::FnTap] {
+        assert!(!a.handle(ev));
+    }
+    assert!(!a.handle(Ev::Battery(50, false)), "data events update the state without a frame");
+    assert_eq!(a.dock_focus, focus);
+    assert_eq!(a.suspend_reply, None);
+    assert_eq!(canvas.frames, frames);
+
+    // resume: one redraw of the current screen, no answer
+    assert!(a.handle(Ev::Sleep(Notice::Resume(4))));
+    assert!(!a.sleeping);
+    assert_eq!(a.suspend_reply, None);
+    a.draw(&mut canvas);
+    assert_eq!(canvas.frames, frames + 1);
+    assert!(!a.handle(Ev::Sleep(Notice::Resume(4))), "a second resume has nothing to redraw");
+    // the input works again
+    assert!(a.handle(Ev::Input(Action::Right, false)));
+}
+
+#[test]
 fn grid_jump_filter_and_back() {
     let c = card("grid", 1000, false);
     let mut a = app(&c, FakeSystem::default());

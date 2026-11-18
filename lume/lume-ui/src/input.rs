@@ -336,6 +336,19 @@ pub enum Sock {
     Sleep(Notice),
 }
 
+/// The current connection to the input daemon, shared with the main loop so it can write
+/// answers (None: not connected).
+pub type Link = std::sync::Arc<std::sync::Mutex<Option<OwnedFd>>>;
+
+/// Answers `suspend <seq>` with `suspend_ok <seq>` on the connection; false when there is
+/// none or the write failed.
+pub fn answer_suspend(link: &Link, seq: u32) -> bool {
+    let guard = link.lock().unwrap();
+    let Some(fd) = guard.as_ref() else { return false };
+    let msg = lume_core::sleep::suspend_ok(seq);
+    unsafe { libc::send(fd.as_raw_fd(), msg.as_ptr().cast(), msg.len(), libc::MSG_NOSIGNAL) == msg.len() as isize }
+}
+
 /// Reads the messages of one connection until the daemon closes it: on each "volume" or
 /// "brightness", `level` reads that level; `send` gets the result and the other messages
 /// the launcher uses.
@@ -374,10 +387,16 @@ pub fn serve_socket(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, s
 /// Runs forever on its own thread: stays connected to the input daemon and reports the
 /// level after each volume key (or Fn + volume key). The daemon restarts under its service
 /// (and is missing in a test without it): connect again every 2 s.
-pub fn watch_socket(sock: &std::path::Path, mut level: impl FnMut(Level) -> Option<u8>, mut send: impl FnMut(Sock)) {
+pub fn watch_socket(sock: &std::path::Path, link: Link, mut level: impl FnMut(Level) -> Option<u8>, mut send: impl FnMut(Sock)) {
     loop {
         if let Some(fd) = connect_seqpacket(sock) {
+            // the main loop answers `suspend` through a duplicate of the connection (D11)
+            let dup = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+            if dup >= 0 {
+                *link.lock().unwrap() = Some(unsafe { OwnedFd::from_raw_fd(dup) });
+            }
             serve_socket(&fd, &mut level, &mut send);
+            *link.lock().unwrap() = None;
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -431,6 +450,23 @@ mod tests {
     #[test]
     fn sleep_notices_are_forwarded() {
         assert_eq!(read_all(&["power_tap", "suspend 3", "resume 3"]), [Sock::Sleep(Notice::PowerTap), Sock::Sleep(Notice::Suspend(3)), Sock::Sleep(Notice::Resume(3))]);
+    }
+
+    #[test]
+    fn suspend_ok_goes_to_the_daemon_with_the_same_sequence() {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) }, 0);
+        let (ours, daemon) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        let link: Link = Default::default();
+        assert!(!answer_suspend(&link, 3), "no connection: nothing sent");
+        *link.lock().unwrap() = Some(ours);
+        assert!(answer_suspend(&link, 7));
+        let mut buf = [0u8; 64];
+        let n = unsafe { libc::recv(daemon.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+        assert_eq!(std::str::from_utf8(&buf[..n as usize]).unwrap(), "suspend_ok 7");
+        assert_eq!(lume_core::sleep::parse_suspend_ok("suspend_ok 7"), Some(7));
+        drop(daemon);
+        assert!(!answer_suspend(&link, 8), "the daemon is gone");
     }
 
     #[test]

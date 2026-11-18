@@ -99,6 +99,8 @@ fn main() -> ExitCode {
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
         let _ = t.send(Ev::Input(a, rep));
     }));
+    // the connection to the input daemon, to answer `suspend <seq>` (D11)
+    let link: lume_ui::input::Link = Default::default();
     // volume keys (and Fn + volume keys, the brightness): lume-input applies them and tells
     // its socket clients; the level is read here as the Settings read it
     {
@@ -107,11 +109,13 @@ fn main() -> ExitCode {
         let mixer = lume_ui::system::this_board_mixer();
         let backlight = RealSystem::new();
         let t = tx.clone();
+        let link = link.clone();
         let sock = std::env::var_os("LUME_INPUT_SOCK").map(std::path::PathBuf::from).unwrap_or_else(|| lume_ui::input::INPUT_SOCK.into());
         std::thread::spawn(move || {
             use lume_ui::input::Sock;
             lume_ui::input::watch_socket(
                 &sock,
+                link,
                 |k| match k {
                     Level::Volume => mixer.as_ref().and_then(|m| m.level()),
                     Level::Brightness => backlight.brightness(),
@@ -169,8 +173,14 @@ fn main() -> ExitCode {
     app.draw(&mut c);
     let mut redraw = true;
     let code = loop {
-        if redraw {
+        if redraw && !app.sleeping {
             app.draw(&mut c);
+        }
+        // suspended: the last frame is out, the answer to `suspend <seq>` goes now
+        if let Some(seq) = app.suspend_reply.take() {
+            if !lume_ui::input::answer_suspend(&link, seq) {
+                log(&format!("suspend_ok {seq} not sent"));
+            }
         }
         if let Some(exit) = app.exit {
             break exit;
@@ -207,7 +217,7 @@ fn main() -> ExitCode {
         redraw = event.map(|ev| app.handle(ev)).unwrap_or(false);
         // SDL's own events, without waiting: a window exposed again (VT switch back) draws
         for e in pump.poll_iter() {
-            redraw |= matches!(e, sdl2::event::Event::Window { .. });
+            redraw |= matches!(e, sdl2::event::Event::Window { .. }) && !app.sleeping;
         }
     };
     if let Err(e) = app.current_state().save(&app.runtime) {
