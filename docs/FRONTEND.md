@@ -14,18 +14,18 @@ Outro frontend pode tomar o lugar dos dois sem mexer na distro nem no contrato d
 | BIOS | `/storage/bios/` |
 | Saves e save states | `/storage/saves/<id>/` e `/storage/states/<id>/` |
 | Capturas | `/storage/screenshots/` |
-| Catálogo de sistemas e cores | `/usr/share/r36os/systems.json` ([CATALOG.md](CATALOG.md)) |
+| Catálogo de sistemas e cores | `/usr/share/lume/systems.json` ([CATALOG.md](CATALOG.md)) |
 | Cores libretro | `/usr/lib/libretro/<core>_libretro.so` |
-| Listas de jogos do RetroArch | `r36os-playlists` (opcional) |
+| Listas de jogos do RetroArch | `lume-playlists` (opcional) |
 | Listas de jogos no formato do EmulationStation | `roms/<id>/gamelist.xml`, mantidas pelo `lume-index` ([LAUNCHER.md](LAUNCHER.md)) |
 | Cgroup v2 delegado ao usuário `game` | `/sys/fs/cgroup/lume/` (o frontend roda em `lume/session/`) |
 
 ## Contrato da sessão
 
-1. O frontend é um executável em `/usr/libexec/r36os/frontends/<nome>`, instalado por
+1. O frontend é um executável em `/usr/libexec/lume/frontends/<nome>`, instalado por
    um pacote apk.
 2. `/etc/conf.d/frontend` escolhe qual roda: `FRONTEND="<nome>"`.
-3. O `r36os-session` roda esse executável no `tty1`, como o usuário `game` (grupos
+3. O `lume-session` roda esse executável no `tty1`, como o usuário `game` (grupos
    `video`, `input`, `audio`), sem login e sem X11/Wayland. `HOME=/home/game` e
    `XDG_RUNTIME_DIR=/run/user/1000`.
 4. Com cgroup v2 (`rc_cgroup_mode="unified"`), a sessão cria `/sys/fs/cgroup/lume/`, passa o
@@ -39,7 +39,7 @@ Outro frontend pode tomar o lugar dos dois sem mexer na distro nem no contrato d
 5. Código de saída:
    - **0**: o usuário escolheu desligar (no launcher, o item Desligar das Configurações; no
      RetroArch de reserva, o item "Desligar"). A sessão grava o pendente
-     (`/usr/libexec/r36os/persist flush`) e desliga o aparelho.
+     (`/usr/libexec/lume/persist flush`) e desliga o aparelho.
    - **diferente de 0**: falha. A sessão reinicia o frontend; na 3ª falha em 60 s, ela
      para e deixa na tela o erro e o caminho do log (`ROMS/logs/frontend/boot-<n>.log`;
      só sem partição de jogos, `BOOT/logs/frontend-error.log`).
@@ -49,16 +49,16 @@ Outro frontend pode tomar o lugar dos dois sem mexer na distro nem no contrato d
    `ROMS/logs/frontend/boot-<n>.log` (ver [LOGS.md](LOGS.md)). A sessão registra em
    `ROMS/logs/events.log` cada início, saída e falha do frontend. O `events.pending` é
    gravável pelo `game`, para o frontend registrar os jogos: o arquivo tem modo 666 e a pasta
-   (`/run/r36os/logs`) tem o grupo `game` e o sticky bit, porque cada flush move o arquivo
+   (`/run/lume/logs`) tem o grupo `game` e o sticky bit, porque cada flush move o arquivo
    para o cartão e o `game` precisa poder criá-lo de novo.
 7. Configurações do frontend que devem sobreviver ao reboot precisam ir para
    `/storage/system/<frontend>/` com escrita atômica (temporário + `fsync` + `rename`).
-   Só `~/.config/retroarch` é persistido automaticamente pelo `r36os-persist`; o
+   Só `~/.config/retroarch` é persistido automaticamente pelo `lume-persist`; o
    lume-launcher grava em `/storage/system/lume/`.
 
 ## lume-launcher (padrão)
 
-`/usr/libexec/r36os/frontends/lume` é uma linha: `exec /usr/bin/lume-run`. O `lume-run` roda a
+`/usr/libexec/lume/frontends/lume` é uma linha: `exec /usr/bin/lume-run`. O `lume-run` roda a
 interface (`lume-ui`) e, quando ela pede, o jogo, sempre como `game`:
 
 | Saída do `lume-ui` | O que o `lume-run` faz |
@@ -68,11 +68,11 @@ interface (`lume-ui`) e, quando ela pede, o jogo, sempre como `game`:
 | 65 | abre o menu do RetroArch sem jogo e reabre a interface ao sair dele |
 | outro | sai com 1: falha do frontend |
 
-Durante o jogo, só o `lume-run` e o daemon de entrada (`r36os-input`) ficam na memória.
+Durante o jogo, só o `lume-run` e o daemon de entrada (`lume-input`) ficam na memória.
 **Fn+Start** encerra o jogo e volta ao launcher. Sair pelo menu do RetroArch também volta ao
 launcher; com o launcher, o item do menu se chama "Sair", não "Desligar".
 
-Atalhos do jogo (lume-hud-actions): o Fn nunca chega ao programa. O `r36os-input` manda ao
+Atalhos do jogo (lume-hud-actions): o Fn nunca chega ao programa. O `lume-input` manda ao
 `lume-run` o gesto (`fn_tap`, `fn_hold`, `fn_release`) ou a ação do acorde (`app_menu`,
 `save_state`, `load_state`, `screenshot`, `hud`, `quit`), e o `lume-run` a executa pelo runner
 (tabela em `docs/LAUNCHER.md`). O menu do RetroArch abre por **Fn+B** ou pelo item do menu do
@@ -93,7 +93,7 @@ O idioma da interface é o `user_language` do RetroArch, persistido em
 `ROMS/system/retroarch/retroarch.cfg`. No launcher, o item Idioma das Configurações grava o
 idioma dele (`ROMS/system/lume/settings.toml`) e também esse `user_language`; no RetroArch de
 reserva, o idioma é escolhido em Configurações → Usuário → Idioma. O padrão de fábrica vem do
-`--lang` do build (`r36os build <alvo> --lang pt_BR`; sem ele, inglês) e fica na configuração
+`--lang` do build (`lume build <alvo> --lang pt_BR`; sem ele, inglês) e fica na configuração
 de fábrica do usuário, não no `retroarch-lume.cfg`, para a escolha no menu valer. O idioma do
 build só chega a cartões novos (sem `ROMS/system/retroarch/`), pela configuração de fábrica. A
 escolha feita no menu nunca é sobrescrita, nem por um build com outro idioma: para trocar, use o menu. As mensagens do sistema para o usuário (como a
@@ -105,9 +105,9 @@ muda as mensagens do sistema.
 ## Exemplo
 
 ```sh
-# /usr/libexec/r36os/frontends/meufrontend
+# /usr/libexec/lume/frontends/meufrontend
 #!/bin/sh
-exec /usr/bin/meufrontend --roms /storage/roms --catalog /usr/share/r36os/systems.json
+exec /usr/bin/meufrontend --roms /storage/roms --catalog /usr/share/lume/systems.json
 ```
 
 ```

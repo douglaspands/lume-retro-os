@@ -1,12 +1,12 @@
 # Catálogo de sistemas (`systems.json`)
 
-`/usr/share/r36os/systems.json` é a fonte única dos sistemas do Lume Retro OS. Dele
+`/usr/share/lume/systems.json` é a fonte única dos sistemas do Lume Retro OS. Dele
 saem as pastas da partição `ROMS`, as listas de jogos do RetroArch, os sistemas e emuladores
 do lume-launcher e o `LEIA-ME.txt`. Qualquer frontend deve ler este arquivo em vez de manter
 uma lista própria.
 
-Fonte no repositório: `rootfs/overlay/usr/share/r36os/systems.json`.
-Validação: `r36os.catalog.validate()`, chamada no início do build do rootfs (um erro para o
+Fonte no repositório: `rootfs/overlay/usr/share/lume/systems.json`.
+Validação: `lume_tool.catalog.validate()`, chamada no início do build do rootfs (um erro para o
 build), com os testes em `tests/unit/test_catalog.py`.
 
 ## Esquema (versão 3)
@@ -47,14 +47,14 @@ Regras:
 
 ## Emuladores do launcher
 
-A lista de emuladores de um sistema numa arquitetura (`r36os.catalog.emulators()`, e a mesma
+A lista de emuladores de um sistema numa arquitetura (`lume_tool.catalog.emulators()`, e a mesma
 regra no `lume-core`) tem o primeiro item como padrão:
 
 1. os cores do RetroArch, pelo runner `retroarch`: o core padrão da arquitetura, depois `core`
    e os `alt_cores`, sem repetir;
 2. os itens de `emulators`, na ordem.
 
-Assim os cores ficam num lugar só, e o `r36os-playlists` continua lendo `core`. O validador
+Assim os cores ficam num lugar só, e o `lume-playlists` continua lendo `core`. O validador
 recusa:
 
 - runner citado que não está em `/usr/share/lume/runners.d/` (o build para);
