@@ -343,6 +343,32 @@ def test_the_newest_retroarch_is_watched_not_its_wrapper(exe, world):
     assert t and f"pid={new.pid} " in t[0] and f"pid={old.pid} " not in t[0], t
 
 
+def test_the_emulator_started_after_its_wrapper_is_found_in_the_next_sample(exe, world):
+    """at the first sample only the frontend script (named retroarch) exists; the emulator it
+    starts later is watched from the next sample on, not the script kept from before"""
+    wrapper = world.spawn("retroarch")
+    started = {}
+
+    class Late(RA):
+        def run(self):
+            n = 0
+            while self.running:
+                try:
+                    msg, addr = self.sock.recvfrom(1024)
+                except socket.timeout:
+                    continue
+                n += 1
+                if n == 1:
+                    started["p"] = world.spawn("retroarch")
+                self.sock.sendto(b"GET_STATUS CONTENTLESS", addr)
+    world.ra = Late(world, [])
+    world.ra.start()
+    world.env["RA_PORT"] = str(world.ra.port)
+    world.run(exe, 2, HANG_LIMIT=1000)
+    t = [x for x in world.trace() if x.startswith("fe=menu")]
+    assert f"pid={wrapper.pid} " in t[0] and f"pid={started['p'].pid} " in t[1], t
+
+
 def test_hang_with_recovery_off_only_logs(exe, world):
     world.interrupts.write_text("171:       100          0 GIC-0 118 Level     1c0c000.lcd-controller\n")
     ra = world.spawn("retroarch")

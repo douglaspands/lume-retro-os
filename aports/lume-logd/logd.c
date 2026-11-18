@@ -431,6 +431,8 @@ static pid_t find_pid(const char *name)
 	return best;
 }
 
+static long sample_n;
+
 static pid_t proc_pid(struct watched *w)
 {
 	if (w->pid && comm_is(w->pid, w->name))
@@ -486,6 +488,20 @@ static void proc_usage(struct watched *w, char *out, size_t n)
 
 static struct watched w_ra = { "retroarch", 0, 0, 0, 0 }, w_ui = { "lume-ui", 0, 0, 0, 0 },
 	w_run = { "lume-run", 0, 0, 0, 0 }, w_in = { "r36os-input", 0, 0, 0, 0 };
+
+/* retroarch: looked up again once per sample (only while no launcher is on screen). The
+ * frontend script that starts it has the same name and lives as long as the game: a pid kept
+ * from the first moments of a game would stay on the script and never reach the emulator. */
+static long ra_seen = -1;
+
+static pid_t ra_pid(void)
+{
+	if (ra_seen != sample_n) {
+		ra_seen = sample_n;
+		w_ra.pid = 0;
+	}
+	return proc_pid(&w_ra);
+}
 
 /* any process whose command line contains s (the shell's pgrep -f) */
 static int pgrep_f(const char *s)
@@ -561,7 +577,7 @@ static void frontend_state(void)
 			return;
 		}
 	}
-	if (!proc_pid(&w_ra)) {
+	if (!ra_pid()) {
 		if (lume) {
 			snprintf(fe_state, sizeof(fe_state), "game");
 			snprintf(fe_core, sizeof(fe_core), "%s", s + 5);
@@ -1180,7 +1196,7 @@ static void trace_sample(void)
 	path(pb, sizeof(pb), "%s/boot-n", logs_ram);
 	first_line(pb, bn, sizeof(bn));
 	if (strcmp(fe_state, "launcher"))
-		pid = proc_pid(&w_ra);
+		pid = ra_pid();
 	if (!pid) {
 		trace("fe=%s pid=- gpu_mhz=%s vblank=%s", fe_state, gpu, vb);
 		noans = hang = 0;
@@ -1329,6 +1345,7 @@ static void sample(void)
 	char line[LINE], p[600], b[4096], v[64];
 	int k;
 
+	sample_n++;
 	read_uptime();
 	log_clock();
 	snprintf(line, sizeof(line), "%s,%s", log_ts, up_txt);
