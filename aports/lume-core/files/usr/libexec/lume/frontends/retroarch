@@ -111,7 +111,8 @@ while :; do
 	esac
 done
 # keys of the core of this run (retroarch-core.keys): "<core> <key>=<value>" lines for
-# the libretro file given with -L, added to the keys of this run
+# the libretro file given with -L, added to the keys of this run; "*" lines count for every
+# core (a game run: the RetroArch menu without a game has no -L and keeps the user's values)
 CORE=""
 prev=""
 for a in "$@"; do
@@ -121,7 +122,7 @@ done
 if [ -n "$CORE" ] && [ -f "$SHARE/retroarch-core.keys" ]; then
 	while read -r c kv rest; do
 		case "$c" in ''|\#*) continue ;; esac
-		[ "$c" = "$CORE" ] || continue
+		[ "$c" = "$CORE" ] || [ "$c" = "*" ] || continue
 		k=${kv%%=*}
 		case "$k" in ''|*[!A-Za-z0-9_]*) continue ;; esac
 		printf '%s = "%s"\n' "$k" "${kv#*=}" >> "$RUN_KEYS"

@@ -1,8 +1,37 @@
 # Lume Retro OS: RetroArch keys for the runs of one core, read by the frontend script
 # (frontends/retroarch). One line per key: <core> <key>=<value>, where <core> is the name of
-# the libretro file without _libretro.so. They count for that run only, after the fixed keys
-# of retroarch-lume.cfg and retroarch-<board>.cfg, and the user's value comes back when the
-# run ends (the same way as the launcher's --lume-set).
+# the libretro file without _libretro.so, or "*" for every core. They count for that run only,
+# after the fixed keys of retroarch-lume.cfg and retroarch-<board>.cfg, and the user's value
+# comes back when the run ends (the same way as the launcher's --lume-set).
+
+# Every game (device-fixes 9.9, the user, 2026-11-18): the second barrier of the Quick Menu
+# lock (lume_menu_lock, patch 0013). Should the main menu ever show during a game, it has only
+# the Quick Menu: no load core or content, updater, information, configuration file, help,
+# restart or quit, and Ozone's sidebar has no settings, history, favorites, pictures, music,
+# video, netplay, import, explore, contentless cores or playlist tabs. Game runs only (-L):
+# the RetroArch menu opened without a game (launcher Settings) keeps all of them. Key names
+# checked in configuration.c of RetroArch 1.22.2; menu_show_help gates no main-menu item
+# there any more, it stays for an older or newer menu.
+* menu_show_load_core=false
+* menu_show_load_content=false
+* menu_show_online_updater=false
+* menu_show_information=false
+* menu_show_configurations=false
+* menu_show_help=false
+* menu_show_restart_retroarch=false
+* menu_show_quit_retroarch=false
+* content_show_settings=false
+* content_show_history=false
+* content_show_favorites=false
+* content_show_images=false
+* content_show_music=false
+* content_show_video=false
+* content_show_netplay=false
+* content_show_add_entry=0
+* content_show_explore=false
+* content_show_contentless_cores=0
+* content_show_playlists=false
+* content_show_playlist_tabs=false
 
 # PlayStation (game-governor, 2026-11-18): the video thread of the boards (retroarch-ga36.cfg)
 # crashed RetroArch once right after a resolution change of the core (SET_GEOMETRY,

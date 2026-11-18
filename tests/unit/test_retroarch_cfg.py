@@ -57,6 +57,9 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "notification_show_save_state", "notification_show_fast_forward",
         "notification_show_screenshot", "notification_show_refresh_rate",
         "notification_show_netplay_extra",
+        # a game of the launcher keeps the menu in the Quick Menu (patch 0013), and "Close
+        # Content" there ends RetroArch, back to the game list (device-fixes 9.9; P-101 unlocks)
+        "lume_menu_lock", "quit_on_close_content",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -239,7 +242,7 @@ echo "$@"
 echo "defaults=$LUME_RETROARCH_DEFAULTS"
 echo "quit=$LUME_RETROARCH_QUIT"
 cfg=$(echo "$@" | sed 's/.*--config \\([^ ]*\\).*/\\1/')
-grep -E '^(aspect_ratio_index|state_slot|video_threaded) ' "$cfg" | sed 's/^/during: /'
+grep -E '^(aspect_ratio_index|state_slot|video_threaded|content_show_settings|menu_show_load_core) ' "$cfg" | sed 's/^/during: /'
 # what RetroArch does with -e: the slot becomes the current one, saved with the config
 case " $* " in *" -e "*) echo 'state_slot = "3"' >> "$cfg" ;; esac
 [ -n "$FAKE_DIE" ] && kill -KILL $PPID
@@ -351,7 +354,9 @@ def test_run_only_keys_go_back_after_a_kill(tmp_path):
     user = 'aspect_ratio_index = "22"\nstate_slot = "1"\n'
     _frontend(tmp_path, "ga36", user, args=RUN_ARGS, env_extra={"FAKE_DIE": "1"}, check=False)
     restore = (tmp_path / "card/restore.cfg").read_text().splitlines()
-    assert restore == ['aspect_ratio_index = "22"', 'state_slot = "1"']
+    # then the keys every game hides (retroarch-core.keys "*"), which this user never set
+    assert restore[:2] == ['aspect_ratio_index = "22"', 'state_slot = "1"']
+    assert restore[2:] == [f"#unset {k}" for k in MENU_LOCK_HIDDEN]
     out, cfg, _ = _frontend(tmp_path, "ga36")
     assert 'during: aspect_ratio_index = "22"' in out and 'during: state_slot = "1"' in out
     assert cfg.count("aspect_ratio_index") == 1 and cfg.count("state_slot") == 1
@@ -372,6 +377,55 @@ def test_core_keys_count_for_that_core_only_and_go_back(tmp_path):
     keys = (SHARE / "retroarch-core.keys").read_text()
     assert "pcsx_rearmed video_threaded=false" in keys
     assert not any(ord(c) > 127 for c in keys)
+
+
+MENU_LOCK_HIDDEN = {
+    "menu_show_load_core": "false", "menu_show_load_content": "false",
+    "menu_show_online_updater": "false", "menu_show_information": "false",
+    "menu_show_configurations": "false", "menu_show_help": "false",
+    "menu_show_restart_retroarch": "false", "menu_show_quit_retroarch": "false",
+    "content_show_settings": "false", "content_show_history": "false",
+    "content_show_favorites": "false", "content_show_images": "false",
+    "content_show_music": "false", "content_show_video": "false",
+    "content_show_netplay": "false", "content_show_add_entry": "0",
+    "content_show_explore": "false", "content_show_contentless_cores": "0",
+    "content_show_playlists": "false", "content_show_playlist_tabs": "false",
+}
+
+
+def test_game_menu_is_locked_to_the_quick_menu():
+    # device-fixes 9.9 (the user, 2026-11-18): during a game only the Quick Menu (patch 0013),
+    # and its "Close Content" ends RetroArch when the game came on the command line (2 = CLI)
+    assert 'lume_menu_lock = "true"' in CFG
+    assert 'quit_on_close_content = "2"' in CFG
+    # the second barrier: every game run hides the main-menu items and the sidebar tabs
+    keys = (SHARE / "retroarch-core.keys").read_text()
+    every = dict(kv.split("=", 1) for kv in re.findall(r"^\* (\S+)$", keys, re.M))
+    assert every == MENU_LOCK_HIDDEN
+    # user settings stay out of the fixed and factory configs (the menu without a game)
+    assert not set(MENU_LOCK_HIDDEN) & (_keys(CFG) | _keys(FACTORY))
+
+
+def test_game_runs_hide_the_main_menu_and_the_menu_alone_keeps_it(tmp_path):
+    # the "*" keys count for a game run (-L) and the user's values come back after it
+    game = ("-L", "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/x.sfc")
+    out, cfg, _ = _frontend(tmp_path, "ga36", 'content_show_settings = "true"\n', args=game,
+                            env_extra={"LUME_LAUNCHER": "1"})
+    assert 'during: content_show_settings = "false"' in out
+    assert 'during: menu_show_load_core = "false"' in out
+    lines = cfg.splitlines()
+    assert 'content_show_settings = "true"' in lines
+    assert not [line for line in lines if line.startswith("menu_show_load_core")]
+    assert not (tmp_path / "card/restore.cfg").exists()
+    # launcher Settings > RetroArch menu: no -L, nothing hidden
+    out, cfg, _ = _frontend(tmp_path, "ga36", env_extra={"LUME_LAUNCHER": "1"})
+    assert 'during: content_show_settings = "true"' in out
+    assert "menu_show_load_core" not in out
+    # a core of its own keeps its keys along with the "*" ones
+    psx = ("-L", "/usr/lib/libretro/pcsx_rearmed_libretro.so", "/storage/roms/psx/x.chd")
+    out, _, _ = _frontend(tmp_path, "ga36", args=psx)
+    assert 'during: video_threaded = "false"' in out
+    assert 'during: content_show_settings = "false"' in out
 
 
 def test_without_launcher_keys_nothing_changes(tmp_path):

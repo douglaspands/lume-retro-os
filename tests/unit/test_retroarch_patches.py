@@ -19,12 +19,13 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
            "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch",
-           "0012-lume-hud-hint-menu.patch"]
+           "0012-lume-hud-hint-menu.patch", "0013-lume-menu-lock.patch"]
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
            "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c",
-           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h"]
+           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h", "menu/menu_driver.c",
+           "menu/menu_driver.h"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -143,6 +144,42 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert "#define LUME_WIDGET_TIMEOUT 3000" in widget
     # "-" hides, so lume-run never sends a bare command (RetroArch reads past its end)
     assert 'string_is_equal(text, "-")' in widget
+    # 0013 (device-fixes 9.9): lume_menu_lock is a registered key, off upstream-wise; locked
+    # (a game of the command line), Back at the Quick Menu root resumes the game and the main
+    # menu never stays on screen
+    cfg = (tmp_path / "configuration.c").read_text()
+    assert ('SETTING_BOOL("lume_menu_lock",                &settings->bools.lume_menu_lock, '
+            'true, false, false);') in cfg
+    assert "bool lume_menu_lock;" in (tmp_path / "configuration.h").read_text()
+    assert "bool menu_lume_locked(void);" in (tmp_path / "menu/menu_driver.h").read_text()
+    drv = (tmp_path / "menu/menu_driver.c").read_text()
+    locked = drv.split("bool menu_lume_locked(void)\n{", 1)[1].split("\n}\n", 1)[0]
+    for cond in ("settings->bools.lume_menu_lock", "GLOB_FLG_LAUNCHED_FROM_CLI",
+                 "RUNLOOP_FLAG_CORE_RUNNING", "RARCH_CTL_IS_DUMMY_CORE"):
+        assert cond in locked, cond
+    cancel = drv.split("int generic_menu_entry_action(", 1)[1].split("case MENU_ACTION_CANCEL:", 1)[1]
+    cancel = cancel.split("case MENU_ACTION_OK:", 1)[0]
+    assert cancel.index("menu_lume_locked()") < cancel.index("command_event(CMD_EVENT_RESUME, NULL);")
+    assert cancel.index("command_event(CMD_EVENT_RESUME, NULL);") < cancel.index("cbs->action_cancel(")
+    assert "MENU_ENUM_LABEL_CONTENT_SETTINGS" in cancel
+    loop = (tmp_path / "runloop.c").read_text()
+    barrier = loop.split("/* Iterate the menu driver for one frame. */", 1)[1]
+    assert barrier.index("menu_lume_locked()") < barrier.index(
+        "if (menu_st->flags & MENU_ST_FLAG_PENDING_QUICK_MENU)")
+    assert "menu_driver_ctl(RARCH_MENU_CTL_SET_PENDING_QUICK_MENU, NULL);" in barrier[:800]
+
+
+@pytest.mark.skipif(not SRC.exists(), reason="needs the cached RetroArch tarball")
+def test_menu_lock_keys_exist_in_the_pinned_source():
+    # device-fixes 9.9: every key of the lock and of its second barrier (the "*" lines of
+    # retroarch-core.keys) is a config key of RetroArch 1.22.2, so none is silently ignored
+    keys = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-core.keys").read_text()
+    names = re.findall(r"^\* (\w+)=", keys, re.M) + ["quit_on_close_content"]
+    assert len(names) == 21
+    with tarfile.open(SRC) as tar:
+        cfg = tar.extractfile("RetroArch-1.22.2/configuration.c").read().decode()
+    for name in names:
+        assert re.search(rf'SETTING_(BOOL|UINT)\("{name}",', cfg), name
 
 
 def test_quit_label_patch_keeps_the_three_languages():
