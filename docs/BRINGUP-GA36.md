@@ -454,7 +454,7 @@ D10, D11, D12, D15) e no P-95. Em resumo:
   antigo. O envio levou 3m41s e o boot 38 s.
 - **Boot 193:** subiu até o menu com o kernel `6.18.62-lume`, o `frontend` em 20,5 s, a ROMS
   limpa e o `kernel OK no error messages`.
-- **Nomes:** `rc-status` só com serviços `lume-*`; nenhum `r36os` nos runlevels nem no
+- **Nomes:** `rc-status` só com serviços `lume-*`; nenhum nome antigo nos runlevels nem no
   `inittab`; `/etc/lume` e `/run/lume` no lugar.
 - **Cartão:** nenhum caminho do cartão precisou de migração (nenhum evento
   `persist OK migrated`); a indexação viu os mesmos 60 jogos.
