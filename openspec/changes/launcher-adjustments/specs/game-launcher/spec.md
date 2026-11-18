@@ -28,6 +28,28 @@ Um tema do cartão MUST poder trazer um logo colorido por sistema, mostrado como
 - **WHEN** o tema do cartão traz o logo colorido do SNES e só a máscara do NES
 - **THEN** o SNES aparece com o logo colorido e o NES com a máscara pintada na cor do tema
 
+### Requirement: Relógio na tela
+O launcher MUST poder mostrar a hora no mesmo lugar em todas as telas, como a bateria, na posição e no formato aprovados no protótipo. Uma opção das Configurações MUST ligar e desligar o relógio. Enquanto a hora do aparelho nunca tiver sido acertada (nenhuma fonte real desde a imagem), o relógio MUST NOT aparecer, para não mostrar uma hora errada.
+
+#### Scenario: Mesmo lugar em todas as telas
+- **WHEN** o relógio está ligado e o usuário passa do Dock para a grade, a busca e as Configurações
+- **THEN** a hora aparece no mesmo lugar e no mesmo tamanho em todas elas
+
+#### Scenario: Relógio desligado
+- **WHEN** o usuário desliga "Mostrar relógio" nas Configurações
+- **THEN** a hora some de todas as telas e a escolha sobrevive ao reboot
+
+#### Scenario: Hora nunca acertada
+- **WHEN** o aparelho nunca teve a hora acertada pelo cabo, pela rede ou à mão
+- **THEN** o relógio não aparece, mesmo ligado
+
+### Requirement: Acertar a hora nas Configurações
+As Configurações MUST oferecer o acerto da data e da hora à mão, só com o controle. Confirmado, o acerto MUST valer para o sistema, para o relógio do aparelho e para a hora guardada no cartão, e MUST poder voltar a hora para trás (é uma fonte real, como o cabo e a rede).
+
+#### Scenario: Acerto à mão
+- **WHEN** o usuário ajusta a data e a hora com o direcional e confirma
+- **THEN** o relógio da tela passa a mostrar a hora nova e ela continua certa depois de desligar e ligar
+
 ## MODIFIED Requirements
 
 ### Requirement: Ícones de console próprios

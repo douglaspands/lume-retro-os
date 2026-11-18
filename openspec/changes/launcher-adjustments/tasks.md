@@ -33,7 +33,10 @@ menu do sistema da `device-fixes` já mesclado.
 | 1.3 | 1.4 | USUARIO | AG+PR | sonnet | 1 | |
 | 2.2 | 1.1 | — | AG | sonnet | 1 | J1, J2 |
 | 2.1 | 1.1, 1.3, 1.4 | — | AG | sonnet | 2 | J1, J2 |
-| 4.1 | 2.1, 2.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 3.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 3.2 | `device-fixes` 9.1 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
+| 3.3 | 3.1, 3.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
+| 4.1 | 2.1, 2.2, 3.3 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | J2 |
 
@@ -53,9 +56,9 @@ Modelos aprovados pelo usuário em 2026-11-17.
 ```
 
 **Ondas:**
-- Onda 0: 1.1, 1.4 (AG, em paralelo).
-- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2.
-- Onda 2: 2.1.
+- Onda 0: 1.1, 1.4, 3.1 (AG, em paralelo; a 3.1 termina com a escolha e a aprovação do usuário).
+- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2.
+- Onda 2: 2.1, 3.3.
 - Onda 3: 4.1 (build dos pacotes, fila única de CPU).
 - Onda 4: 4.2 (janela J1). Onda 5: 4.3 (janela J2).
 
@@ -74,6 +77,12 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 - [ ] 2.1 `lume-ui`, cores por console (D6): o tile, a máscara do logo e a sigla usam os tokens resolvidos do sistema, normal e em foco; temas sem `[systems.*]` desenham como hoje. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` com o tema Lume (cor do SNES e do Mega Drive no tile e no foco, conferidas contra a tabela da 1.3) e com o Material escuro (cor geral em todos); no aparelho, captura do Dock comparada com o protótipo (J1, J2).
 - [ ] 2.2 `lume-ui`, logo colorido do cartão (D7): `icons/<sistema>.color.png` desenhado como imagem RGBA, reduzido ao tamanho do tile na decodificação, com prioridade sobre a máscara e a mesma busca na cadeia `extends`; o teto do cache de ícones vale para os dois tipos; teste do pacote que recusa qualquer PNG em `themes/` da imagem. Verificação: testes de unidade (um tema de teste com `snes.color.png` e `nes.png`: SNES colorido, NES em máscara; cache dentro do teto com logos grandes) e o teste do pacote; no aparelho, um tema do cartão com um logo colorido (J1).
+
+## 3. Relógio na tela e acerto da hora (P-102, incluído pelo usuário em 2026-11-18)
+
+- [ ] 3.1 Protótipo do relógio (`docs/lume-launcher/prototipo/`): 2 ou 3 variações de posição (ao lado da bateria no canto superior direito, no canto superior esquerdo, centralizado no topo) para o usuário escolher; formato de 24 h; nas Configurações, as linhas "Mostrar relógio" (interruptor) e "Acertar a hora" (seletores de data e hora pelo direcional, com confirmação vertical); o estado "hora nunca acertada" sem relógio; nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário escolhe a posição e aprova as telas no navegador (aprovação anotada com a data).
+- [ ] 3.2 Pedido de acerto da hora (o `lume-ui` roda como `game`): um pedido em `/run/lume/clock/` atendido por um serviço root que chama `lume-clock set <epoch> manual` (o `lume-clock` da `device-fixes` 9.1, que grava o sistema, o RTC e o `ROMS/system/clock`); a marca "hora já acertada por uma fonte real" guardada pelo `lume-clock` e lida pelo `lume-ui`. Verificação: testes do shell com relógio falso (pedido válido acerta e marca, pedido inválido recusado e registrado) e do leitor da marca.
+- [ ] 3.3 `lume-ui`, relógio e Configurações: o relógio no lugar aprovado em todas as telas, redesenhado uma vez por minuto só com a tela acesa, escondido sem a marca da 3.2; as linhas "Mostrar relógio" e "Acertar a hora"; textos en/pt/es. Verificação: testes de tela (mesmo lugar em cada tela, desligado some, sem marca não aparece, acerto grava o pedido, régua igual à tabela da 3.1); no aparelho, J1 e J2.
 
 ## 4. Build e provas nos consoles
 
