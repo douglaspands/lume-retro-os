@@ -477,3 +477,8 @@ Arquivos no cartão (`ROMS/system/card/`), cada um com o **número do boot em te
 
 Arquivo ausente ou com conteúdo inválido vale "nunca". Os caminhos seguem `LUME_RUN` (padrão
 `/run/lume`) e `LUME_STORAGE` (padrão `/storage`), movíveis nos testes.
+
+Cancelar a verificação não tem verbo: no painel Cartão do `lume-ui`, A de novo em "Verificar no
+próximo boot" apaga direto o arquivo `check-next-boot` da `ROMS` (e o pedido, se o serviço ainda
+não o pegou). O `lume-ui` também apaga o `status` antigo ao pedir um `trim`, para não ler a
+resposta da rodada anterior.

@@ -767,7 +767,8 @@ fn power_off_is_a_sheet_with_power_off_on_top_and_cancel_focused() {
     assert!((cancel.x - (sheet.x + 14 + 16)).abs() <= 1, "{cancel:?}");
     // the rule for every confirmation (user, 2026-11-17): the affirmative on top, Cancel below
     // (the title "Power off" is the first text of that name, the row the last)
-    let power_row = cv.texts.iter().filter(|(t, _)| t == "Power off").map(|(_, r)| r.y).max().unwrap();
+    // (only the sheet's texts: the list behind it may show a "Power off" row, lower or not)
+    let power_row = cv.texts.iter().filter(|(t, r)| t == "Power off" && r.x >= sheet.x).map(|(_, r)| r.y).max().unwrap();
     assert!(power_row < cancel.y, "Power off {power_row} must be above Cancel {}", cancel.y);
     // the focus starts on Cancel: A turns nothing off
     press(&mut a, Action::A);
@@ -799,6 +800,206 @@ fn games_item_holds_update_lists() {
     assert!(cv.has_text("Update") && !cv.has_text("Navigate"), "one line: no ▲▼ hint");
     press(&mut a, Action::A);
     assert!(a.start_update && a.updating.is_some());
+}
+
+/// The Settings on the Card item with its panel entered (focus on "Optimize now"), the
+/// service's folders inside the test card.
+fn open_card(c: &Card, free: Option<u64>) -> App<FakeSystem> {
+    let mut a = app(c, FakeSystem { free, ..Default::default() });
+    a.card_run = c.root.join("cardrun");
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    while a.set_rows()[a.settings_focus] != SetRow::Card {
+        press(&mut a, Action::Down);
+    }
+    a
+}
+
+fn draw_texts(a: &mut App<FakeSystem>) -> FakeCanvas {
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    cv
+}
+
+#[test]
+fn card_item_sits_between_system_and_games() {
+    let c = card("card-order", 3, false);
+    let a = app(&c, FakeSystem::default());
+    let rows = a.set_rows();
+    let i = rows.iter().position(|r| *r == SetRow::Card).unwrap();
+    assert_eq!((rows[i - 1], rows[i + 1]), (SetRow::System, SetRow::Games));
+}
+
+#[test]
+fn card_panel_without_history_says_never() {
+    let c = card("card-never", 3, false);
+    let mut a = open_card(&c, Some(58_400_000_000));
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Free space") && cv.has_text("58.4 GB"));
+    assert!(cv.has_text("Last optimization") && cv.has_text("Last check"));
+    assert_eq!(cv.texts.iter().filter(|(t, _)| t == "never").count(), 2);
+    assert!(cv.has_text("Optimize now") && cv.has_text("Check on next boot"));
+    assert!(!cv.has_text("✓ Scheduled") && !cv.has_text("Optimizing…"));
+}
+
+#[test]
+fn card_panel_with_history_shows_the_boot_numbers() {
+    let c = card("card-history", 3, false);
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("last-trim"), "150\n").unwrap();
+    fs::write(m.join("last-check"), "140\n").unwrap();
+    let mut a = open_card(&c, None);
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("boot 150") && cv.has_text("boot 140") && !cv.has_text("never"));
+    // free space unreadable: a dash
+    assert!(cv.has_text("—"));
+    // garbage reads as never
+    fs::write(m.join("last-trim"), "junk").unwrap();
+    let mut a = open_card(&c, None);
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("never") && cv.has_text("boot 140") && !cv.has_text("boot 150"));
+}
+
+#[test]
+fn card_trim_request_and_every_state() {
+    let c = card("card-trim", 3, false);
+    let mut a = open_card(&c, Some(1_000_000_000));
+    let run = c.root.join("cardrun");
+    press(&mut a, Action::A); // enter the panel
+    assert!(!run.join("trim").exists(), "entering writes nothing");
+    // a stale answer of an earlier run is dropped when the request is written
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("status"), "ok 5\n").unwrap();
+    press(&mut a, Action::A);
+    assert!(run.join("trim").is_file() && !run.join("status").exists(), "A writes the trim request");
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Optimizing…"));
+    // a second A while it runs writes nothing more
+    fs::remove_file(run.join("trim")).unwrap();
+    press(&mut a, Action::A);
+    assert!(!run.join("trim").exists());
+    // the service answers: running, then ok with the size (polled once a second)
+    fs::write(run.join("status"), "running\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    a.handle(Ev::Tick);
+    assert!(draw_texts(&mut a).has_text("Optimizing…"));
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("last-trim"), "152\n").unwrap();
+    fs::write(run.join("status"), "ok 1288490188\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(a.handle(Ev::Tick));
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("✓ 1.3 GB freed") && cv.has_text("boot 152") && !cv.has_text("Optimizing…"));
+    // fail: the card's message, in red outside the focus
+    fs::remove_file(run.join("trim")).ok();
+    press(&mut a, Action::A);
+    fs::write(run.join("status"), "fail not supported\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(a.handle(Ev::Tick));
+    press(&mut a, Action::Down); // the focus leaves the line
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Card not supported"));
+    // leaving the item drops the state: back, it reads idle
+    press(&mut a, Action::B); // out of the panel
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Down);
+    assert!(!draw_texts(&mut a).has_text("Card not supported"));
+}
+
+#[test]
+fn card_running_trim_is_seen_when_the_panel_opens() {
+    let c = card("card-already", 3, false);
+    let run = c.root.join("cardrun");
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("status"), "running\n").unwrap();
+    let mut a = open_card(&c, None);
+    assert!(draw_texts(&mut a).has_text("Optimizing…"));
+}
+
+#[test]
+fn card_check_request_is_written_shown_and_cancelled_by_a_again() {
+    let c = card("card-check", 3, false);
+    let mut a = open_card(&c, None);
+    let run = c.root.join("cardrun");
+    press(&mut a, Action::A);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert!(run.join("check-next-boot").is_file(), "A writes the request");
+    assert!(draw_texts(&mut a).has_text("✓ Scheduled"));
+    // the service picked it up: the request file went, the marker came
+    fs::remove_file(run.join("check-next-boot")).unwrap();
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("check-next-boot"), "152\n").unwrap();
+    // A again cancels: the marker is deleted and the line is idle
+    press(&mut a, Action::A);
+    assert!(!m.join("check-next-boot").exists() && !run.join("check-next-boot").exists());
+    assert!(!draw_texts(&mut a).has_text("✓ Scheduled"));
+    // a pending marker from an earlier boot shows when the panel opens
+    fs::write(m.join("check-next-boot"), "152\n").unwrap();
+    press(&mut a, Action::B); // out of the panel
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Down);
+    assert!(draw_texts(&mut a).has_text("✓ Scheduled"));
+}
+
+#[test]
+fn card_status_is_polled_only_while_the_trim_runs_and_the_panel_is_open() {
+    let c = card("card-poll", 3, false);
+    let mut a = open_card(&c, None);
+    let run = c.root.join("cardrun");
+    // idle: nothing wakes the loop
+    assert_eq!(a.wait(), None);
+    press(&mut a, Action::A);
+    press(&mut a, Action::A);
+    assert!(run.join("trim").is_file());
+    // running and open: once a second
+    assert_eq!(a.wait(), Some(Duration::from_millis(1000)));
+    // the panel closes (B, then another item): the polling stops
+    press(&mut a, Action::B);
+    press(&mut a, Action::Down);
+    assert_eq!(a.wait(), None);
+    fs::write(run.join("status"), "ok 1\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(!a.handle(Ev::Tick), "no reading while away");
+    // back on the item: the TRIM is over, idle again, nothing to poll
+    press(&mut a, Action::Up);
+    assert_eq!(a.wait(), None);
+}
+
+/// The Card panel against the prototype's table (task 4.1) at 640x480, in the layout of the
+/// other panels (lines like the list's items, panel from 49.6): x 298.6, 311.0 wide, title
+/// 19.2 px, info rows and the two actions every 28.3 from 37.5 under the panel's top, the
+/// pill 26.7 tall, the text 16.8 px at +13.44/+3.36.
+#[test]
+fn card_matches_the_prototype_ruler() {
+    let c = card("card-ruler", 3, false);
+    let mut a = open_card(&c, Some(58_400_000_000));
+    press(&mut a, Action::A); // the pill on "Optimize now"
+    let cv = draw_texts(&mut a);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let text = |s: &str| cv.texts.iter().filter(|(t, _)| t == s).map(|(_, r)| *r).collect::<Vec<_>>();
+    let top = 49.6;
+    let panel = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 300).map(|(r, _)| *r).unwrap();
+    assert!(near(panel.x, 284.2) && near(panel.y, top) && near(panel.w, 339.8) && near(panel.bottom(), 435.3), "panel {panel:?}");
+    let title = text("Card").into_iter().find(|r| r.x > 280).unwrap();
+    assert!(near(title.x, 298.6) && near(title.y, top + 9.6) && near(title.h, 19.2), "title {title:?}");
+    let first = top + 37.5;
+    for (i, label) in ["Free space", "Last optimization", "Last check", "Optimize now", "Check on next boot"].into_iter().enumerate() {
+        let t = text(label).into_iter().find(|r| r.x > 280).unwrap_or_else(|| panic!("{label}"));
+        // (the pitch is 1.769 em = 28.304 px, the text inset 0.21 em rounded to 3 px)
+        let y = first + i as f32 * 28.304;
+        assert!(near(t.x, 298.6 + 13.44) && near(t.y, y + 3.0) && near(t.h, 16.8), "{label} {t:?}");
+    }
+    // the focused action: the pill of the same measures as the other panels' lines
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 298.6) && near(pill.y, first + 3.0 * 28.3) && near(pill.w, 311.0) && near(pill.h, 26.7), "pill {pill:?}");
+    // the values end at the same inset on the right
+    let free = text("58.4 GB")[0];
+    assert!(near(free.right(), 298.6 + 311.0 - 13.44), "value {free:?}");
+    assert!(cv.has_text("Select") && cv.has_text("Navigate") && cv.has_text("Back"));
 }
 
 #[test]
