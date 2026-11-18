@@ -313,6 +313,12 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   abaixo do atual. A resposta na tela é uma linha curta.
 - **Aprendizado:** uma hora acumulada acima do limite, sem relato, sobe o limite em um nível.
   Cada mudança vira o evento `display OK limit <de> -> <para> (<motivo>)`.
+- **Recomeçar o aprendizado** (pedido do usuário, 2026-11-18): linha no painel Brilho das
+  Configurações, com confirmação. Apaga o limite deste aparelho e grava "sem limite"
+  (`none` no arquivo do 3.3, diferente de arquivo ausente, que usa o padrão do console): o
+  brilho vai até 10, sem pontinho, até o primeiro relato, que recria o limite um nível abaixo.
+  Evento `display OK limit <de> -> none (reset)`. O `lume-ui` grava o pedido e o
+  `lume-input` aplica (mesmo dono do arquivo que o relato).
 - **Causa (P-95):** os experimentos E1 a E5 do P-95 viram as tarefas 2.7 (sem build: E2
   corrente e E3 calor) e 6.3 (com kernel de experimento: E1 DCDC1 a 3,3 V e E4 DSI). A E5
   (foto da placa) fica com o usuário, quando puder. O resultado vai para o P-95 e o

@@ -55,3 +55,19 @@ motivo.
 #### Scenario: Uso longo sem falha
 - **WHEN** o usuário joga uma hora acumulada no nível 8 com o limite em 7, sem relato
 - **THEN** o limite passa a 8 e o `events.log` registra `display OK limit 7 -> 8`
+
+### Requirement: Recomeçar o aprendizado
+O painel Brilho das Configurações MUST ter a ação "Recomeçar o aprendizado", com confirmação
+(Sim em cima, Cancelar com o foco). Confirmada, ela MUST apagar o limite aprendido deste
+aparelho e deixá-lo **sem limite**: o brilho vai até o máximo, sem pontinho, até o primeiro
+relato (Fn+Select), que cria o limite de novo. Esse estado MUST ser guardado como "sem
+limite", diferente de um aparelho sem arquivo (que usa o padrão do console). A mudança MUST
+ser registrada no `events.log`. Os outros aparelhos que usam o mesmo cartão não mudam.
+
+#### Scenario: Recomeçar no GA36
+- **WHEN** o limite do GA36 está em 7 e o usuário confirma "Recomeçar o aprendizado"
+- **THEN** o pontinho some, o brilho vai até 10, e o `events.log` registra `display OK limit 7 -> none (reset)`
+
+#### Scenario: Relato depois de recomeçar
+- **WHEN** o aprendizado foi recomeçado e a tela falha no nível 9 com o relato Fn+Select
+- **THEN** o limite passa a 8, o pontinho volta no 8 e o `events.log` registra o relato e `display OK limit none -> 8 (report)`
