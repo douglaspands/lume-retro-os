@@ -140,6 +140,18 @@ ATTR{queue/read_ahead_kb}="<valor>"`. O valor sai da medição 2.2: o tempo de a
 grande com 128, 256, 512 e 1024 KiB, com o cache limpo entre as medidas, nos dois consoles.
 Ganha o menor valor depois do qual o tempo para de cair. Sem ganho claro, não há regra.
 
+**Medido (2.2, J1, 2026-11-18).** Leitura inteira do arquivo a frio (`drop_caches`), média
+de três:
+
+| Console | Arquivo | 128 KiB | 256 | 512 | 1024 |
+|---|---|---|---|---|---|
+| GA36 | PS1, 133 MB | 6,36 s | 6,19 s | 6,14 s | 6,07 s |
+| GA36 | Neo Geo, 38 MB | 1,89 s | 1,83 s | 1,81 s | 1,79 s |
+| R36S | (pendente, J1 do R36S) | | | | |
+
+O cartão lê ~21 MB/s no GA36 e o read-ahead maior ganha no máximo ~5% (0,3 s numa ROM grande):
+nenhum ganho claro no GA36.
+
 ### D7. Nomes `lume` (nós TREE)
 
 Tudo o que o projeto criou passa a se chamar `lume`. A tabela completa, arquivo por
@@ -215,6 +227,18 @@ fica em 0 dB.
 - O ganho de energia está no amplificador desligado. O ganho analógico em si muda pouco o
   consumo; ele resolve o chiado (P-29) e talvez o zumbido do R36S (P-45).
 
+**Medido no GA36 (2.5, J1, 2026-11-18).**
+- O `Headphone` (0 a 63) controla as duas saídas: o roteamento do DTS liga a saída do fone à
+  entrada do amplificador do alto-falante (`Speaker Amp INL/INR` ← `HP`).
+- Silêncio digital com o DAC em 0 dB, `Headphone` em 16, 32, 48 e 63: nenhum chiado ouvido pelo
+  usuário no alto-falante. O chiado do P-29 não vem do ganho analógico em silêncio; fica para
+  a J2 julgar num jogo.
+- Tom de 440 Hz com o DAC em 0 dB: limpo em 32, 40, 48, 56 e 63. **Máximo limpo: 63.**
+- O amplificador (`audio-amplifier`, GPIO `enable`) já é desligado pelo DAPM quando nenhum fluxo
+  está aberto, e ligado em ~0,1 s quando o fluxo abre. Com o fluxo aberto em silêncio ele
+  gasta **~12 mA** (336 contra 324 mA da bateria, launcher parado no brilho 7). O caminho do
+  silêncio no GA36 é, então, fechar o fluxo (pausa ou menu); o ganho de energia é pequeno.
+
 ### D10. Fone nos dois consoles
 
 O `jack` passa a valer nos dois consoles. Encaixar e tirar o fone troca a saída, e cada
@@ -222,6 +246,12 @@ saída guarda o próprio volume (D9). No R36S, a causa do laço do serviço (o `
 evdev) é corrigida com o mesmo leitor de eventos do `lume-input`. No GA36, a detecção do fone
 sai da prova 2.5 (pino e evento). Sem detecção no hardware, o fone do GA36 fica documentado
 como "saída ligada aos dois, sem troca".
+
+**Medido no GA36 (2.5, J1, 2026-11-18):** o DTS não tem pino de detecção, e encaixar o fone
+não muda nenhum GPIO configurado nem interrupção. Mas a entrada do fone tem chave mecânica:
+com o fone encaixado, o som sai só no fone e o alto-falante fica mudo. No GA36 a troca de
+saída é do hardware; sem evento, o volume por saída (D9) vale só no R36S, e o GA36 fica com
+um nível só.
 
 ### D11. Suspensão pelo botão de energia
 
@@ -253,6 +283,23 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
 - Uma falha na suspensão volta ao estado de antes e registra o motivo, sem deixar a tela
   apagada.
 
+**Medido no GA36 (2.3, J1, 2026-11-18):**
+
+| Console | `mem_sleep` | Modo | Despertar pelo botão | Corrente suspenso |
+|---|---|---|---|---|
+| GA36 | `[s2idle]` só (`mem` vira s2idle) | `freeze` | 10 de 10 no primeiro toque (de 3 a 181 s dormindo), mais 2 avulsos e 35 min seguidos | não medida com precisão: com a bateria cheia a carga fica em 100% e a tensão caiu 22 mV em 35 min; repetir com a bateria pela metade |
+| R36S | (pendente, J1 do R36S) | | | |
+
+- O `axp221-pek` já é fonte de despertar no GA36 sem overlay; o `rtc0` não tem `wakealarm` no
+  sysfs e o busybox não tem `rtcwake`.
+- **O gadget USB não volta depois do `freeze`:** o `musb` fica em `b_peripheral` com o UDC
+  `not_attached` e o PC não enumera nem com o cabo recolocado. Soltar o gadget do UDC antes
+  e religá-lo ~1 s depois de acordar resolve (UDC `configured`, o PC enumera). O `lume-sleep`
+  faz isso (8.3).
+- **Entrada acumulada:** ao acordar, a interface "andou" sozinha com os eventos do controle
+  da suspensão; o `lume-sleep`/`lume-input` descartam a entrada acumulada ao acordar (8.2, 8.3).
+- Acordado, o launcher parado gasta ~324 mA da bateria no brilho 7.
+
 ### D12. Brilho: o limite aprendido no lugar da trava
 
 - O `backlight_max` sai dos perfis. O brilho vai até o máximo do hardware.
@@ -270,6 +317,10 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   corrente e E3 calor) e 6.3 (com kernel de experimento: E1 DCDC1 a 3,3 V e E4 DSI). A E5
   (foto da placa) fica com o usuário, quando puder. O resultado vai para o P-95 e o
   `docs/BRINGUP-GA36.md`.
+- **E2 parcial (2.7, J1, 2026-11-18):** com o console frio (~43 °C no SoC) e a bateria em 100%,
+  a imagem ficou estável do nível 6 ao 10 no carregador e do 6 ao 8 só na bateria (no 9 e
+  no 10 o AXP leu um VBUS falso, então essa parte valeu como carregador). Corrente da bateria
+  por nível: 6 = 240 mA, 7 = 316 mA, 8 = 339 mA. Faltam a bateria baixa e o calor (E3).
 
 ### D13. Painel do GA36 a ~60 Hz
 
@@ -303,6 +354,12 @@ O Wi-Fi é opcional e o RTC não tem bateria própria, então nenhuma fonte é g
 
 A prova 2.4 lê o RTC depois de um desligamento, só para registrar se a hora sobrevive com a
 bateria principal.
+
+**Medido no GA36 (2.4, J1, 2026-11-18):** RTC acertado pelo cabo (`hwclock -w`), desligado
+pelo menu por ~6 min com o cabo ligado: voltou com 2 a 3 s de diferença do PC, e o boot já
+pegou a hora (o `events.log` saiu com a data certa). O RTC também anda entre reinícios
+(antes do acerto ele marcava 1970-01-10, contando desde a última perda de energia). Falta
+repetir sem o cabo.
 
 ### D16. Nós de entrada só leitura para os jogos (P-87)
 
