@@ -18,6 +18,7 @@
 - Grade de **quadrados semitransparentes** com a **imagem da caixa** do jogo.
 - A grade deixa o fundo (do tema) aparecer por trás.
 - Navegação pelo D-pad, B volta ao Dock.
+- **Contador de jogos "n / N" (mudança pendente de aprovação do usuário, change `launcher-adjustments`, pedido de 2026-11-18):** passa para o **canto inferior direito, logo acima das dicas do rodapé**, numa linha própria entre o nome do jogo em foco e as dicas; vale para a grade e para o resultado da busca (a mesma tela), em todos os temas e idiomas. Posição antiga: no `lume-ui`, no meio do rodapé (teste `footer_centered_and_counter_in_the_middle`); no protótipo, no cabeçalho, à direita, antes do relógio e da bateria. Medido no protótipo a 640x480 (`index.html?res=640x480&tela=clk-grid`), pt-BR, 1 / 24: linha do contador x 0, y 418,7, 640 x 23,0 (texto alinhado à direita, borda direita do texto em x 620,8, largura 54,5, 19,2 px `muted`, números tabulares); nome em foco x 0, y 385,0, 640 x 33,7 (sem mudança de posição em relação à grade menor); dicas x 0, y 441,7, 640 x 38,3. As três linhas se tocam sem sobreposição (contador termina em y 441,7, onde as dicas começam; nome termina em y 418,7). A grade perde 23 px de altura (331,8 em vez de 354,8; y 53,2 até 385,0); as capas continuam em 2 linhas. Conflito com a linha do nome em foco: nenhum, desde que a linha do contador fique entre o nome e as dicas (o nome continua centralizado); com o contador na mesma linha do nome ele cobriria nomes longos, por isso a linha própria. Aprovação do usuário: pendente.
 
 ## Ao selecionar um jogo (A)
 Menu sobre o jogo, com:
@@ -132,6 +133,48 @@ Regras desenhadas:
 
 | Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-18 (menu do sistema pelo Fn, dicas do Fn, Configurações sem Desligar, Suspender e RetroArch, Brilho sem pontinho, Cartão, relato) |
 | :--- | :--- |
+
+## Relógio e acerto da hora (change `launcher-adjustments`, tarefa 3.1; P-102)
+
+Protótipo: `prototipo/index.html`. Parâmetros da URL (somados aos de cima): `&relogio=a|b|c|off` (posição, ver abaixo), `&hora=nunca` (hora nunca acertada: sem relógio, mesmo ligado) ou `&hora=HH:MM` (congela a hora, para a régua), e `&tela=clk-grid|clk-search|clock|clock-never|time|time-set|time-confirm`. Na barra de ferramentas: "Relógio" (A, B, C ou Desligado) e "Hora nunca acertada". Exemplos (servir a pasta `prototipo/` por HTTP): `index.html?res=640x480&hora=14:35&relogio=b` (Dock), `...&tela=clk-grid` (grade), `...&tela=clk-search` (busca), `...&tela=set` (Configurações).
+
+**Posições para o usuário escolher** (24 h, `HH:MM`, 19,2 px negrito, `--fg`, números tabulares; desenhado no cabeçalho de todas as telas, no mesmo bloco da bateria):
+- **A:** no canto superior direito, ao lado da bateria (à esquerda dela, 15,3 px de intervalo; nas telas com contador "n / N", o relógio vem depois dele).
+- **B:** no canto superior esquerdo; na Dock vem antes dos ícones de Wi-Fi e Bluetooth e nas demais telas antes do título (o título se desloca à direita).
+- **C:** centralizado no topo; o título à esquerda fica limitado a metade da tela menos 3,2 em.
+- **Desligado:** a opção "Mostrar relógio" some com a hora em todas as telas. **Hora nunca acertada:** some também, ligado ou não.
+
+Medido no protótipo a 640x480, escala 1:1, em 2026-11-18, pelos retângulos do DOM (`getBoundingClientRect` dividido pela escala; origem no canto superior esquerdo; "14:35"; pt-BR; tema Material escuro).
+
+| Elemento | x | y | largura | altura | Fonte / cor |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Relógio A na Dock | 463,1 | 6,7 | 54,8 | 24,0 | 19,2 px; a bateria fica em x 533,2 (89,5 x 24,0) |
+| Relógio A na grade, busca e Configurações | 452,2 | 16,0 | 54,8 | 21,1 | idem; a bateria nesses cabeçalhos fica em x 522,3, y 16,0 (89,7 x 21,1) |
+| Relógio B na Dock | 17,3 | 6,7 | 54,8 | 24,0 | os ícones de Wi-Fi e Bluetooth passam a começar em x 87,4 |
+| Relógio B na grade, busca e Configurações | 28,0 | 16,0 | 54,8 | 21,1 | o título passa a começar em x 99,6 |
+| Relógio C na Dock | 292,6 | 6,7 | 54,8 | 24,0 | centro da tela (320) |
+| Relógio C na grade, busca e Configurações | 292,6 | 16,0 | 54,8 | 21,1 | idem |
+| Lista das Configurações: "Mostrar relógio" (depois de Tela; com Wi-Fi e Bluetooth ligados) | 16 | 185,7 | 255,4 | 26,7 | 16,8 px; "Acertar a hora" em y 214,0; passo 28,3; a lista tem 12 itens e termina em y 382,3 |
+| Painel "Mostrar relógio": linhas Ligado / Desligado | 298,5 | 81,6 e 105,4 | 311,1 | 23,8 | 16 px, a escolhida em `sel-bg`; nota "A hora ainda não foi acertada…" quando nunca acertada |
+| Painel "Acertar a hora": painel | 284,2 | 44,1 | 339,8 | 391,2 | como os outros painéis |
+| Linha "Data" (ano-mês-dia) | 298,5 | 81,6 | 311,1 | 29,9 | rótulo `muted` 16 px; valores 24 px negrito |
+| Linha "Hora" (hora:minuto) | 298,5 | 115,5 | 311,1 | 29,9 | idem |
+| Campo de data: ano / mês / dia | 408,5 / 503,8 / 568,0 | 81,6 | 72,6 / 41,6 / 41,6 | 29,9 | em foco `sel-bg` / `sel-fg`, raio `radius-item` |
+| Campo de hora: hora / minuto | 512,8 / 568,0 | 115,5 | 41,6 | 29,9 | idem |
+| Nota das teclas | 298,5 | 152,6 | 311,1 | 34,0 | `muted` 14,4 px; rodapé "▲▼ Alterar, ◀▶ Campo, A Acertar, B Cancelar" |
+| Confirmação (folha) | 32 | 151,2 | 576 | 177,7 | como as outras confirmações: título "Acertar a hora" 22,4 px, a data e a hora novas (`AAAA-MM-DD HH:MM`) em `muted` 19,2 px |
+| "Acertar" (em cima) | 46,4 | 236,1 | 547,2 | 39,2 | 20 px, `fg` |
+| "Cancelar" (embaixo, com o foco) | 46,4 | 275,3 | 547,2 | 39,2 | 20 px, `sel-bg` |
+
+Regras desenhadas:
+- **Campos:** ano-mês-dia e hora:minuto (24 h), na mesma ordem nos três idiomas (sem ambiguidade entre dia e mês). ▲▼ mudam o valor do campo em foco (mês, dia, hora e minuto dão a volta; o ano para em 2025 e 2099; o dia respeita o mês), ◀▶ trocam de campo, L1/R1 saltam (ano 10, mês 3, dia 7, hora 6, minuto 10), A abre a confirmação vertical (Acertar em cima, Cancelar embaixo com o foco, só ▲▼ movem o foco), B cancela e sai dos campos. Confirmado, o aviso curto "Hora acertada" e o relógio já mostra a hora nova.
+- **A hora pode voltar para trás** (é uma fonte real, como o cabo e a rede); o protótipo só simula, no aparelho vai pelo `lume-clock set <epoch> manual`.
+- O relógio redesenha uma vez por minuto, só com a tela acesa (no protótipo, só quando o texto muda).
+- Textos nos três idiomas: "Mostrar relógio" / "Show clock" / "Mostrar reloj"; "Acertar a hora" / "Set the time" / "Ajustar la hora"; confirmação "Acertar" / "Set time" / "Ajustar".
+
+| Aprovação do usuário no navegador a 640x480 | pendente |
+| :--- | :--- |
+| Posição escolhida pelo usuário (A, B ou C) | **B, canto superior esquerdo** (escolhida em 2026-11-18, vista no Dock e na grade) |
 
 ## Pontos técnicos a verificar
 - **Save states**: dependem do emulador. No RetroArch os estados ficam em slots; é preciso confirmar como iniciar já carregando um slot (opção de linha de comando ou configuração) e como o dArkOS organiza os arquivos. Emuladores standalone podem não ter isso.
