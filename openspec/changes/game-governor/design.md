@@ -381,7 +381,8 @@ que desenha a 30), então um jogo que roda abaixo do painel por desenho não é 
 1. Recurso saturado (ocupação acima de 85% por 1 s) sobe um degrau: CPU pelo `scaling_setspeed`
    (governor `userspace`, como no D12), GPU pelo piso `min_freq` do devfreq (o `simple_ondemand`
    continua livre para ir acima do piso).
-2. Queda de quadros (abaixo do alvo menos 5%, por 1 s) sem nenhum saturado e com o recurso
+2. Queda de quadros (abaixo de 90% do alvo em duas janelas seguidas: um core de 60 Hz no painel
+   de 55,7 Hz do GA36 oscila sozinho entre 53 e 55) sem nenhum saturado e com o recurso
    mais ocupado em pelo menos 50%: sobe esse recurso (gargalo de ritmo, `pacing`: a carga média
    é moderada, mas o quadro chega tarde, hipótese a). Queda com os dois abaixo de 50% não é
    problema de clock (`sync`: vsync, áudio, painel mais lento que o core) e não sobe nada.

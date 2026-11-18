@@ -415,7 +415,7 @@ static void usage(void)
  *   every 2 s), the drm-engine-<name> times of its fdinfo; one client opened twice counts
  *   once (drm-client-id). Busy = the busiest engine's time over the window, in percent;
  * - frames: the sum of drm-page-flips of those clients over the window (kernel patch 0036);
- *   the target is the highest rate of the last 30 windows; a drop is a window below 95% of
+ *   the target is the highest rate of the last 30 windows; a drop is a window below 90% of
  *   it (only with a target of at least 20 fps and 5 windows of history);
  * - thermal: scaling_max_freq of the CPU and max_freq of the GPU devfreq (the kernel lowers
  *   them); never written above;
@@ -756,7 +756,7 @@ static int run_auto(void)
 	long hist[HIST];
 	long long start_ms, last_ms, dt = 0, last_up_ms = -1000000;
 	long long cslack = 0, gslack = 0;
-	int nhist = 0, hpos = 0, cidx, gidx = 0, ups = 0, downs = 0, rc = 0, i;
+	int nhist = 0, hpos = 0, cidx, gidx = 0, ups = 0, downs = 0, rc = 0, i, drops = 0;
 	int cpu_ctl, gpu_ctl, have_gpu, bcount[B_N];
 	const char *end = "stop";
 
@@ -851,8 +851,11 @@ static int run_auto(void)
 		for (i = 0; i < nhist; i++)
 			if (hist[i] > target10)
 				target10 = hist[i];
-		if (fps10 >= 0 && nhist >= 5 && target10 >= 200 && fps10 * 100 < target10 * 95)
+		if (fps10 >= 0 && nhist >= 5 && target10 >= 200 && fps10 * 100 < target10 * 90)
 			drop = 1;
+		/* pacing needs two lost windows in a row: a 60 fps core on a 55.7 Hz panel beats
+		 * between 53 and 55 frames a second on its own (GA36, threaded video) */
+		drops = drop ? drops + 1 : 0;
 		meminfo(&avail, &cma);
 		if (avail >= 0 && (mem_min < 0 || avail < mem_min))
 			mem_min = avail;
@@ -886,7 +889,7 @@ static int run_auto(void)
 			sync = drop && !csat && !gsat && load < down_pct && gbusy < down_pct;
 			if (sync)
 				b = B_SYNC;
-			if (drop && !csat && !gsat && !sync) {
+			if (drop && !csat && !gsat && !sync && drops >= 2) {
 				int c_can = cpu_ctl && cidx < capi, g_can = gpu_ctl && gidx < gcapi;
 
 				b = B_PACING;

@@ -167,7 +167,7 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 |---|---|---|
 | `menu` | `lume-ui` | cenário menu |
 | `idle` | `lume-ui` | cenário launcher parado |
-| `game <sistema> <core> [<chave>]` | `lume-run`, antes do `exec` | cenário jogo (perfil pela `<chave>` do jogo, depois pelo `core`, depois pela classe do sistema, depois `game`); a chave é `lume_core::power::game_key` da ROM (FNV-1a 64 do caminho relativo a `ROMS/roms/`, 16 dígitos hex), nunca o nome; uma linha de 3 palavras continua valendo |
+| `game <sistema> <core> [<chave>]` | `lume-run`, antes do `exec` | cenário jogo (perfil pela `<chave>` do jogo, depois pelo `core`, depois pela classe do sistema, depois `game`); a chave é `lume_core::power::game_key` da ROM (FNV-1a 64 do caminho relativo a `ROMS/roms/`, `<sistema>/<arquivo>`, 16 dígitos hex; `game_key_of(sistema, caminho do gamelist)` dá a mesma), nunca o nome; uma linha de 3 palavras continua valendo |
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
 | `controller <chave>` | o próprio serviço (o subshell do controlador) | o controlador saiu sozinho: o perfil do jogo de novo, sem ele (chave errada é ignorada) |
@@ -219,8 +219,8 @@ Uma decisão por segundo, com três sinais de fora do jogo: a thread mais ocupad
 acima), a ocupação da GPU (o maior `drm-engine-*` do `fdinfo` dos arquivos do DRM que o jogo
 tem abertos, `/proc/<pid>/fd` -> `/dev/dri/*`, achados a cada 2 s, um cliente por
 `drm-client-id`) e os quadros entregues (`drm-page-flips` do mesmo `fdinfo`, patch 0036; alvo =
-maior ritmo dos últimos 30 s, queda = abaixo de 95% dele). Regras: recurso acima de 85% sobe
-um degrau; queda de quadros sem recurso saturado sobe o mais ocupado se ele passa de 50%
+maior ritmo dos últimos 30 s, queda = abaixo de 90% dele). Regras: recurso acima de 85% sobe
+um degrau; queda de quadros em duas janelas seguidas sem recurso saturado sobe o mais ocupado se ele passa de 50%
 (`pacing`), senão é `sync` (vsync, áudio, painel: não sobe nada); recurso abaixo de 50% por 3 s,
 sem queda por clock e sem subida nos últimos 5 s, desce um; nunca acima do teto térmico.
 A CPU vai pelo `scaling_setspeed`; a GPU pelo `min_freq` do devfreq (o `simple_ondemand` segue

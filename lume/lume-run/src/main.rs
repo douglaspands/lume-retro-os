@@ -156,7 +156,7 @@ fn power_game(l: &Launch) {
         return;
     }
     let core = if l.core.is_empty() { l.runner.clone() } else { l.core.clone() };
-    let key = if l.path.is_empty() { String::new() } else { lume_core::power::game_key(&l.path) };
+    let key = if l.path.is_empty() { String::new() } else { lume_core::power::game_key_of(&l.system, &l.path) };
     lume_core::power::notify(&lume_core::power::Message::Game { system: l.system.clone(), core, key });
 }
 

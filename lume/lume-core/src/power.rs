@@ -60,6 +60,18 @@ pub fn game_key(rom_path: &str) -> String {
     format!("{h:016x}")
 }
 
+/// [`game_key`] of a game as the launcher knows it: its system and its gamelist path, which is
+/// either relative to the system folder (`./x.zip`, `x.zip`) or absolute. Both forms give the
+/// key of `<system>/<file>` under `ROMS/roms/`, so the launcher, `lume-run` and the settings
+/// screen agree on it.
+pub fn game_key_of(system: &str, path: &str) -> String {
+    if path.starts_with('/') {
+        game_key(path)
+    } else {
+        game_key(&format!("{system}/{}", path.trim_start_matches("./")))
+    }
+}
+
 /// `true` for exactly 16 lowercase hex digits (the shell side checks the same).
 pub fn is_game_key(s: &str) -> bool {
     s.len() == 16 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -138,6 +150,11 @@ mod tests {
         let k = game_key("/storage/roms/gba/Some Game.gba");
         assert!(is_game_key(&k) && !k.contains("Some"));
         assert!(!is_game_key("0123456789ABCDEF") && !is_game_key("0123") && is_game_key("0123456789abcdef"));
+        // the launcher's gamelist forms give the same key as the full path
+        let full = game_key("/storage/roms/cps1/x.zip");
+        assert_eq!(game_key_of("cps1", "./x.zip"), full);
+        assert_eq!(game_key_of("cps1", "x.zip"), full);
+        assert_eq!(game_key_of("cps1", "/storage/roms/cps1/x.zip"), full);
     }
 
     #[test]

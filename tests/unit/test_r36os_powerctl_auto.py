@@ -161,9 +161,9 @@ def world(tmp_path):
         w.p.wait()
 
 
-def settle(w):
+def settle(w, fps=60):
     """slack on both until the CPU and the GPU reach the bottom of their ranges"""
-    return w.run(40, cpu=10, gpu=10, fps=60)
+    return w.run(40, cpu=10, gpu=10, fps=fps)
 
 
 def test_starts_at_the_top_of_both_ranges(exe, world):
@@ -207,10 +207,21 @@ def test_frames_lost_with_nothing_saturated_raise_the_busier_one(exe, world):
     world.game()
     world.start(exe)
     settle(world)
-    r = world.tick(cpu=40, gpu=70, fps=50)              # below 95% of 60, nobody above 85%
+    r = world.tick(cpu=40, gpu=70, fps=50)              # below 90% of 60, nobody above 85%
+    assert (r["khz"], r["hz"]) == (600000, 144000000)   # one window: it waits
+    r = world.tick(cpu=40, gpu=70, fps=50)
     assert (r["khz"], r["hz"], r["b"]) == (600000, 240000000, "pacing")
     r = world.tick(cpu=70, gpu=40, fps=50)
     assert (r["khz"], r["hz"], r["b"]) == (648000, 240000000, "pacing")
+
+
+def test_the_beat_of_a_60_fps_core_on_a_slower_panel_is_not_a_drop(exe, world):
+    world.game()
+    world.start(exe)
+    settle(world, fps=55)
+    for fps in (55, 53, 54, 55, 53, 51, 55, 54):        # threaded video on the 55.7 Hz panel
+        r = world.tick(cpu=60, gpu=10, fps=fps)
+        assert (r["khz"], r["b"]) == (600000, "none"), r
 
 
 def test_frames_lost_with_both_idle_is_sync_and_never_raises_a_clock(exe, world):

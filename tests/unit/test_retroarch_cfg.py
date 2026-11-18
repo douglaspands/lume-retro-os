@@ -172,8 +172,12 @@ def test_ga36_has_no_keyboard_enable_hotkey():
     # keyboard keys) until it is held; the GA36 has no keyboard. The VM keeps right Shift.
     assert 'input_enable_hotkey = "rshift"' in CFG
     ga36 = (SHARE / "retroarch-ga36.cfg").read_text()
-    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey", "video_refresh_rate"]
+    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey", "video_refresh_rate",
+                                                    "video_threaded"]
     assert 'input_enable_hotkey = "nul"' in ga36
+    # P-93: on the 55.69 Hz panel the video thread brings the page flips from 42-48 to 54-55
+    assert 'video_threaded = "true"' in ga36
+    assert 'video_threaded = "true"' in (SHARE / "retroarch-r36s.cfg").read_text()
     assert not (SHARE / "retroarch-vm.cfg").exists()
 
 
