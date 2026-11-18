@@ -131,7 +131,7 @@ index 1879687..c854659 100644
  extern const gfx_widget_t gfx_widget_libretro_message;
  extern const gfx_widget_t gfx_widget_progress_message;
 diff --git a/gfx/widgets/gfx_widget_volume.c b/gfx/widgets/gfx_widget_volume.c
-index bfad70c..0b256c7 100644
+index bfad70c..e52c96b 100644
 --- a/gfx/widgets/gfx_widget_volume.c
 +++ b/gfx/widgets/gfx_widget_volume.c
 @@ -15,8 +15,14 @@
@@ -149,7 +149,7 @@ index bfad70c..0b256c7 100644
  #include "../gfx_widgets.h"
  #include "../gfx_animation.h"
  #include "../gfx_display.h"
-@@ -484,3 +490,306 @@ const gfx_widget_t gfx_widget_lume_level = {
+@@ -484,3 +490,318 @@ const gfx_widget_t gfx_widget_lume_level = {
     NULL, /* iterate */
     gfx_widget_lume_level_frame
  };
@@ -266,11 +266,16 @@ index bfad70c..0b256c7 100644
 +{
 +   char copy[LUME_TEXT_MAX];
 +   char *groups[LUME_ROWS_MAX];
++   char *values[LUME_ROWS_MAX];
++   float widths[LUME_ROWS_MAX];
 +   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
 +   gfx_widget_font_data_t *bold = &w->gfx_widget_fonts.bold;
 +   float h                      = font->line_height + 8.0f * s;
-+   float pen                    = 8.0f * s;
-+   float gap                    = 9.0f * s;
++   float margin                 = 8.0f * s;
++   float label_gap              = 5.0f * s;
++   float pen                    = margin;
++   float total                  = 0.0f;
++   float space;
 +   unsigned n, i;
 +
 +   gfx_widget_lume_quad(p_disp, userdata, vw, vh, 0, 0, vw, h, 0x000000, 0.6f);
@@ -278,24 +283,31 @@ index bfad70c..0b256c7 100644
 +   n = gfx_widget_lume_split(copy, groups, LUME_ROWS_MAX);
 +   for (i = 0; i < n; i++)
 +   {
-+      char *value = strchr(groups[i], ' ');
++      values[i] = strchr(groups[i], ' ');
++      if (values[i])
++         *values[i]++ = '\0';
++      widths[i] = gfx_widget_lume_width(bold, groups[i]);
++      if (values[i] && *values[i])
++         widths[i] += label_gap + gfx_widget_lume_width(font, values[i]);
++      total += widths[i];
++   }
++   /* the groups spread over the whole width, the divider in the middle of each space
++    * (the user's choice, 2026-11-17); never closer than 18 px at 640x480 */
++   space = n > 1 ? (vw - 2.0f * margin - total) / (n - 1) : 0.0f;
++   if (space < 18.0f * s)
++      space = 18.0f * s;
++   for (i = 0; i < n; i++)
++   {
 +      if (i > 0)
 +      {
-+         gfx_widget_lume_quad(p_disp, userdata, vw, vh, pen, 6.0f * s, 1.0f * s,
++         gfx_widget_lume_quad(p_disp, userdata, vw, vh, pen - space / 2.0f, 6.0f * s, 1.0f * s,
 +               h - 12.0f * s, LUME_MUTED, 0.6f);
-+         pen += gap;
 +      }
-+      if (value)
-+         *value++ = '\0';
 +      gfx_widget_lume_text(bold, groups[i], pen, 0, h, vw, vh, LUME_ACCENT, TEXT_ALIGN_LEFT);
-+      pen += gfx_widget_lume_width(bold, groups[i]);
-+      if (value && *value)
-+      {
-+         pen += 5.0f * s;
-+         gfx_widget_lume_text(font, value, pen, 0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
-+         pen += gfx_widget_lume_width(font, value);
-+      }
-+      pen += gap;
++      if (values[i] && *values[i])
++         gfx_widget_lume_text(font, values[i], pen + gfx_widget_lume_width(bold, groups[i]) + label_gap,
++               0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++      pen += widths[i] + space;
 +   }
 +   gfx_widgets_flush_text(vw, vh, bold);
 +   gfx_widgets_flush_text(vw, vh, font);
