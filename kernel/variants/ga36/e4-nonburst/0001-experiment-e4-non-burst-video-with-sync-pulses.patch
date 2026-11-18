@@ -1,0 +1,28 @@
+Subject: [PATCH] drm/panel: ga36mb-jd9366: experiment E4, non-burst video with sync pulses
+
+Experiment kernel of device-fixes 6.3 (D12, P-95 E4), never in the default image.
+
+Burst mode (the default and the vendor lcd_dsi_if = 2) sends each line as one fast
+packet and leaves the lanes in LP-11 for the rest of the line: the panel has to
+place the line from its own timing after every HS entry. Non-burst video with sync
+pulses keeps the link in HS for the whole line, with the HSync start and end
+packets and blanking packets at the pixel rate (sun6i_mipi_dsi builds them when
+MIPI_DSI_MODE_VIDEO_BURST is off; the PinePhone panel runs this way on the same
+DSI block). Same clock and totals. If the ghost image shifted down is the panel
+losing the line position when hot, explicit sync pulses should keep it.
+---
+diff --git a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+--- a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
++++ b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+@@ -447,9 +447,10 @@
+ 	mipi_dsi_set_drvdata(dsi, ctx);
+ 	dsi->lanes = 2;
+ 	dsi->format = MIPI_DSI_FMT_RGB888;
+-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
+ 			  MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
+ 	ctx->panel.prepare_prev_first = true;
++	dev_info(dev, "experiment kernel e4-nonburst: non-burst video with sync pulses\n");
+ 
+ 	ret = jd9366_check_bus(ctx, dsi);
+ 	if (ret < 0) {

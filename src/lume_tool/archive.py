@@ -109,10 +109,12 @@ def archive_image(target: ImageTarget | Target, img: Path, v: BuildVersion,
 
 
 def archive_set(target: ImageTarget, v: BuildVersion, info: dict,
-                manifests: dict[str, Path], extras: dict[str, Path]) -> Path:
+                manifests: dict[str, Path], extras: dict[str, Path],
+                latest: bool = True) -> Path:
     """Keep a console build without an image (fragment build, build-speed 6.2): no
     .img.zst, its BOOT list and image parts (in `extras`, the files already in objects/),
-    the manifests and build.json (`image` null); update `latest`. `lume push` sends it,
+    the manifests and build.json (`image` null); update `latest` (not for an experiment
+    kernel, `latest=False`: only `lume push --build <id>` sends it). `lume push` sends it,
     `lume flash` assembles its image from the objects."""
     dest = ensure_dir(images_dir(target) / v.build_id)
     for archived, manifest in manifests.items():
@@ -120,16 +122,19 @@ def archive_set(target: ImageTarget, v: BuildVersion, info: dict,
             shutil.copy(manifest, dest / archived)
     build = {"target": target.name, **v.as_dict(), "image": None, **info}
     (dest / "build.json").write_text(json.dumps(build, indent=2, ensure_ascii=False) + "\n")
-    _finish(target, v, dest, "", dict(extras))
+    _finish(target, v, dest, "", dict(extras), latest=latest)
     return dest
 
 
-def _finish(target, v: BuildVersion, dest: Path, sums: str, extras: dict[str, Path]) -> None:
+def _finish(target, v: BuildVersion, dest: Path, sums: str, extras: dict[str, Path],
+            latest: bool = True) -> None:
     """Copy the extras (listed in SHA256SUMS) and point `latest` at this build."""
     for archived, src in sorted(extras.items()):
         shutil.copy(src, dest / archived)
         sums += f"{hashlib.sha256((dest / archived).read_bytes()).hexdigest()}  {archived}\n"
     (dest / "SHA256SUMS").write_text(sums)
-    latest = images_dir(target) / "latest"
-    latest.unlink(missing_ok=True)
-    latest.symlink_to(v.build_id)
+    if not latest:
+        return
+    link = images_dir(target) / "latest"
+    link.unlink(missing_ok=True)
+    link.symlink_to(v.build_id)

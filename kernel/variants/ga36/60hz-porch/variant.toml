@@ -1,0 +1,6 @@
+# Experiment kernel (device-fixes 6.3, D13, P-25); enters the default image only if J2a
+# proves it stable on both panels.
+description = "~60 Hz by the porches: link of today (29.7 MHz, 356.4 Mbit/s), htotal 956, 59.975 Hz"
+# the panel mode changes: RetroArch must get this rate for this kernel (J2a writes it into
+# /run/lume/retroarch-extra.cfg); tests/unit/test_kernel_variants.py checks it against the patch
+video_refresh_rate = "59.974798"

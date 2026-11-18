@@ -8,6 +8,7 @@ rewritten (git, see source_tree).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import shutil
@@ -33,10 +34,36 @@ def patches() -> list[Path]:
 
 
 def patches_digest() -> str:
+    return _digest(patches())
+
+
+def _digest(paths: list[Path]) -> str:
     h = hashlib.sha256()
-    for p in patches():
+    for p in paths:
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     return h.hexdigest()[:16]
+
+
+# Patches of an experiment kernel (kernel_variants, device-fixes 6.3), applied after
+# kernel/patches/ only inside `extra_patches`; empty for every default build
+_EXTRA_PATCHES: list[Path] = []
+
+
+def series() -> list[Path]:
+    """The patches the tree gets: kernel/patches/ plus those of an experiment kernel."""
+    return patches() + _EXTRA_PATCHES
+
+
+@contextlib.contextmanager
+def extra_patches(paths: list[Path]):
+    """Within the block, the source tree also carries `paths` (an experiment kernel, built
+    by lume_tool.kernel_variants). The next source_tree() outside it moves the tree back to
+    the default series, rewriting only the files the extra patches touched."""
+    _EXTRA_PATCHES[:] = list(paths)
+    try:
+        yield
+    finally:
+        _EXTRA_PATCHES.clear()
 
 
 def tarball() -> Path:
@@ -129,14 +156,17 @@ def _series_commit(env: dict[str, str], git_dir: Path) -> str:
     ienv = dict(env, GIT_INDEX_FILE=str(index))
     try:
         _git(ienv, "read-tree", UPSTREAM_TAG)
-        for p in patches():
+        for p in series():
             print(f"applying {p.name}", flush=True)
             r = _git(ienv, "apply", "--cached", "--whitespace=nowarn", str(p), check=False)
             if r.returncode != 0:
                 raise PatchError(f"kernel patch {p.name} does not apply: {r.stderr.strip()}")
         tree_id = _git(ienv, "write-tree").stdout.strip()
+        message = f"lume patches {patches_digest()}"
+        if _EXTRA_PATCHES:
+            message += f" + experiment {_digest(_EXTRA_PATCHES)}"
         return _git(ienv, "commit-tree", tree_id, "-p", UPSTREAM_TAG,
-                    "-m", f"lume patches {patches_digest()}").stdout.strip()
+                    "-m", message).stdout.strip()
     finally:
         index.unlink(missing_ok=True)
 
@@ -397,8 +427,10 @@ def build_kernel(board: str, out: Path, initramfs_dir: Path | None = None) -> Pa
     return out / image
 
 
-def build_dtbs(board: str, arch: str, vendor: str, out: Path) -> None:
-    """Compile `board/<board>/dts/*.dts` against the patched tree and validate the DTBs.
+def build_dtbs(board: str, arch: str, vendor: str, out: Path,
+               dts_dir: Path | None = None) -> None:
+    """Compile `board/<board>/dts/*.dts` (or `dts_dir`, the staged sources of an experiment
+    kernel) against the patched tree and validate the DTBs.
 
     The trees converted from vendor DTBs (`board/<board>/dts-vendor/`, boot-dtb-select
     D12) go to `out/vendor/`. Fails if dtc warns about anything beyond the kernel
@@ -409,7 +441,8 @@ def build_dtbs(board: str, arch: str, vendor: str, out: Path) -> None:
     tree = source_tree()
     shutil.rmtree(out, ignore_errors=True)
     ensure_dir(out)
-    volumes = {tree: "/linux", REPO_ROOT / "board" / board / "dts": "/dts", out: "/out"}
+    dts = dts_dir or REPO_ROOT / "board" / board / "dts"
+    volumes = {tree: "/linux", dts: "/dts", out: "/out"}
     vendor_dts = REPO_ROOT / "board" / board / "dts-vendor"
     if vendor_dts.is_dir():
         volumes[vendor_dts] = "/vendor"

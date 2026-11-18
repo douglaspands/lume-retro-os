@@ -1,0 +1,5 @@
+# Experiment kernel (device-fixes 6.3, D12, P-95 E4); never in the default image.
+description = "E4: slower DSI link, 27.5 MHz pixel clock (lanes at 330 instead of 356.4 Mbit/s), 51.05 Hz"
+# the panel mode changes: RetroArch must get this rate for this kernel (J2a writes it into
+# /run/lume/retroarch-extra.cfg); tests/unit/test_kernel_variants.py checks it against the patch
+video_refresh_rate = "51.046926"
