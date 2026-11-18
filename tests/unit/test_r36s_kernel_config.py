@@ -95,6 +95,21 @@ def test_fragment_keeps_mainline_cpufreq_and_thermal():
     assert not re.search(r"CPU_FREQ_DEFAULT_GOV|CPU_FREQ_GOV_|THERMAL_DEFAULT_GOV", FRAGMENT)
 
 
+def test_suspension_keeps_the_defconfig():
+    # device-fixes D11, task 8.1: s2idle and mem come from the arm64 defconfig (SUSPEND,
+    # PM_SLEEP, PSCI); the power key driver (INPUT_RK805_PWRKEY, a module there, loaded by
+    # udev) and the RK817 RTC and charger stay on. Whether mem works is the R36S J1 (2.3):
+    # until then the fragment adds nothing for it and autosleep stays off.
+    from tests.unit.test_ga36_kernel_config import SLEEP_OPTIONS
+
+    off = set(re.findall(r"^# (CONFIG_\w+) is not set$", FRAGMENT, re.M))
+    for opt in SLEEP_OPTIONS + ("CONFIG_INPUT_RK805_PWRKEY", "CONFIG_ARM_PSCI_CPUIDLE"):
+        assert opt not in off and opt not in _options(FRAGMENT), opt
+    for opt in ("CONFIG_CHARGER_RK817", "CONFIG_RTC_DRV_RK808"):
+        assert _options(FRAGMENT).get(opt) == "y", opt
+    assert not re.search(r"PM_AUTOSLEEP|PM_WAKELOCKS|SUSPEND_SKIP_SYNC|MEM_SLEEP", FRAGMENT)
+
+
 @pytest.mark.skipif(not BUILT.exists(), reason="R36S kernel not built yet")
 def test_built_config():
     opts = _options(BUILT.read_text())

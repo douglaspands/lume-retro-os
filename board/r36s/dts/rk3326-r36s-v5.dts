@@ -489,6 +489,13 @@
 		pinctrl-0 = <&pmic_int>, <&i2s1_2ch_mclk>;
 		#sound-dai-cells = <0>;
 		system-power-controller;
+		/*
+		 * Wake from suspension (device-fixes D11, task 8.1): the power key (rk805-pwrkey) is
+		 * an MFD cell without a DT node, so its wakeup lives here: the I2C core turns
+		 * wakeup-source into the PMIC interrupt (gpio0 PA7) as the wake IRQ of this client.
+		 * The only wakeup-source of the board: the gamepad gpio-keys and the sticks have
+		 * none, and the charger and RTC wakeup sources are switched off by lume-sleep.
+		 */
 		wakeup-source;
 
 		vcc1-supply = <&vccsys>;

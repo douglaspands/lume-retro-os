@@ -174,10 +174,11 @@ se ela não desligar em 30 s (frontend travado), o `lume-sleep` chama `poweroff`
 `suspend <seq>`; espera o `clients` (3 s); som: nada (a pausa do jogo já fecha o PCM, D9);
 `lume-clock save` se a imagem tiver (9.1); `sync` (sem remontar, D2); luz em 0 (o nível
 guardado); rádio do Wi-Fi desligado, se estava ligado (`nmcli`); `suspend` na FIFO do
-`lume-power` (`/run/lume/power`); gadget USB solto do UDC (nome guardado); o modo do console
+`lume-power` (`/run/lume/power`); gadget USB solto do UDC (nome guardado); as fontes de
+despertar da lista do console desligadas (8.1, abaixo); o modo do console
 (`deep` em `mem_sleep` antes do `mem`); `sleep OK suspend <modo>`, `status`
 `suspended <seq> <modo>` e a gravação em `/sys/power/state`. Na volta (ou na recusa do
-kernel), ao contrário: gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
+kernel), ao contrário: fontes de despertar religadas, gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
 `lume-power`, Wi-Fi, luz no nível guardado, `status` `resuming`, `phase` `resume <seq>`,
 `status` `awake` e `sleep OK resume after <s>` (ou `sleep FAIL suspend <modo>: <motivo>`).
 Cada comando externo tem prazo de 5 s, para nenhum segurar a suspensão.
@@ -192,6 +193,34 @@ depois `mem` em `/sys/power/state`, e só vale num console que acordou 10 vezes 
 | GA36 | `freeze` | medido (2.3, J1, 2026-11-18): `mem_sleep` só oferece `[s2idle]`; 10 de 10 despertares pelo botão |
 | R36S | `freeze` | padrão, ainda não medido: a J1 do R36S (2.3) confere o `mem_sleep` e preenche o arquivo |
 | VM | `freeze` | padrão (sem arquivo) |
+
+**Só o botão de energia acorda (8.1):** o mesmo arquivo do console lista, em linhas
+`nowake <pasta do dispositivo em /sys>` (padrões do shell valem), as fontes de despertar que
+não podem acordar o console. Antes de gravar em `/sys/power/state`, o `lume-sleep` grava
+`disabled` no `power/wakeup` de cada uma que estava `enabled` e, na volta (ou na recusa do
+kernel), grava `enabled` de novo só nessas. Pasta que não existe é pulada; caminho absoluto ou
+com `..` é recusado (`sleep FAIL wakeup: refused path <caminho>`). O botão de energia nunca
+entra na lista: no GA36 o driver `axp20x-pek` se faz fonte de despertar sozinho (o
+`axp221-pek` não tem nó no DTS), e no R36S o `rk805-pwrkey` acorda pela interrupção do RK817,
+armada pelo `wakeup-source` no nó do PMIC (o cliente I2C `0-0020`, que também nunca entra na
+lista). Nenhum outro nó dos dois DTS tem `wakeup-source` (botões, analógicos, cartão).
+
+| Console | Fonte | Como fica |
+|---|---|---|
+| GA36 | `axp221-pek` (botão) | acorda (o driver liga; J1: 10 de 10) |
+| GA36 | `axp20x-usb` (entrada do carregador, a porta DC) | `nowake`: o driver só arma o `VBUS_PLUGIN` com o `power/wakeup` ligado, e a varredura dele (AXP221/223) não segura mais a suspensão |
+| GA36 | `axp20x-battery` | `nowake` (sem interrupção; só a fonte do `power_supply_changed`) |
+| GA36 | `1f00000.rtc` | `nowake`: nada no sistema arma alarme (sem `rtcwake`, sem timers de alarme) |
+| GA36 | `alarmtimer` | nada a fazer: só arma o RTC acima |
+| GA36 | `mmc0` | nada a fazer: detecção do cartão, e o cartão de boot é fixo (`non-removable`) |
+| GA36 | `musb-hdrc.2.auto` | não dá para desligar: o driver arma a interrupção como despertar no probe, sem olhar o `power/wakeup`; o gadget já sai do UDC antes (passo 8) e o VBUS da porta não chega ao kernel |
+| R36S | `rk805-pwrkey` pelo PMIC `0-0020` | acorda (`wakeup-source` no DTS) |
+| R36S | `rk817-charger`, `rk817-battery` | `nowake`; as interrupções de ligar e tirar o carregador dividem a linha do PMIC e não se mascaram pelo sysfs: conferir na J1 do R36S |
+| R36S | `rk808-rtc.*` | `nowake`: nada arma alarme |
+
+As opções do kernel não mudam: o GA36 suspende em `s2idle` com o `sunxi_defconfig` (J1), e o
+R36S fica com o `defconfig` arm64 (`SUSPEND`, PSCI, `rk805-pwrkey` como módulo) até a J1 dele
+dizer se o `mem` serve.
 
 **Dois achados da J1 no GA36 que o `lume-sleep` (8.3) e o `lume-input` (8.2) cumprem:**
 

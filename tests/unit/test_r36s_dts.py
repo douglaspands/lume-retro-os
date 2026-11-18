@@ -288,6 +288,27 @@ def test_otg_host_role_powers_the_port():
     assert "otg_switch: OTG_SWITCH {" in CODE
 
 
+def test_only_the_power_key_wakes():
+    # device-fixes D11, task 8.1: the power key (rk805-pwrkey) is an MFD cell without a DT
+    # node; it wakes through the RK817 interrupt, which the I2C core arms as the wake IRQ of
+    # the PMIC client only with wakeup-source on the PMIC node. That is the single wakeup
+    # property of the board: the gamepad gpio-keys, the sticks and the card never wake.
+    pmic = _node("rk817: pmic@20")
+    own = re.sub(r"^\t\t\w[^\n]*\{\n.*?^\t\t\};\n", "", pmic, flags=re.S | re.M)  # children out
+    assert "wakeup-source;" in own
+    assert "interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;" in own
+    assert CODE.count("wakeup-source") == 1
+    for prop in ("enable-sdio-wakeup", "gpio-key,wakeup", "linux,wakeup"):
+        assert prop not in CODE, prop
+    # lume-sleep switches off the other RK817 sources and never the PMIC itself (0-0020):
+    # without its wake IRQ nothing wakes the console
+    conf = (REPO_ROOT / "aports/lume-power/files/usr/share/lume/sleep/r36s.conf").read_text()
+    nowake = re.findall(r"^nowake (\S+)\s*(?:#.*)?$", conf, re.M)
+    assert nowake == ["class/power_supply/rk817-charger", "class/power_supply/rk817-battery",
+                      "bus/platform/devices/rk808-rtc.*"]
+    assert not any(re.search(r"pwrkey|0020|i2c|rk808$|rk817$", p) for p in nowake)
+
+
 def test_leds():
     assert _gpio(_node("red_led: led-0")) == (0, 5, "GPIO_ACTIVE_HIGH")
     assert _gpio(_node("blue_led: led-1")) == (0, 0, "GPIO_ACTIVE_HIGH")

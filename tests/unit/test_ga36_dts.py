@@ -179,6 +179,27 @@ def test_gpu_opps_only_gain_the_same_voltage():
         assert "opp-hz" not in body
 
 
+WAKE_PROPS = ("wakeup-source", "enable-sdio-wakeup", "gpio-key,wakeup", "linux,wakeup")
+
+
+def test_only_the_power_key_wakes():
+    # device-fixes D11, task 8.1: the power key (axp221-pek, no DT node) is a wakeup source by
+    # its driver and woke the GA36 10 of 10 times in the J1 without an overlay; nothing in the
+    # tree may add another one (volume keys, gamepad, card, USB), and neither may the
+    # experiment variants appended at the end of each DTS (6.3)
+    sources = ALL_SOURCES + [p.read_text() for p in
+                             (REPO_ROOT / "kernel/variants/ga36").glob("*/board.dtsi")]
+    for src in sources:
+        for prop in WAKE_PROPS:
+            assert prop not in _code(src), prop
+    # the drivers keep the switches lume-sleep turns off: no-wakeup flags would hide them
+    conf = (REPO_ROOT / "aports/lume-power/files/usr/share/lume/sleep/ga36.conf").read_text()
+    nowake = re.findall(r"^nowake (\S+)\s*(?:#.*)?$", conf, re.M)
+    assert nowake == ["class/power_supply/axp20x-usb", "class/power_supply/axp20x-battery",
+                      "bus/platform/devices/1f00000.rtc"]
+    assert not any(re.search(r"pek|rsb|3a3", p) for p in nowake)
+
+
 def test_memory_is_512mib_fallback():
     # Fallback like goodluckOS: the vendor U-Boot passes the real DRAM size by ATAG and the
     # kernel (ARM_ATAG_DTB_COMPAT) writes it over this; one node only, in the common dtsi
