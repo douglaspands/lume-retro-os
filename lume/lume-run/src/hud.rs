@@ -7,8 +7,12 @@
 //! groups (the user's choice, 2026-11-17):
 //!
 //! ```text
-//! FPS 59.7|CPU 47% 1008|GPU 62% 38M|MEM 124/492 sw 20|BAT 74% 1.9W 2:40
+//! FPS 59.7|CPU 47% 1008|GPU 62% 38M|MEM 124/492 sw 20|52°|BAT 74% 1.9W 2:40
 //! ```
+//!
+//! `52°` is the SoC temperature in whole degrees Celsius (`thermal_zone0`), read in the same
+//! 1 s sample as the rest, so only while the bar is on. It has no `TMP` label: with the label
+//! the bar does not fit 640x480 (task 9.7, measured in lume-menu's bar test).
 //!
 //! `--` stands for a value that cannot be read and `--:--` for no estimate yet; charging,
 //! `BAT 74% + 0:50` (the time until full). FPS: the frames the game presented per second, the
@@ -278,6 +282,12 @@ impl Hud {
         Some(((total - avail.min(total)) / 1024, total / 1024, swap / 1024))
     }
 
+    /// The SoC temperature in whole degrees Celsius (`thermal_zone0/temp` is in millidegrees).
+    fn temp(&self) -> Option<i64> {
+        let milli = read_num(&self.path("/sys/class/thermal/thermal_zone0/temp"))?;
+        Some((milli as f64 / 1000.0).round() as i64)
+    }
+
     fn find_battery(&self) -> Option<PathBuf> {
         let dir = self.path("/sys/class/power_supply");
         let mut entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
@@ -395,10 +405,11 @@ impl Hud {
             .mem()
             .map(|(u, t, s)| if s > 0 { format!("{u}/{t} sw {s}") } else { format!("{u}/{t}") })
             .unwrap_or_else(|| "--".into());
+        let tmp = self.temp().map(|t| format!("{t}°")).unwrap_or_else(|| "--".into());
         let bat = self.battery_text(elapsed);
         // the FPS first (the user, 2026-11-17: "muito importante"); one decimal, as RetroArch's
         let fps = self.fps.map(|f| format!("{f:.1}")).unwrap_or_else(|| "--".into());
-        format!("FPS {fps}|CPU {cpu}|GPU {gpu}|MEM {mem}|{bat}")
+        format!("FPS {fps}|CPU {cpu}|GPU {gpu}|MEM {mem}|{tmp}|{bat}")
     }
 }
 
@@ -498,11 +509,48 @@ mod tests {
         flips(&d, Some(1000));
         let mut h = Hud::new(&d, 42);
         // the first sample has no difference yet
-        assert_eq!(h.sample(0.0), "FPS --|CPU -- 1008|GPU --|MEM 124/1006 sw 200|BAT --");
+        assert_eq!(h.sample(0.0), "FPS --|CPU -- 1008|GPU --|MEM 124/1006 sw 200|--|BAT --");
         stat(&d, 147, 953); // 47 busy of 100
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
         flips(&d, Some(1060));
-        assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
+        assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|--|BAT --");
+    }
+
+    fn zone(d: &Path, milli: &str) {
+        let z = d.join("sys/class/thermal/thermal_zone0");
+        fs::create_dir_all(&z).unwrap();
+        fs::write(z.join("temp"), format!("{milli}\n")).unwrap();
+    }
+
+    #[test]
+    fn tmp_is_whole_degrees_from_thermal_zone0() {
+        let d = tree("tmp");
+        zone(&d, "52400");
+        let mut h = Hud::new(&d, 42);
+        assert!(h.sample(0.0).contains("|MEM 124/1006 sw 200|52°|BAT --"), "{}", h.sample(0.0));
+        zone(&d, "52600");
+        assert!(h.sample(1.0).contains("|53°|"), "{}", h.sample(1.0));
+    }
+
+    #[test]
+    fn tmp_without_zone_or_with_a_bad_read_is_dashes() {
+        let d = tree("tmp-none");
+        let mut h = Hud::new(&d, 42);
+        assert!(h.sample(0.0).contains("sw 200|--|BAT"), "{}", h.sample(0.0));
+        zone(&d, "garbage");
+        assert!(h.sample(1.0).contains("sw 200|--|BAT"), "{}", h.sample(1.0));
+    }
+
+    #[test]
+    fn a_hidden_bar_does_not_read_the_temperature() {
+        // nothing is sampled while the bar is off: the zone is read only inside sample()
+        let d = tree("tmp-hidden");
+        zone(&d, "52000");
+        let h = Hud::new(&d, 42);
+        // constructing the Hud reads nothing; make the zone unreadable-by-removal proves
+        // that no cached value exists before the first sample
+        fs::remove_dir_all(d.join("sys/class/thermal")).unwrap();
+        assert_eq!(h.temp(), None);
     }
 
     #[test]

@@ -110,7 +110,7 @@
     /* grupos separados por "|" (o texto do LUME_HUD): rótulo na cor de destaque, divisória fina */
     function hud(charging) {
       const bat = charging ? 'BAT 74% + 0:50' : 'BAT 74% 1.9W 2:40';
-      return ['CPU 47% 1008MHz', 'GPU 62%', 'MEM 124/1006M sw 200M', bat].map(g => {
+      return ['CPU 47% 1008MHz', 'GPU 62%', 'MEM 124/1006M sw 200M', '52°', bat].map(g => {
         const [l, ...v] = g.split(' ');
         return `<b style="color:var(--accent)">${l}</b>&nbsp;${v.join(' ')}`;
       }).join('<i style="display:inline-block;width:1px;height:1em;margin:0 .55em;background:var(--muted);opacity:.6"></i>');

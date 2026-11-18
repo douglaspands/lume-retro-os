@@ -5,6 +5,7 @@
 //! share.
 
 pub mod atomic;
+pub mod cardreq;
 pub mod catalog;
 pub mod events;
 pub mod gametext;
@@ -17,5 +18,6 @@ pub mod powerconf;
 pub mod powerstate;
 pub mod runner;
 pub mod settings;
+pub mod sleep;
 pub mod states;
 pub mod text;

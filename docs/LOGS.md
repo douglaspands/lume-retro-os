@@ -119,9 +119,10 @@ Uma linha por evento:
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
 | `push` | `lume push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
-| `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
+| `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); a rede `usb0` segue o estado do UDC, não o VBUS: sobe quando o UDC fica `configured` (também ao voltar a `configured`) e cai quando ele sai (`OK network: up on usb0 ...`, `OK network: down on usb0`); VBUS 0 com o UDC ainda `configured` é leitura falsa do PMIC e não derruba a rede (`OK vbus glitch: <fonte>:0 while the UDC is configured, network kept`, e `OK vbus glitch over: ...` quando volta); na VM, sem porta OTG, não há evento |
 
 | `power` | `lume-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> sync=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
+| `sleep` | `lume-sleep` (device-fixes D11, protocolo em [`docs/LAUNCHER.md`](LAUNCHER.md#protocolo-do-sono-para-quem-programa); formato em `lume/lume-core/src/sleep.rs`): suspensão, logo antes de gravar em `/sys/power/state` (`OK suspend <modo>`, modo `freeze` ou `mem`); volta (`OK resume after <s>`, segundos inteiros suspenso pela `/proc/uptime`, que conta o tempo suspenso); o kernel recusou e tudo voltou com a tela acesa (`FAIL suspend <modo>: <motivo>`, por exemplo `write /sys/power/state failed (Device or resource busy)`; sem linha de `resume`); um passo falhou e a sequência seguiu (`FAIL <passo>: <motivo>`, passo `clients`, `audio`, `clock`, `sync`, `backlight`, `wifi`, `governor` ou `usb`; os clientes que não responderam em 2 s saem como `FAIL clients: <a>/<n> answered within 2s`, e o `lume-input` mudo como `FAIL clients: lume-input did not answer within 3s`); desligamento pelo botão segurado (`OK poweroff: power button held`); nome desconhecido na pasta dos pedidos (`FAIL refused request: <nome>`, só letras, dígitos, `.`, `_` e `-`, até 32 caracteres). O pedido em dobro e o toque que acordou o console não geram evento, só uma linha no log do kernel |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
@@ -487,6 +488,14 @@ lume-input: source device "gpio-keys" gone
 botões de volume, ou os analógicos do R36S) não foi achado pelo nome do perfil: o controle
 funciona sem ele. Uma origem obrigatória faltando faz o serviço tentar de novo
 (`supervise-daemon`, até 5 vezes).
+
+O sono (device-fixes D11) deixa no log do kernel só o que não vira evento do `events.log`:
+
+```
+lume-input: no sleep service (/run/lume/sleep missing): power button request dropped
+lume-sleep: suspend request dropped: busy (suspending 4)
+lume-sleep: suspend request dropped: the press that woke the console
+```
 
 ## Escolha do device tree no `boot/boot-<n>.log`
 

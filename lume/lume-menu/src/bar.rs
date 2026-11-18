@@ -15,7 +15,8 @@ pub mod px {
     pub const TEXT: f32 = 15.0;
     pub const MARGIN: f32 = 8.0;
     pub const LABEL_GAP: f32 = 4.0;
-    pub const MIN_SPACE: f32 = 18.0;
+    /// 14 (was 18) so the temperature group fits next to the others (task 9.7, measured)
+    pub const MIN_SPACE: f32 = 14.0;
     pub const DIVIDER_INSET: f32 = 6.0;
 }
 
@@ -213,8 +214,16 @@ mod tests {
     use super::*;
 
     fn fonts() -> Option<Fonts> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cache/tmp/fonts");
-        let load = |n: &str| fontdue::Font::from_bytes(std::fs::read(dir.join(n)).ok()?, Default::default()).ok();
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cache/tmp/fonts");
+        // LUME_TEST_FONTS: a worktree has no cache/, point it at the main tree's fonts
+        let dirs = [
+            std::env::var_os("LUME_TEST_FONTS").map(std::path::PathBuf::from).unwrap_or_default(),
+            base.join("usr/share/lume/fonts"),
+            base,
+        ];
+        let load = |n: &str| {
+            dirs.iter().find_map(|d| fontdue::Font::from_bytes(std::fs::read(d.join(n)).ok()?, Default::default()).ok())
+        };
         Some(Fonts::new(load("Roboto-Regular.ttf")?, load("Roboto-Medium.ttf")?, load("Roboto-Bold.ttf")?))
     }
 
@@ -248,6 +257,39 @@ mod tests {
         // the last group ends near the right edge (spread over the width)
         let last_text = (0..w).rev().find(|&x| (0..h).any(|y| pixel(&buf, w * 4, x, y)[3] == 255)).unwrap();
         assert!(last_text > w - 20, "last text at {last_text}");
+    }
+
+    /// The ruler: the widest realistic bar (with TMP) must fit 640x480 at the minimum spacing,
+    /// so no group (BAT last) is cut or squeezed.
+    #[test]
+    fn widest_bar_with_tmp_fits_640() {
+        let Some(f) = fonts() else {
+            eprintln!("skipped: no Roboto on this host");
+            return;
+        };
+        let size = px::TEXT;
+        let measure = |text: &str| -> (f32, f32) {
+            let groups: Vec<(&str, &str)> = text.split('|').map(|g| g.split_once(' ').unwrap_or((g, ""))).collect();
+            let total: f32 = groups
+                .iter()
+                .map(|(l, v)| text_width(&f.bold, l, size) + if v.is_empty() { 0.0 } else { px::LABEL_GAP + text_width(&f.regular, v, size) })
+                .sum();
+            let need = total + 2.0 * px::MARGIN + (groups.len() - 1) as f32 * px::MIN_SPACE;
+            (need, 640.0)
+        };
+        for text in [
+            // GA36 (492 MiB) with swap in use, the example of docs/LAUNCHER.md
+            "FPS 59.7|CPU 47% 1008|GPU 62% 38M|MEM 124/492 sw 20|52°|BAT 74% 1.9W 2:40",
+            // R36S (1006 MiB), discharging and charging
+            "FPS 60.0|CPU 47% 1296|GPU 62% 38M|MEM 300/1006|52°|BAT 74% 1.9W 2:40",
+            "FPS 60.0|CPU 47% 1296|GPU 62% 38M|MEM 300/1006|52°|BAT 74% + 0:50",
+            // busy: CPU at 100% and a 2-digit GPU memory
+            "FPS 59.7|CPU 99% 1008|GPU 99% 38M|MEM 124/492 sw 20|52°|BAT 74% 1.9W 2:40",
+        ] {
+            let (need, avail) = measure(text);
+            eprintln!("ruler {need:.1} of {avail} for {text}");
+            assert!(need <= avail, "{text}: needs {need:.1} of {avail}");
+        }
     }
 
     #[test]

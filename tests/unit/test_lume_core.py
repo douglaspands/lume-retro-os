@@ -107,6 +107,9 @@ ADDED_AFTER_MOVE = {
     "etc/init.d/lume-vmnet",
     # game-governor: RetroArch keys per core (the PlayStation keeps the main-thread video)
     "usr/share/lume/retroarch-core.keys",
+    # device-fixes 3.2: the suspension mode of each console (lume-power, read by lume-sleep)
+    "usr/share/lume/sleep/ga36.conf",
+    "usr/share/lume/sleep/r36s.conf",
 }
 
 

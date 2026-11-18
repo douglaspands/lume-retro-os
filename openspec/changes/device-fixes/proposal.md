@@ -31,9 +31,10 @@ pedido do usuário.
 
 **Tela**
 - **P-95:** achar a causa da imagem quebrada com brilho alto no GA36, pelos experimentos de
-  alimentação, corrente, calor e DSI. A trava fixa `backlight_max` sai e, no lugar dela, um
-  **pontinho vermelho na linha do brilho** marca o limite seguro, aprendido pelo que o
-  aparelho registra (com o relato do usuário por atalho). O padrão do GA36 é o nível 7.
+  alimentação, corrente, calor e DSI. A trava fixa `backlight_max` sai; o limite seguro é
+  aprendido pelo que o aparelho registra (com o relato do usuário por atalho) e fica só no
+  registro, sem marca na tela (o pontinho vermelho foi dispensado pelo usuário em
+  2026-11-18). O padrão do GA36 é o nível 7.
 - **P-25:** o painel do GA36 a ~60 Hz, se o PLL, o JD9366 e a taxa do DSI permitirem. É o
   mesmo modo do painel que os experimentos de DSI do P-95 tocam.
 - **P-30:** o Mega Drive (picodrive) mostra a imagem no GA36. **P-26:** o arcade é conferido
@@ -52,9 +53,8 @@ pedido do usuário.
 **Energia**
 - **Suspensão:** um **toque curto no botão de energia suspende** e **segurar desliga**. Outro
   toque acorda o console no mesmo ponto, com o jogo pausado antes, o `sync` do cartão, a
-  tela, a luz e o som desligados, e o cenário `suspend` no governor. As Configurações ganham
-  "Suspender", logo acima de Desligar (o menu do sistema pelo Fn, da `launcher-adjustments`,
-  herda o item). A profundidade (`s2idle` ou `deep`) sai de um spike no aparelho que mede a
+  tela, a luz e o som desligados, e o cenário `suspend` no governor. "Suspender" fica no menu
+  do sistema do launcher. A profundidade (`s2idle` ou `deep`) sai de um spike no aparelho que mede a
   corrente de cada modo.
 
 **Relógio**
@@ -83,6 +83,13 @@ pedido do usuário.
   (logs, `power.conf`, `logs.conf`) são mantidos ou migrados uma vez.
 - **Prova:** um teste que falha se achar `r36os` num nome do console ou da ferramenta do PC,
   além do `test-vm` verde e de um boot nos dois consoles.
+
+**Menu do sistema pelo Fn (trazido da `launcher-adjustments`, usuário, 2026-11-18)**
+- No launcher, o toque no Fn abre o menu do sistema: Configurações, Suspender, Reiniciar e
+  Desligar (os dois últimos com confirmação). O rodapé do Dock mostra a dica do Fn, e segurar
+  o Fn mostra os atalhos. Reiniciar usa o código de saída 66 do contrato de sessão.
+- As Configurações perdem Desligar e o item RetroArch (o menu completo do RetroArch fora do
+  jogo volta pela opção de liberar, P-101).
 
 **Interface e pequenos**
 - **Menus verticais:** só cima e baixo movem o foco. Esquerda e direita não mudam a escolha
@@ -116,8 +123,10 @@ manual da hora (sem fonte garantida, a hora não aparece na tela); troca do exFA
 - `device-support`: o requisito do áudio passa a ser volume analógico; o brilho deixa de ter
   teto fixo; o desligamento passa a ser o botão segurado; o painel do GA36 passa a uns 60 Hz,
   se a prova permitir; os analógicos são calibrados no início.
-- `game-launcher`: o item "Cartão" e "Suspender" no menu do sistema; o pontinho vermelho na
-  linha do brilho; a regra de navegação dos menus verticais.
+- `game-launcher`: o menu do sistema pelo Fn (Configurações, Suspender, Reiniciar, Desligar),
+  as dicas do Fn, o item "Cartão", as Configurações sem Desligar e sem RetroArch, e a regra de
+  navegação dos menus verticais.
+- `frontend-session`: o reiniciar pelo código de saída 66 (trazido da `launcher-adjustments`).
 
 - Nomes `lume-`: só entram deltas nas specs cujos requisitos citam um nome ou caminho
   `r36os`: `system-image`, `system-update`, `device-testing`, `build-performance`,

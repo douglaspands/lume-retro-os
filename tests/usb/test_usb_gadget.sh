@@ -214,6 +214,36 @@ check "ssh: a new link starts udhcpd and dropbear again" 'grep -q "^udhcpd " "$L
 kill -TERM $RUN; wait $RUN
 check "run: TERM with the link up stops everything" '[ ! -e "$G" ] && [ ! -e "$W/run/udhcpd.pid" ]'
 
+### task 9.6: the network follows the UDC state, not VBUS (GA36 J1: VBUS 0 for ~5 s with the cable in)
+mkdir -p "$W/power/axp20x-usb"
+echo USB > "$W/power/axp20x-usb/type"
+echo 1 > "$W/power/axp20x-usb/online"
+echo 1 > "$W/net/usb0/carrier"
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+sleep 1
+check "vbus: UDC configured brings the network up" 'grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+: > "$LOG"
+echo 0 > "$W/power/axp20x-usb/online"
+echo 0 > "$W/net/usb0/carrier"
+sleep 0.8
+check "vbus: VBUS 0 with the UDC configured does not take the network down" '! grep -q "ip addr flush" "$LOG" && ! grep -q " usb OK network: down on usb0$" $EV'
+check "vbus: the glitch is logged once as an event" '[ "$(grep -c " usb OK vbus glitch: axp20x-usb:0 while the UDC is configured, network kept$" $EV)" = 1 ]'
+echo 1 > "$W/power/axp20x-usb/online"
+sleep 0.5
+check "vbus: VBUS back is logged" 'grep -q " usb OK vbus glitch over: " $EV'
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.5
+check "udc: leaving configured takes the network down" 'grep -qx "ip addr flush dev usb0" "$LOG" && grep -q " usb OK network: down on usb0$" $EV'
+: > "$LOG"
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.8
+check "udc: back to configured brings the network up again, even with the carrier at 0" 'grep -qx "ip link set usb0 up" "$LOG" && grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG" && grep -q "^udhcpd " "$LOG" && grep -q "^dropbear " "$LOG"'
+kill -TERM $RUN; wait $RUN
+rm -f "$W/udc/musb-hdrc.2.auto/state"
+
 rm -rf "$W"
 echo "failures: $FAILS"
 [ "$FAILS" = 0 ]

@@ -284,9 +284,23 @@ def build_language_of(build_dir: Path) -> str:
 
 def mark_flashed(build_dir: Path) -> None:
     """Point out/images/<image>/flashed at the build just written to a card (`clean` keeps it)."""
-    link = build_dir.parent / "flashed"
+    # `latest` is itself a link: resolve it so `flashed` names the real build (P-50)
+    real = build_dir.resolve()
+    link = real.parent / "flashed"
     link.unlink(missing_ok=True)
-    link.symlink_to(build_dir.name)
+    link.symlink_to(real.name)
+
+
+def sudo_warning(environ=None, euid: int | None = None) -> str | None:
+    """A warning when `flash` itself runs under sudo (it already calls sudo for the card)."""
+    env = os.environ if environ is None else environ
+    euid = os.geteuid() if euid is None else euid
+    if euid != 0 and not env.get("SUDO_USER"):
+        return None
+    return ("warning: running under sudo. Do not put sudo in front of lume flash: it asks "
+            "for sudo itself, only for the card. As root, the cache files and the `flashed` "
+            "link end up owned by root, which breaks the podman :z relabel in the test "
+            "suites and later runs as your user.")
 
 
 class Progress:
@@ -537,6 +551,8 @@ def _rereadpt(device: str) -> None:
 
 def flash(target: ImageTarget, device: str, update: bool = False, build: str = "latest",
           yes: bool = False, eject: bool = False) -> int:
+    if warning := sudo_warning():
+        print(warning, file=sys.stderr)
     build_dir, zst = find_build(target, build)
     desc = _check_device(device)
     mode = "UPDATE (boot area + BOOT; ROMS kept)" if update else \
