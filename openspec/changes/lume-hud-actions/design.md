@@ -439,6 +439,13 @@ largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação
   `accent`/`sel_bg`, `accent_fg`/`sel_fg`, `fg`, `muted`, `overlay`. As fontes são as dos
   widgets do RetroArch (menores que as do protótipo a 640x480: título ~16 px contra 22,4 px,
   itens ~16 px contra 20 px), a decidir na aprovação da 1.3.
+- **Barra para achar o gargalo (usuário, 2026-11-17; além do escopo do D6, aceito por ele):**
+  `FPS 59.7 │ CPU 47% 1008 │ GPU 62% 38M │ MEM 124/492 │ BAT ...`. O FPS vem do contador de
+  quadros do `GET_STATUS` (patch 0004) a cada segundo; o uso e a memória da GPU vêm do `fdinfo`
+  do arquivo DRM do jogo, que no GA36 exigiu o patch 0035 do kernel (`lima`: `drm-engine-gp/pp`
+  e `drm-*-memory`). Letra da barra 15% menor (`LUME_HUD_SCALE`) para caber numa linha a
+  640x480, medido no GA36 com o pior caso. O uso desses sinais pelo governor (subir só a CPU ou
+  só a GPU) ficou no P-20.
 
 ## Resultados da J1 no GA36 (2026-11-17; o R36S ainda falta)
 
