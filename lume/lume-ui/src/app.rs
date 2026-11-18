@@ -116,10 +116,42 @@ pub enum SetRow {
     Volume,
     Brightness,
     System,
+    /// the card's maintenance: free space, last runs, Optimize now, Check on next boot (D5)
+    Card,
     /// the game lists' actions: Update lists (A)
     Games,
     RetroArch,
     Power,
+}
+
+/// How long the Card panel waits for the service to answer a TRIM request before it gives up.
+const TRIM_ANSWER: Duration = Duration::from_secs(15);
+
+/// What the Card panel shows (device-fixes D5), read when the item is focused.
+#[derive(Debug, Clone, Default)]
+pub struct CardPanel {
+    /// free bytes of the games partition
+    pub free: Option<u64>,
+    /// boot numbers of the last TRIM and the last check (None: never)
+    pub last_trim: Option<u64>,
+    pub last_check: Option<u64>,
+    /// the TRIM state: None idle, else running / ok with the freed bytes / fail
+    pub trim: Option<lume_core::cardreq::Status>,
+    /// the check is requested for the next boot
+    pub check_pending: bool,
+    /// when the TRIM request was written, and when the status was last read (the 1 s polling)
+    asked: Option<Instant>,
+    polled: Option<Instant>,
+}
+
+/// A byte count as GB with one decimal ("58,4 GB" outside English, as the prototype).
+fn gb_text(bytes: u64, lang: &str) -> String {
+    let t = format!("{:.1} GB", bytes as f64 / 1e9);
+    if lang == "en" {
+        t
+    } else {
+        t.replace('.', ",")
+    }
 }
 
 /// What a menu sheet shows on its left (10.9).
@@ -246,6 +278,10 @@ pub struct App<S: SystemAdapter> {
     /// the SSH code last drawn in the Wi-Fi panel (None: none yet, the panel waits for it)
     ssh_code_drawn: Option<String>,
     info:Option<(Instant, Vec<(&'static str, String)>)>,
+    /// the Card panel's data (read while the Card item is focused)
+    pub card_info: Option<CardPanel>,
+    /// the request folder of lume-card (/run/lume/card)
+    pub card_run: PathBuf,
     level: BTreeMap<&'static str, u8>,
     /// cover texture and the part of it that is the image
     thumbs: Lru<GameRef, (TextureId, Rect)>,
@@ -352,6 +388,8 @@ impl<S: SystemAdapter> App<S> {
             panel_focus: None,
             ssh_code_drawn: None,
             info: None,
+            card_info: None,
+            card_run: lume_core::cardreq::request_dir(),
             level: BTreeMap::new(),
             thumbs: Lru::new(cache),
             free_list: Vec::new(),
@@ -582,6 +620,9 @@ impl<S: SystemAdapter> App<S> {
                 if self.waiting_for_ssh_code() && self.ssh_code().is_some() {
                     redraw = true;
                 }
+                if self.card_polling() && self.poll_card(now) {
+                    redraw = true;
+                }
                 if let Some((t, _)) = self.anim {
                     if now.duration_since(t).as_millis() as f64 >= self.theme.num("anim_ms") {
                         self.anim = None;
@@ -653,7 +694,15 @@ impl<S: SystemAdapter> App<S> {
                     return false; // the lists are being rebuilt
                 }
                 let before = self.on_system_row();
+                let before_card = self.on_card_row();
                 self.input(a, repeat, now);
+                if self.on_card_row() {
+                    if !before_card {
+                        self.read_card();
+                    }
+                } else {
+                    self.card_info = None; // leaving the item stops the polling
+                }
                 if !self.on_system_row() {
                     self.info = None; // leaving the item stops the reading
                 } else if !before {
@@ -699,10 +748,113 @@ impl<S: SystemAdapter> App<S> {
         if let Some((_, t)) = &self.brightness_bar {
             min(t.saturating_duration_since(now));
         }
-        if self.on_system_row() || self.waiting_for_ssh_code() {
+        if self.on_system_row() || self.waiting_for_ssh_code() || self.card_polling() {
             min(Duration::from_millis(1000));
         }
         w
+    }
+
+    fn on_card_row(&self) -> bool {
+        self.screen == Screen::Settings && self.overlay.is_none() && self.set_rows().get(self.settings_focus) == Some(&SetRow::Card)
+    }
+
+    /// The Card panel is open and a TRIM runs: the only time the status is read (every second).
+    fn card_polling(&self) -> bool {
+        self.on_card_row() && self.card_info.as_ref().is_some_and(|c| c.trim == Some(lume_core::cardreq::Status::Running))
+    }
+
+    fn card_markers(&self) -> PathBuf {
+        self.dirs.storage.join("system/card")
+    }
+
+    fn read_marker(&self, name: &str) -> Option<u64> {
+        std::fs::read_to_string(self.card_markers().join(name)).ok()?.trim().parse().ok()
+    }
+
+    /// Reads what the Card panel shows: free space, the last runs, the pending check and a
+    /// TRIM that is already running (started before the panel was opened).
+    fn read_card(&mut self) {
+        use lume_core::cardreq::Status;
+        let running = std::fs::read_to_string(self.card_run.join("status")).ok().and_then(|t| Status::parse(&t)) == Some(Status::Running);
+        let c = CardPanel {
+            free: self.sys.card_free(),
+            last_trim: self.read_marker("last-trim"),
+            last_check: self.read_marker("last-check"),
+            trim: running.then_some(Status::Running),
+            check_pending: self.card_markers().join("check-next-boot").exists() || self.card_run.join("check-next-boot").exists(),
+            asked: None,
+            polled: Some(Instant::now()),
+        };
+        self.card_info = Some(c);
+    }
+
+    /// Reads the TRIM status (called every second while it runs); true when the panel changed.
+    fn poll_card(&mut self, now: Instant) -> bool {
+        use lume_core::cardreq::Status;
+        let Some(c) = self.card_info.as_ref() else { return false };
+        if c.polled.is_some_and(|t| now.duration_since(t) < Duration::from_millis(950)) {
+            return false;
+        }
+        let status = std::fs::read_to_string(self.card_run.join("status")).ok().and_then(|t| Status::parse(&t));
+        let (free, last_trim) = (self.sys.card_free(), self.read_marker("last-trim"));
+        let c = self.card_info.as_mut().unwrap();
+        c.polled = Some(now);
+        match status {
+            Some(Status::Running) | None => {
+                // no answer for too long: the service is not there
+                if status.is_none() && c.asked.is_some_and(|t| now.duration_since(t) >= TRIM_ANSWER) {
+                    c.trim = Some(Status::Fail("no answer".into()));
+                    return true;
+                }
+                false
+            }
+            done => {
+                c.trim = done;
+                c.free = free;
+                c.last_trim = last_trim;
+                true
+            }
+        }
+    }
+
+    /// A on a line of the Card panel: 0 Optimize now (writes the `trim` request), 1 Check on
+    /// next boot (writes the request; again, it cancels: the launcher deletes the request and the
+    /// marker, the frozen interface having no cancel verb).
+    fn card_action(&mut self, line: usize) {
+        use lume_core::cardreq::{Status, Verb};
+        if self.card_info.is_none() {
+            self.read_card();
+        }
+        if line == 0 {
+            if self.card_info.as_ref().is_some_and(|c| c.trim == Some(Status::Running)) {
+                return; // one at a time
+            }
+            // a stale answer of the last run must not read as this one's
+            let _ = std::fs::remove_file(self.card_run.join("status"));
+            let wrote = std::fs::create_dir_all(&self.card_run).and_then(|_| std::fs::write(self.card_run.join(Verb::Trim.name()), b""));
+            let c = self.card_info.as_mut().unwrap();
+            match wrote {
+                Ok(()) => {
+                    c.trim = Some(Status::Running);
+                    c.asked = Some(Instant::now());
+                    c.polled = Some(Instant::now());
+                }
+                Err(e) => {
+                    lume_core::log::line("lume-ui", &format!("trim request not written: {e}"));
+                    c.trim = Some(Status::Fail(e.to_string()));
+                }
+            }
+        } else {
+            let pending = self.card_info.as_ref().is_some_and(|c| c.check_pending);
+            if pending {
+                let _ = std::fs::remove_file(self.card_run.join(Verb::CheckNextBoot.name()));
+                let _ = std::fs::remove_file(self.card_markers().join(Verb::CheckNextBoot.name()));
+            } else if let Err(e) = std::fs::create_dir_all(&self.card_run).and_then(|_| std::fs::write(self.card_run.join(Verb::CheckNextBoot.name()), b"")) {
+                lume_core::log::line("lume-ui", &format!("check request not written: {e}"));
+                return;
+            }
+            self.card_info.as_mut().unwrap().check_pending = !pending;
+        }
     }
 
     fn toast_key(&mut self, key: &'static str) {
@@ -1200,7 +1352,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Games, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Card, SetRow::Games, SetRow::RetroArch, SetRow::Power]);
         v
     }
 
@@ -1279,6 +1431,8 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Wifi if self.settings.ssh_wifi => vec![PanelRow::Toggle, PanelRow::Action],
             SetRow::Wifi => vec![PanelRow::Toggle],
             SetRow::Games => vec![PanelRow::Action],
+            // Optimize now, Check on next boot
+            SetRow::Card => vec![PanelRow::Action, PanelRow::Action],
             _ => Vec::new(),
         }
     }
@@ -1426,6 +1580,7 @@ impl<S: SystemAdapter> App<S> {
                     PanelRow::Choice(i) => self.choose(row, i),
                     PanelRow::Toggle => self.adjust(row, 1),
                     PanelRow::Action if row == SetRow::Wifi => self.new_ssh_code(),
+                    PanelRow::Action if row == SetRow::Card => self.card_action(pf),
                     PanelRow::Action => {
                         // Games: the one action is Update lists
                         self.updating = Some((0, 0));
@@ -2414,6 +2569,7 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Volume => (self.tr("volume"), pct("volume")),
             SetRow::Brightness => (self.tr("brightness"), pct("brightness")),
             SetRow::System => (self.tr("system"), String::new()),
+            SetRow::Card => (self.tr("card"), String::new()),
             SetRow::Games => (self.tr("games_item"), String::new()),
             SetRow::RetroArch => (self.tr("retroarch"), String::new()),
             SetRow::Power => (self.tr("power_off"), String::new()),
@@ -2600,6 +2756,42 @@ impl<S: SystemAdapter> App<S> {
                     }
                 }
             }
+            SetRow::Card => {
+                use lume_core::cardreq::Status;
+                let ci = self.card_info.clone().unwrap_or_default();
+                let lang = self.settings.language.clone();
+                let boot = |n: Option<u64>, me: &Self| n.map_or_else(|| me.tr("card_never"), |n| format!("{} {n}", me.tr("card_boot")));
+                let free = ci.free.map_or_else(|| "—".to_string(), |b| gb_text(b, &lang));
+                line(self, c, y, &self.tr("card_free"), Some(&free), false, false, true);
+                y += pitch;
+                line(self, c, y, &self.tr("card_last_trim"), Some(&boot(ci.last_trim, self)), false, false, true);
+                y += pitch;
+                line(self, c, y, &self.tr("card_last_check"), Some(&boot(ci.last_check, self)), false, false, true);
+                y += pitch;
+                // the actions: the state of the TRIM on the right of the first, the request of
+                // the check on the right of the second
+                let failed = matches!(ci.trim, Some(Status::Fail(_)));
+                let trim_text = match &ci.trim {
+                    None => String::new(),
+                    Some(Status::Running) => self.tr("card_trimming"),
+                    Some(Status::Ok(Some(b))) => format!("✓ {} {}", gb_text(*b, &lang), self.tr("card_freed")),
+                    Some(Status::Ok(None)) => "✓".to_string(),
+                    Some(Status::Fail(_)) => self.tr("card_trim_fail"),
+                };
+                let focused = pill(0, false);
+                if failed && !focused {
+                    // the failure in red, outside the focus (the prototype's #ff8a80)
+                    line(self, c, y, &self.tr("card_trim_now"), Some(""), false, false, false);
+                    let vw = c.text_width(&trim_text, px);
+                    c.text(&trim_text, inner.right() - pad_x, y.round() as i32 + pad_y, px, Color { r: 0xff, g: 0x8a, b: 0x80, a: 255 }, Align::Right, vw + 1);
+                } else {
+                    line(self, c, y, &self.tr("card_trim_now"), Some(&trim_text), focused, false, false);
+                }
+                y += pitch;
+                let check_text = if ci.check_pending { self.tr("card_check_set") } else { String::new() };
+                line(self, c, y, &self.tr("card_check_next"), Some(&check_text), pill(1, false), false, false);
+                y += pitch;
+            }
             SetRow::Games => {
                 // its actions as the panel's lines; one for now (A runs it)
                 line(self, c, y, &self.tr("update_lists"), Some(""), true, false, false);
@@ -2645,7 +2837,7 @@ impl<S: SystemAdapter> App<S> {
                 match l {
                     PanelRow::Choice(_) => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Level | PanelRow::Toggle => hints.push((NAV_LR, self.tr("hint_adjust"))),
-                    PanelRow::Action if row == SetRow::Wifi => hints.push(("A", self.tr("hint_select"))),
+                    PanelRow::Action if matches!(row, SetRow::Wifi | SetRow::Card) => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Action => hints.push(("A", self.tr("hint_update"))),
                 }
             }

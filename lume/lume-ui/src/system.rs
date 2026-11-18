@@ -25,6 +25,8 @@ pub trait SystemAdapter {
     fn network(&self) -> (bool, bool);
     /// The IPv4 address of the Wi-Fi interface (not a Wi-Fi Direct one), for SSH over Wi-Fi
     fn wifi_address(&self) -> Option<String>;
+    /// Free bytes of the games partition (`statvfs` of /storage), for the Card panel
+    fn card_free(&self) -> Option<u64>;
 }
 
 /// The Wi-Fi interface: one with `wireless/` or `phy80211`, not a Wi-Fi Direct group
@@ -304,6 +306,12 @@ impl SystemAdapter for RealSystem {
         read_battery(&self.sys)
     }
 
+    fn card_free(&self) -> Option<u64> {
+        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        let storage = std::ffi::CString::new("/storage").ok()?;
+        (unsafe { libc::statvfs(storage.as_ptr(), &mut st) } == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
+    }
+
     fn network(&self) -> (bool, bool) {
         read_network(&self.sys)
     }
@@ -348,6 +356,7 @@ pub struct FakeSystem {
     pub batt: Option<(u8, bool)>,
     pub net: (bool, bool),
     pub addr: Option<String>,
+    pub free: Option<u64>,
 }
 
 impl SystemAdapter for FakeSystem {
@@ -387,6 +396,9 @@ impl SystemAdapter for FakeSystem {
     }
     fn wifi_address(&self) -> Option<String> {
         self.addr.clone()
+    }
+    fn card_free(&self) -> Option<u64> {
+        self.free
     }
 }
 
