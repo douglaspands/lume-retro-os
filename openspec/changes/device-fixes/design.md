@@ -105,6 +105,20 @@ falhar, desmonta, e registra a falha sem impedir o desligamento). A tabela da 2.
 eventos da 5.1 na J2 e na J3. A suspensão (D11) usa o mesmo `sync`, mas não remonta, porque
 o console volta ao mesmo ponto.
 
+**Como ficou (5.1 e 5.2, 2026-11-18):**
+- **Ordem no `session` (`release_storage`):** evento, `persist flush`, `sync`, **parar o
+  `lume-logd`**, `sync`, remontar só leitura (ou desmontar), `poweroff`. Parar o `lume-logd`
+  antes é necessário: ele grava os eventos finais e a marca `.clean` ao parar; com a `ROMS` já
+  só leitura, todo desligamento pelo menu viraria `previous abrupt`. O reinício (9.12) chama a
+  mesma função, e **a hora do desligamento (9.1) tem de ser gravada antes dela**.
+- **kexec no R36S e reinício do GA36 (rc 11):** o segundo kernel sempre vê o volume limpo e o
+  `dmesg` do primeiro se perde. O initramfs grava as linhas do primeiro em
+  `ROMS/system/card/.restart-log` antes do kexec ou do reinício, e o início seguinte as registra
+  com o sufixo `(before kexec)` ou `(before reboot)`. No R36S, a linha que vale para a 2.1 é a
+  com sufixo.
+- **Botão segurado:** vai pelo `lume-sleep`/`poweroff` e depende do `mount-ro` do OpenRC, não
+  do `session`; a J2 confere o bit nesse caminho também.
+
 ### D3. Pedido de verificação dentro da ROMS
 
 O pedido é o arquivo `ROMS/system/card/check-next-boot`. Se ele existir depois de o
