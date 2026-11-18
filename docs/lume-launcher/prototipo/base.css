@@ -103,6 +103,7 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 #o-view.on { display: block; }
 #o-view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 #o-view .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: .6em 1em .4em; font-size: var(--fs-s); color: #fff; background: linear-gradient(transparent, #000d); display: flex; justify-content: space-between; gap: 1em; }
+#gcount { padding: 0 1em; text-align: right; font-size: var(--fs-s); line-height: 1.2; color: var(--muted); font-variant-numeric: tabular-nums; }
 #gtitle, #stitle { padding: .15em 1em; text-align: center; font-size: var(--fs-m); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #empty { flex: 1; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 1.5em; font-size: var(--fs-m); }
 

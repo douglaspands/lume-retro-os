@@ -104,7 +104,7 @@
         <div class="screen on" id="s-dock">${bar3}
           <div id="dock-area"><div id="dock"></div><div id="dock-label"><h1></h1><p></p></div></div>
           <div class="hints"></div></div>
-        <div class="screen" id="s-games"><div class="ghead"></div><div id="grid"></div><div id="gtitle"></div><div class="hints"></div></div>
+        <div class="screen" id="s-games"><div class="ghead"></div><div id="grid"></div><div id="gtitle"></div><div id="gcount"></div><div class="hints"></div></div>
         <div class="screen" id="s-set"><div class="ghead"></div><div class="settings"><div class="slist"></div><div class="spanel"></div></div><div class="hints"></div></div>
         <div class="screen" id="s-shots"><div class="ghead"></div><div id="sgrid"></div><div id="stitle"></div><div class="hints"></div></div>
         <div class="screen" id="s-files"><div class="ghead"></div><div id="flist"></div><div class="hints"></div></div>
@@ -270,7 +270,8 @@
   function renderGames() {
     syncGrid();
     const it = dockItems()[S.dock], list = curGames();
-    $('#s-games .ghead').innerHTML = `${CLK_B}<span class="hl">${it.kind === 'fav' ? t('fav') : it.c.sub}${S.q ? ' · “' + esc(S.q) + '”' : ''}</span>${CLK_C}<span class="r"><span>${list.length ? (S.g + 1) + ' / ' + list.length : '0'}</span>${CLK_A}<span class="batt"></span></span>`;
+    $('#s-games .ghead').innerHTML = `${CLK_B}<span class="hl">${it.kind === 'fav' ? t('fav') : it.c.sub}${S.q ? ' · “' + esc(S.q) + '”' : ''}</span>${CLK_C}<span class="r">${CLK_A}<span class="batt"></span></span>`;
+    $('#gcount').textContent = list.length ? (S.g + 1) + ' / ' + list.length : '0';   // pending approval: counter moved from the header to the bottom-right, above the hints
     const grid = $('#grid');
     if (!list.length) { grid.style.display = 'none'; $('#gtitle').textContent = ''; ensureEmpty(true); }
     else {
