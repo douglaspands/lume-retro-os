@@ -38,7 +38,7 @@ Todo perfil MUST ficar dentro da tabela de frequências e tensões do device tre
 - **THEN** o perfil é recusado, o log diz qual valor e qual console, e a CPU fica com o governor padrão do kernel
 
 ### Requirement: Piso de clock nos jogos do GA36
-No GA36, o mínimo da CPU durante um jogo MUST NOT ser o menor clock da tabela: todo perfil usado em jogo MUST ter um mínimo de pelo menos o piso de jogo do console (600 MHz no início), inclusive quando o perfil é recusado, quando os perfis estão desligados ou quando o usuário o sobrescreve. Uma classe MAY ter piso maior (o GBA começa em 1008 MHz), nunca menor. O piso só muda no arquivo da imagem.
+No GA36, o mínimo da CPU durante um jogo MUST NOT ser o menor clock da tabela: todo perfil usado em jogo MUST ter um mínimo de pelo menos o piso de jogo do console (600 MHz no início), inclusive quando o perfil é recusado, quando os perfis estão desligados ou quando o usuário o sobrescreve. Uma classe MAY ter piso maior, nunca menor, e só quando uma medição mostrar quadros perdidos sem ele (preferência do usuário: o menor clock que mantém o jogo bom). O piso só muda no arquivo da imagem.
 
 #### Scenario: Perfil de jogo recusado
 - **WHEN** o perfil da classe de um jogo é recusado no GA36
@@ -48,9 +48,9 @@ No GA36, o mínimo da CPU durante um jogo MUST NOT ser o menor clock da tabela: 
 - **WHEN** o arquivo de ajustes do cartão pede um mínimo abaixo do piso de jogo para uma classe
 - **THEN** essa linha é recusada com uma linha no log e vale o perfil da imagem
 
-#### Scenario: GBA sem oscilar abaixo do piso da classe
-- **WHEN** um jogo de GBA roda no GA36
-- **THEN** as métricas desse jogo não trazem clock abaixo do mínimo do perfil do GBA, a não ser que a proteção térmica do kernel baixe o teto
+#### Scenario: Clock abaixo do piso de jogo
+- **WHEN** um jogo roda no GA36
+- **THEN** as métricas desse jogo não trazem clock abaixo do mínimo do perfil dele, a não ser que a proteção térmica do kernel baixe o teto
 
 ### Requirement: Jogo sem perder quadros
 O perfil de cada classe de jogo MUST rodar os jogos de teste sem mais eventos `game FAIL slow` do que o governor padrão do kernel nas mesmas sessões, nos dois consoles.

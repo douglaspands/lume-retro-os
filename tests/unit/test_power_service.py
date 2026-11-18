@@ -888,7 +888,8 @@ def test_ga36_conf_initial_values():
     entries = [line.split("#")[0].split() for line in text.splitlines()]
     entries = [e for e in entries if e]
     assert ["limit", "game_min=600000"] in entries
-    assert ["profile", "gba", "min=1008000", "controller=auto", "rate_limit_us=2000"] in entries
+    # battery first (user, 2026-11-18): the GBA runs on the controller from the game floor
+    assert not any(e[:2] in (["profile", "gba"], ["class", "gba"]) for e in entries)
     assert ["profile", "heavy", "min=1008000", "controller=auto", "rate_limit_us=2000"] in entries
     assert ["profile", "game", "controller=auto", "rate_limit_us=2000"] in entries
     # P-60: the launcher with a slow schedutil rate limit (sugov:0 at 30% of a core with 0.37 ms)
@@ -896,7 +897,6 @@ def test_ga36_conf_initial_values():
     assert ["profile", "idle", "governor=schedutil", "rate_limit_us=200000"] in entries
     for sysid in ("n64", "psp", "nds"):
         assert ["class", sysid, "heavy"] in entries
-    assert ["class", "gba", "gba"] in entries
     # no boot profile: the kernel default
     assert not any(e[0] == "profile" and e[1] == "boot" for e in entries)
     for khz in ("600000", "1008000"):

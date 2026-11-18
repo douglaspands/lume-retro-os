@@ -181,6 +181,13 @@ desta change). A cena 0 da DRAM
 que o EmuELEC usava em jogo não existe no kernel mainline (sem devfreq da DRAM do A33): o P-23
 só mede.
 
+**Decisão do usuário (2026-11-18), bateria primeiro:** "se o game roda com o clock mais baixo,
+então mantém". A classe `gba` (mínimo de 1008 MHz) saiu do `ga36.conf`: a oscilação sentida no
+GBA era o ritmo dos quadros no painel de 55,7 Hz (P-93), resolvido com o vídeo em thread, e o
+controlador por gargalo rodou uma corrida de GBA a 912 MHz na velocidade cheia. O GBA usa o
+perfil `game` (controlador a partir do piso de 600 MHz). A classe `heavy` continua travada em
+1008 MHz porque nunca foi medida no GA36 (os sistemas dela não estão no catálogo dele).
+
 ### D4. Como um perfil é aplicado
 
 Ordem, para nunca passar do limite: liga os núcleos que faltam, ajusta `scaling_min_freq` e
