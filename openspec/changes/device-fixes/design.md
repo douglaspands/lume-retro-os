@@ -457,8 +457,10 @@ bateria principal.
 **Medido no GA36 (2.4, J1, 2026-11-18):** RTC acertado pelo cabo (`hwclock -w`), desligado
 pelo menu por ~6 min com o cabo ligado: voltou com 2 a 3 s de diferença do PC, e o boot já
 pegou a hora (o `events.log` saiu com a data certa). O RTC também anda entre reinícios
-(antes do acerto ele marcava 1970-01-10, contando desde a última perda de energia). Falta
-repetir sem o cabo.
+(antes do acerto ele marcava 1970-01-10, contando desde a última perda de energia). **Sem o
+cabo** (2026-11-18, boot 193 a 194): desligado pelo menu às 21:45:11 e ligado às 22:01:58
+(~17 min só na bateria), o RTC voltou **exatamente** com a hora do PC (0 s de diferença). No
+GA36 a hora sobrevive ao desligamento pela bateria principal; falta o R36S.
 
 ### D16. Nós de entrada só leitura para os jogos (P-87)
 
