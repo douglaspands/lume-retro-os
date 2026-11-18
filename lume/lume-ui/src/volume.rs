@@ -20,7 +20,7 @@ pub const CURVE_MDB: [i32; 21] = [
 
 /// A mixer control as data: raw limits as amixer prints them, the raw of 0 dB (the loudest
 /// clean position) and the milli-dB of one raw step.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Control {
     pub lo: i32,
     pub hi: i32,
@@ -88,6 +88,13 @@ pub fn convert_old(old: &Control, old_raw: i32) -> i32 {
     pct_from_raw(old, old_raw)
 }
 
+/// One step of `STEP_PCT` on the grid, as `vol_step` of volume.h (the volume keys): up from
+/// 87 is 90, down from 87 is 85; the ends hold.
+pub fn step(pct: i32, up: bool) -> i32 {
+    let v = if up { (pct / STEP_PCT + 1) * STEP_PCT } else { ((pct + STEP_PCT - 1) / STEP_PCT - 1) * STEP_PCT };
+    v.clamp(0, 100)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +125,13 @@ mod tests {
         assert_eq!(convert_old(&GA36_DAC_OLD, 0), 0);
         assert_eq!(convert_old(&GA36_DAC_OLD, 1), 1);
         assert_eq!(convert_old(&R36S_MASTER, 255), 100);
+    }
+
+    #[test]
+    fn steps_stay_on_the_grid() {
+        assert_eq!((step(87, true), step(87, false)), (90, 85));
+        assert_eq!((step(85, true), step(85, false)), (90, 80));
+        assert_eq!((step(100, true), step(0, false)), (100, 0));
+        assert_eq!((step(3, true), step(3, false)), (5, 0));
     }
 }

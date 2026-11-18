@@ -51,7 +51,7 @@ def test_aport_for_every_target_in_the_common_list_and_checksummed():
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', apkbuild, re.M)
     # zlib-dev: the PNG of lume-shot, built by the same aport (lume-launcher D12)
     assert re.search(r'^makedepends="linux-headers zlib-dev"', apkbuild, re.M)
-    for name in ("input.c", "lume-input.initd", "61-lume-input.rules", "ga36.conf",
+    for name in ("input.c", "volume.h", "lume-input.initd", "61-lume-input.rules", "ga36.conf",
                  "r36s.conf", "vm.conf"):
         digest = hashlib.sha512((APORT / name).read_bytes()).hexdigest()
         assert f"{digest}  {name}" in apkbuild, name
@@ -230,20 +230,30 @@ class Daemon:
         self.out = tmp / "out"
         self.sock = tmp / "input.sock"
         self.amixer_log = tmp / "amixer.log"
-        # a fake mixer with one raw value (0-192, as the GA36 DAC): "sget" prints it, a
-        # numeric "sset" stores it, a percent "sset" is only logged
-        self.mixer_raw = tmp / "mixer.raw"
+        # a fake mixer with a state per control (ctl-<name>.raw, .lim, .sw): "sget" prints it
+        # (and fails for a control without a raw file), "sset" stores the numbers and on/off it
+        # gets; a percent "sset" is only logged
+        self.ctl_dir = tmp / "mixer"
+        self.ctl_dir.mkdir()
         amixer = tmp / "amixer"
         amixer.write_text(
             "#!/bin/sh\n"
             f'echo "$*" >> "{self.amixer_log}"\n'
             'case "$3" in\n'
-            f'sget) printf "Simple mixer control \'%s\',0\\n  Limits: Playback 0 - 192\\n'
-            f'  Front Left: Playback %s [83%%] [0.00dB] [on]\\n" "$4" "$(cat "{self.mixer_raw}")" ;;\n'
-            f'-q) case "$6" in *[!0-9]*) ;; *) echo "$6" > "{self.mixer_raw}" ;; esac ;;\n'
+            f'sget) f="{self.ctl_dir}/ctl-$4"\n'
+            '  [ -f "$f.raw" ] || exit 1\n'
+            '  lim=$(cat "$f.lim" 2>/dev/null || echo "0 - 192")\n'
+            '  sw=$(cat "$f.sw" 2>/dev/null || echo on)\n'
+            '  printf "Simple mixer control \'%s\',0\\n  Limits: Playback %s\\n'
+            '  Front Left: Playback %s [50%%] [%s]\\n" "$4" "$lim" "$(cat "$f.raw")" "$sw" ;;\n'
+            f'-q) f="{self.ctl_dir}/ctl-$5"; shift 5\n'
+            '  for v in "$@"; do case "$v" in on|off) echo "$v" > "$f.sw" ;; *[!0-9]*) ;;'
+            ' *) echo "$v" > "$f.raw" ;; esac; done ;;\n'
             "esac\n")
         amixer.chmod(0o755)
-        self.mixer_raw.write_text("154\n")
+        # the levels of the outputs (task 7.2) and the active output the jack service writes
+        self.levels = tmp / "audio"
+        self.output = tmp / "audio-output"
         # a fake backlight (max 255 at 60%)
         self.backlight = tmp / "backlight"
         (self.backlight / "panel").mkdir(parents=True)
@@ -267,6 +277,7 @@ class Daemon:
         env = {**os.environ, "LUME_INPUT_AMIXER": str(amixer), "LUME_INPUT_BACKLIGHT": str(self.backlight),
                "LUME_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "LUME_INPUT_LEVEL_COLORS": str(self.colors),
                "LUME_SLEEP_DIR": str(self.sleep),
+               "LUME_INPUT_LEVEL_DIR": str(self.levels), "LUME_INPUT_AUDIO_OUTPUT": str(self.output),
                # no calibration window unless a test asks for one (D17)
                "LUME_INPUT_CAL_MS": "0", **(env_extra or {})}
         self.proc = subprocess.Popen(args, env=env,
@@ -276,6 +287,25 @@ class Daemon:
             if self.sock.exists():
                 break
             time.sleep(0.02)
+
+    def ctl(self, name: str, raw: int, lim: str = "0 - 192", sw: str = "on"):
+        """Sets a control of the fake mixer."""
+        (self.ctl_dir / f"ctl-{name}.raw").write_text(f"{raw}\n")
+        (self.ctl_dir / f"ctl-{name}.lim").write_text(f"{lim}\n")
+        (self.ctl_dir / f"ctl-{name}.sw").write_text(f"{sw}\n")
+
+    def ctl_state(self, name: str) -> tuple[int, str]:
+        """The raw value and the switch of a control of the fake mixer."""
+        raw = int((self.ctl_dir / f"ctl-{name}.raw").read_text())
+        sw = self.ctl_dir / f"ctl-{name}.sw"
+        return raw, sw.read_text().strip() if sw.exists() else "on"
+
+    def level(self, output: str = "speaker"):
+        p = self.levels / f"level-{output}"
+        return p.read_text() if p.exists() else None
+
+    def amixer_calls(self) -> list[str]:
+        return self.amixer_log.read_text().splitlines() if self.amixer_log.exists() else []
 
     def send(self, source: str, *events):
         self.writers[source].write(b"".join(EVENT.pack(0, 0, *e) for e in events))
@@ -627,11 +657,45 @@ def test_volume_keys_change_the_mixer_and_are_not_forwarded(r36s):
         # the launcher hears of each step, after the mixer changed
         assert c.recv(16) == b"volume"
     time.sleep(0.2)
-    # each step, then a read of the level for the line over a game (LUME_LEVEL)
-    assert r36s.amixer_log.read_text().splitlines() == [
-        "-c rk817int -q sset Master 5%+", "-c rk817int sget Master",
-        "-c rk817int -q sset Master 5%-", "-c rk817int sget Master"]
+    # device-fixes 7.2: 5% of the user scale on the Master (volume.h, 3.4); no level file and
+    # a Master that cannot be read: 70%, so 75% (-8 dB, raw 234), then back to 70% (raw 228)
+    # from the saved file
+    assert r36s.amixer_calls() == [
+        "-c rk817int sget Master", "-c rk817int -q sset Master 234",
+        "-c rk817int -q sset Master 228"]
+    assert r36s.level() == "70\n"
     assert r36s.keys() == []
+    c.close()
+
+
+def test_r36s_each_output_has_its_own_level(r36s):
+    # the jack service writes the active output; the keys move that output's level only
+    r36s.levels.mkdir()
+    (r36s.levels / "level-speaker").write_text("70\n")
+    (r36s.levels / "level-headphones").write_text("30\n")
+    r36s.output.write_text("headphones\n")
+    c = r36s.client()
+    r36s.press("volume-keys", CODES["KEY_VOLUMEUP"])
+    r36s.release("volume-keys", CODES["KEY_VOLUMEUP"])
+    assert c.recv(16) == b"volume"
+    assert r36s.ra.recv(64) == b"LUME_LEVEL right 35 4db3ff"
+    assert r36s.ctl_state("Master")[0] == 191      # 35% = -24 dB
+    assert r36s.level("headphones") == "35\n" and r36s.level("speaker") == "70\n"
+    r36s.output.write_text("speaker\n")
+    r36s.press("volume-keys", CODES["KEY_VOLUMEDOWN"])
+    r36s.release("volume-keys", CODES["KEY_VOLUMEDOWN"])
+    assert c.recv(16) == b"volume"
+    assert r36s.ra.recv(64) == b"LUME_LEVEL right 65 4db3ff"
+    assert r36s.ctl_state("Master")[0] == 223      # 65% = -12 dB
+    assert r36s.level("headphones") == "35\n" and r36s.level("speaker") == "65\n"
+    # an unknown word in the output file is the speaker
+    r36s.output.write_text("hdmi\n")
+    r36s.press("volume-keys", CODES["KEY_VOLUMEDOWN"])
+    r36s.release("volume-keys", CODES["KEY_VOLUMEDOWN"])
+    assert c.recv(16) == b"volume"
+    assert r36s.level("speaker") == "60\n"
+    # the R36S Master has no switch: never "on"/"off" on it
+    assert not any(l.endswith((" on", " off")) for l in r36s.amixer_calls())
     c.close()
 
 
@@ -688,8 +752,8 @@ def test_levels_ask_retroarch_for_the_line_over_a_game(r36s):
     up, fn = CODES["KEY_VOLUMEUP"], CODES["BTN_TRIGGER_HAPPY5"]
     r36s.press("volume-keys", up)
     r36s.release("volume-keys", up)
-    # the fake mixer reads 154 of 0-192 after the step: 80%
-    assert r36s.ra.recv(64) == b"LUME_LEVEL right 80 4db3ff"
+    # the user percent of the scale: no file and no mixer read, 70% + 5%
+    assert r36s.ra.recv(64) == b"LUME_LEVEL right 75 4db3ff"
     r36s.press("gpio-keys", fn)
     r36s.press("volume-keys", up)
     r36s.release("volume-keys", up)
@@ -751,34 +815,116 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
         d.release("GA36-MB Gamepad", CODES["BTN_START"])
         d.release("GA36-MB Gamepad", CODES["BTN_MODE"])
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
-        # ceiling 160 (0 dB): 154 + 3% of 192 = 160, then Vol+ at the ceiling sets nothing,
-        # and Vol- goes back to 154; the volume keys never reach the virtual gamepad. Each
-        # press tells the client, the one at the ceiling too (the launcher shows the bar)
-        for key, raw in (("KEY_VOLUMEUP", "160"), ("KEY_VOLUMEUP", "160"), ("KEY_VOLUMEDOWN", "154")):
+        # device-fixes 7.2: the analog Headphone (0-63, 1.5 dB per step) on the user scale,
+        # the DAC set again to 0 dB and on at every step. No level file and the DAC at 0 dB
+        # (the boot mixer's): the level is the Headphone's position, 43 = -30 dB = 20%; then
+        # 25% (44), 30% (46) and back to 25%. The volume keys never reach the virtual gamepad,
+        # and each press tells the client
+        d.ctl("DAC", 160)
+        d.ctl("Headphone", 43, lim="0 - 63")
+        for key, raw, pct in (("KEY_VOLUMEUP", 44, 25), ("KEY_VOLUMEUP", 46, 30), ("KEY_VOLUMEDOWN", 44, 25)):
             d.press("1c22800.lradc", CODES[key])
             d.release("1c22800.lradc", CODES[key])
             assert c.recv(16) == b"volume"
-            assert d.mixer_raw.read_text().strip() == raw
-        assert d.amixer_log.read_text().splitlines() == [
-            "-c GA36MB sget DAC", "-c GA36MB -q sset DAC 160",
-            "-c GA36MB sget DAC",
-            "-c GA36MB sget DAC", "-c GA36MB -q sset DAC 154"]
+            assert d.ctl_state("Headphone") == (raw, "on")
+            assert d.level() == f"{pct}\n"
+            assert d.ra.recv(64) == f"LUME_LEVEL right {pct} 4db3ff".encode()
+        assert d.amixer_calls() == [
+            "-c GA36MB sget DAC", "-c GA36MB sget Headphone",
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on",
+            "-c GA36MB -q sset Headphone 46 on", "-c GA36MB -q sset DAC 160 on",
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on"]
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
     finally:
         d.stop()
 
 
-def test_volume_ceiling_brings_a_louder_mixer_back(daemon_exe, tmp_path):
-    # a level left above the ceiling (by an older build or by hand) comes back to it on Vol+
-    d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
+def _ga36(daemon_exe, tmp_path):
+    return Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
+
+
+def _vol(d, key, client):
+    d.press("1c22800.lradc", CODES[key])
+    d.release("1c22800.lradc", CODES[key])
+    assert client.recv(16) == b"volume"
+
+
+def test_ga36_old_dac_level_converts_once(daemon_exe, tmp_path):
+    # the DAC still holds a level of the old volume (154 = -4.5 dB, e.g. after "lume push
+    # --hot" restarted only lume-input): 85%, so Vol- is 80% (-6 dB, Headphone 59), the DAC
+    # goes back to 0 dB and the file is the truth from then on (the DAC is not read again)
+    d = _ga36(daemon_exe, tmp_path)
     try:
-        d.mixer_raw.write_text("166\n")
-        d.press("1c22800.lradc", CODES["KEY_VOLUMEUP"])
-        d.release("1c22800.lradc", CODES["KEY_VOLUMEUP"])
-        time.sleep(0.3)
-        assert d.mixer_raw.read_text().strip() == "160"
+        c = d.client()
+        d.ctl("DAC", 154)
+        d.ctl("Headphone", 43, lim="0 - 63")
+        _vol(d, "KEY_VOLUMEDOWN", c)
+        assert d.ctl_state("Headphone") == (59, "on") and d.ctl_state("DAC") == (160, "on")
+        assert d.level() == "80\n"
+        d.ctl("DAC", 154)   # even if something put it back
+        _vol(d, "KEY_VOLUMEUP", c)
+        assert d.level() == "85\n" and d.ctl_state("Headphone") == (60, "on")
+        assert d.amixer_calls().count("-c GA36MB sget DAC") == 1
+        assert not any("sget Headphone" in l for l in d.amixer_calls())
     finally:
         d.stop()
+
+
+def test_ga36_zero_is_mute_and_the_switches_come_back_on(daemon_exe, tmp_path):
+    # J1 (2026-11-18): the Headphone and DAC switches were found off in a game. Any step
+    # above 0% turns both on again; 0% switches only the Headphone off (mute)
+    d = _ga36(daemon_exe, tmp_path)
+    try:
+        c = d.client()
+        d.levels.mkdir()
+        (d.levels / "level-speaker").write_text("10\n")
+        d.ctl("DAC", 160, sw="off")
+        d.ctl("Headphone", 40, lim="0 - 63", sw="off")
+        _vol(d, "KEY_VOLUMEDOWN", c)
+        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("DAC") == (160, "on")
+        _vol(d, "KEY_VOLUMEDOWN", c)
+        assert d.ctl_state("Headphone") == (0, "off"), "0% is mute: minimum and switch off"
+        assert d.ctl_state("DAC") == (160, "on")
+        assert d.level() == "0\n"
+        assert d.ra.recv(64) == b"LUME_LEVEL right 5 4db3ff"
+        assert d.ra.recv(64) == b"LUME_LEVEL right 0 4db3ff"
+        _vol(d, "KEY_VOLUMEDOWN", c)   # at the bottom it stays muted
+        assert d.ctl_state("Headphone") == (0, "off") and d.level() == "0\n"
+        _vol(d, "KEY_VOLUMEUP", c)
+        assert d.ctl_state("Headphone") == (37, "on") and d.level() == "5\n"
+    finally:
+        d.stop()
+
+
+def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
+    # 20 presses from mute to the loudest clean position (63), on the raw of volume.h, and
+    # a broken level file counts as no file
+    d = _ga36(daemon_exe, tmp_path)
+    try:
+        c = d.client()
+        d.levels.mkdir()
+        (d.levels / "level-speaker").write_text("loud\n")
+        d.ctl("DAC", 160)
+        d.ctl("Headphone", 0, lim="0 - 63", sw="off")
+        raws = []
+        for _ in range(21):
+            _vol(d, "KEY_VOLUMEUP", c)
+            raws.append(d.ctl_state("Headphone")[0])
+        assert raws[:3] == [37, 39, 41] and raws[9] == 51 and raws[-2:] == [63, 63]
+        assert raws == sorted(raws) and d.level() == "100\n"
+        assert not any(p.name.startswith(".level") for p in d.levels.iterdir()), "no temporary left"
+    finally:
+        d.stop()
+
+
+def test_bad_mixer_scale_lines_are_refused(daemon_exe, tmp_path):
+    for line in ("mixer_scale 63 0 63 1500", "mixer_scale 0 63 64 1500", "mixer_scale 0 63 63 0",
+                 "mixer_switch on", "mixer_keep 160 on", "mixer_old DAC 0 192 160"):
+        prof = tmp_path / "p.conf"
+        prof.write_text(f"name Pad\nsource Pad\npassthrough\n{line}\n")
+        r = subprocess.run([str(daemon_exe), "--profile", str(prof), "--test", str(tmp_path / "o")],
+                           capture_output=True, text=True)
+        assert r.returncode == 1 and "bad line" in r.stderr, line
 
 
 def test_vm_profile_passes_the_keyboard_through(daemon_exe, tmp_path):

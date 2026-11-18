@@ -22,6 +22,7 @@ exit 0
 EOF
 chmod +x "$W/amixer"
 export AMIXER="$W/amixer" FAKE_LOG="$W/amixer.log" FAKE_STATE="$W/state" BOARD_FILE="$W/board"
+export OUTPUT_FILE="$W/run/audio/output"
 events() { dd if=/dev/zero bs=24 count="$1" 2>/dev/null; }   # $1 events
 
 ### R36S without headphones: the speaker, set once, however many events come
@@ -34,6 +35,7 @@ check "speaker: the mux is set to SPK" 'grep -qxF -e "-c rk817int -q sset Playba
 check "speaker: no level file, the default 70% (raw 228) is applied" 'grep -qxF -e "-c rk817int -q sset Master 228" "$FAKE_LOG"'
 check "speaker: set only once (mux and level, no more writes per event)" '[ "$(grep -c "" "$FAKE_LOG")" = 2 ]'
 check "speaker: logged in English" 'printf "%s\n" "$out" | grep -qx "jack: headphones off, playback mux SPK"'
+check "speaker: the active output is written for lume-input (7.2)" '[ "$(cat "$OUTPUT_FILE")" = speaker ] && [ ! -e "$OUTPUT_FILE.tmp" ]'
 
 ### headphones plugged in: HP, with the level of that output (3.4 conversion)
 echo on > "$W/state"
@@ -45,6 +47,7 @@ export LEVEL_DIR="$W/audio"
 JACK_EVDEV="$W/evdev" $JACK >/dev/null
 check "headphones: the mux is set to HP" 'grep -qxF -e "-c rk817int -q sset Playback Mux HP" "$FAKE_LOG"'
 check "headphones: 100% is the loudest clean raw (255)" 'grep -qxF -e "-c rk817int -q sset Master 255" "$FAKE_LOG"'
+check "headphones: the active output is written for lume-input (7.2)" '[ "$(cat "$OUTPUT_FILE")" = headphones ]'
 echo off > "$W/state"
 : > "$FAKE_LOG"
 JACK_EVDEV="$W/evdev" $JACK >/dev/null
@@ -65,6 +68,10 @@ echo 72 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 JACK_EVDEV="$W/evdev" $JACK >/dev/null
 check "speaker: between two table points the curve is linear in dB (72% = -9.2 dB, raw 230)" 'grep -qxF -e "-c rk817int -q sset Master 230" "$FAKE_LOG"'
+echo 250 > "$W/audio/level-speaker"
+: > "$FAKE_LOG"
+JACK_EVDEV="$W/evdev" $JACK >/dev/null
+check "speaker: a level above 100 is not valid, the default 70% (raw 228)" 'grep -qxF -e "-c rk817int -q sset Master 228" "$FAKE_LOG"'
 echo 100 > "$W/audio/level-speaker"
 echo off > "$W/state"
 echo r36s > "$W/board"

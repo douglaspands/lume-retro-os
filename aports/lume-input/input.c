@@ -21,7 +21,12 @@
  *    stick held at start: the centre is the rest and a warning is logged. The resume reads
  *    the sticks again through the same correction;
  *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
- *    goes to the clients of the socket (the launcher shows the level);
+ *    goes to the clients of the socket (the launcher shows the level). With "mixer_scale"
+ *    (device-fixes D9, task 7.2) the step is 5% of the user scale of volume.h on the
+ *    active output (the "output" file of the jack service, "speaker" without it): the level
+ *    is kept in <level dir>/level-<output>, 0% turns the control's switch off
+ *    ("mixer_switch"), any other level turns it on, and "mixer_keep" re-applies a fixed
+ *    control at every step (GA36: the DAC at 0 dB and on);
  *  - Fn+volume keys change the screen backlight in steps of 5% instead (never below 5%), and
  *    "brightness" goes to the clients;
  *  - after either, "LUME_LEVEL" asks RetroArch (127.0.0.1:55355, patch 0011) to draw the
@@ -68,8 +73,9 @@
  *
  * --test runs the same loop with files or FIFOs as sources and a file as the output, with no
  * input device and no uinput (the host tests use it). LUME_INPUT_AMIXER replaces amixer,
- * LUME_INPUT_BACKLIGHT replaces /sys/class/backlight and LUME_SLEEP_DIR replaces the sleep
- * folder /run/lume/sleep.
+ * LUME_INPUT_BACKLIGHT replaces /sys/class/backlight, LUME_SLEEP_DIR replaces the sleep
+ * folder /run/lume/sleep, LUME_INPUT_LEVEL_DIR the level folder /storage/system/audio and
+ * LUME_INPUT_AUDIO_OUTPUT the active output file /run/lume/audio/output.
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -93,6 +99,8 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "volume.h"
 
 #define PROG "lume-input"
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -191,8 +199,14 @@ struct profile {
 	int nchords;
 	char hold_msg[320];	/* "fn_hold B=app_menu ... Vol=brightness" */
 	char mixer_card[64], mixer_ctl[64];
-	int mixer_step;
-	int mixer_max;	/* raw ceiling of the control (0: none), e.g. 0 dB of a digital DAC */
+	int mixer_step;	/* % of the user scale with a scale, else amixer's own percent */
+	int has_scale;	/* "mixer_scale": the control on the perceptual scale of volume.h */
+	struct vol_control scale;
+	int mixer_switch;	/* "mixer_switch": 0% turns the control's switch off */
+	char keep_ctl[64], keep_val[64];	/* "mixer_keep <control> <values>" ("" none) */
+	int has_old;	/* "mixer_old": the control of the old volume, for the conversion */
+	char old_ctl[64];
+	struct vol_control old;
 	int backlight_max;	/* raw ceiling of the backlight (0: none): 100% of the launcher */
 	int deadzone_pct;	/* sticks: dead zone around the centre, % of the axis span */
 	int has_deadzone;	/* "deadzone" given; else the flat of the source axis is used */
@@ -439,13 +453,36 @@ static int load_profile(const char *path, struct profile *p)
 				goto bad;
 			p->fn_hold_ms = a;
 		} else if (!strcmp(s, "mixer") &&
-			   sscanf(arg, "%63s %63[^0-9] %d %d", p->mixer_card, p->mixer_ctl, &p->mixer_step,
-				  &p->mixer_max) >= 3) {
+			   sscanf(arg, "%63s %63[^0-9] %d", p->mixer_card, p->mixer_ctl, &p->mixer_step) == 3) {
 			char *c = trim(p->mixer_ctl);
 
 			memmove(p->mixer_ctl, c, strlen(c) + 1);
-			if (p->mixer_step < 1 || p->mixer_step > 25 || p->mixer_max < 0)
+			if (p->mixer_step < 1 || p->mixer_step > 25)
 				goto bad;
+		} else if (!strcmp(s, "mixer_scale") &&
+			   sscanf(arg, "%d %d %d %d", &p->scale.lo, &p->scale.hi, &p->scale.ref,
+				  &p->scale.mdb_step) == 4) {
+			if (p->scale.lo >= p->scale.ref || p->scale.ref > p->scale.hi || p->scale.mdb_step < 1)
+				goto bad;
+			p->has_scale = 1;
+		} else if (!strcmp(s, "mixer_switch") && !*arg) {
+			p->mixer_switch = 1;
+		} else if (!strcmp(s, "mixer_keep") &&
+			   sscanf(arg, "%63[^0-9] %63[^\n]", p->keep_ctl, p->keep_val) == 2) {
+			char *c = trim(p->keep_ctl);
+
+			memmove(p->keep_ctl, c, strlen(c) + 1);
+			if (!*p->keep_ctl)
+				goto bad;
+		} else if (!strcmp(s, "mixer_old") &&
+			   sscanf(arg, "%63[^0-9] %d %d %d %d", p->old_ctl, &p->old.lo, &p->old.hi, &p->old.ref,
+				  &p->old.mdb_step) == 5) {
+			char *c = trim(p->old_ctl);
+
+			memmove(p->old_ctl, c, strlen(c) + 1);
+			if (!*p->old_ctl || p->old.lo >= p->old.ref || p->old.ref > p->old.hi || p->old.mdb_step < 1)
+				goto bad;
+			p->has_old = 1;
 		} else if (!strcmp(s, "deadzone") && sscanf(arg, "%d", &p->deadzone_pct) == 1) {
 			if (p->deadzone_pct < 0 || p->deadzone_pct > 40)
 				goto bad;
@@ -748,8 +785,8 @@ static void ra_level(int left, long pct)
 
 /* ---- volume ---- */
 
-/* "amixer sget" of the control: the raw limits and the first channel's raw value. 0 if read. */
-static int mixer_get(const char *amixer, const struct profile *p, int *lo, int *hi, int *cur)
+/* "amixer sget" of a control: the raw limits and the first channel's raw value. 0 if read. */
+static int mixer_get(const char *amixer, const char *card, const char *ctl, int *lo, int *hi, int *cur)
 {
 	char buf[4096], *l;
 	size_t n = 0;
@@ -764,7 +801,7 @@ static int mixer_get(const char *amixer, const struct profile *p, int *lo, int *
 		dup2(fds[1], 1);
 		close(fds[0]);
 		close(fds[1]);
-		execlp(amixer, "amixer", "-c", p->mixer_card, "sget", p->mixer_ctl, (char *)NULL);
+		execlp(amixer, "amixer", "-c", card, "sget", ctl, (char *)NULL);
 		_exit(127);
 	}
 	close(fds[1]);
@@ -788,33 +825,135 @@ static int mixer_get(const char *amixer, const struct profile *p, int *lo, int *
 	return have_lim && have_cur && *hi > *lo ? 0 : -1;
 }
 
-/* "amixer sset" of the control to `value`, waited for. */
-static void mixer_set(const char *amixer, const struct profile *p, const char *value)
+/* "amixer sset" of a control to the space-separated `values` (at most 4), waited for. */
+static void mixer_set(const char *amixer, const char *card, const char *ctl, const char *values)
 {
-	pid_t pid = fork();
+	char buf[64], *argv[12], *v, *save = NULL;
+	int n = 0;
+	pid_t pid;
 
+	snprintf(buf, sizeof(buf), "%s", values);
+	argv[n++] = "amixer";
+	argv[n++] = "-c";
+	argv[n++] = (char *)card;
+	argv[n++] = "-q";
+	argv[n++] = "sset";
+	argv[n++] = (char *)ctl;
+	for (v = strtok_r(buf, " \t", &save); v && n < 10; v = strtok_r(NULL, " \t", &save))
+		argv[n++] = v;
+	argv[n] = NULL;
+	pid = fork();
 	if (pid == 0) {
 		int null = open("/dev/null", O_RDWR);
 
 		if (null >= 0)
 			dup2(null, 1);
-		execlp(amixer, "amixer", "-c", p->mixer_card, "-q", "sset", p->mixer_ctl, value,
-		       (char *)NULL);
+		execvp(amixer, argv);
 		_exit(127);
 	}
 	if (pid > 0)
 		waitpid(pid, NULL, 0);
 }
 
-/* One volume step. With a ceiling (mixer_max) the new raw value is computed here and set as
- * a number, so the control never goes above it, not even for a moment (GA36: DAC 160 is
- * 0 dB, above it the digital gain clips). Then "volume" goes to the clients (the launcher
- * shows the level), also when the level was already at a limit. Runs in a child: the input
- * loop never waits. */
+/* The active output: "headphones" when the jack service wrote it (R36S, device-fixes D10),
+ * else "speaker" (the GA36 has one level: its jack switch is mechanical). */
+static const char *audio_output(void)
+{
+	const char *path = getenv("LUME_INPUT_AUDIO_OUTPUT");
+	char buf[32] = "";
+	FILE *f = fopen(path ? path : "/run/lume/audio/output", "re");
+
+	if (f) {
+		if (!fgets(buf, sizeof(buf), f))
+			buf[0] = 0;
+		fclose(f);
+	}
+	return !strcmp(trim(buf), "headphones") ? "headphones" : "speaker";
+}
+
+static const char *level_dir(void)
+{
+	const char *d = getenv("LUME_INPUT_LEVEL_DIR");
+
+	return d ? d : "/storage/system/audio";
+}
+
+/* The saved level of an output (0-100), -1 without a valid file. */
+static int level_read(const char *out)
+{
+	char path[512], buf[16] = "", *t, *end;
+	FILE *f;
+	long v;
+
+	snprintf(path, sizeof(path), "%s/level-%s", level_dir(), out);
+	f = fopen(path, "re");
+	if (!f)
+		return -1;
+	if (!fgets(buf, sizeof(buf), f))
+		buf[0] = 0;
+	fclose(f);
+	t = trim(buf);
+	v = strtol(t, &end, 10);
+	return *t && !*end && v >= 0 && v <= 100 ? (int)v : -1;
+}
+
+/* Saves the level of an output: a hidden file renamed over level-<output>. */
+static void level_save(const char *out, int pct)
+{
+	char path[512], tmp[512];
+	FILE *f;
+
+	mkdir(level_dir(), 0755);
+	snprintf(path, sizeof(path), "%s/level-%s", level_dir(), out);
+	snprintf(tmp, sizeof(tmp), "%s/.level-%s.tmp", level_dir(), out);
+	f = fopen(tmp, "we");
+	if (f) {
+		int ok = fprintf(f, "%d\n", pct) > 0;
+
+		if (fclose(f) == 0 && ok && rename(tmp, path) == 0)
+			return;
+	}
+	logline("volume: cannot save %s (%s)", path, strerror(errno));
+}
+
+/* The level when level-<output> does not exist yet (the one-time conversion of task 3.4):
+ * the old control while it still holds a level of the old system (not at its 0 dB), else
+ * the position of the control itself; 70% when neither can be read. */
+static int level_unsaved(const char *amixer, const struct profile *p)
+{
+	int lo, hi, cur;
+
+	if (p->has_old && mixer_get(amixer, p->mixer_card, p->old_ctl, &lo, &hi, &cur) == 0 &&
+	    cur != p->old.ref)
+		return vol_convert_old(&p->old, cur);
+	if (mixer_get(amixer, p->mixer_card, p->mixer_ctl, &lo, &hi, &cur) == 0)
+		return vol_pct_from_raw(&p->scale, cur);
+	return VOL_DEFAULT_PCT;
+}
+
+/* Applies a user level to the control: the raw position of the scale and, with
+ * mixer_switch, the switch off at 0% (the DAPM then powers the output down) and on at any
+ * other level; then the mixer_keep control (GA36: DAC 160 on). Both switches are set at
+ * every step, so a switch found off (J1, 2026-11-18) comes back on with the next key. */
+static void level_apply(const char *amixer, const struct profile *p, int pct)
+{
+	char v[32];
+
+	snprintf(v, sizeof(v), "%d%s", vol_raw(&p->scale, pct),
+		 p->mixer_switch ? (pct > 0 ? " on" : " off") : "");
+	mixer_set(amixer, p->mixer_card, p->mixer_ctl, v);
+	if (*p->keep_ctl)
+		mixer_set(amixer, p->mixer_card, p->keep_ctl, p->keep_val);
+}
+
+/* One volume step. With a scale (device-fixes D9): 5% of the user scale on the active
+ * output, from its saved level, applied, saved, and that percent drawn over a game. Without
+ * one (the vm): amixer's own percent. Then "volume" goes to the clients (the launcher shows
+ * the level), also when the level was already at a limit. Runs in a child: the input loop
+ * never waits. */
 static void volume(const struct profile *p, int up)
 {
 	const char *amixer = getenv("LUME_INPUT_AMIXER");
-	char step[16];
 	pid_t pid;
 
 	if (!p->mixer_step)
@@ -828,31 +967,22 @@ static void volume(const struct profile *p, int up)
 		signal(SIGCHLD, SIG_DFL);	/* this child waits for its own amixer */
 		if (null >= 0)
 			dup2(null, 2);
-		snprintf(step, sizeof(step), "%d%%%c", p->mixer_step, up ? '+' : '-');
-		if (p->mixer_max > 0) {
-			int lo, hi, cur, d, v, top;
+		if (p->has_scale) {
+			const char *out = audio_output();
+			int saved = level_read(out);
+			int v = vol_step(saved >= 0 ? saved : level_unsaved(amixer, p), up, p->mixer_step);
 
-			if (mixer_get(amixer, p, &lo, &hi, &cur) < 0)
-				_exit(1);
-			d = (p->mixer_step * (hi - lo) + 50) / 100;
-			if (d < 1)
-				d = 1;
-			top = p->mixer_max < hi ? p->mixer_max : hi;
-			v = up ? cur + d : cur - d;
-			if (v > top)
-				v = top;
-			if (v < lo)
-				v = lo;
-			snprintf(step, sizeof(step), "%d", v);
-			if (v != cur)
-				mixer_set(amixer, p, step);
-			/* the level is a share of the ceiling, as the launcher shows it */
-			ra_level(0, top > lo ? ((long)(v - lo) * 100 + (top - lo) / 2) / (top - lo) : 0);
+			level_apply(amixer, p, v);
+			if (v != saved)
+				level_save(out, v);
+			ra_level(0, v);
 		} else {
+			char step[16];
 			int lo, hi, cur;
 
-			mixer_set(amixer, p, step);
-			if (mixer_get(amixer, p, &lo, &hi, &cur) == 0)
+			snprintf(step, sizeof(step), "%d%%%c", p->mixer_step, up ? '+' : '-');
+			mixer_set(amixer, p->mixer_card, p->mixer_ctl, step);
+			if (mixer_get(amixer, p->mixer_card, p->mixer_ctl, &lo, &hi, &cur) == 0)
 				ra_level(0, ((long)(cur - lo) * 100 + (hi - lo) / 2) / (hi - lo));
 		}
 		send_all("volume", 0);

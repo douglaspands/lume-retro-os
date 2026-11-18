@@ -1686,7 +1686,12 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Volume | SetRow::Brightness => {
                 let key = if row == SetRow::Volume { "volume" } else { "brightness" };
                 let cur = self.level.get(key).copied().unwrap_or(50) as i32;
-                let v = (cur + dir * 5).clamp(if row == SetRow::Brightness { 5 } else { 0 }, 100) as u8;
+                // the volume moves on the 5% grid of the volume keys (device-fixes 7.2)
+                let v = if row == SetRow::Volume {
+                    crate::volume::step(cur, dir > 0) as u8
+                } else {
+                    (cur + dir * 5).clamp(5, 100) as u8
+                };
                 self.level.insert(key, v);
                 if row == SetRow::Volume {
                     self.sys.set_volume(v);
