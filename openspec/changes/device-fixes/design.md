@@ -327,6 +327,16 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   a imagem ficou estável do nível 6 ao 10 no carregador e do 6 ao 8 só na bateria (no 9 e
   no 10 o AXP leu um VBUS falso, então essa parte valeu como carregador). Corrente da bateria
   por nível: 6 = 240 mA, 7 = 316 mA, 8 = 339 mA. Faltam a bateria baixa e o calor (E3).
+- **E3 (2.7, J1, 2026-11-18):** com um jogo de PS1 o SoC só chegou a 49 °C, e nada falhou no
+  nível 8 por 10 min. Com a CPU forçada (1008 MHz nos 4 núcleos), **a falha apareceu no nível 8
+  com o SoC a ~66 °C** (bateria a 3,97 V e 670 mA), **continuou depois de o brilho voltar ao 6**
+  e sumiu ao esfriar (nada a ~51 °C). O aspecto (foto do usuário) é uma cópia fantasma da
+  imagem, deslocada para baixo e listrada, numa piscada rápida: o painel pega linhas da
+  posição errada. O gatilho é o **calor**, e a falha é de **sinal/temporização** (DSI e
+  JD9366), não da luz de fundo. Consequências: o E4 e o modo de ~60 Hz da 6.3 passam a ser
+  testados **no quente** (com a mesma carga forçada), e o limite aprendido registra a
+  temperatura no relato (Fn+Select), para a regra do limite poder passar a usar a temperatura
+  junto com o nível se os relatos mostrarem isso.
 
 ### D13. Painel do GA36 a ~60 Hz
 
