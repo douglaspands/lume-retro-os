@@ -364,6 +364,17 @@ def test_start_select_opens_the_menu_only_as_the_reserve_frontend(tmp_path):
     assert sum(1 for line in lines if line.startswith("input_menu_toggle_gamepad_combo")) == 1
 
 
+def test_no_retroarch_screens_around_a_game_of_the_launcher(tmp_path):
+    # the user (2026-11-17): no load animation with the system and the game name, no "press
+    # again to quit"; lume-run sends one QUIT. The reserve frontend keeps the confirmation
+    _, cfg, _ = _frontend(tmp_path, "ga36", "", env_extra={"LUME_LAUNCHER": "1"})
+    lines = cfg.splitlines()
+    assert 'menu_show_load_content_animation = "false"' in lines
+    assert 'quit_press_twice = "false"' in lines and 'quit_press_twice = "true"' not in lines
+    _, cfg, _ = _frontend(tmp_path, "ga36")
+    assert 'quit_press_twice = "true"' in cfg.splitlines()
+
+
 def test_menu_has_no_transparency():
     # simple hardware: no blending of the menu over the game, as a factory default (cards
     # with a saved config already have these values: RetroArch saved them)

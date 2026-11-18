@@ -52,8 +52,6 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 /// How long the bar waits for RetroArch's frame counter each second (a frozen RetroArch
 /// costs the loop no more than this)
 const HUD_STATUS_WAIT: Duration = Duration::from_millis(100);
-/// Gap between the two QUIT commands (RetroArch's quit_press_twice wants a second one)
-const QUIT_GAP: Duration = Duration::from_millis(200);
 
 fn log(msg: &str) {
     eprintln!("{PROG}: {msg}");
@@ -125,11 +123,9 @@ fn game_title(l: &Launch) -> String {
 fn polite_quit(l: &Launch, pid: libc::pid_t, port: u16) {
     match l.quit {
         Quit::RetroarchCmd => {
-            // QUIT goes through RetroArch's quit hotkey path, so with quit_press_twice the
-            // first one only shows "press again" (design, checks of task 1.2)
+            // one QUIT: opened by the launcher, RetroArch runs with quit_press_twice off (the
+            // frontend script), so it ends at once with no "press again" on the screen
             if let Ok(s) = UdpSocket::bind("127.0.0.1:0") {
-                let _ = s.send_to(b"QUIT", ("127.0.0.1", port));
-                std::thread::sleep(QUIT_GAP);
                 let _ = s.send_to(b"QUIT", ("127.0.0.1", port));
             }
         }

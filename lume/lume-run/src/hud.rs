@@ -47,7 +47,7 @@ pub struct Hud {
     root: PathBuf,
     pid: libc::pid_t,
     last_cpu: Option<Cpu>,
-    drm_fd: Option<Option<String>>,
+    drm_fds: Option<Vec<String>>,
     last_gpu: Option<(u64, f64)>,
     /// (seconds since the first sample, |current| in uA, capacity)
     samples: VecDeque<(f64, i64, Option<u32>)>,
@@ -71,7 +71,7 @@ impl Hud {
             root: root.into(),
             pid,
             last_cpu: None,
-            drm_fd: None,
+            drm_fds: None,
             last_gpu: None,
             samples: VecDeque::new(),
             battery_dir: None,
@@ -119,24 +119,63 @@ impl Hud {
         Some(khz as u64 / 1000)
     }
 
-    /// The fd of the game's DRM device, found once per game (a link to /dev/dri/*).
-    fn find_drm_fd(&self) -> Option<String> {
-        let dir = self.path(&format!("/proc/{}/fd", self.pid));
-        let mut best = None;
-        for e in fs::read_dir(dir).ok()?.flatten() {
-            let Ok(target) = fs::read_link(e.path()) else { continue };
-            let t = target.to_string_lossy();
-            if t.starts_with("/dev/dri/") {
-                let name = e.file_name().to_string_lossy().into_owned();
-                // a fdinfo with drm-engine lines is the one that renders
-                let info = read(&self.path(&format!("/proc/{}/fdinfo/{name}", self.pid))).unwrap_or_default();
-                if info.contains("drm-engine-") {
-                    return Some(name);
-                }
-                best.get_or_insert(name);
+    /// The processes of the game: its leader and every process of its group (the frontend
+    /// script may run RetroArch as a child instead of exec'ing it).
+    fn game_pids(&self) -> Vec<String> {
+        let mut pids = vec![self.pid.to_string()];
+        let Ok(entries) = fs::read_dir(self.path("/proc")) else { return pids };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !name.bytes().all(|b| b.is_ascii_digit()) || name == pids[0] {
+                continue;
+            }
+            // field 5 of stat, after the ")" that ends the command name: the process group
+            let pgrp = read(&e.path().join("stat"))
+                .and_then(|s| s.rsplit_once(')').and_then(|(_, r)| r.split_whitespace().nth(2).map(String::from)));
+            if pgrp.as_deref() == Some(pids[0].as_str()) {
+                pids.push(name);
             }
         }
-        best
+        pids
+    }
+
+    /// Every fdinfo of a DRM device the game has open (`proc/<pid>/fdinfo/<fd>`), found once
+    /// per game. RetroArch opens several (the KMS card, the GPU's card and render node), and
+    /// some of them never render: all are kept and counted once per DRM client.
+    fn find_drm_fds(&self) -> Vec<String> {
+        let mut found = Vec::new();
+        for pid in self.game_pids() {
+            let Ok(entries) = fs::read_dir(self.path(&format!("/proc/{pid}/fd"))) else { continue };
+            for e in entries.flatten() {
+                let Ok(target) = fs::read_link(e.path()) else { continue };
+                if target.to_string_lossy().starts_with("/dev/dri/") {
+                    found.push(format!("/proc/{pid}/fdinfo/{}", e.file_name().to_string_lossy()));
+                }
+            }
+        }
+        found
+    }
+
+    /// The fdinfo of each GPU client of the game, once per `drm-client-id` (a duplicated fd
+    /// shows the same client twice); only the ones with drm-engine lines (the KMS card has
+    /// none: its buffers are the screen's, not the GPU's).
+    fn gpu_clients(&mut self) -> Vec<String> {
+        if self.drm_fds.as_ref().is_none_or(|f| f.is_empty()) {
+            self.drm_fds = Some(self.find_drm_fds());
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for p in self.drm_fds.clone().unwrap_or_default() {
+            let Some(info) = read(&self.path(&p)) else { continue };
+            if !info.contains("drm-engine-") {
+                continue;
+            }
+            let id = info.lines().find(|l| l.starts_with("drm-client-id:")).map(String::from).unwrap_or(p);
+            if seen.insert(id) {
+                out.push(info);
+            }
+        }
+        out
     }
 
     /// The GPU's clock from devfreq (`/sys/class/devfreq/*gpu*/cur_freq`), in MHz: the field
@@ -152,17 +191,18 @@ impl Hud {
 
     /// GPU % from the busiest engine's time (ns) in the game's fdinfo, over `elapsed` seconds.
     fn gpu(&mut self, elapsed: f64) -> Option<u32> {
-        if self.drm_fd.is_none() {
-            self.drm_fd = Some(self.find_drm_fd());
+        // lima: drm-engine-gp/pp; panfrost: drm-engine-fragment/vertex-tiler; each engine's
+        // time summed over the game's clients
+        let mut engines: std::collections::BTreeMap<String, u64> = Default::default();
+        for info in self.gpu_clients() {
+            for l in info.lines().filter(|l| l.starts_with("drm-engine-") && !l.starts_with("drm-engine-capacity")) {
+                let Some((k, v)) = l.split_once(':') else { continue };
+                if let Some(ns) = v.split_whitespace().next().and_then(|n| n.parse::<u64>().ok()) {
+                    *engines.entry(k.to_string()).or_default() += ns;
+                }
+            }
         }
-        let fd = self.drm_fd.clone().flatten()?;
-        let info = read(&self.path(&format!("/proc/{}/fdinfo/{fd}", self.pid)))?;
-        // lima: drm-engine-gp/pp; panfrost: drm-engine-fragment/vertex-tiler
-        let busiest = info
-            .lines()
-            .filter(|l| l.starts_with("drm-engine-") && !l.starts_with("drm-engine-capacity"))
-            .filter_map(|l| l.split(':').nth(1)?.split_whitespace().next()?.parse::<u64>().ok())
-            .max()?;
+        let busiest = engines.into_values().max()?;
         let prev = self.last_gpu.replace((busiest, elapsed));
         let (b0, t0) = prev?;
         let dt = elapsed - t0;
@@ -177,23 +217,25 @@ impl Hud {
     /// (else `drm-total-memory`), printed by panfrost and by lima with kernel patch 0035. On
     /// these consoles the GPU has no memory of its own: these are buffers in the system RAM.
     fn gpu_mem(&mut self) -> Option<u64> {
-        if self.drm_fd.is_none() {
-            self.drm_fd = Some(self.find_drm_fd());
-        }
-        let fd = self.drm_fd.clone().flatten()?;
-        let info = read(&self.path(&format!("/proc/{}/fdinfo/{fd}", self.pid)))?;
-        let value = |key: &str| -> Option<u64> {
+        // in KiB per client, summed, then MiB
+        fn kib(info: &str, key: &str) -> Option<u64> {
             let line = info.lines().find(|l| l.starts_with(key))?;
             let mut f = line.split(':').nth(1)?.split_whitespace();
             let n: u64 = f.next()?.parse().ok()?;
             Some(match f.next().unwrap_or("") {
-                "KiB" => n / 1024,
-                "MiB" => n,
-                "GiB" => n * 1024,
-                _ => n / (1024 * 1024),
+                "KiB" => n,
+                "MiB" => n * 1024,
+                "GiB" => n * 1024 * 1024,
+                _ => n / 1024,
             })
-        };
-        value("drm-resident-memory:").or_else(|| value("drm-total-memory:"))
+        }
+        let mut total = None;
+        for info in self.gpu_clients() {
+            if let Some(k) = kib(&info, "drm-resident-memory:").or_else(|| kib(&info, "drm-total-memory:")) {
+                *total.get_or_insert(0) += k;
+            }
+        }
+        total.map(|k| k / 1024)
     }
 
     fn mem(&self) -> Option<(u64, u64, u64)> {
@@ -416,6 +458,37 @@ mod tests {
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
         h.frames(Some(1060), 1.0);
         assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
+    }
+
+    #[test]
+    fn gpu_counts_every_client_of_the_game_once() {
+        // seen on the GA36 (2026-11-17): RetroArch has idle lima clients (all zero) besides
+        // the one that renders, opened twice (a dup: same drm-client-id), and the frontend
+        // script may be the leader with RetroArch as its child in the same group
+        let d = tree("clients");
+        stat(&d, 0, 0);
+        fs::create_dir_all(d.join("proc/43/fd")).unwrap();
+        fs::create_dir_all(d.join("proc/43/fdinfo")).unwrap();
+        fs::write(d.join("proc/43/stat"), "43 (retroarch) S 42 42 42 0").unwrap();
+        let client = |id: u32, pp: u64, kib: u64| {
+            format!("drm-driver:\tlima\ndrm-client-id:\t{id}\ndrm-engine-gp:\t0 ns\ndrm-engine-pp:\t{pp} ns\ndrm-total-memory:\t{kib} KiB\ndrm-resident-memory:\t{kib} KiB\n")
+        };
+        let fds = [(3, client(9, 0, 0)), (4, client(12, 0, 51200)), (5, client(12, 0, 51200)), (6, String::from("pos:\t0\n"))];
+        for (fd, _) in &fds {
+            std::os::unix::fs::symlink("/dev/dri/renderD128", d.join(format!("proc/43/fd/{fd}"))).unwrap();
+        }
+        let write = |pp: u64| {
+            for (fd, info) in &fds {
+                let info = if *fd == 4 || *fd == 5 { client(12, pp, 51200) } else { info.clone() };
+                fs::write(d.join(format!("proc/43/fdinfo/{fd}")), info).unwrap();
+            }
+        };
+        write(0);
+        let mut h = Hud::new(&d, 42);
+        h.sample(0.0);
+        write(400_000_000);
+        // 40% (the dup not counted twice), 50 MiB (client 12 once)
+        assert!(h.sample(1.0).contains("|GPU 40% 50M|"), "{}", h.sample(1.0));
     }
 
     #[test]

@@ -76,6 +76,14 @@ if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
 fi
 [ -n "${R36OS_MERGE_ONLY:-}" ] && exit 0
 [ -n "${LUME_LAUNCHER:-}" ] && export LUME_RETROARCH_QUIT=launcher
+# Opened by the launcher, RetroArch shows no screen of its own around the game (the user,
+# 2026-11-17; a Lume splash comes later): no load animation with the system and the game
+# name, and the QUIT of lume-run ends at once, without "Press again to quit"
+if [ -n "${LUME_LAUNCHER:-}" ]; then
+	LAUNCHER_KEYS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-launcher.cfg
+	printf 'menu_show_load_content_animation = "false"\nquit_press_twice = "false"\n' > "$LAUNCHER_KEYS"
+	merge_fixed "$USER_CFG" "$LAUNCHER_KEYS"
+fi
 # As the reserve frontend there is no lume-run to open the menu (Fn+B or the Lume menu, and
 # the Fn never reaches RetroArch): Start + Select opens it again (lume-hud-actions D9)
 if [ -z "${LUME_LAUNCHER:-}" ]; then

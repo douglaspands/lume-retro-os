@@ -308,8 +308,9 @@ fn retroarch_quit_arrives_before_any_signal() {
     let (n, _) = udp.recv_from(&mut buf).unwrap();
     assert_eq!(&buf[..n], b"QUIT");
     assert!(!e.dir.join("term").exists(), "a signal came before QUIT");
-    let (n, _) = udp.recv_from(&mut buf).unwrap();
-    assert_eq!(&buf[..n], b"QUIT");
+    // one QUIT only: RetroArch runs with quit_press_twice off under the launcher
+    udp.set_read_timeout(Some(Duration::from_millis(400))).unwrap();
+    assert!(udp.recv_from(&mut buf).is_err(), "a second QUIT");
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
     assert!(!e.dir.join("term").exists());
@@ -609,7 +610,7 @@ fn menu_reset_and_end_go_through_the_runner() {
     d.send("nav down");
     d.send("nav a");
     assert_eq!(ra.plain().last().unwrap(), "MENU_TOGGLE");
-    // End game, second in the list: the polite quit (QUIT twice)
+    // End game, second in the list: the polite quit (one QUIT)
     *ra.state.lock().unwrap() = "PLAYING";
     d.send("fn_tap");
     for n in ["nav down", "nav a", "nav up", "nav a"] {
