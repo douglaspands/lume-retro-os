@@ -6,6 +6,9 @@
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::time::{Duration, Instant};
 
+use lume_core::input::{HoldEntry, Message};
+use lume_core::sleep::Notice;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     Up,
@@ -321,10 +324,23 @@ pub enum Level {
     Brightness,
 }
 
+/// What the launcher takes from the daemon's socket: a level read after "volume" or
+/// "brightness", the Fn messages (D19) and the sleep notices (D11). The chord messages of
+/// the game (`save_state`, `quit`, ...) are not for the launcher and never show up here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sock {
+    Level(Level, u8),
+    FnTap,
+    FnHold(Vec<HoldEntry>),
+    FnRelease,
+    Sleep(Notice),
+}
+
 /// Reads the messages of one connection until the daemon closes it: on each "volume" or
-/// "brightness", `level` reads that level and `send` gets the result.
-pub fn serve_levels(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, send: &mut impl FnMut(Level, u8)) {
-    let mut buf = [0u8; 64];
+/// "brightness", `level` reads that level; `send` gets the result and the other messages
+/// the launcher uses.
+pub fn serve_socket(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, send: &mut impl FnMut(Sock)) {
+    let mut buf = [0u8; 512];
     loop {
         let n = unsafe { libc::recv(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
         if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
@@ -333,13 +349,24 @@ pub fn serve_levels(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, s
         if n <= 0 {
             return;
         }
-        let kind = match &buf[..n as usize] {
-            b"volume" => Level::Volume,
-            b"brightness" => Level::Brightness,
-            _ => continue,
-        };
-        if let Some(v) = level(kind) {
-            send(kind, v);
+        let Ok(text) = std::str::from_utf8(&buf[..n as usize]) else { continue };
+        match lume_core::input::parse(text) {
+            Some(Message::Volume) => {
+                if let Some(v) = level(Level::Volume) {
+                    send(Sock::Level(Level::Volume, v));
+                }
+            }
+            Some(Message::Brightness) => {
+                if let Some(v) = level(Level::Brightness) {
+                    send(Sock::Level(Level::Brightness, v));
+                }
+            }
+            Some(Message::FnTap) => send(Sock::FnTap),
+            Some(Message::FnHold(table)) => send(Sock::FnHold(table)),
+            Some(Message::FnRelease) => send(Sock::FnRelease),
+            Some(Message::Sleep(n)) => send(Sock::Sleep(n)),
+            // chord actions, nav and unknown messages: not for the launcher
+            _ => {}
         }
     }
 }
@@ -347,10 +374,10 @@ pub fn serve_levels(fd: &OwnedFd, level: &mut impl FnMut(Level) -> Option<u8>, s
 /// Runs forever on its own thread: stays connected to the input daemon and reports the
 /// level after each volume key (or Fn + volume key). The daemon restarts under its service
 /// (and is missing in a test without it): connect again every 2 s.
-pub fn watch_levels(sock: &std::path::Path, mut level: impl FnMut(Level) -> Option<u8>, mut send: impl FnMut(Level, u8)) {
+pub fn watch_socket(sock: &std::path::Path, mut level: impl FnMut(Level) -> Option<u8>, mut send: impl FnMut(Sock)) {
     loop {
         if let Some(fd) = connect_seqpacket(sock) {
-            serve_levels(&fd, &mut level, &mut send);
+            serve_socket(&fd, &mut level, &mut send);
         }
         std::thread::sleep(Duration::from_secs(2));
     }
@@ -371,11 +398,39 @@ mod tests {
         drop(daemon); // the daemon went away: serve returns
         let mut reads = 0;
         let mut got = Vec::new();
-        serve_levels(&ours, &mut |_| {
+        serve_socket(&ours, &mut |_| {
             reads += 1;
             Some(40 + reads * 5)
-        }, &mut |k, v| got.push((k, v)));
-        assert_eq!(got, [(Level::Volume, 45), (Level::Brightness, 50), (Level::Volume, 55)]);
+        }, &mut |s| got.push(s));
+        assert_eq!(got, [Sock::Level(Level::Volume, 45), Sock::Level(Level::Brightness, 50), Sock::Level(Level::Volume, 55)]);
+    }
+
+    fn read_all(messages: &[&str]) -> Vec<Sock> {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) }, 0);
+        let (ours, daemon) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        for m in messages {
+            assert_eq!(unsafe { libc::send(daemon.as_raw_fd(), m.as_ptr().cast(), m.len(), 0) }, m.len() as isize);
+        }
+        drop(daemon);
+        let mut got = Vec::new();
+        serve_socket(&ours, &mut |_| Some(1), &mut |s| got.push(s));
+        got
+    }
+
+    #[test]
+    fn fn_messages_become_events_and_chords_are_ignored() {
+        let got = read_all(&["fn_tap", "save_state", "fn_hold B=hud R1=screenshot Start=quit", "quit", "fn_release", "load_state", "nav up"]);
+        let pair = |b: &str, a: &str| HoldEntry { button: b.into(), action: a.into() };
+        assert_eq!(
+            got,
+            [Sock::FnTap, Sock::FnHold(vec![pair("B", "hud"), pair("R1", "screenshot"), pair("Start", "quit")]), Sock::FnRelease]
+        );
+    }
+
+    #[test]
+    fn sleep_notices_are_forwarded() {
+        assert_eq!(read_all(&["power_tap", "suspend 3", "resume 3"]), [Sock::Sleep(Notice::PowerTap), Sock::Sleep(Notice::Suspend(3)), Sock::Sleep(Notice::Resume(3))]);
     }
 
     #[test]
