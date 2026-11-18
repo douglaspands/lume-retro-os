@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# Clock that only moves forward (device-fixes D15): restores the time as the largest of the
+# one saved on the card, the build date and the RTC. A oneshot after the frontend, so nothing
+# is added to the boot path; see /usr/bin/lume-clock.
+
+description="Restore the system time (saved on the card, build date, RTC)"
+
+depend() {
+	need localmount lume-persist
+	after frontend
+}
+
+start() {
+	/usr/bin/lume-clock restore
+	return 0
+}

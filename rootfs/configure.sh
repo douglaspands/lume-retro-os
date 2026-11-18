@@ -68,7 +68,7 @@ done
 # game lists, the card maintenance requests (lume-card, device-fixes D4) and Wi-Fi by USB
 # dongle (usb-device-access D9). dbus has no order (NetworkManager needs it). bluetooth only
 # on the consoles, below (the vm kernel has no Bluetooth, so bluetoothd would crash there).
-for s in lume-playlists lume-index lume-card dbus networkmanager lume-ssh-wifi; do
+for s in lume-playlists lume-index lume-card lume-clock dbus networkmanager lume-ssh-wifi; do
 	add "$s" default
 done
 # Board services that live in the common overlay. lume-vmnet (virtual-gamepad 3.3): the vm's
