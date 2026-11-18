@@ -1,8 +1,8 @@
 """Guard for the `r36os` -> `lume` rename (device-fixes D7, tasks 1.1 to 1.4).
 
 Reads the map in docs/NOMES.md, scans the tracked files for `r36os` (in file names and in
-content), leaves out the "Fica como está" items and reports what is still pending. Until task
-1.4 flips ENFORCE the report never fails the run; run this file as a script for the full list:
+content), leaves out the "Fica como está" items and fails on anything still pending (ENFORCE,
+on since task 1.4). Run this file as a script for the full list:
 
     .venv/bin/python tests/unit/test_lume_names.py [--console|--pc] [--list]
 """
@@ -16,8 +16,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAP_FILE = REPO_ROOT / "docs" / "NOMES.md"
 
-# Task 1.4 sets this to True: a pending `r36os` then fails the test.
-ENFORCE = False
+# Task 1.4 turned this on: a pending `r36os` fails the test.
+ENFORCE = True
+
+# The main specs are not edited by hand: they are updated from the name-only MODIFIED deltas of
+# device-fixes when the change is archived. test_main_specs_have_a_name_delta checks the deltas.
+SPEC_DIR = "openspec/specs/"
+DELTA_DIR = "openspec/changes/device-fixes/specs/"
 
 NEEDLE = re.compile(r"r36os", re.IGNORECASE)
 MAX_BYTES = 2_000_000
@@ -94,7 +99,7 @@ def find_pending(files=None, rename_rows=None, keep_rows=None):
     literals = sorted(set(literals), key=len, reverse=True)
     pending = []
     for f in files:
-        if _excluded(f, paths):
+        if _excluded(f, paths) or f.startswith(SPEC_DIR):
             continue
         if NEEDLE.search(f):
             pending.append((f, 0, f))
@@ -159,6 +164,29 @@ def test_kept_items_are_not_renamed():
     # no old name is kept as an alias (NOMES.md, 8 and 13: Q4)
     clash = [r["Antes"] for r in rename if r["Antes"] in kept]
     assert not clash, f"in both the rename and the keep tables: {clash}"
+
+
+def _requirement_blocks(text):
+    """Yield (header line, body) of each `### Requirement:` block (ends at the next `##`)."""
+    for part in re.split(r"(?m)^(?=### Requirement: )", text)[1:]:
+        body = re.split(r"(?m)^## ", part, maxsplit=1)[0]
+        yield part.splitlines()[0].strip(), body
+
+
+def test_main_specs_have_a_name_delta():
+    """Every requirement of a main spec that still has r36os is MODIFIED in a device-fixes delta."""
+    missing = []
+    for spec in sorted((REPO_ROOT / SPEC_DIR).glob("*/spec.md")):
+        for header, body in _requirement_blocks(spec.read_text(encoding="utf-8")):
+            if not NEEDLE.search(body):
+                continue
+            delta = REPO_ROOT / DELTA_DIR / spec.parent.name / "spec.md"
+            text = delta.read_text(encoding="utf-8") if delta.is_file() else ""
+            modified = re.split(r"(?m)^## ", text.split("## MODIFIED Requirements", 1)[-1],
+                                maxsplit=1)[0] if "## MODIFIED Requirements" in text else ""
+            if header not in modified or NEEDLE.search(modified):
+                missing.append(f"{spec.parent.name}: {header}")
+    assert not missing, "no clean MODIFIED delta in device-fixes for:\n" + "\n".join(missing)
 
 
 def test_pending_names_report():
