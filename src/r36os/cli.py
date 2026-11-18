@@ -31,7 +31,8 @@ def _parser() -> argparse.ArgumentParser:
                    help=f"image: {', '.join(IMAGES)}; or fragments (aports/ names): a "
                         "fragment build compiles them and the aports that build-depend on "
                         "them, redoes only the slots that hold them and archives a build "
-                        "without an image, ready for `r36os push`")
+                        "without an image, ready for `r36os push`; `kernel` redoes only the "
+                        "kernel, its modules and DTBs (with --console, of that console)")
     b.add_argument("--console", choices=("ga36", "r36s"),
                    help="fragment build: only this console (default: every console the "
                         "fragments are built for)")

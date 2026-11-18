@@ -287,10 +287,12 @@ make -s O=$B kernelrelease > /out/release
 
 # Our own drivers and the drivers our patches change: any warning in them fails the build
 # (9.1, 9.2; the R36S panel variant is in panel-sitronix-st7703.c, patch 0010; the GA36
-# USB gadget Rx fix is in musb_gadget.c, patch 0028)
+# USB gadget Rx fix is in musb_gadget.c, patch 0028; the GPU use and memory in fdinfo are
+# in lima_*.c, patch 0035)
 OWN_DRIVER_FILES = ("panel-ga36mb-jd9366.c", "ga36mb-gamepad.c", "panel-sitronix-st7703.c",
                     "phy-rockchip-inno-dsidphy.c", "dw-mipi-dsi.c", "dw-mipi-dsi-rockchip.c",
-                    "musb_gadget.c", "panel-generic-dsi.c")
+                    "musb_gadget.c", "panel-generic-dsi.c", "lima_drv.c", "lima_gem.c",
+                    "lima_sched.c")
 
 # target -> (ARCH, cross prefix, starting defconfig, image)
 KERNEL_TARGETS = {

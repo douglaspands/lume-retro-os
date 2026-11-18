@@ -86,6 +86,17 @@ Nunca são apagados: a árvore e as pastas de build atuais, `ccache`, `cargo`, `
 o build só avisa que as deixou). O `r36os clean` (simulação por padrão, `--yes` para apagar)
 usa as mesmas regras e lista as mesmas gerações antigas.
 
+### Só o kernel de um console (`r36os build --console ga36 kernel`)
+
+Para mudar um driver, um patch de `kernel/patches/` ou um device tree sem refazer a imagem:
+`r36os build --console ga36 kernel` (ou `--console r36s`; sem `--console`, os dois). É um build
+de fragmento só da etapa 1 daquele console: o kernel recompila apenas o que mudou na árvore, a
+imagem dos módulos e os DTBs são refeitos, os pacotes `lume-kernel`, `lume-modules` e
+`lume-dtbs` são publicados só quando o conteúdo mudou, e nenhum pacote do sistema é compilado.
+Depois, `r36os push` manda só os arquivos de boot que mudaram (o `zImage`/`Image`, o slot
+`modules`, os DTBs). `lume-kernel`, `lume-modules` e `lume-dtbs` valem como apelidos de `kernel`
+e podem vir junto de outros fragmentos (`r36os build --console ga36 kernel lume-launcher`).
+
 ## lume-launcher sem emulação
 
 No armv7 e no aarch64 o `cargo` do `lume-launcher` roda no PC (container x86_64, com o Rust

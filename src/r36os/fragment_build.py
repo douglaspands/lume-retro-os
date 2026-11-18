@@ -20,8 +20,9 @@ The plan (pure, unit tested):
   `lume`, where the apk database lives. The slot stage packs again only the slots whose
   content changed and reports a slot outside the plan (an Alpine update, say).
 - stage 1: a fragment the initramfs installs is built into the kernel, so the plan redoes
-  the initramfs and the kernel of that console (STAGE1_FRAGMENTS; the kernel fragments of
-  task 7.3 join it).
+  the initramfs and the kernel of that console (STAGE1_FRAGMENTS). `kernel` (or lume-kernel,
+  lume-modules, lume-dtbs; KERNEL_FRAGMENTS, task 7.3) asks for stage 1 alone: the kernel,
+  its modules image and the DTBs of the consoles asked, no package.
 """
 
 from __future__ import annotations
@@ -43,6 +44,11 @@ TOP_SLOT = "lume"                          # the apk database: changes with any 
 # needs the initramfs and the kernel again. Extension point of task 7.3: the kernel,
 # modules and DTB fragments (lume-kernel...) join this set.
 STAGE1_FRAGMENTS = frozenset({"r36os-initramfs-static", "lume-bootsel"})
+# The kernel of a console as a fragment (task 7.3; the user, 2026-11-17: a driver or a kernel
+# patch without the whole image): not an aport. It redoes stage 1 of the consoles asked (the
+# kernel builds only what changed in its tree), publishes lume-kernel, lume-modules and
+# lume-dtbs when their content changed, and the push sends only the boot files that differ.
+KERNEL_FRAGMENTS = frozenset({"kernel", "lume-kernel", "lume-modules", "lume-dtbs"})
 
 
 class FragmentPlanError(ValueError):
@@ -156,10 +162,11 @@ def plan_fragments(names: list[str], console: str | None = None,
     if images:
         raise FragmentPlanError(f"{images[0]} is an image: build it alone "
                                 f"(`r36os build {images[0]}`), not with fragments")
-    unknown = [n for n in names if n not in aports]
+    kernel_asked = [n for n in names if n in KERNEL_FRAGMENTS and n not in aports]
+    unknown = [n for n in names if n not in aports and n not in kernel_asked]
     if unknown:
         raise FragmentPlanError(
-            f"invalid target: {unknown[0]!r}. Valid targets: {', '.join(IMAGES)}, or "
+            f"invalid target: {unknown[0]!r}. Valid targets: {', '.join(IMAGES)}, kernel, or "
             f"fragments (aports/): {', '.join(aports)}")
     if console is not None and console not in CONSOLES:
         raise FragmentPlanError(f"--console {console}: expected {' or '.join(CONSOLES)}")
@@ -172,7 +179,11 @@ def plan_fragments(names: list[str], console: str | None = None,
         seeds = [n for n in names if n in candidates]
         if seeds:
             per_console[c] = with_reverse_deps(aports, seeds, candidates)
+        elif kernel_asked:
+            per_console[c] = []
     for n in names:
+        if n in kernel_asked:
+            continue
         if not any(n in chosen for chosen in per_console.values()):
             where = f"the {console}" if console else "any console"
             raise FragmentPlanError(
@@ -189,7 +200,8 @@ def plan_fragments(names: list[str], console: str | None = None,
         touched = {groups.group_of(p) for n in per_console[c] for p in aports[n].packages}
         touched.add(TOP_SLOT)
         slot_plan[c] = tuple(s for s in OVERLAY_SLOTS if s in touched)
-    stage1 = tuple(c for c in consoles if STAGE1_FRAGMENTS & set(per_console[c]))
+    stage1 = tuple(c for c in consoles
+                   if kernel_asked or STAGE1_FRAGMENTS & set(per_console[c]))
     return FragmentPlan(fragments=tuple(names), consoles=consoles, noarch=noarch,
                         packages=packages, slots=slot_plan, stage1=stage1)
 

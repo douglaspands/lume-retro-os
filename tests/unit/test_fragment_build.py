@@ -93,6 +93,20 @@ def test_initramfs_fragment_redoes_stage_1():
     assert plan(["lume-launcher"]).stage1 == ()
 
 
+def test_kernel_fragment_redoes_only_stage_1_of_the_console_asked():
+    # the user (2026-11-17): a driver or a kernel patch without the whole image
+    p = plan(["kernel"], console="ga36")
+    assert p.consoles == ("ga36",)
+    assert p.packages == {"ga36": ()} and p.noarch == ()
+    assert p.stage1 == ("ga36",)
+    assert any(line.startswith("  r36s: unchanged") for line in p.lines())
+    # both consoles without --console; the package names work as aliases
+    assert plan(["lume-kernel"]).stage1 == ("ga36", "r36s")
+    # with a package of that console: both in one build
+    p = plan(["kernel", "r36os-devmem"], console="ga36")
+    assert p.packages == {"ga36": ("r36os-devmem",)} and p.stage1 == ("ga36",)
+
+
 def test_stage1_fragments_are_the_ones_the_initramfs_installs():
     text = (Path(image.__file__).parent / "initramfs.py").read_text()
     for name in fb.STAGE1_FRAGMENTS:
