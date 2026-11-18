@@ -3,7 +3,7 @@
 
 import re
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 INIT_PATH = REPO_ROOT / "aports/lume-games/files/etc/init.d/lume-index"
 INIT = INIT_PATH.read_text()

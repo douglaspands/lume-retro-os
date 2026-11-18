@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from r36os import image, manifests as m
-from r36os.manifests import ManifestError, PackageHashes, RepoHashes, Slot, SlotSet
+from lume_tool import image, manifests as m
+from lume_tool.manifests import ManifestError, PackageHashes, RepoHashes, Slot, SlotSet
 
 B, R, L, MO, C = ("b" * 64, "c" * 64, "d" * 64, "e" * 64, "f" * 64)
 

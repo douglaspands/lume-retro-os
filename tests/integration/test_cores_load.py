@@ -5,9 +5,9 @@ import subprocess
 
 import pytest
 
-from r36os.packages import keys_dir, repo_dir
-from r36os.paths import REPO_ROOT, out_dir
-from r36os.targets import get_target
+from lume_tool.packages import keys_dir, repo_dir
+from lume_tool.paths import REPO_ROOT, out_dir
+from lume_tool.targets import get_target
 
 pytestmark = [
     pytest.mark.skipif(shutil.which("podman") is None, reason="sem podman"),

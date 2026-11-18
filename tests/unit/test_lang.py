@@ -4,8 +4,8 @@ import re
 
 import pytest
 
-from r36os import cli, lang
-from r36os.paths import REPO_ROOT
+from lume_tool import cli, lang
+from lume_tool.paths import REPO_ROOT
 
 
 def test_default_is_english():
@@ -26,5 +26,5 @@ def test_overlay_default_matches_and_build_replaces_it():
     assert re.findall(r'^user_language = "(\d+)"$', cfg, re.M) == ["0"]
     lume = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-lume.cfg").read_text()
     assert "user_language" not in lume
-    from r36os import rootfs
+    from lume_tool import rootfs
     assert 'user_language = "{retro_lang}"' in rootfs._ROOTFS_SCRIPT

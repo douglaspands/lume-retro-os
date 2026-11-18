@@ -6,8 +6,8 @@ import time
 
 from compression import zstd
 
-from r36os import archive, build, manifests, version
-from r36os.targets import get_image, get_target
+from lume_tool import archive, build, manifests, version
+from lume_tool.targets import get_image, get_target
 
 NOW = time.mktime((2026, 11, 9, 21, 42, 33, 0, 0, -1))
 
@@ -21,7 +21,7 @@ def test_build_id_is_timestamp():
 
 def test_boot_file_carries_build_id_and_os_release_does_not():
     # os-release lives in SYSTEM: with the build id in it, SYSTEM changed on every build
-    # and `r36os push` resent it (310 MB of the R36S for a GA36 kernel change)
+    # and `lume push` resent it (310 MB of the R36S for a GA36 kernel change)
     v = version.current(NOW)
     osr = version.os_release()
     assert 'PRETTY_NAME="Lume Retro OS 0.1.0"' in osr
@@ -33,7 +33,7 @@ def test_boot_file_carries_build_id_and_os_release_does_not():
 def test_rootfs_drops_what_changes_between_builds():
     # the only files that differed between two R36S SYSTEMs with the same packages
     # (2026-11-13): the apk log, the random machine-id and os-release (test above)
-    from r36os.rootfs import _ROOTFS_SCRIPT
+    from lume_tool.rootfs import _ROOTFS_SCRIPT
     drop = next(line for line in _ROOTFS_SCRIPT.splitlines() if line.startswith("rm -f $R/var"))
     for f in ("$R/var/log/apk.log", "$R/etc/machine-id", "$R/var/lib/dbus/machine-id"):
         assert f in drop.split(), f
@@ -41,7 +41,7 @@ def test_rootfs_drops_what_changes_between_builds():
 
 
 def test_archive_image(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
     target = get_image("vm")
     work = tmp_path / "vm"
     work.mkdir()
@@ -66,7 +66,7 @@ def test_archive_image(tmp_path, monkeypatch):
 
 def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
     """build console (D1): ga36 then r36s, one version, build.json with both layers."""
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
     monkeypatch.setattr(build.version, "current", lambda: _V)
     calls = []
 
@@ -120,7 +120,7 @@ def test_build_console_runs_both_layers_with_one_version(tmp_path, monkeypatch):
         name = f"ga36-android-boot-{panel}.img"
         assert (dest / name).read_bytes() == panel.encode()
         assert f"{hashlib.sha256(panel.encode()).hexdigest()}  {name}\n" in sums
-    # the BOOT list goes with the build, for r36os push
+    # the BOOT list goes with the build, for lume push
     assert (dest / "boot-files.sha256").read_text() == "ab  ga36/SYSTEM\ncd  VERSION\n"
 
 

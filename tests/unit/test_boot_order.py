@@ -5,7 +5,7 @@ does; the boot log order itself is proven on the consoles."""
 
 import re
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 ROOTFS = REPO_ROOT / "rootfs"
 # the files of the image come from the overlay or from the noarch fragments (same paths)

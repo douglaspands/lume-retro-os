@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import packages
-from r36os.manifests import sha256_file
+from lume_tool import packages
+from lume_tool.manifests import sha256_file
 
 ELF_HEAD = b"\x7fELF\x01\x01\x01" + b"\0" * 57
 
@@ -34,7 +34,7 @@ def make_apk(path: Path, data: dict[str, bytes], arch: str = "noarch",
     """A minimal APK v2 file: signature, control and data gzip streams in a row."""
     pkginfo = (f"pkgname = {origin}\npkgver = 1.0-r0\narch = {arch}\n"
                f"origin = {origin}\n").encode()
-    sig = gzip.compress(_tar_segment({".SIGN.RSA.r36os.rsa.pub": b"x" * 512}, cut=True))
+    sig = gzip.compress(_tar_segment({".SIGN.RSA.lume.rsa.pub": b"x" * 512}, cut=True))
     ctl = gzip.compress(_tar_segment({".PKGINFO": pkginfo}, cut=True))
     dat = gzip.compress(_tar_segment(data, cut=False))
     path.write_bytes(sig + ctl + dat)
@@ -94,7 +94,7 @@ def test_aport_that_is_not_noarch_is_refused(tmp_path):
 
 
 def test_publish_copies_the_same_file_to_every_arch(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     calls = []
     monkeypatch.setattr(packages, "reindex", lambda arches: calls.append(tuple(arches)))
     apk = make_apk(tmp_path / "lume-test-1.0-r0.apk", {"usr/share/x": b"x"})
@@ -107,7 +107,7 @@ def test_publish_copies_the_same_file_to_every_arch(tmp_path, monkeypatch):
 
 
 def test_publish_refuses_a_different_file_with_the_same_name(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     monkeypatch.setattr(packages, "reindex", lambda arches: None)
     apk = make_apk(tmp_path / "lume-test-1.0-r0.apk", {"usr/share/x": b"x"})
     other = packages.arch_repo_dir("armv7") / apk.name
@@ -118,7 +118,7 @@ def test_publish_refuses_a_different_file_with_the_same_name(tmp_path, monkeypat
 
 
 def test_publish_refuses_a_noarch_apk_with_elf(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     monkeypatch.setattr(packages, "reindex", lambda arches: None)
     apk = make_apk(tmp_path / "lume-test-1.0-r0.apk", {"usr/bin/tool": ELF_HEAD})
     with pytest.raises(packages.NoarchError, match="usr/bin/tool"):

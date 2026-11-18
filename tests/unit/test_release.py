@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from r36os import release
-from r36os.rootfs import target_out
-from r36os.targets import IMAGES
+from lume_tool import release
+from lume_tool.rootfs import target_out
+from lume_tool.targets import IMAGES
 
 
 @pytest.fixture
 def out(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
     return tmp_path
 
 

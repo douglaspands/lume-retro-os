@@ -6,8 +6,8 @@ import argparse
 
 import pytest
 
-from r36os import dev, push
-from r36os.cli import _parser
+from lume_tool import dev, push
+from lume_tool.cli import _parser
 from tests.unit.test_push import FakeConsole, FakeHotConsole, build, hot, repo, run_push  # noqa: F401
 
 
@@ -66,7 +66,7 @@ def test_push_goes_on_with_the_right_console(build, tmp_path):
 # --- push --hot ------------------------------------------------------------------------
 
 def test_hot_refuses_the_other_console_before_sending(repo, tmp_path):
-    from r36os import push_hot
+    from lume_tool import push_hot
 
     console = FakeHotConsole(machine="armv7l")          # its board file says ga36
     lines = []
@@ -78,7 +78,7 @@ def test_hot_refuses_the_other_console_before_sending(repo, tmp_path):
 
 
 def test_hot_goes_on_with_the_right_console(repo, tmp_path):
-    from r36os import push_hot
+    from lume_tool import push_hot
 
     console = FakeHotConsole()
     assert push_hot.push_hot("lume-core", console, out=[].append,

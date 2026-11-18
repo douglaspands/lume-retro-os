@@ -1,8 +1,8 @@
 """README credits the FB Alpha 2012 cores and states their non-commercial license
 (catalog-arcade-sega, task 2.3)."""
 
-from r36os import catalog
-from r36os.paths import REPO_ROOT
+from lume_tool import catalog
+from lume_tool.paths import REPO_ROOT
 
 README = (REPO_ROOT / "README.md").read_text()
 

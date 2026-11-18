@@ -2,7 +2,7 @@
 r36s-single-card).
 
 Reads the source (board/r36s/dts/) without compiling: dtc and dt-validate run in the build
-(r36os.kernel.build_dtbs). The expected values are those of appendix A, which comes from
+(lume_tool.kernel.build_dtbs). The expected values are those of appendix A, which comes from
 the factory device tree of the device.
 """
 
@@ -10,8 +10,8 @@ import re
 
 import pytest
 
-from r36os import kpatch
-from r36os.paths import REPO_ROOT
+from lume_tool import kpatch
+from lume_tool.paths import REPO_ROOT
 
 DTS = (REPO_ROOT / "board/r36s/dts/rk3326-r36s-v5.dts").read_text()
 BANKS = "ABCD"

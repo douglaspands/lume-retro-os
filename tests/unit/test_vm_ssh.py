@@ -1,4 +1,4 @@
-"""virtual-gamepad 3.3: `r36os dev`/`push` reach the vm at 127.0.0.1:<port>, and the vm
+"""virtual-gamepad 3.3: `lume dev`/`push` reach the vm at 127.0.0.1:<port>, and the vm
 image (only it) brings up its QEMU user network with root ssh, off the boot critical path."""
 
 import os
@@ -7,10 +7,10 @@ import subprocess
 
 import pytest
 
-from r36os import dev
-from r36os.cli import _parser
-from r36os.paths import REPO_ROOT
-from r36os.push import CONSOLE_ADDR, PushError, Remote, split_host
+from lume_tool import dev
+from lume_tool.cli import _parser
+from lume_tool.paths import REPO_ROOT
+from lume_tool.push import CONSOLE_ADDR, PushError, Remote, split_host
 
 NET = REPO_ROOT / "aports/lume-net/files"
 VMNET = NET / "usr/libexec/lume/vm-net"
@@ -74,7 +74,7 @@ def test_push_and_dev_take_host():
 
 
 def test_main_push_passes_the_host(monkeypatch):
-    from r36os import push
+    from lume_tool import push
 
     seen = {}
 

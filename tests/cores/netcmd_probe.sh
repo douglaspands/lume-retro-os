@@ -1,6 +1,6 @@
 #!/bin/sh
 # Diagnóstico: comandos de rede do RetroArch (GET_STATUS, SAVE_STATE) e carga de state.
-cp /keys/r36os.rsa.pub /etc/apk/keys/
+cp /keys/lume.rsa.pub /etc/apk/keys/
 apk add -q -X /repo retroarch libretro-fceumm >/dev/null
 cat > /tmp/null.cfg <<'EOF'
 video_driver = "null"

@@ -10,9 +10,9 @@ import tarfile
 
 import pytest
 
-from r36os import fragments as frag
-from r36os import kernel_packages as kp
-from r36os import packages
+from lume_tool import fragments as frag
+from lume_tool import kernel_packages as kp
+from lume_tool import packages
 
 
 def _kdir(layer, image, soc_files, kernel=b"kernel", modules=b"modules"):
@@ -28,7 +28,7 @@ def _kdir(layer, image, soc_files, kernel=b"kernel", modules=b"modules"):
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     out = tmp_path / "out"
-    monkeypatch.setenv("R36OS_OUT", str(out))
+    monkeypatch.setenv("LUME_OUT", str(out))
     reindexed = []
     monkeypatch.setattr(packages, "reindex", lambda arches: reindexed.append(list(arches)))
 

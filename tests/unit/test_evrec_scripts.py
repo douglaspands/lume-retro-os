@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os import evrec, scripts
+from lume_tool import evrec, scripts
 
 ROOT = Path(__file__).resolve().parents[2]
 

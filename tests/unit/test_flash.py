@@ -1,12 +1,12 @@
-"""Writing the card (r36os flash): safety rules, without a real card."""
+"""Writing the card (lume flash): safety rules, without a real card."""
 
 import struct
 
 import pytest
 
-from r36os import bootarea, flash
-from r36os.image import boot_sectors, boot_start, disk_id
-from r36os.targets import IMAGES
+from lume_tool import bootarea, flash
+from lume_tool.image import boot_sectors, boot_start, disk_id
+from lume_tool.targets import IMAGES
 
 BOOT_START = boot_start("console")  # 128 MiB: after the boot area of both consoles
 BOOT_SECTORS = boot_sectors("console")  # 2 GiB
@@ -76,7 +76,7 @@ def test_update_never_writes_sector0_nor_roms(target):
 
 
 def test_console_update_rewrites_both_chains_and_android_boot():
-    from r36os import r36s_vendor, vendor
+    from lume_tool import r36s_vendor, vendor
 
     (off, length), _ = flash.update_regions("console")
     assert off <= 16 * 512                                   # shrunk boot0
@@ -86,10 +86,10 @@ def test_console_update_rewrites_both_chains_and_android_boot():
 
 
 def test_find_image(tmp_path, monkeypatch):
-    from r36os.targets import get_image
+    from lume_tool.targets import get_image
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
-    with pytest.raises(flash.FlashError, match="r36os build console"):
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
+    with pytest.raises(flash.FlashError, match="lume build console"):
         flash.find_image(get_image("console"))
     d = tmp_path / "images/console/20261109-214233"
     d.mkdir(parents=True)
@@ -99,7 +99,7 @@ def test_find_image(tmp_path, monkeypatch):
 
 
 def test_cli_parser_eject_flag():
-    from r36os.cli import _parser
+    from lume_tool.cli import _parser
 
     p = _parser()
     args = p.parse_args(["flash", "console", "/dev/sdc", "--eject", "--update"])
@@ -111,7 +111,7 @@ def test_cli_parser_eject_flag():
 
 
 def test_cli_parser_full_flag_is_the_default_and_excludes_update():
-    from r36os.cli import _parser
+    from lume_tool.cli import _parser
 
     p = _parser()
     assert p.parse_args(["flash", "console", "/dev/sdc", "--full"]).update is False
@@ -169,7 +169,7 @@ def test_build_language_from_build_json(tmp_path):
 def test_populate_roms_has_the_default_folders_and_factory_config(tmp_path):
     import json
 
-    from r36os import lang
+    from lume_tool import lang
 
     flash.populate_roms(tmp_path, "pt_BR")
     ids = [s["id"] for s in json.loads(flash.CATALOG.read_text())["systems"]]
@@ -223,7 +223,7 @@ def test_mount_roms_fails_clearly_when_nothing_mounts(monkeypatch):
 
 
 def test_eject_command(monkeypatch, capsys):
-    from r36os.cli import _parser, main
+    from lume_tool.cli import _parser, main
 
     assert _parser().parse_args(["eject", "/dev/sdc"]).device == "/dev/sdc"
     monkeypatch.setattr(flash, "_check_device", lambda d: f"{d} (card)")

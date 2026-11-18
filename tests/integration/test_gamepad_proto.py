@@ -9,9 +9,9 @@ import subprocess
 
 import pytest
 
-from r36os import kpatch
-from r36os.container import Container, ensure_cross
-from r36os.paths import REPO_ROOT
+from lume_tool import kpatch
+from lume_tool.container import Container, ensure_cross
+from lume_tool.paths import REPO_ROOT
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podman")
 

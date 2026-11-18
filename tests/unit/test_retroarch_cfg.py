@@ -3,7 +3,7 @@
 import re
 import subprocess
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-lume.cfg").read_text()
 

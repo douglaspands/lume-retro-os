@@ -2,7 +2,7 @@
 
 The destination carries the `console:` prefix, so it is never taken for a path of the PC (the
 guardrail checks absolute paths). The ctx recipe `console-put` (policy.toml) runs it. The file goes through the ssh of
-`r36os dev` (the shared master channel), then `sync` and the sha256 on the console must match
+`lume dev` (the shared master channel), then `sync` and the sha256 on the console must match
 the local one; exit 1 otherwise. HOST defaults to the cable's address (10.55.0.1); for the vm,
 127.0.0.1:2222.
 """
@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from r36os import dev
+from lume_tool import dev
 
 
 def main() -> int:

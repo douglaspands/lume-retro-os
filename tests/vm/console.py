@@ -12,8 +12,8 @@ import sys
 import time
 from pathlib import Path
 
-from r36os.qmp import QMP
-from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
+from lume_tool.qmp import QMP
+from lume_tool.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
 d = run_dir()
 disk = prepare_disk(d / "console.img")
@@ -21,7 +21,7 @@ log = d / "console-serial.log"
 sock = d / "console.sock"
 for p in (log, sock):
     p.unlink(missing_ok=True)
-share = os.environ.get("CONSOLE_SHARE")  # pasta do PC, como em `r36os vm --roms`
+share = os.environ.get("CONSOLE_SHARE")  # pasta do PC, como em `lume vm --roms`
 cfg = VmConfig(disk=disk, headless=True, qmp=sock, serial_log=log,
                share_dir=Path(share) if share else None)
 argv = [a for a in podman_argv(cfg) if a != "-t"]

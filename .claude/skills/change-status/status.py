@@ -4,7 +4,7 @@ Usage: .venv/bin/python .claude/skills/change-status/status.py [<change>] [--jso
 
 Reads openspec/changes/<change>/tasks.md (checkboxes, the "Grafo de execução" table and the
 device windows table) and the live state of the repository: worktrees of the change and
-whether their branches are merged, running podman containers, and r36os build/pkg/push/flash
+whether their branches are merged, running podman containers, and lume build/pkg/push/flash
 processes (also the ones started through cache/tmp/timed.py), with their age. Output is plain text (English
 labels); the skill turns it into a short summary for the user.
 """
@@ -95,7 +95,7 @@ def live_state(change: str) -> dict:
                               "merged": b in merged, "ahead": int(ahead or 0)})
     containers = [l for l in run(["podman", "ps", "--format",
                                   "{{.Names}} {{.Image}} {{.RunningFor}}"]).splitlines() if l]
-    # r36os commands running now (timed by cache/tmp/timed.py or not), with their age
+    # lume commands running now (timed by cache/tmp/timed.py or not), with their age
     builds = []
     for line in run(["ps", "-eo", "etimes=,args="]).splitlines():
         secs, _, args = line.strip().partition(" ")
@@ -103,9 +103,9 @@ def live_state(change: str) -> dict:
         if m:
             builds.append({"label": m.group(1), "command": m.group(2),
                            "minutes": int(secs) // 60})
-        elif re.match(r"\S*(python\S*\s+\S*)?bin/r36os (build|pkg|push|flash)\b", args) and not any(
+        elif re.match(r"\S*(python\S*\s+\S*)?bin/lume (build|pkg|push|flash)\b", args) and not any(
                 b["command"] in args for b in builds):
-            builds.append({"label": "r36os", "command": args.split("r36os", 1)[1].strip(),
+            builds.append({"label": "lume", "command": args.split("bin/lume ", 1)[1].strip(),
                            "minutes": int(secs) // 60})
     return {"worktrees": worktrees, "containers": containers, "builds": builds}
 
@@ -167,7 +167,7 @@ def main() -> None:
         print(f"  {w['window']}: pending {' '.join(w['pending']) or 'none'}")
     print("running:")
     for b in live["builds"]:
-        print(f"  {b['label']}: r36os {b['command']} ({b['minutes']} min)")
+        print(f"  {b['label']}: lume {b['command']} ({b['minutes']} min)")
     for c in live["containers"]:
         print(f"  container {c}")
     for wt in live["worktrees"]:

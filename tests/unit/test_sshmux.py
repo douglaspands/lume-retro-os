@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from r36os import dev, dev_run, push, sshmux
+from lume_tool import dev, dev_run, push, sshmux
 
 PLAIN = ["ssh", "-o", "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no",
          "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
@@ -13,7 +13,7 @@ PLAIN = ["ssh", "-o", "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecki
 
 @pytest.fixture
 def mux(monkeypatch):
-    monkeypatch.setenv("R36OS_SSH_MUX", "1")
+    monkeypatch.setenv("LUME_SSH_MUX", "1")
 
 
 def test_without_the_option_the_argv_is_the_old_one():
@@ -44,7 +44,7 @@ def test_one_socket_per_host_and_port(mux):
 
 
 def test_a_too_long_path_falls_back_to_no_mux(mux, monkeypatch, tmp_path):
-    monkeypatch.setenv("R36OS_SSH_DIR", str(tmp_path / ("d" * 120)))
+    monkeypatch.setenv("LUME_SSH_DIR", str(tmp_path / ("d" * 120)))
     assert push.Remote().base == PLAIN
 
 

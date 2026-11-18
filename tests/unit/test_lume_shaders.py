@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 SHADERS = REPO_ROOT / "aports/lume-shaders/files/usr/share/libretro/shaders"
 LUME = SHADERS / "lume-shaders"

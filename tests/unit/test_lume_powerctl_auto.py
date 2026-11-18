@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 SOURCE = REPO_ROOT / "aports/lume-powerctl/powerctl.c"
 CC = shutil.which("cc") or shutil.which("gcc")

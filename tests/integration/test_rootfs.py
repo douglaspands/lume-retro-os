@@ -1,6 +1,6 @@
 """Tarefas 3.1-3.3: rootfs x86_64, manifesto estável e SYSTEM squashfs.
 
-Requer podman e os pacotes locais em out/repo/x86_64 (uv run r36os pkg vm ...).
+Requer podman e os pacotes locais em out/repo/x86_64 (uv run lume pkg vm ...).
 """
 
 import io
@@ -10,9 +10,9 @@ import tarfile
 
 import pytest
 
-from r36os import rootfs
-from r36os.container import Container, ensure_builder
-from r36os.targets import get_target
+from lume_tool import rootfs
+from lume_tool.container import Container, ensure_builder
+from lume_tool.targets import get_target
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podman")
 VM = get_target("vm")

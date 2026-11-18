@@ -1,9 +1,9 @@
-"""`r36os dev watch`: change grouping with a fake clock, build and push."""
+"""`lume dev watch`: change grouping with a fake clock, build and push."""
 
 import pytest
 
-from r36os import dev_watch
-from r36os.dev_watch import Watcher
+from lume_tool import dev_watch
+from lume_tool.dev_watch import Watcher
 
 
 class Rig:
@@ -109,7 +109,7 @@ def test_build_output_of_child_processes_goes_to_the_log(tmp_path, capfd):
 
 
 def test_refused_fragment_does_not_start(monkeypatch):
-    from r36os.push import PushError
+    from lume_tool.push import PushError
 
     with pytest.raises(PushError):
         dev_watch.cmd_watch("linux-r36s", None)

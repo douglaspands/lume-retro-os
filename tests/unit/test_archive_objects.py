@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from r36os import archive, clean, flash, image, manifests
-from r36os.targets import get_image
+from lume_tool import archive, clean, flash, image, manifests
+from lume_tool.targets import get_image
 
 BUILD = "20261117-100000"
 
@@ -24,8 +24,8 @@ PARTS = {image.AREA_PART: b"boot area", image.PANEL1_PART: b"panel 1 boot image"
 
 @pytest.fixture
 def out(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     return tmp_path / "out"
 
 
@@ -161,12 +161,12 @@ def test_flash_uses_the_zst_or_assembles_from_the_objects(out, tmp_path, monkeyp
     # neither: refused
     (d / f"console-{BUILD}.img.zst").unlink()
     (d / image.IMAGE_PARTS).unlink()
-    with pytest.raises(flash.FlashError, match="r36os build console"):
+    with pytest.raises(flash.FlashError, match="lume build console"):
         flash.find_build(console)
 
 
 def test_archive_keeps_the_image_parts_with_the_build(out, tmp_path):
-    from r36os import version
+    from lume_tool import version
 
     work = tmp_path / "console"
     work.mkdir()
@@ -180,7 +180,7 @@ def test_archive_keeps_the_image_parts_with_the_build(out, tmp_path):
     assert f"  {image.IMAGE_PARTS}\n" in (dest / "SHA256SUMS").read_text()
 
 
-# --- r36os clean -----------------------------------------------------------------------
+# --- lume clean -----------------------------------------------------------------------
 
 def _old(path):
     t = time.time() - 2 * clean.OBJECT_MIN_AGE

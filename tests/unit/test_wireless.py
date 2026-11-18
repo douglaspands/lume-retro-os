@@ -5,7 +5,7 @@ the RetroArch drivers. The dongle itself is proven on the consoles (task 8.4).""
 import configparser
 import re
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 NET = REPO_ROOT / "aports/lume-net/files"
 CFG = REPO_ROOT / "aports/lume-retroarch-cfg/files"

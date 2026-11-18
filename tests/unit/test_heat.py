@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os import heat
+from lume_tool import heat
 
 
 def _chip(root: Path, idx: int, name: str, inputs: dict[int, tuple[str | None, float]],
@@ -146,25 +146,25 @@ def test_missing_cpu_sensor_fails_and_says_how_to_choose(tmp_path: Path) -> None
     with pytest.raises(heat.SensorNotFound) as e:
         heat.guard_from_env(root=root, env={})
     msg = str(e.value)
-    assert "R36OS_TEMP_SENSOR" in msg
+    assert "LUME_TEMP_SENSOR" in msg
     assert "nct6798:AUXTIN3" in msg
 
 
 def test_env_sensor_chooses_another_input(hwmon: Path) -> None:
     sensors = heat.scan(hwmon)
-    s = heat.find_cpu(sensors, {"R36OS_TEMP_SENSOR": "nct6798:SYSTIN"})
+    s = heat.find_cpu(sensors, {"LUME_TEMP_SENSOR": "nct6798:SYSTIN"})
     assert (s.chip, s.label) == ("nct6798", "SYSTIN")
     path = str(hwmon / "hwmon2" / "temp3_input")
-    assert heat.find_cpu(sensors, {"R36OS_TEMP_SENSOR": path}).label == "Tccd1"
+    assert heat.find_cpu(sensors, {"LUME_TEMP_SENSOR": path}).label == "Tccd1"
     with pytest.raises(heat.SensorNotFound):
-        heat.find_cpu(sensors, {"R36OS_TEMP_SENSOR": "nope:x"})
+        heat.find_cpu(sensors, {"LUME_TEMP_SENSOR": "nope:x"})
 
 
 def test_temp_max_from_env() -> None:
     assert heat.temp_max({}) == 85.0
-    assert heat.temp_max({"R36OS_TEMP_MAX": "80"}) == 80.0
+    assert heat.temp_max({"LUME_TEMP_MAX": "80"}) == 80.0
     with pytest.raises(heat.HeatError):
-        heat.temp_max({"R36OS_TEMP_MAX": "hot"})
+        heat.temp_max({"LUME_TEMP_MAX": "hot"})
 
 
 def test_start_line_names_sensor_and_reading(hwmon: Path) -> None:
@@ -197,7 +197,7 @@ def test_pause_at_limit_and_resume_ten_below(hwmon: Path) -> None:
 
 
 def test_custom_limit(hwmon: Path) -> None:
-    g, clock, runner, _ = _guard(hwmon, env={"R36OS_TEMP_MAX": "70"})
+    g, clock, runner, _ = _guard(hwmon, env={"LUME_TEMP_MAX": "70"})
     _set(g.cpu, 70.0)
     g.step()
     assert runner.calls == [["pause", "c1", "c2"]]
@@ -287,7 +287,7 @@ def test_thread_samples_and_stops(hwmon: Path) -> None:
 
 def test_cli_build_pauses_by_default_and_prints_summary_on_error(
         hwmon: Path, monkeypatch, capsys) -> None:
-    from r36os import build, cli
+    from lume_tool import build, cli
 
     made = {}
     real = heat.guard_from_env
@@ -310,15 +310,15 @@ def test_cli_build_pauses_by_default_and_prints_summary_on_error(
 
 
 def test_env_guard_log_forces_log_only(hwmon: Path) -> None:
-    g = heat.guard_from_env(root=hwmon, env={"R36OS_TEMP_GUARD": "log"})
+    g = heat.guard_from_env(root=hwmon, env={"LUME_TEMP_GUARD": "log"})
     assert g.log_only is True
     assert heat.guard_from_env(root=hwmon, env={}).log_only is False
-    with pytest.raises(heat.HeatError, match="R36OS_TEMP_GUARD"):
-        heat.guard_from_env(root=hwmon, env={"R36OS_TEMP_GUARD": "x"})
+    with pytest.raises(heat.HeatError, match="LUME_TEMP_GUARD"):
+        heat.guard_from_env(root=hwmon, env={"LUME_TEMP_GUARD": "x"})
 
 
 def test_build_containers_carry_the_heat_label() -> None:
-    from r36os.container import Container
+    from lume_tool.container import Container
 
     argv = Container("img").argv("true")
     i = argv.index("--label")
@@ -326,7 +326,7 @@ def test_build_containers_carry_the_heat_label() -> None:
 
 
 def test_stage_summary_includes_heat_lines_once(hwmon: Path) -> None:
-    from r36os.stages import StageTimer
+    from lume_tool.stages import StageTimer
 
     g, clock, runner, _ = _guard(hwmon)
     _set(g.cpu, 86.0)
@@ -350,7 +350,7 @@ def test_stage_summary_includes_heat_lines_once(hwmon: Path) -> None:
 
 def test_cli_heat_abort_replaces_the_build_error_and_unpauses(
         hwmon: Path, monkeypatch, capsys) -> None:
-    from r36os import build, cli
+    from lume_tool import build, cli
 
     runner = Runner()
     real = heat.guard_from_env
@@ -376,10 +376,10 @@ def test_cli_heat_abort_replaces_the_build_error_and_unpauses(
 
 
 def test_cli_build_without_cpu_sensor_fails_before_building(monkeypatch, capsys) -> None:
-    from r36os import build, cli
+    from lume_tool import build, cli
 
     def no_sensor(**kw):
-        raise heat.SensorNotFound("no processor temperature sensor; set R36OS_TEMP_SENSOR")
+        raise heat.SensorNotFound("no processor temperature sensor; set LUME_TEMP_SENSOR")
 
     def must_not_run(image, language="en"):
         raise AssertionError("the build started")
@@ -387,4 +387,4 @@ def test_cli_build_without_cpu_sensor_fails_before_building(monkeypatch, capsys)
     monkeypatch.setattr(heat, "guard_from_env", no_sensor)
     monkeypatch.setattr(build, "build_image_target", must_not_run)
     assert cli.main(["build", "console"]) == 2
-    assert "R36OS_TEMP_SENSOR" in capsys.readouterr().err
+    assert "LUME_TEMP_SENSOR" in capsys.readouterr().err

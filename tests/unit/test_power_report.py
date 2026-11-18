@@ -1,7 +1,7 @@
 import io
 import tarfile
 
-from r36os import power_report as pr
+from lume_tool import power_report as pr
 
 SECRET = "Secret Game Title"
 ROM_PATH = "/roms/nes/secret-game.nes"

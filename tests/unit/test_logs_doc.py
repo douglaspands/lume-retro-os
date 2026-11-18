@@ -2,7 +2,7 @@
 
 import re
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 LIBEXEC = REPO_ROOT / "aports/lume-core/files/usr/libexec/lume"  # lume-core fragment
 SAVES_LIBEXEC = REPO_ROOT / "aports/lume-saves/files/usr/libexec/lume"  # lume-saves fragment

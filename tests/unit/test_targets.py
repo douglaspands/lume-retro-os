@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import cli, paths
-from r36os.targets import IMAGES, TARGETS, InvalidTargetError, get_image, get_target
+from lume_tool import cli, paths
+from lume_tool.targets import IMAGES, TARGETS, InvalidTargetError, get_image, get_target
 
 
 def test_hardware_layers():
@@ -42,8 +42,8 @@ def test_invalid_layer_lists_layers():
 def test_cli_invalid_target_creates_nothing(tmp_path, monkeypatch, capsys, command):
     out = tmp_path / "out"
     cache = tmp_path / "cache"
-    monkeypatch.setenv("R36OS_OUT", str(out))
-    monkeypatch.setenv("R36OS_CACHE", str(cache))
+    monkeypatch.setenv("LUME_OUT", str(out))
+    monkeypatch.setenv("LUME_CACHE", str(cache))
     rc = cli.main(command)
     assert rc == 2
     err = capsys.readouterr().err
@@ -59,16 +59,16 @@ def test_cli_pkg_still_takes_a_layer():
 
 
 def test_cache_env_anywhere(monkeypatch, tmp_path):
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "c"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "c"))
     assert paths.cache_dir() == (tmp_path / "c").resolve()
     # a cache inside the repository is accepted (it is ignored by git)
-    monkeypatch.setenv("R36OS_CACHE", str(paths.REPO_ROOT / "var" / "c"))
+    monkeypatch.setenv("LUME_CACHE", str(paths.REPO_ROOT / "var" / "c"))
     assert paths.cache_dir() == (paths.REPO_ROOT / "var" / "c").resolve()
 
 
 def test_default_cache_is_repo_dot_cache(monkeypatch, tmp_path):
-    monkeypatch.delenv("R36OS_CACHE", raising=False)
-    # XDG_CACHE_HOME and ~/.cache/r36os are no longer used
+    monkeypatch.delenv("LUME_CACHE", raising=False)
+    # XDG_CACHE_HOME and ~/.cache/<tool> are not used
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
     cache = paths.cache_dir()
@@ -77,7 +77,7 @@ def test_default_cache_is_repo_dot_cache(monkeypatch, tmp_path):
 
 
 def test_cache_dir_creates_nothing(monkeypatch, tmp_path):
-    monkeypatch.delenv("R36OS_CACHE", raising=False)
+    monkeypatch.delenv("LUME_CACHE", raising=False)
     monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
     assert paths.cache_dir() == tmp_path / ".cache"
     assert list(tmp_path.iterdir()) == []
@@ -94,7 +94,7 @@ def test_worktree_uses_main_repo_cache(monkeypatch, tmp_path):
     _git("init", "-q", cwd=main)
     _git("commit", "-q", "--allow-empty", "-m", "init", cwd=main)
     _git("worktree", "add", "-q", str(main / "out/worktrees/wt"), cwd=main)
-    monkeypatch.delenv("R36OS_CACHE", raising=False)
+    monkeypatch.delenv("LUME_CACHE", raising=False)
     monkeypatch.setattr(paths, "REPO_ROOT", main / "out/worktrees/wt")
     assert paths.cache_dir() == (main / ".cache").resolve()
     monkeypatch.setattr(paths, "REPO_ROOT", main)
@@ -104,7 +104,7 @@ def test_worktree_uses_main_repo_cache(monkeypatch, tmp_path):
 def test_no_git_uses_own_cache(monkeypatch, tmp_path):
     project = tmp_path / "extracted"
     project.mkdir()
-    monkeypatch.delenv("R36OS_CACHE", raising=False)
+    monkeypatch.delenv("LUME_CACHE", raising=False)
     monkeypatch.setattr(paths, "REPO_ROOT", project)
     assert paths.cache_dir() == (project / ".cache").resolve()
 
@@ -114,7 +114,7 @@ def test_copy_inside_other_repo_uses_own_cache(monkeypatch, tmp_path):
     _git("init", "-q", cwd=tmp_path)
     project = tmp_path / "extracted"
     project.mkdir()
-    monkeypatch.delenv("R36OS_CACHE", raising=False)
+    monkeypatch.delenv("LUME_CACHE", raising=False)
     monkeypatch.setattr(paths, "REPO_ROOT", project)
     assert paths.cache_dir() == (project / ".cache").resolve()
 
@@ -134,7 +134,7 @@ class _FakeRun:
 @pytest.fixture
 def cache_env(monkeypatch, tmp_path):
     root = tmp_path / "cache"
-    monkeypatch.setenv("R36OS_CACHE", str(root))
+    monkeypatch.setenv("LUME_CACHE", str(root))
     return root.resolve()
 
 

@@ -15,7 +15,7 @@ RUN apk add --no-cache \
     && adduser -D -G abuild builder \
     && echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
 
-ENV PACKAGER="r36os <r36os@localhost>" \
+ENV PACKAGER="lume <lume@localhost>" \
     CCACHE_DIR=/cache/ccache \
     SRCDEST=/cache/distfiles
 WORKDIR /work

@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 APORT = REPO_ROOT / "aports/lume-input"
 SOURCE = (APORT / "input.c").read_text()

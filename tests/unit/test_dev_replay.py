@@ -1,8 +1,8 @@
-"""Unit tests of `r36os dev replay` with a fake console: no device, no ssh."""
+"""Unit tests of `lume dev replay` with a fake console: no device, no ssh."""
 
 import pytest
 
-from r36os import dev
+from lume_tool import dev
 
 PLAYING = "GET_STATUS PLAYING some-core\n"
 

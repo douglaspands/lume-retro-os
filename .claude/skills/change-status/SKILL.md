@@ -17,7 +17,7 @@ Os números saem de um script, nunca de conta feita de cabeça.
   pergunta qual.
 - O script lê o `tasks.md` da change (marcações, tabela do "Grafo de execução" e janelas de
   aparelho) e o estado real: worktrees `<change>/<nó>` e se o branch já foi mesclado em
-  `feature/<change>`, containers do `podman` e processos `r36os build|pkg|push|flash` em
+  `feature/<change>`, containers do `podman` e processos `lume build|pkg|push|flash` em
   andamento (inclusive pelo `cache/tmp/timed.py`), com o tempo de cada um.
 - `--json` dá os mesmos dados estruturados, se precisar filtrar.
 

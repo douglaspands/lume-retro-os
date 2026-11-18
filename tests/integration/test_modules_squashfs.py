@@ -10,9 +10,9 @@ import tarfile
 
 import pytest
 
-from r36os import rootfs
-from r36os.container import Container, ensure_builder
-from r36os.targets import get_target
+from lume_tool import rootfs
+from lume_tool.container import Container, ensure_builder
+from lume_tool.targets import get_target
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="no podman")
 RELEASE = "6.18.62-test"

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 OVERLAY = REPO_ROOT / "rootfs/overlay"
 # the noarch fragments (lume-*) ship their files at the image paths; the package keeps the git modes

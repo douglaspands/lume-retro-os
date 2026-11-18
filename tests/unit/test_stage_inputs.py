@@ -2,9 +2,9 @@
 
 import pytest
 
-from r36os import kernel, rootfs, stage_inputs
-from r36os.stages import StageTimer
-from r36os.targets import get_target
+from lume_tool import kernel, rootfs, stage_inputs
+from lume_tool.stages import StageTimer
+from lume_tool.targets import get_target
 
 DT_PATCH = ("From: x\n---\ndiff --git a/arch/arm/boot/dts/allwinner/foo.dts "
             "b/arch/arm/boot/dts/allwinner/foo.dts\n--- a/x\n+++ b/x\n")
@@ -25,7 +25,7 @@ def repo(tmp_path, monkeypatch):
         (root / rel).write_text(text)
     monkeypatch.setattr(stage_inputs, "REPO_ROOT", root)
     monkeypatch.setattr(kernel, "PATCHES_DIR", root / "kernel/patches")
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     stage_inputs.set_clean(False)
     return root
 
@@ -164,7 +164,7 @@ def test_rootfs_without_a_reachable_mirror_always_runs(repo, tmp_path):
 
 
 def test_rootfs_inputs_do_not_include_the_build_id(repo, monkeypatch):
-    from r36os import version
+    from lume_tool import version
 
     monkeypatch.setattr(version, "os_release", lambda: "same")
     monkeypatch.setattr(stage_inputs, "mirror_index_hash", lambda *a: "m")

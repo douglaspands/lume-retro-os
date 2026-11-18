@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import manifests, pkglists, slots, stage_inputs
-from r36os.paths import REPO_ROOT
+from lume_tool import manifests, pkglists, slots, stage_inputs
+from lume_tool.paths import REPO_ROOT
 
 MiB = 2**20
 
@@ -365,9 +365,9 @@ def test_slots_stage_inputs(tmp_path):
 
 
 def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
-    from r36os import build, rootfs, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, rootfs, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     out = tmp_path / "ga36"
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
@@ -404,13 +404,13 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
 
 
 def _level_setup(tmp_path, monkeypatch, pad_fast=0):
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     out = tmp_path / "ga36"
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
     out.mkdir()
     _rootfs(out / "rootfs.tar")
-    from r36os import kernel_packages
+    from lume_tool import kernel_packages
 
     # the modules slot comes from the published lume-modules (build-speed 7.3)
     _modules(kernel_packages.modules_image(out))
@@ -434,9 +434,9 @@ def _level_setup(tmp_path, monkeypatch, pad_fast=0):
 
 
 def test_fast_slots_are_not_reused_by_the_full_build_and_back(tmp_path, monkeypatch):
-    from r36os import build, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     levels = _level_setup(tmp_path, monkeypatch)
     v, timer = version.current(), StageTimer()
@@ -454,9 +454,9 @@ def test_fast_slots_are_not_reused_by_the_full_build_and_back(tmp_path, monkeypa
 
 
 def test_fast_slots_over_the_limit_fall_back_to_the_full_level(tmp_path, monkeypatch, capsys):
-    from r36os import build, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     monkeypatch.setattr(slots, "CONSOLE_SLOTS_LIMIT_MIB", 1)
     levels = _level_setup(tmp_path, monkeypatch, pad_fast=600_000)
@@ -472,7 +472,7 @@ def test_fast_slots_over_the_limit_fall_back_to_the_full_level(tmp_path, monkeyp
 
 
 def test_with_level_changes_only_the_zstd_level():
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     assert slots.with_level(rootfs.SQUASHFS_OPTIONS, 19) == rootfs.SQUASHFS_OPTIONS
     fast = slots.with_level(rootfs.SQUASHFS_OPTIONS, 3)
@@ -535,11 +535,11 @@ def test_other_options_pack_again_unless_a_fragment_build(tmp_path):
 def test_two_runs_give_the_same_squashfs(tmp_path):
     """The real mksquashfs (builder container): rootfs.tar made again with other times
     gives byte-identical slots, so a build without changes keeps the slot names."""
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     if shutil.which("podman") is None:
         pytest.skip("no podman")
-    r = subprocess.run(["podman", "image", "exists", "localhost/r36os-builder:x86_64"])
+    r = subprocess.run(["podman", "image", "exists", "localhost/lume-builder:x86_64"])
     if r.returncode != 0:
         pytest.skip("no builder image")
     names = []

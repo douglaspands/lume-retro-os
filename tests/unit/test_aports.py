@@ -2,9 +2,9 @@ import re
 
 import pytest
 
-from r36os.packages import local_aports
-from r36os.paths import REPO_ROOT
-from r36os.targets import get_target
+from lume_tool.packages import local_aports
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import get_target
 
 FBALPHA = {
     "cps1": "5542c1848ef81e92db311193b01dc349bc29d7cc",

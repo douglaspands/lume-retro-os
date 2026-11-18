@@ -6,7 +6,7 @@ The library is POSIX shell, so every test runs it with `sh` against a fake sysfs
 import subprocess
 from pathlib import Path
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 LIB = REPO_ROOT / "aports/lume-power/files/usr/libexec/lume/power-profiles.sh"
 

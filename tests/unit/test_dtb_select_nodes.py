@@ -10,8 +10,8 @@ import re
 
 import pytest
 
-from r36os import fdt, image
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool import fdt, image
+from lume_tool.paths import REPO_ROOT, out_dir
 
 DTS = {"ga36": sorted((REPO_ROOT / "board/ga36/dts").glob("*.dts")),
        "r36s": sorted((REPO_ROOT / "board/r36s/dts").glob("*.dts"))}

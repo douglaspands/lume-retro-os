@@ -1,6 +1,6 @@
 """GA36 kernel config (task 9.4): board/ga36/kernel.config and the generated .config.
 
-The final .config (out/ga36/kernel/config) only exists after `r36os build console`; without
+The final .config (out/ga36/kernel/config) only exists after `lume build console`; without
 it the tests that depend on it are skipped.
 """
 
@@ -8,8 +8,8 @@ import re
 
 import pytest
 
-from r36os.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
+from lume_tool.paths import REPO_ROOT, out_dir
 
 FRAGMENT = (REPO_ROOT / "board/ga36/kernel.config").read_text()
 BUILT = out_dir() / "ga36/kernel/config"
@@ -141,7 +141,7 @@ def test_boot_screen_is_the_same_on_both_consoles():
 
 
 def test_build_checks_the_options_that_stay_off():
-    from r36os.kernel import _KERNEL_SCRIPT
+    from lume_tool.kernel import _KERNEL_SCRIPT
     assert "must stay off" in _KERNEL_SCRIPT
 
 
@@ -152,9 +152,9 @@ def test_fragment_gives_the_overlay_upper_layer_xattrs():
 
 
 def test_kernel_image_does_not_carry_the_build_time_or_machine():
-    # the same inputs must give the same zImage/Image, or `r36os push` resends it every
+    # the same inputs must give the same zImage/Image, or `lume push` resends it every
     # time (the R36S Image changed between two builds that only touched the GA36)
-    from r36os.kernel import _KERNEL_SCRIPT, build_stamp, kernel_inputs
+    from lume_tool.kernel import _KERNEL_SCRIPT, build_stamp, kernel_inputs
     for v in ('KBUILD_BUILD_TIMESTAMP="{stamp}"', "KBUILD_BUILD_VERSION=1",
               "KBUILD_BUILD_USER=lume", "KBUILD_BUILD_HOST=lume"):
         assert v in _KERNEL_SCRIPT, v
@@ -164,7 +164,7 @@ def test_kernel_image_does_not_carry_the_build_time_or_machine():
 
 def test_build_stamp_is_the_kernel_release_date_and_ignores_git(monkeypatch):
     import subprocess
-    from r36os import kernel
+    from lume_tool import kernel
     # same value for both consoles, and no git call at all
     def no_git(*a, **k):
         raise AssertionError("build_stamp must not run git")
@@ -181,7 +181,7 @@ def test_build_stamp_is_the_kernel_release_date_and_ignores_git(monkeypatch):
 
 
 def test_initramfs_files_have_a_fixed_mtime():
-    from r36os.initramfs import _PACK
+    from lume_tool.initramfs import _PACK
     assert _PACK.index("touch -h -d @0") < _PACK.index("cpio -o")
     # newc carries inode numbers: two identical stages gave different archives without it
     assert "--reproducible" in _PACK

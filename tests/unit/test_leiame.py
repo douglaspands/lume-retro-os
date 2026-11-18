@@ -1,4 +1,4 @@
-from r36os import catalog, leiame
+from lume_tool import catalog, leiame
 
 
 def test_every_system_in_leiame():

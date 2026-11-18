@@ -1,6 +1,6 @@
 import pytest
 
-from r36os.initramfs import module_name, resolve_modules
+from lume_tool.initramfs import module_name, resolve_modules
 
 DEP = """\
 kernel/fs/exfat/exfat.ko.zst:

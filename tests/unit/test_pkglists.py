@@ -1,5 +1,5 @@
-from r36os import pkglists
-from r36os.targets import TARGETS
+from lume_tool import pkglists
+from lume_tool.targets import TARGETS
 
 
 def test_common_list_has_no_hardware_packages():
@@ -28,6 +28,6 @@ def test_no_duplicates():
 
 
 def test_vm_kernel_is_hardware_layer():
-    from r36os.targets import get_target
+    from lume_tool.targets import get_target
 
     assert "linux-virt" in pkglists.hw_packages(get_target("vm"))

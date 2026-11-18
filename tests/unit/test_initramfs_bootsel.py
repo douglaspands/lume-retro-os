@@ -6,9 +6,9 @@ import shutil
 
 import pytest
 
-from r36os import initramfs
-from r36os.paths import REPO_ROOT
-from r36os.targets import TARGETS
+from lume_tool import initramfs
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import TARGETS
 
 # linux/input-event-codes.h (the names the keys files use)
 CODES = {"KEY_VOLUMEDOWN": 114, "KEY_VOLUMEUP": 115, "BTN_SOUTH": 0x130, "BTN_EAST": 0x131,
@@ -18,7 +18,7 @@ CODES = {"KEY_VOLUMEDOWN": 114, "KEY_VOLUMEUP": 115, "BTN_SOUTH": 0x130, "BTN_EA
 
 @pytest.fixture
 def staged(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     captured = {}
 
     class FakeContainer:
@@ -76,7 +76,7 @@ def test_keys_of_the_list_are_known_to_lume_bootsel():
 def test_ga36_switches_by_its_boot_image_and_the_r36s_by_kexec(staged):
     # D16: the GA36 rewrites the boot image the vendor U-Boot loads (the sector the build and
     # push write) and reboots; the R36S keeps kexec (no bootsel-switch)
-    from r36os import vendor
+    from lume_tool import vendor
     stage, _ = staged("ga36")
     assert (stage / "etc/bootsel-switch").read_text() == \
         f"android-boot {vendor.ANDROID_BOOT_SECTOR}\n"
@@ -110,5 +110,5 @@ def test_every_library_the_init_sources_is_staged(staged, board):
 
 
 def test_soc_folders_match_the_image():
-    from r36os.image import SOC_DIR
+    from lume_tool.image import SOC_DIR
     assert SOC_DIR == {"ga36": "a33", "r36s": "rk3326"}

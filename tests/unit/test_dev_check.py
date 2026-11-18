@@ -1,10 +1,10 @@
-"""`r36os dev check`: parsing of the device-mode self-test output and the exit code."""
+"""`lume dev check`: parsing of the device-mode self-test output and the exit code."""
 
 import subprocess
 
 import pytest
 
-from r36os import dev
+from lume_tool import dev
 
 GREEN = """\
 SELFTEST roms-mounted PASS /dev/mmcblk0p3 /storage exfat rw,noatime 0 0
