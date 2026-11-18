@@ -13,6 +13,13 @@
  *    "fn_release" (held); Fn with a key of the profile's chord table sends that action's
  *    name and swallows the key; Fn with any other key swallows it and sends nothing
  *    (reserved chords). A Fn that made a chord never gives a gesture;
+ *  - the sticks are calibrated at start (device-fixes D17): the rest of each axis is the
+ *    median of its first samples over 150 ms (the axes are held back meanwhile, nothing else
+ *    waits) and every value goes out as value - rest + centre, the centre being the middle of
+ *    the source's range, with the profile's "deadzone <percent of the span>" around it (the
+ *    flat of the source when absent). A rest farther than 20% of the span from the centre is a
+ *    stick held at start: the centre is the rest and a warning is logged. The resume reads
+ *    the sticks again through the same correction;
  *  - volume keys change the ALSA mixer in fixed steps and are not forwarded; "volume" then
  *    goes to the clients of the socket (the launcher shows the level);
  *  - Fn+volume keys change the screen backlight in steps of 5% instead (never below 5%), and
@@ -187,6 +194,8 @@ struct profile {
 	int mixer_step;
 	int mixer_max;	/* raw ceiling of the control (0: none), e.g. 0 dB of a digital DAC */
 	int backlight_max;	/* raw ceiling of the backlight (0: none): 100% of the launcher */
+	int deadzone_pct;	/* sticks: dead zone around the centre, % of the axis span */
+	int has_deadzone;	/* "deadzone" given; else the flat of the source axis is used */
 };
 
 static volatile sig_atomic_t stop;
@@ -437,6 +446,10 @@ static int load_profile(const char *path, struct profile *p)
 			memmove(p->mixer_ctl, c, strlen(c) + 1);
 			if (p->mixer_step < 1 || p->mixer_step > 25 || p->mixer_max < 0)
 				goto bad;
+		} else if (!strcmp(s, "deadzone") && sscanf(arg, "%d", &p->deadzone_pct) == 1) {
+			if (p->deadzone_pct < 0 || p->deadzone_pct > 40)
+				goto bad;
+			p->has_deadzone = 1;
 		} else if (!strcmp(s, "backlight_max") && sscanf(arg, "%d", &p->backlight_max) == 1) {
 			if (p->backlight_max < 1)
 				goto bad;
@@ -1283,6 +1296,172 @@ static int drain(const struct profile *p)
 	return dropped;
 }
 
+/* ---- the sticks: rest read at start (device-fixes D17, P-47 6.8) ---- */
+
+/* The rest of each axis is read from its first samples (the median over CAL_MS, sampled with
+ * EVIOCGABS every CAL_SAMPLE_MS and from the events themselves, so a source that only has
+ * events works too). Until the window ends the axes are held back; nothing else waits.
+ * Then every value goes out as "value - rest + centre", the centre being the middle of the
+ * source's range (the DTS or the driver), with the dead zone of the profile around it. A rest
+ * farther than CAL_BAND_PCT of the span from the centre is a stick held at start: that axis
+ * keeps the centre of the range as its rest and a warning goes to the log. */
+#define CAL_MS 150
+#define CAL_FIRST_DIV 5		/* first sample after CAL_MS / this */
+#define CAL_SAMPLE_MS 10
+#define CAL_MAX 32
+#define CAL_BAND_PCT 20		/* plausible rest: centre +- this % of the span */
+
+static struct axis_cal {
+	int min, max, centre, dz;
+	int rest;
+	int n, samples[CAL_MAX];
+	int last, seen;
+} cal[MAX_AXES];
+static int cal_active;
+static long long cal_until, cal_next;
+
+static int axis_index(const struct profile *p, unsigned short code)
+{
+	for (int i = 0; i < p->naxes; i++)
+		if (p->axes[i] == code)
+			return i;
+	return -1;
+}
+
+/* The range of axis i as the first source that has it reports it; 0..1023 for a test FIFO. */
+static void axis_info(const struct profile *p, int i, struct input_absinfo *abs)
+{
+	for (int s = 0; s < p->nsrc; s++)
+		if (p->src[s].fd >= 0 && !p->src[s].power &&
+		    ioctl(p->src[s].fd, EVIOCGABS(p->axes[i]), abs) >= 0 && abs->maximum > abs->minimum)
+			return;
+	*abs = (struct input_absinfo){ .minimum = 0, .maximum = 1023 };
+}
+
+/* One value as the game gets it. */
+static int cal_value(int i, int raw)
+{
+	const struct axis_cal *a = &cal[i];
+	int v = raw - a->rest + a->centre;
+
+	if (v < a->min)
+		v = a->min;
+	if (v > a->max)
+		v = a->max;
+	if (v - a->centre <= a->dz && a->centre - v <= a->dz)
+		v = a->centre;
+	return v;
+}
+
+static void cal_add(int i, int v)
+{
+	if (cal[i].n < CAL_MAX)
+		cal[i].samples[cal[i].n++] = v;
+	cal[i].last = v;
+	cal[i].seen = 1;
+}
+
+static void cal_sample(const struct profile *p)
+{
+	for (int i = 0; i < p->naxes; i++)
+		for (int s = 0; s < p->nsrc; s++) {
+			struct input_absinfo abs;
+
+			if (p->src[s].fd < 0 || p->src[s].power ||
+			    ioctl(p->src[s].fd, EVIOCGABS(p->axes[i]), &abs) < 0 || abs.maximum <= abs.minimum)
+				continue;
+			cal_add(i, abs.value);
+			break;
+		}
+}
+
+static const char *axis_name(int code)
+{
+	/* code_name() would find KEY_ESC for ABS_Y: only the ABS_ names count here */
+	for (size_t i = 0; i < ARRAY_SIZE(NAMES); i++)
+		if (NAMES[i].code == code && !strncmp(NAMES[i].name, "ABS_", 4))
+			return NAMES[i].name;
+	return "ABS_?";
+}
+
+static void cal_finish(const struct profile *p, int out)
+{
+	int sent = 0;
+
+	cal_active = 0;
+	for (int i = 0; i < p->naxes; i++) {
+		struct axis_cal *a = &cal[i];
+		int m = 0, band = (a->max - a->min) * CAL_BAND_PCT / 100;
+
+		if (!a->n) {
+			logline("%s: no sample at start, rest is the centre %d", axis_name(p->axes[i]), a->centre);
+			continue;
+		}
+		for (int k = 1; k < a->n; k++)	/* insertion sort, the median is in the middle */
+			for (int j = k; j > 0 && a->samples[j - 1] > a->samples[j]; j--) {
+				int t = a->samples[j];
+
+				a->samples[j] = a->samples[j - 1];
+				a->samples[j - 1] = t;
+			}
+		m = a->samples[a->n / 2];
+		if (m < a->centre - band || m > a->centre + band) {
+			logline("warning: %s rest %d is outside %d..%d (stick held at start?), using the centre %d",
+				axis_name(p->axes[i]), m, a->centre - band, a->centre + band, a->centre);
+			a->rest = a->centre;
+		} else {
+			a->rest = m;
+			logline("%s rest %d, centre %d (%d sample(s))", axis_name(p->axes[i]), m, a->centre,
+				a->n);
+		}
+	}
+	/* the sticks as they are now, held back until here; asleep, the resume sends them */
+	for (int i = 0; i < p->naxes && !asleep; i++)
+		if (cal[i].seen) {
+			emit(out, EV_ABS, p->axes[i], cal_value(i, cal[i].last));
+			sent = 1;
+		}
+	if (sent)
+		emit(out, EV_SYN, SYN_REPORT, 0);
+}
+
+static void cal_start(const struct profile *p)
+{
+	const char *env = getenv("LUME_INPUT_CAL_MS");	/* the tests; 0 is no window */
+	int ms = env ? atoi(env) : CAL_MS;
+	long long now = now_ms();
+
+	for (int i = 0; i < p->naxes; i++) {
+		struct input_absinfo abs;
+
+		axis_info(p, i, &abs);
+		memset(&cal[i], 0, sizeof(cal[i]));
+		cal[i].min = abs.minimum;
+		cal[i].max = abs.maximum;
+		cal[i].centre = cal[i].rest = (abs.minimum + abs.maximum) / 2;
+		cal[i].dz = p->has_deadzone ? (abs.maximum - abs.minimum) * p->deadzone_pct / 100 : abs.flat;
+	}
+	if (ms <= 0 || !p->naxes)
+		return;
+	cal_active = 1;
+	cal_until = now + ms;
+	cal_next = now + ms / CAL_FIRST_DIV;
+}
+
+static void cal_tick(const struct profile *p, int out, long long now)
+{
+	if (!cal_active)
+		return;
+	if (now >= cal_until) {
+		cal_finish(p, out);
+		return;
+	}
+	if (now >= cal_next) {
+		cal_sample(p);
+		cal_next = now + CAL_SAMPLE_MS;
+	}
+}
+
 /* The sticks as they are now (the moves made asleep were dropped, and the kernel only
  * reports changes); a source that cannot tell (a test FIFO) is skipped. */
 static void sync_axes(const struct profile *p, int out)
@@ -1296,7 +1475,7 @@ static void sync_axes(const struct profile *p, int out)
 			if (p->src[s].fd < 0 || p->src[s].power ||
 			    ioctl(p->src[s].fd, EVIOCGABS(p->axes[i]), &abs) < 0 || abs.maximum <= abs.minimum)
 				continue;
-			emit(out, EV_ABS, p->axes[i], abs.value);
+			emit(out, EV_ABS, p->axes[i], cal_value(i, abs.value));
 			sent = 1;
 			break;
 		}
@@ -1591,6 +1770,7 @@ static void timers(const struct profile *p, struct chord *c, int out)
 
 	hold_check(p, c, now);
 	power_check(now);
+	cal_tick(p, out, now);
 	if (wait_seq && now >= wait_deadline)
 		reply_finish();
 	if (asleep && now - asleep_since >= SLEEP_STUCK_MS) {
@@ -1629,6 +1809,12 @@ static int next_timer(const struct profile *p, const struct chord *c, int base)
 	d = power_hold_due(now);
 	if (d >= 0 && (t < 0 || d < t))
 		t = d;
+	if (cal_active) {
+		d = (cal_next < cal_until ? cal_next : cal_until) - now;
+		d = d > 0 ? d : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
 	if (wait_seq) {
 		d = wait_deadline > now ? wait_deadline - now : 0;
 		if (t < 0 || d < t)
@@ -1676,8 +1862,14 @@ static int forward(const struct profile *p, struct chord *c, const struct source
 				key_event(p, c, out, code, ev[i].value);
 			break;
 		case EV_ABS:
-			if (is_axis(p, ev[i].code) && capture_fd < 0)
-				emit(out, EV_ABS, ev[i].code, ev[i].value);
+			if (is_axis(p, ev[i].code) && capture_fd < 0) {
+				int ai = axis_index(p, ev[i].code);
+
+				if (cal_active)
+					cal_add(ai, ev[i].value);	/* held back until the rest is known */
+				else
+					emit(out, EV_ABS, ev[i].code, cal_value(ai, ev[i].value));
+			}
 			break;
 		case EV_SYN:
 			if (ev[i].code == SYN_REPORT)
@@ -1770,6 +1962,7 @@ int main(int argc, char **argv)
 		sleep_dir = getenv("LUME_SLEEP_DIR");
 	sleep_watch();
 	clamp_backlight(&p);
+	cal_start(&p);
 	{
 		int found = 0;
 

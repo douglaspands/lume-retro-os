@@ -225,7 +225,7 @@ def daemon_exe(tmp_path_factory):
 
 
 class Daemon:
-    def __init__(self, exe, tmp, board: str, sources: list[str], profile=None):
+    def __init__(self, exe, tmp, board: str, sources: list[str], profile=None, env_extra=None):
         self.dir = tmp
         self.out = tmp / "out"
         self.sock = tmp / "input.sock"
@@ -266,7 +266,9 @@ class Daemon:
             args += ["--source", f"{name}={fifo}"]
         env = {**os.environ, "LUME_INPUT_AMIXER": str(amixer), "LUME_INPUT_BACKLIGHT": str(self.backlight),
                "LUME_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "LUME_INPUT_LEVEL_COLORS": str(self.colors),
-               "LUME_SLEEP_DIR": str(self.sleep)}
+               "LUME_SLEEP_DIR": str(self.sleep),
+               # no calibration window unless a test asks for one (D17)
+               "LUME_INPUT_CAL_MS": "0", **(env_extra or {})}
         self.proc = subprocess.Popen(args, env=env,
                                      stderr=subprocess.PIPE, text=True)
         self.writers = {name: open(f, "wb", buffering=0) for name, f in self.fifos.items()}
@@ -331,7 +333,7 @@ def test_buttons_are_translated_and_sticks_forwarded(r36s):
             continue  # Fn: see the chord tests
         r36s.press("gpio-keys", CODES[src])
         r36s.release("gpio-keys", CODES[src])
-    r36s.send("adc-joystick", (EV_ABS, 0, 180), (EV_ABS, 2, 9), (EV_ABS, 3, 500), SYN)
+    r36s.send("adc-joystick", (EV_ABS, 0, 180), (EV_ABS, 2, 9), (EV_ABS, 3, 700), SYN)
     keys = r36s.keys()
     expected = []
     for src in sorted(_keymap("r36s")):
@@ -340,10 +342,76 @@ def test_buttons_are_translated_and_sticks_forwarded(r36s):
             expected += [(dst, 1), (dst, 0)]
     assert keys == expected
     # ABS_Z (2) is not an axis of the gamepad
-    assert [(c, v) for t, c, v in r36s.events() if t == EV_ABS] == [(0, 180), (3, 500)]
+    assert [(c, v) for t, c, v in r36s.events() if t == EV_ABS] == [(0, 180), (3, 700)]
 
 
-FN = CODES["BTN_TRIGGER_HAPPY5"]   # the R36S Fn (BTN_MODE out)
+# D17: the sticks. A test source is a FIFO, so the range is the fallback 0..1023: centre 511,
+# plausible rest 511 +- 204, dead zone 5% = 51.
+ADC = "adc-joystick"
+CAL = {"LUME_INPUT_CAL_MS": "500"}
+
+
+def _abs(d: Daemon) -> list[tuple[int, int]]:
+    return [(c, v) for t, c, v in d.events() if t == EV_ABS]
+
+
+def test_the_dead_zone_of_the_profile_snaps_the_sticks_to_the_centre(r36s):
+    r36s.send(ADC, (EV_ABS, 0, 540), (EV_ABS, 1, 460), (EV_ABS, 3, 563), (EV_ABS, 2, 700), SYN)
+    # |v - 511| <= 51 is the centre; ABS_RX (3) at 563 is just outside; ABS_Z (2) is no axis
+    assert _abs(r36s) == [(0, 511), (1, 511), (3, 563)]
+
+
+def test_an_offset_rest_becomes_the_centre(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "r36s", ["gpio-keys", ADC, "volume-keys"], env_extra=CAL)
+    # the first samples of a stick at rest 600 (one spike): held back, rest is the median
+    d.send(ADC, (EV_ABS, 0, 600), (EV_ABS, 0, 600), (EV_ABS, 0, 900), (EV_ABS, 0, 600), SYN)
+    assert _abs(d) == []
+    time.sleep(0.6)
+    assert _abs(d) == [(0, 511)]   # the last sample, corrected, goes out when the window ends
+    d.send(ADC, (EV_ABS, 0, 800), (EV_ABS, 0, 620), SYN)
+    # 800 - 600 + 511; 620 is inside the dead zone
+    assert _abs(d)[1:] == [(0, 711), (0, 511)]
+    err = d.stop()
+    assert "ABS_X rest 600, centre 511" in err
+    assert "warning" not in err
+
+
+def test_a_stick_held_at_start_uses_the_centre_and_warns(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "r36s", ["gpio-keys", ADC, "volume-keys"], env_extra=CAL)
+    d.send(ADC, (EV_ABS, 0, 980), (EV_ABS, 0, 985), (EV_ABS, 1, 515), SYN)
+    time.sleep(0.6)
+    # ABS_X held: rest stays the DTS centre, so the value goes out as it is
+    assert _abs(d) == [(0, 985), (1, 511)]
+    d.send(ADC, (EV_ABS, 0, 700), SYN)
+    assert _abs(d)[2:] == [(0, 700)]
+    err = d.stop()
+    assert "warning: ABS_X rest 985 is outside 307..715 (stick held at start?), using the centre 511" in err
+    assert "ABS_Y rest 515, centre 511" in err
+
+
+def test_the_calibration_survives_a_suspend_and_resume(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "ga36", GA36_SOURCES, env_extra=CAL)
+    d.sleep.mkdir()
+    pad = "GA36-MB Gamepad"
+    d.send(pad, (EV_ABS, 0, 560), SYN)
+    time.sleep(0.6)
+    assert _abs(d) == [(0, 511)]
+    d.phase("suspend 9")
+    d.phase("resume 9")
+    d.send(pad, (EV_ABS, 0, 700), SYN)
+    assert _abs(d)[-1] == (0, 651)
+    d.stop()
+
+
+def test_a_bad_deadzone_line_is_refused(daemon_exe, tmp_path):
+    prof = tmp_path / "p.conf"
+    prof.write_text("name Pad\nsource Pad\npassthrough\ndeadzone 90\n")
+    r = subprocess.run([str(daemon_exe), "--profile", str(prof), "--test", str(tmp_path / "o")],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "bad line" in r.stderr
+
+
+FN =CODES["BTN_TRIGGER_HAPPY5"]   # the R36S Fn (BTN_MODE out)
 HOLD_MSG = (b"fn_hold B=app_menu R1=save_state L1=load_state Y=screenshot X=hud Start=quit "
             b"Vol=brightness")
 
