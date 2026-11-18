@@ -126,8 +126,14 @@ cartão; ordem J1, J3, J2, J4):
   do GBA (1008 MHz, decisão do usuário) ficou, mas com o vídeo em thread o controlador rodou uma
   corrida de GBA a 912 MHz sem perder velocidade: decidir com o usuário.
 - 5.5, para o usuário: o menu do sistema (Fn) com o vídeo em thread (o Fn injetado pelo cabo não
-  abre o menu), a marca de carga, o aviso e o desligamento com a bateria acabando de verdade, e
-  jogar de verdade os jogos que tinham queda (CPS-1, GBA) para sentir a diferença.
+  abre o menu), a marca de carga, e jogar de verdade os jogos que tinham queda (CPS-1, GBA) para
+  sentir a diferença.
+- **Bateria fora desta change (decisão do usuário, 2026-11-18):** as sessões sem carregador da
+  5.2 (corrente por classe e candidato) e o aviso e o desligamento com a bateria acabando de
+  verdade da 5.5 e da J4 ficam para a change futura de aprendizado da bateria (P-98). Aqui vale
+  o que já está provado: as colunas `bat_*` nas métricas do `lume-logd` a cada amostra e a lógica
+  de aviso e de crítico nos testes com sysfs falso (2.2). A escolha de perfis da 5.3 usa os
+  quadros e os clocks medidos pelo cabo.
 
 ## 1. Interfaces e coletor
 
