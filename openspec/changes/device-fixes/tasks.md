@@ -62,7 +62,7 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 9.6 | 1.4 | — | AG | sonnet | 4 | J2 |
 | 9.7 | 1.4 | — | AG | sonnet | 4 | J2, J3 |
 | 9.8 | 1.4 | — | PR | — | 4 | J2, J3 |
-| 9.9 | 1.4 | — | AG | opus (a aprovar) | 4 | J2, J3 |
+| 9.9 | 1.4 | — | AG | opus | 4 | J2, J3 |
 | 5.1 | 3.1 | — | AG | opus | 5 | J2, J3 |
 | 5.2 | 1.4 | — | AG | opus | 5 | J2, J3 |
 | 5.3 | 3.1 | — | AG | sonnet | 5 | J2, J3 |
