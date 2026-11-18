@@ -340,7 +340,10 @@ Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jog
 `<saída>` = `speaker` ou `headphones`: um inteiro decimal de 0 a 100 e uma quebra de linha
 (`70`). É o nível que a borda direita e as Configurações mostram, e o `mixer` o reaplica no
 boot. **GA36:** a entrada do fone tem uma chave mecânica e nenhuma detecção, então só existe o
-`level-speaker`; o `headphones` fica sem uso. **R36S:** os dois valem (D10).
+`level-speaker`; o `headphones` fica sem uso. **R36S:** os dois valem (D10): o serviço `jack`
+(`lume-audio`) troca o `Playback Mux` (`SPK`/`HP`) a cada encaixe ou retirada do fone e aplica
+o nível da saída nova pela conversão desta seção (hoje no `Master`; a 7.2 troca o controle).
+No GA36 o `jack` não faz nada: chave mecânica, um nível só.
 
 **Escala perceptiva.** O número é um ganho em dB abaixo do máximo limpo do controle, não uma
 fração da posição bruta dele (antes, cada toque tirava 4,5 dB e a barra só caía de 100% para

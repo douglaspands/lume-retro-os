@@ -1,23 +1,43 @@
 #!/bin/sh
-# R36S headphone jack -> RK817 playback mux (r36s-single-card, task 6.6).
+# Headphone jack -> output switch and per-output level (device-fixes D10, task 7.4).
 #
-# Inside the RK817 the speaker output and the left headphone pin are the same, chosen by
-# the "Playback Mux" control (HP or SPK); nothing switches it on its own. This service
+# R36S: inside the RK817 the speaker output and the left headphone pin are the same, chosen
+# by the "Playback Mux" control (HP or SPK); nothing switches it on its own. This service
 # sets it from the jack state at start and again on every event of the jack input device
-# ("rk817_int Headphones", created by simple-audio-card from hp-det-gpios).
+# ("rk817_int Headphones", created by simple-audio-card from hp-det-gpios), then applies the
+# level of that output (ROMS/system/audio/level-<output>, scale and curve frozen in
+# docs/LAUNCHER.md "Volume por saida", same table as aports/lume-input/volume.h).
+#
+# GA36: nothing to do. The jack has a MECHANICAL switch (with headphones in, the speaker is
+# silent) and no detection (no pin in the DTS, no event), so the hardware switches the output
+# and only one level, "speaker", exists. The service exits 0 at once.
+#
+# Events are read with one open file descriptor and one dd per event: the read of an evdev
+# node blocks until the kernel has an event, so the service sleeps with no CPU. An error or
+# end of file ends the service (supervise-daemon restarts it), never a busy loop.
 #
 # Every message also goes to the kernel log (KMSG), so the logd trace keeps it: the
 # service runs under supervise-daemon, whose stdout goes nowhere.
 #
 # Environment for the tests: BOARD_FILE, AMIXER, JACK_EVDEV (the event device to read),
-# INPUT_SYSFS (default /sys/class/input), KMSG (default /dev/kmsg).
+# INPUT_SYSFS (default /sys/class/input), KMSG (default /dev/kmsg), LEVEL_DIR (default
+# /storage/system/audio), EVENT_SIZE (bytes of one struct input_event).
 BOARD_FILE=${BOARD_FILE:-/etc/lume/board}
 AMIXER=${AMIXER:-amixer}
 INPUT_SYSFS=${INPUT_SYSFS:-/sys/class/input}
 KMSG=${KMSG:-/dev/kmsg}
+LEVEL_DIR=${LEVEL_DIR:-/storage/system/audio}
 CARD=rk817int
 JACK_NAME="rk817_int Headphones"
-EVENT_SIZE=24   # struct input_event on aarch64 (any width works: each line only wakes us)
+DEFAULT_PCT=70
+
+# struct input_event: 16 bytes on 32-bit (armv7), 24 on 64-bit (aarch64, x86_64)
+if [ -z "${EVENT_SIZE:-}" ]; then
+	case "$(uname -m)" in
+	armv*|arm|i?86) EVENT_SIZE=16 ;;
+	*) EVENT_SIZE=24 ;;
+	esac
+fi
 
 [ "$(cat "$BOARD_FILE" 2>/dev/null)" = r36s ] || exit 0
 
@@ -27,21 +47,75 @@ say() {
 	return 0
 }
 
+# Gain curve in milli-dB at 0, 5, 10 ... 100 percent (same table as volume.h)
+CURVE="-96000 -39000 -36000 -33000 -30000 -28000 -26000 -24000 -22000 -20000 -18000 -16000 -14000 -12000 -10000 -8000 -6000 -4500 -3000 -1500 0"
+
+curve_at() {  # <index 0..20>
+	local n=$(($1 + 1))
+	set -- $CURVE
+	eval "echo \${$n}"
+}
+
+vol_db() {  # <percent> -> milli-dB (<= 0)
+	local pct=$1 i f a b
+	[ "$pct" -le 0 ] && { curve_at 0; return; }
+	[ "$pct" -ge 100 ] && { echo 0; return; }
+	[ "$pct" -lt 5 ] && { curve_at 1; return; }
+	i=$((pct / 5)) f=$((pct % 5))
+	a=$(curve_at "$i") b=$(curve_at $((i + 1)))
+	echo $((a + (f * (b - a) + 2) / 5))
+}
+
+# R36S digital Master of the RK817: raw 0-255, 255 is 0 dB, 373 milli-dB per step (volume.h
+# VOL_R36S_MASTER). Task 7.2 replaces this control with the analog one: change only
+# raw_of_percent and set_output_gain.
+MASTER_LO=0 MASTER_REF=255 MASTER_STEP=373
+
+raw_of_percent() {  # <percent> -> raw of the control
+	local pct=$1 db raw
+	[ "$pct" -le 0 ] && { echo "$MASTER_LO"; return; }
+	db=$(vol_db "$pct")
+	raw=$((MASTER_REF - (-db + MASTER_STEP / 2) / MASTER_STEP))
+	[ "$raw" -gt "$MASTER_REF" ] && raw=$MASTER_REF
+	[ "$raw" -lt $((MASTER_LO + 1)) ] && raw=$((MASTER_LO + 1))
+	echo "$raw"
+}
+
+set_output_gain() {  # <raw> : the one place that writes the volume control
+	"$AMIXER" -c "$CARD" -q sset 'Master' "$1" >/dev/null 2>&1
+}
+
+apply_level() {  # <speaker|headphones>
+	local out=$1 pct raw
+	pct=$(cat "$LEVEL_DIR/level-$out" 2>/dev/null)
+	case "$pct" in
+	'' | *[!0-9]*) pct=$DEFAULT_PCT ;;
+	esac
+	[ "$pct" -gt 100 ] && pct=100
+	raw=$(raw_of_percent "$pct")
+	if set_output_gain "$raw"; then
+		say "jack: $out level $pct%, volume control $raw"
+	else
+		say "jack: FAILED to set the $out level $pct%"
+	fi
+}
+
 last=""
 apply() {
-	local state mux
+	local state mux out
 	# a CARD control: without iface=CARD amixer looks among the MIXER ones and finds nothing
 	state=$("$AMIXER" -c "$CARD" cget iface=CARD,name='Headphones Jack' 2>/dev/null \
 		| sed -n 's/.*: values=//p')
 	case "$state" in
-	on) mux=HP ;;
-	off) mux=SPK ;;
+	on) mux=HP out=headphones ;;
+	off) mux=SPK out=speaker ;;
 	*) return 0 ;;
 	esac
 	[ "$mux" = "$last" ] && return 0
 	if "$AMIXER" -c "$CARD" -q sset 'Playback Mux' "$mux" >/dev/null 2>&1; then
 		say "jack: headphones $state, playback mux $mux"
 		last=$mux
+		apply_level "$out"
 	else
 		say "jack: FAILED to set playback mux $mux"
 	fi
@@ -62,9 +136,13 @@ if [ -z "$dev" ]; then
 	exit 1
 fi
 say "jack: watching $dev"
-# every event (switch and sync) wakes the loop; apply() only acts on a change. dd reads the
-# device one event at a time: busybox od reads an evdev node with a size it refuses ("od:
-# /dev/input/event0: read error", R36S 2026-11-17), and od on a pipe would hold the events
-# back until its buffer fills; the inner dd takes one event per turn, none at the end
-dd if="$dev" bs="$EVENT_SIZE" 2>/dev/null \
-	| while [ "$(dd bs="$EVENT_SIZE" count=1 2>/dev/null | wc -c)" -gt 0 ]; do apply; done
+# One fd for the whole run; each dd takes exactly one event (a read of an evdev node returns
+# one whole event and blocks until there is one). Every event (switch and sync) wakes the
+# loop; apply() only acts on a change. End of file or a read error stops the loop, so a
+# vanished device never spins.
+exec 3<"$dev" || { say "jack: cannot open $dev"; exit 1; }
+while [ "$(dd bs="$EVENT_SIZE" count=1 <&3 2>/dev/null | wc -c)" -ge "$EVENT_SIZE" ]; do
+	apply
+done
+say "jack: input device closed, stopping"
+exit 1
