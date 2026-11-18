@@ -260,6 +260,23 @@ def test_flash_warns_about_the_reader_that_corrupts_cards(tmp_path):
     assert "14cd:125d" in warning and "USBC" in warning and "/dev/sdc2" in warning
 
 
+def test_mark_flashed_through_latest_points_to_the_real_build(tmp_path):
+    img = tmp_path / "console"
+    (img / "20261113-171347").mkdir(parents=True)
+    (img / "latest").symlink_to("20261113-171347")
+    flash.mark_flashed(img / "latest")
+    link = img / "flashed"
+    assert link.is_symlink()
+    assert link.readlink().name == "20261113-171347"
+    assert link.resolve() == (img / "20261113-171347").resolve()
+
+
+def test_sudo_warning():
+    assert flash.sudo_warning({}, 1000) is None
+    assert "sudo" in flash.sudo_warning({"SUDO_USER": "me"}, 1000)
+    assert "sudo" in flash.sudo_warning({}, 0)
+
+
 def test_flash_does_not_warn_about_other_readers(tmp_path):
     _fake_usb_card(tmp_path, "0bda", "0109")
     assert flash.reader_warning("/dev/sdc", tmp_path) is None
