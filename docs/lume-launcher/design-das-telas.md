@@ -174,7 +174,7 @@ Regras desenhadas:
 
 | Aprovação do usuário no navegador a 640x480 | pendente |
 | :--- | :--- |
-| Posição escolhida pelo usuário (A, B ou C) | a preencher pelo usuário |
+| Posição escolhida pelo usuário (A, B ou C) | **B, canto superior esquerdo** (escolhida em 2026-11-18, vista no Dock e na grade) |
 
 ## Pontos técnicos a verificar
 - **Save states**: dependem do emulador. No RetroArch os estados ficam em slots; é preciso confirmar como iniciar já carregando um slot (opção de linha de comando ou configuração) e como o dArkOS organiza os arquivos. Emuladores standalone podem não ter isso.
