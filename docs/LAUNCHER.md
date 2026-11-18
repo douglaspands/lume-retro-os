@@ -216,6 +216,63 @@ Um core do RetroArch que não está no catálogo também entra assim:
 
 Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jogo do console.
 
+## Volume por saída (formato congelado, change `device-fixes`, D9 e D10)
+
+**Arquivo.** Cada saída guarda o próprio nível em `ROMS/system/audio/level-<saída>`, com
+`<saída>` = `speaker` ou `headphones`: um inteiro decimal de 0 a 100 e uma quebra de linha
+(`70`). É o nível que a borda direita e as Configurações mostram, e o `mixer` o reaplica no
+boot. **GA36:** a entrada do fone tem uma chave mecânica e nenhuma detecção, então só existe o
+`level-speaker`; o `headphones` fica sem uso. **R36S:** os dois valem (D10).
+
+**Escala perceptiva.** O número é um ganho em dB abaixo do máximo limpo do controle, não uma
+fração da posição bruta dele (antes, cada toque tirava 4,5 dB e a barra só caía de 100% para
+96%; 50% da barra já era -60 dB). 100% é o máximo limpo (0 dB), 5% fica perto de -39 dB (o fim
+útil), e 0% é mudo (o controle no mínimo e a chave da saída desligada). Entre dois pontos da
+tabela a curva é linear em dB; de 1% a 4% vale o ganho de 5%.
+
+| % | dB |
+|---|---|
+| 5 | -39,0 |
+| 10 | -36,0 |
+| 15 | -33,0 |
+| 20 | -30,0 |
+| 25 | -28,0 |
+| 30 | -26,0 |
+| 35 | -24,0 |
+| 40 | -22,0 |
+| 45 | -20,0 |
+| 50 | -18,0 |
+| 55 | -16,0 |
+| 60 | -14,0 |
+| 65 | -12,0 |
+| 70 | -10,0 |
+| 75 | -8,0 |
+| 80 | -6,0 |
+| 85 | -4,5 |
+| 90 | -3,0 |
+| 95 | -1,5 |
+| 100 | 0,0 |
+
+**Controle (dado).** A posição bruta do controle é `ref - round(-dB / dB_por_passo)`, com no
+mínimo `lo + 1` fora do mudo:
+
+| Console | Controle | Faixa | 0 dB (`ref`) | dB por passo | Origem |
+|---|---|---|---|---|---|
+| GA36 | `Headphone` de `GA36MB` (analógico; alimenta também o alto-falante) | 0 a 63 | 63 | 1,5 | medido (2.5, J1) |
+| R36S | `Master` de `rk817int` (digital) | 0 a 255 | 255 | ~0,373 | `rk817_codec.c` (-95 dB a 0 dB), até a medição da 2.5 do R36S; a 7.1 pode trocar o controle |
+| antigo | `DAC` de `GA36MB` (digital) | 0 a 192 | 160 | 0,75 | só para a conversão abaixo |
+
+**Conversão única.** Se `level-<saída>` não existe, o nível sai do controle de hoje: o
+ganho em dB dele (`(bruto - ref) * dB_por_passo`, no máximo 0 dB) vira a porcentagem mais
+próxima da tabela (empate vai para a menor); bruto no mínimo é 0%. Ex.: `DAC` 154 (-4,5 dB)
+vira 85%; 160 e 166 viram 100%. Daí em diante o arquivo manda. Sem arquivo e sem leitura do
+mixer, o nível inicial é 70%.
+
+**Onde vive.** A tabela e as funções puras estão em `aports/lume-input/volume.h` (C, usado
+pelo `lume-input`) e em `lume/lume-ui/src/volume.rs` (Rust, usado pelo launcher); o teste
+`tests/unit/test_volume_scale.py` confere que as duas tabelas e esta são iguais. Quem usa o
+formato são as tarefas 7.1, 7.2 e 7.4.
+
 ## Arquivos do launcher no cartão
 
 | Arquivo | Conteúdo |

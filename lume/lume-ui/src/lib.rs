@@ -14,4 +14,5 @@ pub mod sdl;
 pub mod state;
 pub mod system;
 pub mod theme;
+pub mod volume;
 pub mod watch;
