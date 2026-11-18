@@ -18,6 +18,7 @@ OVERLAY = REPO_ROOT / "rootfs/overlay"
 CORE = {
     "etc/conf.d/dmesg", "etc/conf.d/frontend", "etc/hostname", "etc/init.d/frontend",
     "etc/init.d/lume-logd", "etc/issue", "etc/motd",
+    "etc/init.d/lume-clock", "usr/bin/lume-clock",   # device-fixes 9.1
     "usr/libexec/lume/bootlog", "usr/libexec/lume/frontends/lume",
     "usr/libexec/lume/frontends/retroarch", "usr/libexec/lume/lib.sh",
     "usr/libexec/lume/logd", "usr/libexec/lume/logs.sh", "usr/libexec/lume/rc-tee",
@@ -113,6 +114,10 @@ ADDED_AFTER_MOVE = {
     # device-fixes 8.3: suspend and power off by the power button (lume-power)
     "usr/libexec/lume/lume-sleep",
     "etc/init.d/lume-sleep",
+    # device-fixes 9.1: the clock that only moves forward (lume-core) and its NTP hook (lume-net)
+    "usr/bin/lume-clock",
+    "etc/init.d/lume-clock",
+    "etc/NetworkManager/dispatcher.d/90-lume-clock",
     # device-fixes 5.3: the card maintenance requests (lume-saves)
     "usr/libexec/lume/card",
     "usr/libexec/lume/card-event",

@@ -60,7 +60,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lume_tool import sshmux
+from lume_tool import clock, sshmux
 from lume_tool.push import (CONSOLE_ADDR, PushError, Remote, console_refusal,
                         identify_console)
 
@@ -672,6 +672,8 @@ def main_dev(args) -> int:
 
             return cmd_run(host, args.script, args.console)
         console_name = which_console(host, getattr(args, "console", None))  # not wait: may be off
+        # the PC is a real time source for the console (device-fixes D15); best effort
+        clock.sync_console_clock(lambda cmd: run_capture(host, cmd))
         if args.dev_command == "record":
             return cmd_record(host, console_name, args.stop)
         if args.dev_command == "play":

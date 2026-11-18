@@ -106,6 +106,13 @@ check "both fail: poweroff still called, last" '[ "$(tail -n 1 "$CALLS")" = powe
 check "both fail: ERROR in the kernel log" 'grep -qx "ERROR: storage: remount read-only and unmount failed; ROMS stays marked dirty" "$W/kmsg"'
 check "both fail: the shutdown failure event written to the card" \
 	'grep -q " shutdown FAIL storage: remount read-only and unmount failed; ROMS stays marked dirty and is checked at the next boot$" "$LOGS_DIR/events.log"'
+### device-fixes 9.1 (D15): the clock is saved before the card goes read-only
+printf '#!/bin/sh\necho "lume-clock $*" >> "$CALLS"\n' > "$W/bin/lume-clock"
+chmod +x "$W/bin/lume-clock"
+run_off ""
+check "power off: lume-clock save comes before the remount read-only" \
+	'[ "$(calls)" = "persist flush|lume-clock save|sync|mountpoint -q $W/storage|rc-service lume-logd stop|sync|mount -o remount,ro $W/storage|poweroff|" ]'
+rm -f "$W/bin/lume-clock"
 run_off unmounted
 check "no ROMS: nothing to release, poweroff" '[ "$(calls)" = "persist flush|sync|mountpoint -q $W/storage|poweroff|" ]'
 check "session: exit 0 of the frontend goes through power_off" \

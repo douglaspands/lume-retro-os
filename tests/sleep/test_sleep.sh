@@ -329,7 +329,7 @@ sleep 0.8
 ### 12. packaging and wiring
 check "init: after the frontend, inotifyd service" \
 	'grep -q "after frontend" aports/lume-power/files/etc/init.d/lume-sleep && grep -q "command_args=run" aports/lume-power/files/etc/init.d/lume-sleep'
-check "configure.sh: lume-sleep in the default runlevel" 'grep -Eq "^for s in .*lume-sleep.*; do" rootfs/configure.sh'
+check "configure.sh: lume-sleep in the default runlevel" 'grep -Eq "^for s in .* lume-sleep " rootfs/configure.sh'
 check "the script and the init are executable" '[ -x "$S" ] && [ -x aports/lume-power/files/etc/init.d/lume-sleep ]'
 
 kill "$SP" 2>/dev/null

@@ -109,16 +109,21 @@ fn main() -> ExitCode {
         let t = tx.clone();
         let sock = std::env::var_os("LUME_INPUT_SOCK").map(std::path::PathBuf::from).unwrap_or_else(|| lume_ui::input::INPUT_SOCK.into());
         std::thread::spawn(move || {
-            lume_ui::input::watch_levels(
+            use lume_ui::input::Sock;
+            lume_ui::input::watch_socket(
                 &sock,
                 |k| match k {
                     Level::Volume => mixer.as_ref().and_then(|m| m.level()),
                     Level::Brightness => backlight.brightness(),
                 },
-                move |k, v| {
-                    let _ = t.send(match k {
-                        Level::Volume => Ev::Volume(v),
-                        Level::Brightness => Ev::Brightness(v),
+                move |s| {
+                    let _ = t.send(match s {
+                        Sock::Level(Level::Volume, v) => Ev::Volume(v),
+                        Sock::Level(Level::Brightness, v) => Ev::Brightness(v),
+                        Sock::FnTap => Ev::FnTap,
+                        Sock::FnHold(table) => Ev::FnHold(table),
+                        Sock::FnRelease => Ev::FnRelease,
+                        Sock::Sleep(n) => Ev::Sleep(n),
                     });
                 },
             )

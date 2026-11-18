@@ -60,7 +60,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from lume_tool import image, manifests, sshmux
+from lume_tool import clock, image, manifests, sshmux
 from lume_tool.archive import images_dir, objects_dir
 from lume_tool.paths import cache_dir, ensure_dir
 from lume_tool.targets import IMAGES
@@ -909,6 +909,7 @@ def push(build: str = "latest", remote: Remote | None = None, yes: bool = False,
         return 1
 
     started = now()                     # the send time leaves out the confirmation
+    clock.sync_console_clock(remote.run)    # the PC is a real time source (D15)
     remote_dir = f"{STAGING}/{build_dir.name}"
     remote.run(f"rm -rf {_q(STAGING)} && mkdir -p {_q(remote_dir)}")
     sums = "".join(f"{d}  {p}\n" for p, d in files)

@@ -51,6 +51,14 @@ pub enum Ev {
     Battery(u8, bool),
     /// Wi-Fi or Bluetooth connected or not any more (Wi-Fi, Bluetooth)
     Network(bool, bool),
+    /// the Fn button was tapped (D19; used by 9.11)
+    FnTap,
+    /// Fn is held, with the table of the button actions (D19; used by 9.11 and 9.13)
+    FnHold(Vec<lume_core::input::HoldEntry>),
+    /// Fn was released
+    FnRelease,
+    /// a sleep notice of the input daemon (D11; used by 8.5)
+    Sleep(lume_core::sleep::Notice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -629,6 +637,8 @@ impl<S: SystemAdapter> App<S> {
                 // the toast needs a frame too
                 self.check_low_battery() || changed
             }
+            // no behaviour yet: tasks 9.11, 9.13 and 8.5 use these
+            Ev::FnTap | Ev::FnHold(_) | Ev::FnRelease | Ev::Sleep(_) => false,
             Ev::Network(wifi, bt) => {
                 let changed = self.network != (wifi, bt);
                 self.network = (wifi, bt);
@@ -1138,7 +1148,10 @@ impl<S: SystemAdapter> App<S> {
             }
             Overlay::Confirm { mut focus } => {
                 match a {
-                    Action::Left | Action::Right | Action::Up | Action::Down => focus ^= 1,
+                    // vertical options: Up picks the upper one (the action), Down the lower one
+                    // (Cancel); Left and Right do nothing (design D8)
+                    Action::Up => focus = 0,
+                    Action::Down => focus = 1,
                     Action::B => return None,
                     Action::A => {
                         if focus == 0 {

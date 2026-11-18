@@ -134,6 +134,73 @@ def test_udev_rule_hides_only_the_source_devices():
     assert "BUS_VIRTUAL" in SOURCE and "id.bustype != BUS_VIRTUAL" in SOURCE
 
 
+def _mode_rules() -> list[list[tuple[str, str, str]]]:
+    """The rules of 61-lume-input.rules that set MODE, as (key, op, value) lists."""
+    out = []
+    for line in (APORT / "61-lume-input.rules").read_text().splitlines():
+        if line.startswith("#") or "MODE=" not in line:
+            continue
+        out.append(re.findall(r'([A-Za-z_]+(?:\{[^}]*\})?)\s*(==|!=|=)\s*"([^"]*)"', line))
+    return out
+
+
+def _mode(device: dict[str, str]) -> str:
+    """Evaluate the MODE rules for a fake device (name, bus: kernel bustype hex, id_bus,
+    kernel); the default is the 0660 of the system."""
+    mode = "0660"
+    for rule in _mode_rules():
+        ok = True
+        for key, op, value in rule:
+            if key == "MODE":
+                continue
+            if key == "SUBSYSTEM":
+                actual = "input"
+            elif key == "KERNEL":
+                actual = device["kernel"]
+                ok &= re.fullmatch(value.replace("[0-9]*", r"\d+"), actual) is not None
+                continue
+            elif key == "ATTRS{name}":
+                actual = device["name"]
+            elif key == "ATTRS{id/bustype}":
+                actual = device["bus"]
+            elif key == "ENV{ID_BUS}":
+                actual = device.get("id_bus", "")
+            else:
+                raise AssertionError(key)
+            hit = actual in value.split("|")
+            ok &= hit if op == "==" else not hit
+        if ok:
+            mode = [v for k, _, v in rule if k == "MODE"][0]
+    return mode
+
+
+def test_udev_rule_makes_builtin_and_virtual_nodes_read_only_for_the_games():
+    # device-fixes D16 (P-87): matched by name and bus, never by event number
+    def dev(name, bus, id_bus="", kernel="event3"):
+        return {"name": name, "bus": bus, "id_bus": id_bus, "kernel": kernel}
+
+    read_only = [
+        dev("gpio-keys", "0019"), dev("adc-joystick", "0019"), dev("adc-keys", "0019"),
+        dev("rk805-pwrkey", "0019"), dev("axp20x-pek", "0019"), dev("1c22800.lradc", "0019"),
+        dev("GA36-MB Gamepad", "0019"),                    # GA36 kernel gamepad (BUS_HOST)
+        dev("GA36-MB Gamepad", "0006", kernel="event17"),   # GA36 virtual pad (BUS_VIRTUAL)
+        dev("R36S Gamepad", "0006", kernel="event12"),      # R36S virtual pad
+    ]
+    for d in read_only:
+        assert _mode(d) == "0640", d
+    # USB pads keep write (rumble, LEDs), even one that reuses a built-in name
+    for d in (dev("Xbox 360 Wireless Receiver", "0003", "usb"),
+              dev("8BitDo Pro 2", "0003", "usb"),
+              dev("GA36-MB Gamepad", "0003", "usb")):
+        assert _mode(d) == "0660", d
+    # other devices are left alone, and joydev/mouse nodes are not event nodes
+    assert _mode(dev("AT Translated Set 2 keyboard", "0011")) == "0660"
+    assert _mode(dev("gpio-keys", "0019", kernel="js0")) == "0660"
+    # the rule never keys on an event number
+    text = (APORT / "61-lume-input.rules").read_text()
+    assert not re.search(r'KERNEL=="event\d', text)
+
+
 def test_source_and_comments_are_in_english():
     text = "".join(p.read_text() for p in APORT.iterdir() if p.is_file())
     assert not any(ord(c) > 127 for c in text)
