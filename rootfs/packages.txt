@@ -83,6 +83,10 @@ r36os-input
 # r36os-power (lume-power) in the game profiles with controller=load
 r36os-powerctl
 
+# The sampling loop of the diagnostic logs in C (game-governor 1.2, aports/lume-logd): r36os-logd
+# (lume-core) execs it after the hardware snapshot; without it the shell loop runs
+lume-logd
+
 # The default frontend (lume-launcher, aports/lume-launcher): interface, game lists and
 # supervisor
 lume-launcher

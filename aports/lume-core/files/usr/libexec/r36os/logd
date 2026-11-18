@@ -76,6 +76,7 @@ cmd_start() {
 # PROC_ROOT and SYS_ROOT are overridden by the tests.
 PROC_ROOT=${PROC_ROOT:-/proc}
 SYS_ROOT=${SYS_ROOT:-/sys}
+LUME_LOGD=${LUME_LOGD:-/usr/bin/lume-logd}
 NL='
 '
 SAMPLE_N=0
@@ -1084,6 +1085,14 @@ cmd_run() {
 	# device tree; the snapshot is taken even when the frontend did not start
 	if wait_frontend; then dtb_confirm; fi
 	[ "$LOG_ENABLE" = 1 ] && hw_snapshot
+	# The sampling loop in C (lume-logd, game-governor 1.2): the same files and lines at a
+	# fraction of the cost. It calls back `logd flush`, `logd snapshot` and `logd kick` for
+	# the rare work. Without it (an older image) the shell loop below runs as before.
+	if [ -x "$LUME_LOGD" ]; then
+		kmsg_stop
+		trap - TERM INT
+		exec "$LUME_LOGD" run
+	fi
 	tick_open
 	while :; do
 		if [ "$LOG_ENABLE" = 1 ]; then
@@ -1101,6 +1110,23 @@ cmd_run() {
 	done
 }
 
+# Called by lume-logd for the rare work it leaves to the shell.
+# logd snapshot <pid> <frontend state>: the detailed snapshot of a frozen RetroArch
+cmd_snapshot() {
+	logs_conf
+	FE_STATE=${2:-}
+	trace_snapshot "$1"
+}
+# logd kick: re-enables a masked display vblank interrupt (tcon_kick). Exit 0 when the
+# vblank moves again, 1 when the register was written without effect, 2 when nothing was
+# written (interrupts already enabled, no tool, no display controller).
+cmd_kick() {
+	logs_conf
+	if tcon_kick; then return 0; fi
+	[ -n "$KICK_WROTE" ] && return 1
+	return 2
+}
+
 cmd_stop() {
 	event shutdown OK "clean"
 	logs_flush
@@ -1114,6 +1140,8 @@ case "$1" in
 start) cmd_start ;;
 run) cmd_run ;;
 flush) logs_conf; logs_flush ;;
+snapshot) cmd_snapshot "$2" "$3" ;;
+kick) cmd_kick ;;
 stop) cmd_stop ;;
-*) echo "usage: $0 start|run|flush|stop" >&2; exit 2 ;;
+*) echo "usage: $0 start|run|flush|snapshot <pid> <state>|kick|stop" >&2; exit 2 ;;
 esac
