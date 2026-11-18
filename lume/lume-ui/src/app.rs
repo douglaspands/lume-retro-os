@@ -27,9 +27,11 @@ use crate::theme::{Theme, Themes};
 pub enum Exit {
     Shutdown = 0,
     Launch = 64,
-    RetroArch = 65,
-    /// restart the session (frozen in the session contract, docs/FRONTEND.md; used by the system menu)
+    /// kept for lume-run's contract; no screen of the launcher exits with it any more (the
+    /// Settings lost the RetroArch item, device-fixes D19)
     #[allow(dead_code)]
+    RetroArch = 65,
+    /// restart the session (frozen in the session contract, docs/FRONTEND.md; the system menu)
     Restart = 66,
 }
 
@@ -120,8 +122,6 @@ pub enum SetRow {
     Card,
     /// the game lists' actions: Update lists (A)
     Games,
-    RetroArch,
-    Power,
 }
 
 /// How long the Card panel waits for the service to answer a TRIM request before it gives up.
@@ -161,8 +161,10 @@ enum Cover {
     Game(GameRef),
     /// the console's logo (or its abbreviation)
     Console(usize),
-    /// no column: the power off question
+    /// no column: the confirmation questions
     None,
+    /// no column and no subtitle, as wide as its content (16.2 to 20 em): the system menu
+    Narrow,
 }
 
 /// The value on the right of a sheet row.
@@ -203,7 +205,41 @@ enum Overlay {
     /// save states of a game with the picture of the focused one
     Slots { game: GameRef, slots: Vec<String>, focus: usize },
     Keyboard { focus: usize },
-    Confirm { focus: usize },
+}
+
+/// The system menu layer of the Fn button (device-fixes D19): above any screen or sheet,
+/// with the input before the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SystemMenu {
+    focus: usize,
+    /// the vertical confirmation of Restart or Power off, when open
+    confirm: Option<SysConfirm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SysConfirm {
+    /// true: Restart, false: Power off
+    restart: bool,
+    /// 0 the action (on top), 1 Cancel (below, the default)
+    focus: usize,
+}
+
+/// The items of the system menu, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SysItem {
+    Settings,
+    Suspend,
+    Restart,
+    PowerOff,
+}
+
+const SYS_ITEMS: [SysItem; 4] = [SysItem::Settings, SysItem::Suspend, SysItem::Restart, SysItem::PowerOff];
+
+/// Where the Settings opened by the system menu came from: B goes back there (screen and
+/// the sheet that was open).
+struct SettingsOrigin {
+    screen: Screen,
+    overlay: Option<Overlay>,
 }
 
 /// L1/R1: a share of the list, never less than a page, faster when repeated quickly.
@@ -260,6 +296,12 @@ pub struct App<S: SystemAdapter> {
     pub sys: S,
     pub screen: Screen,
     overlay: Option<Overlay>,
+    /// the Fn system menu, over everything (D19)
+    system: Option<SystemMenu>,
+    /// the screen the Settings were opened from by the system menu (None: from the Dock)
+    settings_from: Option<SettingsOrigin>,
+    /// the request folder of lume-sleep (the Suspend item makes `suspend` there)
+    pub sleep_dir: PathBuf,
     toast: Option<(String, Instant)>,
     /// the volume bar outside the Settings: level and when it goes away
     pub volume_bar: Option<(u8, Instant)>,
@@ -380,6 +422,9 @@ impl<S: SystemAdapter> App<S> {
             sys,
             screen: Screen::Dock,
             overlay: None,
+            system: None,
+            settings_from: None,
+            sleep_dir: lume_core::sleep::dir(),
             toast: None,
             volume_bar: None,
             brightness_bar: None,
@@ -723,8 +768,20 @@ impl<S: SystemAdapter> App<S> {
                 // the toast needs a frame too
                 self.check_low_battery() || changed
             }
-            // no behaviour yet: tasks 9.11, 9.13 and 8.5 use these
-            Ev::FnTap | Ev::FnHold(_) | Ev::FnRelease | Ev::Sleep(_) => false,
+            // the Fn tap opens and closes the system menu (D19); a button like the others for
+            // the idle state and the update
+            Ev::FnTap => {
+                if self.wake() || self.updating.is_some() {
+                    return false;
+                }
+                self.system = match self.system {
+                    Some(_) => None,
+                    None => Some(SystemMenu { focus: 0, confirm: None }),
+                };
+                true
+            }
+            // no behaviour yet: tasks 9.13 and 8.5 use these
+            Ev::FnHold(_) | Ev::FnRelease | Ev::Sleep(_) => false,
             Ev::Network(wifi, bt) => {
                 let changed = self.network != (wifi, bt);
                 self.network = (wifi, bt);
@@ -975,6 +1032,11 @@ impl<S: SystemAdapter> App<S> {
     }
 
     fn input(&mut self, a: Action, repeat: bool, now: Instant) {
+        // the system menu takes the input before everything else (D19)
+        if let Some(m) = self.system.take() {
+            self.system = self.system_input(m, a);
+            return;
+        }
         if let Some(ov) = self.overlay.take() {
             self.overlay = self.overlay_input(ov, a, repeat);
             return;
@@ -983,6 +1045,81 @@ impl<S: SystemAdapter> App<S> {
             Screen::Dock => self.dock_input(a),
             Screen::Grid => self.grid_input(a, now),
             Screen::Settings => self.settings_input(a, repeat),
+        }
+    }
+
+    /// A button with the system menu open; returns the menu to keep (None: closed). Up and
+    /// down move (wrapping); B closes; in a confirmation only up and down change the choice
+    /// (left and right do nothing, D8) and B goes back to the menu.
+    fn system_input(&mut self, mut m: SystemMenu, a: Action) -> Option<SystemMenu> {
+        if let Some(mut c) = m.confirm {
+            match a {
+                Action::Up => c.focus = 0,
+                Action::Down => c.focus = 1,
+                Action::B => {
+                    m.confirm = None;
+                    return Some(m);
+                }
+                Action::A => {
+                    if c.focus == 0 {
+                        self.exit = Some(if c.restart { Exit::Restart } else { Exit::Shutdown });
+                        return None;
+                    }
+                    m.confirm = None;
+                    return Some(m);
+                }
+                _ => {}
+            }
+            m.confirm = Some(c);
+            return Some(m);
+        }
+        let n = SYS_ITEMS.len();
+        match a {
+            Action::Up => m.focus = (m.focus + n - 1) % n,
+            Action::Down => m.focus = (m.focus + 1) % n,
+            Action::B => return None,
+            Action::A | Action::Start => match SYS_ITEMS[m.focus] {
+                SysItem::Settings => {
+                    self.open_settings_from_menu();
+                    return None;
+                }
+                SysItem::Suspend => {
+                    // the same request as the power button's tap (D11, 3.2); no confirmation
+                    if let Err(e) = lume_core::sleep::request_in(&self.sleep_dir, lume_core::sleep::Request::Suspend) {
+                        lume_core::log::line("lume-ui", &format!("suspend request not made: {e}"));
+                    }
+                    return None;
+                }
+                SysItem::Restart => m.confirm = Some(SysConfirm { restart: true, focus: 1 }),
+                SysItem::PowerOff => m.confirm = Some(SysConfirm { restart: false, focus: 1 }),
+            },
+            _ => {}
+        }
+        Some(m)
+    }
+
+    /// Opens the Settings from wherever the user is, remembering the screen and the open
+    /// sheet; B in the list goes back to them.
+    fn open_settings_from_menu(&mut self) {
+        if self.screen == Screen::Settings {
+            return;
+        }
+        self.settings_from = Some(SettingsOrigin { screen: self.screen, overlay: self.overlay.take() });
+        self.screen = Screen::Settings;
+        self.settings_focus = 0;
+        self.panel_focus = None;
+        self.read_levels();
+    }
+
+    /// B on the Settings list: back to the screen the system menu came from (with its sheet),
+    /// or to the Dock.
+    fn leave_settings(&mut self) {
+        match self.settings_from.take() {
+            Some(o) if o.screen != Screen::Settings && (o.screen != Screen::Grid || self.grid.is_some()) => {
+                self.screen = o.screen;
+                self.overlay = o.overlay;
+            }
+            _ => self.screen = Screen::Dock,
         }
     }
 
@@ -999,6 +1136,7 @@ impl<S: SystemAdapter> App<S> {
             }
             Action::A | Action::Start => match self.dock[self.dock_focus] {
                 DockItem::Settings => {
+                    self.settings_from = None;
                     self.screen = Screen::Settings;
                     self.settings_focus = 0;
                     self.panel_focus = None;
@@ -1346,23 +1484,6 @@ impl<S: SystemAdapter> App<S> {
                 focus = r * 16 + c;
                 Some(Overlay::Keyboard { focus })
             }
-            Overlay::Confirm { mut focus } => {
-                match a {
-                    // vertical options: Up picks the upper one (the action), Down the lower one
-                    // (Cancel); Left and Right do nothing (design D8)
-                    Action::Up => focus = 0,
-                    Action::Down => focus = 1,
-                    Action::B => return None,
-                    Action::A => {
-                        if focus == 0 {
-                            self.exit = Some(Exit::Shutdown);
-                        }
-                        return None;
-                    }
-                    _ => {}
-                }
-                Some(Overlay::Confirm { focus })
-            }
         }
     }
 
@@ -1400,7 +1521,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Card, SetRow::Games, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Card, SetRow::Games]);
         v
     }
 
@@ -1467,7 +1588,7 @@ impl<S: SystemAdapter> App<S> {
     }
 
     /// The lines of an item's panel that take the focus (D14). Empty: the item is only read
-    /// (Wi-Fi and Bluetooth for now, System) or is an action of its own (RetroArch, Power off).
+    /// (Wi-Fi and Bluetooth for now, System).
     pub fn panel_rows(&self, row: SetRow) -> Vec<PanelRow> {
         match row {
             SetRow::Language => (0..LANGUAGES.len()).map(PanelRow::Choice).collect(),
@@ -1594,8 +1715,8 @@ impl<S: SystemAdapter> App<S> {
     }
 
     /// Two focus levels (D14). On the list: ▲▼ change the item (wrapping), A or ▶ enter its
-    /// panel (A runs RetroArch and Power off, which have none), ◀▶ change nothing, B goes back
-    /// to the Dock. In the panel: ▲▼ change the line (wrapping), ◀▶ change the value, A runs
+    /// panel, ◀▶ change nothing, B goes back to the screen the Settings were opened from
+    /// (the Dock when opened from there). In the panel: ▲▼ change the line (wrapping), ◀▶ change the value, A runs
     /// the line, B goes back to the same item of the list.
     fn settings_input(&mut self, a: Action, _repeat: bool) {
         let rows = self.set_rows();
@@ -1641,22 +1762,11 @@ impl<S: SystemAdapter> App<S> {
             return;
         }
         match a {
-            Action::B => self.screen = Screen::Dock,
+            Action::B => self.leave_settings(),
             // the list wraps: down on the last item goes to the first, up on the first to the last
             Action::Up => self.settings_focus = (self.settings_focus + rows.len() - 1) % rows.len(),
             Action::Down => self.settings_focus = (self.settings_focus + 1) % rows.len(),
             Action::A | Action::Right if !lines.is_empty() => self.panel_focus = Some(self.panel_start(row)),
-            Action::A => match row {
-                SetRow::RetroArch => {
-                    if let Some(r) = self.runners.get(lume_core::catalog::LIBRETRO_RUNNER) {
-                        if launch::retroarch_menu(r).write(&self.runtime, true).is_ok() {
-                            self.exit = Some(Exit::RetroArch);
-                        }
-                    }
-                }
-                SetRow::Power => self.overlay = Some(Overlay::Confirm { focus: 1 }),
-                _ => {}
-            },
             _ => {}
         }
     }
@@ -1687,7 +1797,6 @@ impl<S: SystemAdapter> App<S> {
                 Overlay::Menu { sys, game, focus, sub } => Overlay::Menu { sys: *sys, game: *game, focus: *focus, sub: *sub },
                 Overlay::Slots { game, slots, focus } => Overlay::Slots { game: *game, slots: slots.clone(), focus: *focus },
                 Overlay::Keyboard { focus } => Overlay::Keyboard { focus: *focus },
-                Overlay::Confirm { focus } => Overlay::Confirm { focus: *focus },
             };
             self.draw_overlay(c, &ov, w, h);
             // the battery stays in its spot and undimmed over the menus (the search draws it
@@ -1696,6 +1805,13 @@ impl<S: SystemAdapter> App<S> {
                 let dimmed = th.color("bg").under(th.color("overlay"));
                 self.draw_status_battery_on(c, w, dimmed);
             }
+        }
+        // the system menu: above every screen and sheet, under the short notices
+        if let Some(m) = self.system {
+            self.draw_system(c, &m, w, h);
+            let dimmed = th.color("bg").under(th.color("overlay"));
+            let dimmed = if self.overlay.as_ref().is_some_and(|o| !matches!(o, Overlay::Keyboard { .. })) { dimmed.under(th.color("overlay")) } else { dimmed };
+            self.draw_status_battery_on(c, w, dimmed);
         }
         if let Some((text, _)) = &self.toast {
             let px = (th.em("label_px", w) as f32) * 0.9;
@@ -1970,7 +2086,8 @@ impl<S: SystemAdapter> App<S> {
         c.text(&sub, w / 2, name_y + (2.62 * em).round() as i32, sub_px, th.color("muted"), Align::Center, w - 2 * em as i32);
         // status bar: the battery at the top right (regular weight here, as the prototype)
         self.draw_status_battery(c, w);
-        self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select"))]);
+        // the Fn button opens the system menu (D19): the third hint, after ◀▶ and A
+        self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select")), ("Fn", self.tr("hint_menu"))]);
     }
 
     /// A symbol of the launcher (`@star`, `@gear`, `@clock`) as a mask texture, made once.
@@ -2320,9 +2437,18 @@ impl<S: SystemAdapter> App<S> {
         let ef = |v: f32| v * em;
         let r_ = |x: f32, y: f32, rw: f32, rh: f32| Rect::new(x.round() as i32, y.round() as i32, (x + rw).round() as i32 - x.round() as i32, (y + rh).round() as i32 - y.round() as i32);
         c.fill(Rect::new(0, 0, w, h), 0, th.color("overlay"));
-        let sw = (w as f32 * 0.94).min(ef(36.0));
+        let narrow = matches!(cover, Cover::Narrow);
+        let (pad, row_h) = (ef(0.9), ef(2.45));
+        // the narrow sheet (system menu): 16.2 em at least (259.6 px at 640, measured on the
+        // prototype), more when a text needs it, 20 em at most; no subtitle, so the rows start
+        // 2.1875 em under the title
+        let (sw, head) = if narrow {
+            let widest = rows.iter().map(|r| c.text_width(&r.label, ef(1.25)) + 2 * ef(1.0).round() as i32).max().unwrap_or(0).max(c.text_width_bold(title, ef(1.75)));
+            ((widest as f32 + 2.0 * pad).max(ef(16.225)).min(ef(20.0)), ef(2.1875))
+        } else {
+            ((w as f32 * 0.94).min(ef(36.0)), ef(4.4075))
+        };
         let sx = (w as f32 - sw) / 2.0;
-        let (pad, row_h, head) = (ef(0.9), ef(2.45), ef(4.4075));
         let body_h = head + rows.len() as f32 * row_h;
         let cover_w = ef(10.0);
         let cpad = ef(0.4);
@@ -2333,7 +2459,7 @@ impl<S: SystemAdapter> App<S> {
                 let id = self.lib.systems[s].id.clone();
                 self.icon(c, &id)
             }
-            Cover::None => None,
+            Cover::None | Cover::Narrow => None,
         };
         // a game's cover sets its own height: fit to the column's width, at most 16 em
         let pic_h = match (cover, pic) {
@@ -2350,8 +2476,8 @@ impl<S: SystemAdapter> App<S> {
         let base = th.color("bg").under(th.color("overlay")).under(panel_bg);
         let fade = |col: Color, k: f32| base.under(Color { a: (k * 255.0).round() as u8, ..col });
         let mut bx = sx + pad;
-        if !matches!(cover, Cover::None) {
-            let cr = r_(sx + pad, sy + pad, cover_w, inner_h);
+        if !matches!(cover, Cover::None | Cover::Narrow) {
+            let cr =r_(sx + pad, sy + pad, cover_w, inner_h);
             c.fill(cr, th.em("radius_tile", w), th.color("tile_bg_opaque"));
             let (aw, ah) = (cover_w - 2.0 * cpad, inner_h - 2.0 * cpad);
             let (cx, cy) = (sx + pad + cover_w / 2.0, sy + pad + inner_h / 2.0);
@@ -2372,7 +2498,7 @@ impl<S: SystemAdapter> App<S> {
                     let s = match cover {
                         Cover::Game(r) => r.sys,
                         Cover::Console(s) => s,
-                        Cover::None => unreachable!(),
+                        Cover::None | Cover::Narrow => unreachable!(),
                     };
                     let abbr = self.lib.systems[s].abbr.clone();
                     c.text_bold(&abbr, cx.round() as i32, (cy - ef(1.0) * 1.172).round() as i32, ef(2.0), th.color("fg"), Align::Center, aw as i32);
@@ -2384,7 +2510,9 @@ impl<S: SystemAdapter> App<S> {
         let bw = sx + sw - pad - bx;
         let by = sy + pad + (inner_h - body_h).max(0.0) / 2.0;
         c.text_bold(title, bx.round() as i32, by.round() as i32, ef(1.75), th.color("fg"), Align::Left, bw as i32);
-        c.text(sub, bx.round() as i32, (by + ef(2.1875)).round() as i32, ef(1.2), th.color("muted"), Align::Left, bw as i32);
+        if !narrow {
+            c.text(sub, bx.round() as i32, (by + ef(2.1875)).round() as i32, ef(1.2), th.color("muted"), Align::Left, bw as i32);
+        }
         // more rows than room: the list scrolls to keep the focus in sight
         let visible = (((inner_h - head) / row_h) as usize).max(1);
         let first = focus.saturating_sub(visible - 1);
@@ -2514,12 +2642,38 @@ impl<S: SystemAdapter> App<S> {
             }
             Overlay::Slots { game, slots, focus } => self.draw_slots(c, *game, slots, *focus, w, h),
             Overlay::Keyboard { .. } => {}
-            Overlay::Confirm { focus } => {
-                // the project's rule for every confirmation (user, 2026-11-17): the affirmative
-                // (Power off) on top or left, the safe choice (Cancel) below and focused
-                let rows = [self.tr("power_off"), self.tr("cancel")].map(|label| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false });
-                let (title, sub) = (self.tr("power_off"), self.tr("power_ask"));
-                self.draw_sheet(c, w, h, Cover::None, &title, &sub, &rows, *focus);
+        }
+    }
+
+    /// The system menu (D19): a narrow sheet with the four items, or the vertical
+    /// confirmation of Restart / Power off. The project's rule for every confirmation (user,
+    /// 2026-11-17): the affirmative on top, the safe choice (Cancel) below and focused.
+    fn draw_system(&mut self, c: &mut dyn Canvas, m: &SystemMenu, w: i32, h: i32) {
+        let plain = |label: String| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false };
+        match m.confirm {
+            Some(conf) => {
+                let (action, title, ask) = if conf.restart {
+                    (self.tr("restart"), self.tr("restart_title"), self.tr("restart_ask"))
+                } else {
+                    (self.tr("power_off"), self.tr("power_title"), self.tr("power_ask"))
+                };
+                let rows = [plain(action), plain(self.tr("cancel"))];
+                self.draw_sheet(c, w, h, Cover::None, &title, &ask, &rows, conf.focus);
+            }
+            None => {
+                let rows: Vec<SheetRow> = SYS_ITEMS
+                    .iter()
+                    .map(|i| {
+                        plain(self.tr(match i {
+                            SysItem::Settings => "settings",
+                            SysItem::Suspend => "suspend",
+                            SysItem::Restart => "restart",
+                            SysItem::PowerOff => "power_off",
+                        }))
+                    })
+                    .collect();
+                let title = self.tr("sys_menu");
+                self.draw_sheet(c, w, h, Cover::Narrow, &title, "", &rows, m.focus);
             }
         }
     }
@@ -2619,8 +2773,6 @@ impl<S: SystemAdapter> App<S> {
             SetRow::System => (self.tr("system"), String::new()),
             SetRow::Card => (self.tr("card"), String::new()),
             SetRow::Games => (self.tr("games_item"), String::new()),
-            SetRow::RetroArch => (self.tr("retroarch"), String::new()),
-            SetRow::Power => (self.tr("power_off"), String::new()),
         }
     }
 
@@ -2846,9 +2998,6 @@ impl<S: SystemAdapter> App<S> {
                 y += pitch;
                 note = Some(("note_update", false));
             }
-            SetRow::RetroArch | SetRow::Power => {
-                note = Some(("note_open", false));
-            }
         }
         if let Some((key, arrows)) = note {
             // the note: a line like the others (same size and inset), muted
@@ -2874,7 +3023,7 @@ impl<S: SystemAdapter> App<S> {
         match pf.and_then(|f| lines.get(f).copied()) {
             None => {
                 hints.push((NAV_UD, self.tr("hint_navigate")));
-                if !lines.is_empty() || matches!(row, SetRow::RetroArch | SetRow::Power) {
+                if !lines.is_empty() {
                     hints.push(("A", self.tr("hint_open")));
                 }
             }

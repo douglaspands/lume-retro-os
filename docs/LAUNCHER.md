@@ -15,11 +15,12 @@ ao mesmo lugar. Durante o jogo, a interface sai da memória. Planejamento e deci
 | X | — | busca por nome (teclado na tela) | — |
 | Y | — | opções do console | — |
 | L1 / R1 | — | salta uma parte da lista (mais longe se repetir rápido) | — |
+| Fn (toque) | abre e fecha o [menu do sistema](#menu-do-sistema-pelo-fn) | idem | idem (por cima da folha aberta) |
 | **Fn+Start** | nada | nada | **encerra o jogo aberto e volta ao launcher** |
 | Volume + / − | volume do sistema, em qualquer tela e em qualquer jogo | | |
 | Fn + Volume + / − | brilho da tela, em passos de 5%, em qualquer tela e em qualquer jogo | | |
 | Energia (toque) | suspende o console; outro toque acorda (ver [Suspender](#suspender-e-desligar-pelo-botão-de-energia)) | | |
-| Energia (segurar 2 s) | desliga, como o item Desligar | | |
+| Energia (segurar 2 s) | desliga, como o item Desligar do menu do sistema | | |
 
 ### Atalhos dentro do jogo (o Fn é o botão do sistema)
 
@@ -79,8 +80,8 @@ save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abri
   outros botões não acordam o console, e o que for apertado com ele suspenso é descartado.
 - **Segurar** o botão por 2 s desliga, pelo mesmo caminho do item Desligar (grava o pendente
   antes). Segurar por vários segundos continua desligando à força pelo hardware, como reserva.
-- O item **Suspender** das Configurações (acima de Desligar) faz o mesmo que o toque, sem
-  confirmação.
+- O item **Suspender** do [menu do sistema](#menu-do-sistema-pelo-fn) (toque no Fn) faz o mesmo
+  que o toque, sem confirmação.
 - Antes de suspender, o que estava pendente de gravação vai para o cartão (`sync`): acabar a
   bateria com o console suspenso não perde o save.
 - Se a suspensão falhar, o console volta ao estado de antes com a tela acesa, e o
@@ -282,13 +283,36 @@ ou o que o item faz. Idioma (vale também para o RetroArch e para as mensagens d
 Tema (Lume, o padrão, e Material escuro e claro), Tela (mostrar ou não o percentual ao lado
 da bateria), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
-selecionado), Games (com **Atualizar listas**: A atualiza), RetroArch (o menu completo, sem jogo; ao sair, volta às
-Configurações) e Desligar (pede confirmação: Desligar em cima, Cancelar embaixo e em foco). Wi-Fi e Bluetooth aparecem
-só com um adaptador USB conectado.
+selecionado) e Games (com **Atualizar listas**: A atualiza); a lista dá a volta em Games. Wi-Fi e
+Bluetooth aparecem só com um adaptador USB conectado. **Desligar**, **Suspender** e **Reiniciar**
+não ficam aqui: moram no [menu do sistema](#menu-do-sistema-pelo-fn). O acesso ao menu completo do
+RetroArch fora de um jogo saiu das Configurações (volta pela pendência P-101); dentro de um jogo,
+Fn+B continua abrindo o menu do RetroArch.
 
 Na lista, ▲▼ escolhem o item e A ou ▶ entram no painel dele; no painel, ▲▼ trocam a linha, ◀▶
-mudam o valor, A executa e B volta à lista. Sistema só mostra valores; RetroArch e Desligar
-executam direto com A.
+mudam o valor, A executa e B volta à lista. Sistema só mostra valores. Na lista, **B volta à tela
+de onde as Configurações foram abertas**: ao Dock, se vieram do Dock; à grade (com a folha do jogo
+aberta, se havia uma) se vieram do menu do sistema.
+
+## Menu do sistema pelo Fn
+
+Fora de um jogo, **tocar no Fn** abre o menu do sistema por cima de qualquer tela (Dock, grade,
+Configurações) ou folha (a do jogo aberta, por exemplo); outro toque no Fn ou B fecha, e a tela
+de baixo continua exatamente como estava (a grade no mesmo jogo, a folha aberta). Enquanto ele
+está aberto, os botões são só dele. Itens, nesta ordem, com o foco inicial em Configurações:
+
+| Item | O que faz |
+|---|---|
+| Configurações | abre as Configurações; B na lista volta à tela de origem |
+| Suspender | pede a suspensão sem confirmação (o mesmo pedido do toque no botão de energia); o toque no botão de energia acorda no mesmo lugar |
+| Reiniciar | confirmação (Reiniciar em cima, Cancelar embaixo e em foco); ao confirmar, o launcher sai com o código 66 e a sessão reinicia |
+| Desligar | confirmação (Desligar em cima, Cancelar embaixo e em foco); ao confirmar, o launcher sai com 0 e o console desliga |
+
+Nas duas confirmações só ▲▼ mudam a escolha (◀▶ não fazem nada) e B volta ao menu. A tela do
+Dock mostra no rodapé a dica **Fn Menu**, depois de ◀▶ e A. O Fn tem três gestos no launcher
+(os mesmos do jogo, com tabela própria): **tocar** abre e fecha o menu do sistema; **segurar** (meio
+segundo) mostra a dica dos atalhos que valem (no launcher, só Fn+Volume: brilho, mais o toque do
+Fn) e soltar a esconde; **Fn+Volume** muda o brilho.
 
 ### SSH pela rede Wi-Fi
 
