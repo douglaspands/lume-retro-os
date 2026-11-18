@@ -130,7 +130,7 @@ Regras desenhadas:
 - **Recomeçar:** confirmada, aparece o aviso "Aprendizado recomeçado"; o limite só mexe no registro (D12 sem pontinho). Se a revisão pós-E4 tirar o limite, a linha "Recomeçar o aprendizado" sai junto (`resetLearn`, `resetAsk`, `yesNo`, `resetDone` no `i18n.js` e `briPanel`/`askReset` no `engine.js`).
 - **Suspender:** só no menu do sistema, sem confirmação.
 
-| Aprovação do usuário no navegador a 640x480 | pendente |
+| Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-18 (menu do sistema pelo Fn, dicas do Fn, Configurações sem Desligar, Suspender e RetroArch, Brilho sem pontinho, Cartão, relato) |
 | :--- | :--- |
 
 ## Pontos técnicos a verificar
