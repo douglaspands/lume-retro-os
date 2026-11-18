@@ -60,6 +60,7 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
 | 9.5 | 1.4 | — | AG | sonnet | 4 | |
 | 9.6 | 1.4 | — | AG | sonnet | 4 | J2 |
+| 9.7 | 1.4 | — | AG | sonnet (a aprovar) | 4 | J2, J3 |
 | 5.1 | 3.1 | — | AG | opus | 5 | J2, J3 |
 | 5.2 | 1.4 | — | AG | opus | 5 | J2, J3 |
 | 5.3 | 3.1 | — | AG | sonnet | 5 | J2, J3 |
@@ -120,7 +121,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - **Onda 0:** 1.1 (AG); J1 com 2.1 a 2.7 (PR, build atual, sem código novo).
 - **Ondas 1, 2 e 3:** 1.2, 1.3 e 1.4, uma por onda e sozinhas (`TREE`). Antes da 1.2, nenhuma
   worktree aberta em `out/worktrees/`, de nenhuma change.
-- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1, 9.5 e 9.6 (AG). A 4.1 termina com a aprovação
+- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1, 9.5, 9.6 e 9.7 (AG). A 4.1 termina com a aprovação
   do usuário.
 - **Onda 5:** 5.1, 5.2, 5.3, 5.5, 6.3, 6.4, 7.1, 7.3, 7.4, 8.2, 8.3, 8.4, 8.6, 9.1, 9.2 e 9.3.
   A 8.4 só começa com a 3.1 da `lume-hud-actions` mesclada.
@@ -211,6 +212,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - [ ] 9.3 Nós de entrada (D16): regra do udev com `0640 root input` para o controle do aparelho, o controle virtual e os botões; controles USB com `0660`. Verificação: teste da regra; no aparelho, como `game`, escrever no controle virtual falha, e o launcher e o RetroArch continuam lendo; um controle USB com vibração funciona, se houver um (J2).
 - [ ] 9.4 `lume-input`, calibração dos analógicos (D17): repouso lido nas primeiras amostras, `valor - repouso + centro` com a zona morta do perfil; repouso fora da faixa usa o centro do DTS e registra o aviso. Verificação: testes do `lume-input` com eixos falsos (repouso deslocado vira centro, stick segurado no início usa o DTS e avisa); no aparelho, os sticks soltos no centro no teste de entrada do RetroArch (J2, J3).
 - [ ] 9.6 `lume-usb`, rede depois de um VBUS falso (achado da J1 no GA36, 2026-11-18): duas vezes o `axp20x-usb` leu VBUS = 0 por ~5 s com o cabo ligado e o UDC em `configured`; o serviço tratou como "PC desconectado" e a rede `usb0` só voltou ao recolocar o cabo. Sem cabo, ele leu VBUS = 1 por 76 s (bateria "Charging", `current_now` do registrador de carga), e o `extcon` ficou em `USB=1` com o UDC `configured` depois de o cabo sair. A leitura de VBUS do AXP não é confiável sozinha (vale também para a bateria, P-98). O serviço passa a decidir pela troca de estado do UDC (não pelo VBUS sozinho) e religa a rede quando o UDC volta a `configured`. Verificação: teste do `usb-gadget` com sysfs falso (VBUS 0 com o UDC `configured` não derruba a rede; UDC que sai e volta religa); no aparelho, J2.
+- [ ] 9.7 Temperatura na barra de status do jogo (pedido do usuário, 2026-11-18): o `lume-run` (`hud.rs`) acrescenta o campo `TMP <°C>` do SoC (`thermal_zone0`, inteiro, `--` sem leitura) entre `MEM` e `BAT`, lido só com a barra ligada (Fn+X), na mesma amostra de 1 s; o campo entra no protótipo da barra e cabe a 640x480 pela régua (sem cortar o `BAT`); `docs/LAUNCHER.md` com o formato. Verificação: testes do `hud.rs` com `thermal_zone0` falso (valor, sem zona dá `--`, barra escondida não lê) e o teste de régua da barra no `lume-menu`; no aparelho, J2 e J3 (a temperatura na barra bate com o `lume-logd`).
 - [ ] 9.5 `flashed` (D18): `mark_flashed()` resolve o `latest` antes de criar o link, e o `flash` avisa quando roda com `sudo`. Verificação: teste do `flash` pelo `latest` (o link aponta para o build real) e do aviso.
 
 ## 10. Build e provas nos consoles
