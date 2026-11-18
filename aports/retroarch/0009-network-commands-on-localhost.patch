@@ -4,7 +4,7 @@ Subject: [PATCH] command: network commands listen on 127.0.0.1 only
 command_network_new() opens the UDP command socket (network_cmd_port, 55355)
 with no host, so it listens on every interface. With a Wi-Fi network up,
 anyone on that network could send commands to RetroArch (QUIT, LOAD_STATE,
-...). The socket now binds to 127.0.0.1: r36os-logd, which asks GET_STATUS
+...). The socket now binds to 127.0.0.1: lume-logd, which asks GET_STATUS
 through 127.0.0.1, keeps working, and no other interface reaches it.
 
 --- a/command.c
@@ -15,7 +15,7 @@ through 127.0.0.1, keeps working, and no other interface reaches it.
                                     1, sizeof(command_network_t));
 -   int fd = socket_init((void**)&res, port, NULL,
 +   /* Lume: commands from the console itself only, never from a Wi-Fi
-+    * network (r36os-logd asks through 127.0.0.1) */
++    * network (lume-logd asks through 127.0.0.1) */
 +   int fd = socket_init((void**)&res, port, "127.0.0.1",
           SOCKET_TYPE_DATAGRAM, AF_INET);
 

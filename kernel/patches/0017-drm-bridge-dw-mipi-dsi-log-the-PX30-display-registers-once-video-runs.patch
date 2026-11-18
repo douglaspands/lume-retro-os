@@ -9,7 +9,7 @@ the same mode. The way to find the difference is to compare the registers
 of the display path with the ones the factory kernel leaves, which were
 read on the factory system with board/r36s/diag/regdump.sh.
 
-The r36os userland has no /dev/mem reader, so read them here: on a PX30 or
+The lume userland has no /dev/mem reader, so read them here: on a PX30 or
 RK3326 machine, with the first status sample after video starts, log the
 DSI host, D-PHY, VOP, GRF, CRU and PMUCRU words that are not zero as
 "regdump <name> <address> <offset> <value>", the format of the script.
