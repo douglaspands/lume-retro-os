@@ -679,7 +679,7 @@ def import_collections(sources: dict[str, "Path"], out: "Path") -> list[dict]:
             by_board[body] = lid
             (out / f"{lid}.dts").write_text(to_dts(board, lid, f"{collection}/{rel}", sha))
             row.update(status="converted", id=lid, reason="; ".join(board.notes))
-    lines = ["# DTBs read by `r36os dtb-import` (boot-dtb-select D12): status, lume,id, "
+    lines = ["# DTBs read by `lume dtb-import` (boot-dtb-select D12): status, lume,id, "
              "collection, path, sha256, reason or notes",
              "\t".join(("status", "id", "collection", "path", "sha256", "reason"))]
     lines += ["\t".join((r["status"], r["id"], r["collection"], r["path"], r["sha256"],
@@ -771,7 +771,7 @@ def to_dts(b: Board, lume_id: str, source: str, sha256: str) -> str:
         "// SPDX-License-Identifier: (GPL-2.0+ OR MIT)",
         "/*",
         f" * {b.model or lume_id}, converted from a vendor RK3326 device tree by",
-        " * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.",
+        " * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.",
         f" * Source: {source}",
         f" * SHA-256: {sha256}",
     ]

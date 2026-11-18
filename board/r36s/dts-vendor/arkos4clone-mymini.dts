@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * XiFan MyMini, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/mymini/rk3326-mymini-linux.dtb
  * SHA-256: 770508c2ba78037b6489a2cb0b4dba78a1c20394e7e645a72138e0b28015a17d
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

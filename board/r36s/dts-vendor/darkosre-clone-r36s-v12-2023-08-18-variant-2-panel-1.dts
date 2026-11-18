@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * R36S-V12 2023-08-18 Variant 2 Panel 1, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/clone/R36S-V12 2023-08-18 Variant 2 Panel 1/rk3326-r36s-linux.dtb
  * SHA-256: 95d2b625094d3bacac8fd2efda5f3bcb15784ddea506f336c5f0c41e18a68ae3
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

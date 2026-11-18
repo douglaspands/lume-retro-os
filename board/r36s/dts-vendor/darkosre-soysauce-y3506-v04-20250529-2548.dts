@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Y3506_V04_20250529 2548, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/soysauce/Y3506_V04_20250529 2548/rk3326-r36s-linux.dtb
  * SHA-256: 660ed19ae46c3953b7e1060ea3dd03093fe0c8ab4562a379542dec4d0b981b22
  * Note: speaker gain: source spk-volume 1 ignored, the native safe value is used

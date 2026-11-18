@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * XiFan XF40H, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/xf40h/rk3326-xf40h-linux.dtb
  * SHA-256: 4bf4982522a16ffa5452ef7f85dea9ed953ea27bc5a9d07a0014ad1dcab5d7f4
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole T16Max, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/t16max/rk3326-t16max-linux.dtb
  * SHA-256: 7c9ac8b175ab119c350d192d7859b49244182f95d0b03dd3c618ea16ff36b66a
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

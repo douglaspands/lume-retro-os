@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * XiFan XF45V, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/xf45v/5.10/rk3326-xf45v-linux.dtb
  * SHA-256: 288e79f2814952188555f859dccad090e92e619da8b36d006d5729d9d7c0d193
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

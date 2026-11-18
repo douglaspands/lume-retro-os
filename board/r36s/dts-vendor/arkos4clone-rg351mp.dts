@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Anbernic RG351MP, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rg351mp/rk3326-rg351mp-linux.dtb
  * SHA-256: e0773e52c3fbf1e8203b479db0492da21a9eeedeef2e9b1fd5972f8e97979c28
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured

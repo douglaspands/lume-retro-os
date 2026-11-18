@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Powkiddy RGB10MAX2, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rgb10max2/rk3326-rgb10max2-linux.dtb
  * SHA-256: 4163dcbeb71406476549af078d5ef5376487844a130f029369de6c302843a9f8
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured
