@@ -1,0 +1,178 @@
+//! The status bar drawn in software into an ARGB8888 strip (lume-hud-actions D6; drawn by the
+//! system since 2026-11-17, so it shows over any game). The layout is the one of RetroArch's
+//! LUME_HUD widget that the user approved on the GA36: groups separated by `|`, the first word
+//! of each (the label) in the accent and bold, the rest in the text color, spread over the
+//! whole width with a thin muted divider in the middle of each space; a black strip at 60%.
+//!
+//! The pixels are premultiplied ARGB (the default blend of a DRM plane): the strip itself is
+//! (0, 0, 0, 153), and a glyph over it keeps its color at full opacity.
+
+use crate::draw::{text_width, Fonts, ACCENT, FG, MUTED};
+
+/// Sizes at 640x480, scaled with the screen height (the widget's 0.85 of RetroArch's font)
+pub mod px {
+    pub const HEIGHT: f32 = 24.0;
+    pub const TEXT: f32 = 15.0;
+    pub const MARGIN: f32 = 8.0;
+    pub const LABEL_GAP: f32 = 4.0;
+    pub const MIN_SPACE: f32 = 18.0;
+    pub const DIVIDER_INSET: f32 = 6.0;
+}
+
+/// Opacity of the strip (RetroArch's widget: black at 0.6)
+const STRIP_ALPHA: u32 = 153;
+
+/// The bar's height in pixels for a screen `h` high.
+pub fn height(h: u32) -> u32 {
+    (px::HEIGHT * h as f32 / 480.0).round() as u32
+}
+
+pub struct Strip<'a> {
+    pub px: &'a mut [u8],
+    pub w: usize,
+    pub h: usize,
+    pub pitch: usize,
+}
+
+impl Strip<'_> {
+    fn fill(&mut self) {
+        for y in 0..self.h {
+            for p in self.px[y * self.pitch..y * self.pitch + self.w * 4].chunks_exact_mut(4) {
+                p.copy_from_slice(&[0, 0, 0, STRIP_ALPHA as u8]);
+            }
+        }
+    }
+
+    /// `color` (opaque) over the pixel at coverage `a` (0-256), premultiplied.
+    fn blend(&mut self, x: i32, y: i32, color: u32, a: u32) {
+        if x < 0 || y < 0 || x as usize >= self.w || y as usize >= self.h || a == 0 {
+            return;
+        }
+        let o = y as usize * self.pitch + x as usize * 4;
+        let a = a.min(256);
+        let (r, g, b) = ((color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff);
+        let mix = |old: u8, new: u32| ((old as u32 * (256 - a) + new * a) >> 8) as u8;
+        // ARGB8888 little endian: B G R A
+        self.px[o] = mix(self.px[o], b);
+        self.px[o + 1] = mix(self.px[o + 1], g);
+        self.px[o + 2] = mix(self.px[o + 2], r);
+        self.px[o + 3] = mix(self.px[o + 3], 255);
+    }
+
+    fn text(&mut self, fonts: &Fonts, font: &fontdue::Font, s: &str, size: f32, x: f32, color: u32) {
+        let lm = font.horizontal_line_metrics(size);
+        let (asc, desc) = lm.map(|m| (m.ascent, m.descent)).unwrap_or((size * 0.93, -size * 0.24));
+        let baseline = (self.h as f32 - (asc - desc)) / 2.0 + asc;
+        let mut pen = x;
+        for c in s.chars() {
+            pen += fonts.glyph(font, c, size, |m, bitmap| {
+                let gx = pen.round() as i32 + m.xmin;
+                let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
+                for row in 0..m.height {
+                    for col in 0..m.width {
+                        let cov = bitmap[row * m.width + col] as u32;
+                        self.blend(gx + col as i32, gy + row as i32, color, cov + (cov >> 7));
+                    }
+                }
+                m.advance_width
+            });
+        }
+    }
+
+    fn divider(&mut self, x: f32, s: f32) {
+        let x = x.round() as i32;
+        let (y0, y1) = ((px::DIVIDER_INSET * s).round() as i32, self.h as i32 - (px::DIVIDER_INSET * s).round() as i32);
+        for y in y0..y1 {
+            self.blend(x, y, MUTED, 154);
+        }
+    }
+}
+
+/// Draws `text` ("FPS 59.7|CPU 9% 1008|...") into the strip; `screen_h` scales the sizes.
+pub fn draw(strip: &mut Strip, fonts: &Fonts, text: &str, screen_h: f32) {
+    let s = screen_h / 480.0;
+    let size = px::TEXT * s;
+    strip.fill();
+    let groups: Vec<(&str, &str)> = text
+        .split('|')
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(|g| g.split_once(' ').map(|(l, v)| (l, v.trim())).unwrap_or((g, "")))
+        .collect();
+    if groups.is_empty() {
+        return;
+    }
+    let gap = px::LABEL_GAP * s;
+    let widths: Vec<f32> = groups
+        .iter()
+        .map(|(l, v)| text_width(&fonts.bold, l, size) + if v.is_empty() { 0.0 } else { gap + text_width(&fonts.regular, v, size) })
+        .collect();
+    let total: f32 = widths.iter().sum();
+    let margin = px::MARGIN * s;
+    let n = groups.len() as f32;
+    let space = if groups.len() > 1 { ((strip.w as f32 - 2.0 * margin - total) / (n - 1.0)).max(px::MIN_SPACE * s) } else { 0.0 };
+    let mut pen = margin;
+    for (i, ((label, value), w)) in groups.iter().zip(&widths).enumerate() {
+        if i > 0 {
+            strip.divider(pen - space / 2.0, s);
+        }
+        strip.text(fonts, &fonts.bold, label, size, pen, ACCENT);
+        if !value.is_empty() {
+            strip.text(fonts, &fonts.regular, value, size, pen + text_width(&fonts.bold, label, size) + gap, FG);
+        }
+        pen += w + space;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fonts() -> Option<Fonts> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cache/tmp/fonts");
+        let load = |n: &str| fontdue::Font::from_bytes(std::fs::read(dir.join(n)).ok()?, Default::default()).ok();
+        Some(Fonts::new(load("Roboto-Regular.ttf")?, load("Roboto-Medium.ttf")?, load("Roboto-Bold.ttf")?))
+    }
+
+    fn pixel(px: &[u8], pitch: usize, x: usize, y: usize) -> [u8; 4] {
+        let o = y * pitch + x * 4;
+        [px[o], px[o + 1], px[o + 2], px[o + 3]]
+    }
+
+    #[test]
+    fn height_scales_with_the_screen() {
+        assert_eq!(height(480), 24);
+        assert_eq!(height(720), 36);
+    }
+
+    #[test]
+    fn strip_is_translucent_black_and_text_is_opaque() {
+        let Some(f) = fonts() else {
+            eprintln!("skipped: no Roboto on this host");
+            return;
+        };
+        let (w, h) = (640, 24);
+        let mut buf = vec![0u8; w * h * 4];
+        let mut s = Strip { px: &mut buf, w, h, pitch: w * 4 };
+        draw(&mut s, &f, "FPS 59.7|CPU 9% 1008|GPU 11% 51M|MEM 146/492|BAT 100% +", 480.0);
+        // a corner of the strip: black at 60%
+        assert_eq!(pixel(&buf, w * 4, 0, 0), [0, 0, 0, 153]);
+        // some pixel of the first label is the accent at full opacity
+        let accent = [(ACCENT & 0xff) as u8, ((ACCENT >> 8) & 0xff) as u8, (ACCENT >> 16) as u8, 255];
+        let found = (0..60).any(|x| (0..h).any(|y| pixel(&buf, w * 4, x, y) == accent));
+        assert!(found, "no accent pixel in the first label");
+        // the last group ends near the right edge (spread over the width)
+        let last_text = (0..w).rev().find(|&x| (0..h).any(|y| pixel(&buf, w * 4, x, y)[3] == 255)).unwrap();
+        assert!(last_text > w - 20, "last text at {last_text}");
+    }
+
+    #[test]
+    fn empty_text_leaves_only_the_strip() {
+        let Some(f) = fonts() else { return };
+        let (w, h) = (100, 24);
+        let mut buf = vec![0u8; w * h * 4];
+        let mut s = Strip { px: &mut buf, w, h, pitch: w * 4 };
+        draw(&mut s, &f, "", 480.0);
+        assert!(buf.chunks_exact(4).all(|p| p == [0, 0, 0, 153]));
+    }
+}

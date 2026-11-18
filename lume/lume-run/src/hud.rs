@@ -1,18 +1,22 @@
 //! The status bar over a game (lume-hud-actions D6, D7): lume-run reads a few small files
-//! once a second while the bar is on and sends `LUME_HUD <text>` to RetroArch (patch 0012).
-//! Off, nothing is read. The text is language-neutral, one group per field separated by `|`;
-//! the widget draws the first word of each group (the label) in the theme's accent, the rest
-//! in white, and a thin divider between groups (the user's choice, 2026-11-17):
+//! once a second while the bar is on and sends the text to `lume-menu --hud`, which draws it
+//! on an overlay plane over any game. Everything comes from the system, nothing from the
+//! emulator (the user, 2026-11-17: other emulators come later). Off, nothing is read. The text
+//! is language-neutral, one group per field separated by `|`; the first word of each group
+//! (the label) is drawn in the theme's accent, the rest in white, with a thin divider between
+//! groups (the user's choice, 2026-11-17):
 //!
 //! ```text
 //! FPS 59.7|CPU 47% 1008|GPU 62% 38M|MEM 124/492 sw 20|BAT 74% 1.9W 2:40
 //! ```
 //!
 //! `--` stands for a value that cannot be read and `--:--` for no estimate yet; charging,
-//! `BAT 74% + 0:50` (the time until full). FPS: the game's frames per second, from the frame
-//! counter of RetroArch's GET_STATUS between two samples. CPU: the use (mean of the cores) and
-//! the clock in MHz. GPU: the use (else the clock in MHz) and the memory the game holds on it
-//! in MiB (system RAM: the GPU has none of its own), from the game's DRM fdinfo. MEM is used/total and the swap only when in use, in MiB.
+//! `BAT 74% + 0:50` (the time until full). FPS: the frames the game presented per second, the
+//! page flips its DRM files made between two samples (`drm-page-flips` in fdinfo, kernel patch
+//! 0036). CPU: the use (mean of the cores) and the clock in MHz. GPU: the use (else the clock
+//! in MHz) and the memory the game holds on it in MiB (system RAM: the GPU has none of its
+//! own), from the game's DRM fdinfo (lima: patch 0035). MEM is used/total and the swap only
+//! when in use, in MiB.
 //!
 //! Every path hangs from `root` (`/` on the console), so the tests use fake trees.
 
@@ -80,9 +84,34 @@ impl Hud {
         }
     }
 
-    /// The game's frame counter now (RetroArch's GET_STATUS, patch 0004), before `sample`;
-    /// None when it did not answer. The FPS is the frames between two samples over the time.
-    pub fn frames(&mut self, frames: Option<u64>, elapsed: f64) {
+    /// The frames the game presented: `drm-page-flips` of its DRM files (kernel patch 0036),
+    /// summed once per DRM client; None when no file shows the key (an older kernel). Counted
+    /// by the system, so the FPS is right for any emulator (the user, 2026-11-17).
+    fn page_flips(&mut self) -> Option<u64> {
+        if self.drm_fds.as_ref().is_none_or(|f| f.is_empty()) {
+            self.drm_fds = Some(self.find_drm_fds());
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut total = None;
+        for p in self.drm_fds.clone().unwrap_or_default() {
+            let Some(info) = read(&self.path(&p)) else { continue };
+            let Some(n) = info
+                .lines()
+                .find(|l| l.starts_with("drm-page-flips:"))
+                .and_then(|l| l.split(':').nth(1)?.trim().parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let id = info.lines().find(|l| l.starts_with("drm-client-id:")).map(String::from).unwrap_or(p);
+            if seen.insert(id) {
+                *total.get_or_insert(0) += n;
+            }
+        }
+        total
+    }
+
+    /// The frame counter at `elapsed`; the FPS is the frames between two samples over the time.
+    fn frames(&mut self, frames: Option<u64>, elapsed: f64) {
         let Some(n) = frames else {
             self.last_frames = None;
             self.fps = None;
@@ -342,6 +371,8 @@ impl Hud {
 
     /// One sample: the text of the bar. `elapsed` is seconds since the bar started.
     pub fn sample(&mut self, elapsed: f64) -> String {
+        let flips = self.page_flips();
+        self.frames(flips, elapsed);
         // compact (the user's choice, 2026-11-17): no units where they are obvious (the
         // clocks in MHz, the memory in MiB), the swap only when in use
         let cpu = self.cpu().map(|c| format!("{c}%")).unwrap_or_else(|| "--".into());
@@ -427,6 +458,20 @@ mod tests {
         fs::write(d.join("proc/42/fdinfo/7"), s).unwrap();
     }
 
+    /// The game's KMS file with its page flip counter (kernel patch 0036); None: no key.
+    fn flips(d: &Path, n: Option<u64>) {
+        let link = d.join("proc/42/fd/8");
+        if !link.exists() {
+            fs::create_dir_all(d.join("proc/42/fd")).unwrap();
+            std::os::unix::fs::symlink("/dev/dri/card1", &link).unwrap();
+        }
+        let mut s = String::from("pos:\t0\ndrm-driver:\tsun4i-drm\ndrm-client-id:\t3\n");
+        if let Some(n) = n {
+            s.push_str(&format!("drm-page-flips:\t{n}\n"));
+        }
+        fs::write(d.join("proc/42/fdinfo/8"), s).unwrap();
+    }
+
     fn battery(d: &Path, status: &str, cap: u32, uv: i64, ua: i64, charge: Option<(i64, i64)>) {
         let b = d.join("sys/class/power_supply/battery");
         fs::create_dir_all(&b).unwrap();
@@ -450,13 +495,13 @@ mod tests {
         let d = tree("lima");
         stat(&d, 100, 900);
         gpu(&d, &[("gp", 0), ("pp", 0)]);
+        flips(&d, Some(1000));
         let mut h = Hud::new(&d, 42);
         // the first sample has no difference yet
-        h.frames(Some(1000), 0.0);
         assert_eq!(h.sample(0.0), "FPS --|CPU -- 1008|GPU --|MEM 124/1006 sw 200|BAT --");
         stat(&d, 147, 953); // 47 busy of 100
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
-        h.frames(Some(1060), 1.0);
+        flips(&d, Some(1060));
         assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
     }
 
@@ -515,21 +560,23 @@ mod tests {
     }
 
     #[test]
-    fn fps_from_the_frame_counter() {
+    fn fps_from_the_page_flips_of_the_system() {
+        // counted by the kernel (drm-page-flips, patch 0036), not by the emulator
         let d = tree("fps");
+        flips(&d, Some(0));
         let mut h = Hud::new(&d, 42);
-        h.frames(Some(0), 0.0);
-        h.frames(Some(54), 2.0);
+        assert!(h.sample(0.0).starts_with("FPS --|"));
+        flips(&d, Some(54));
         assert!(h.sample(2.0).starts_with("FPS 27.0|"), "{}", h.sample(2.0));
-        // RetroArch silent: no value, and the next answer starts the count again
-        h.frames(None, 3.0);
+        // a kernel without the key: no value, and the next reading starts the count again
+        flips(&d, None);
         assert!(h.sample(3.0).starts_with("FPS --|"));
-        h.frames(Some(200), 4.0);
+        flips(&d, Some(200));
         assert!(h.sample(4.0).starts_with("FPS --|"));
-        h.frames(Some(260), 5.0);
+        flips(&d, Some(260));
         assert!(h.sample(5.0).starts_with("FPS 60.0|"));
-        // a new game resets the counter: no negative FPS
-        h.frames(Some(10), 6.0);
+        // a counter that went back (another file): no negative FPS
+        flips(&d, Some(10));
         assert!(h.sample(6.0).starts_with("FPS --|"));
     }
 

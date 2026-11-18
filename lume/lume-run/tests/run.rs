@@ -521,6 +521,8 @@ fn spawn_logged(e: &Env, port: u16) -> Child {
         .env("LUME_CGROUP", e.dir.join("no-cgroup"))
         .env("LUME_STORAGE", e.dir.join("storage"))
         .env("LUME_RA_PORT", port.to_string())
+        // a test that writes a fake lume-menu there gets it (fake_lume_menu); else none
+        .env("LUME_MENU_BIN", e.dir.join("lume-menu"))
         .stdin(Stdio::null())
         .stderr(Stdio::from(fs::File::create(e.dir.join("stderr")).unwrap()));
     c.spawn().unwrap()
@@ -681,8 +683,9 @@ fn key_and_signal_actions_and_undeclared_ones() {
     d.send("screenshot");
     std::thread::sleep(Duration::from_millis(200));
     assert!(e.dir.join("usr1").exists(), "SIGUSR1 to the game's group");
-    // not declared: one log line, nothing else; no overlay: the menu, the hint and the bar
-    // are ignored with a line too
+    // not declared: one log line, nothing else; no overlay and no lume-menu: the menu and
+    // the hint are ignored with a line too, and the bar (drawn by the system, any runner)
+    // says it has no lume-menu to draw with
     d.send("load_state");
     d.send("fn_tap");
     d.send("fn_hold B=app_menu Start=quit");
@@ -692,33 +695,40 @@ fn key_and_signal_actions_and_undeclared_ones() {
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
     let log = stderr(&e);
     for line in ["action load_state not supported by runner fake", "fn_tap ignored: runner fake draws no overlay",
-                 "fn_hold ignored: runner fake draws no overlay", "hud ignored: runner fake draws no overlay"] {
+                 "fn_hold ignored: runner fake draws no overlay", "status bar: no lume-menu, the bar is not drawn"] {
         assert!(log.contains(line), "{line}: {log}");
     }
 }
 
 #[test]
-fn hint_and_bar_go_to_retroarch() {
+fn hint_goes_to_retroarch_and_the_bar_to_the_system() {
     let e = setup("hint", false);
     let ra = FakeRa::new("PLAYING");
     let listener = listen(&e.dir.join("input.sock"));
     waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    fake_lume_menu(&e, "ok");
     let mut run = spawn_logged(&e, ra.port);
-    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
     d.send("fn_hold B=app_menu R1=save_state X=hud Start=quit Vol=brightness");
     assert_eq!(ra.cmds(), ["LUME_HINT Fn+B\tFake menu|Fn+R1\tSave state|Fn+X\tStatus bar|Fn+Start\tEnd game"]);
     d.send("fn_release");
     assert_eq!(ra.cmds().last().unwrap(), "LUME_HINT -");
-    // the bar: on, renewed every second, then off; remembered for the next game
+    // the bar: drawn by the system (lume-menu --hud), renewed every second, then off;
+    // remembered for the next game; nothing of it goes to RetroArch (the user, 2026-11-17)
     d.send("hud");
-    std::thread::sleep(Duration::from_millis(1200));
-    let bars: Vec<String> = ra.cmds().into_iter().filter(|c| c.starts_with("LUME_HUD ")).collect();
-    assert!(bars.len() >= 2 && bars[0].starts_with("LUME_HUD FPS --|CPU "), "{bars:?}");
+    std::thread::sleep(Duration::from_millis(1300));
+    let args = fs::read_to_string(e.dir.join("menu.args")).unwrap();
+    assert_eq!(args.trim(), format!("--hud {pid}"));
+    let lines = fs::read_to_string(e.dir.join("menu.lines")).unwrap();
+    let bars: Vec<&str> = lines.lines().collect();
+    assert!(bars.len() >= 2 && bars[0].starts_with("FPS --|CPU "), "{bars:?}");
     assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "1\n");
     d.send("hud");
-    assert_eq!(ra.cmds().last().unwrap(), "LUME_HUD -");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().last(), Some("closed"));
     assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "0\n");
+    assert!(!ra.cmds().iter().any(|c| c.starts_with("LUME_HUD")), "{:?}", ra.cmds());
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
 }

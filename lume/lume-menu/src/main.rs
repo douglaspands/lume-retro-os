@@ -13,7 +13,21 @@
 //! last frame from the primary plane, draws the menu over it in software into a buffer of
 //! its own and puts that buffer on the plane. On close it puts the game's framebuffer back
 //! and frees what it made in the game's file, then exits: nothing runs with the menu closed.
+//!
+//! The status bar (D6; drawn by the system since 2026-11-17, over any game):
+//!
+//! ```text
+//! lume-menu --hud PGID
+//!   stdin   one line per second: the bar's text ("FPS 59.7|CPU 9% 1008|..."); "-" or the
+//!           end of stdin takes the bar away
+//!   stdout  "ok" once the bar is on the screen, or "fail <why>" (exit 3)
+//! ```
+//!
+//! The game keeps running: the bar lives on a free overlay plane with alpha above the game's
+//! primary plane. lume-run must end it when the game ends, since the duplicated DRM file
+//! keeps the screen's master open until it is closed.
 
+mod bar;
 mod draw;
 mod drm;
 
@@ -32,8 +46,59 @@ fn fail(why: &str) -> ExitCode {
     ExitCode::from(3)
 }
 
+/// `--hud PGID`: the status bar until stdin ends.
+fn hud(pgid: i32) -> ExitCode {
+    let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
+    let screen = match drm::Screen::of_group(pgid) {
+        Ok(s) => s,
+        Err(why) => return fail(&why),
+    };
+    let screen_h = screen.fb.height;
+    let mut strip = match drm::Bar::new(&screen, bar::height(screen_h)) {
+        Ok(b) => b,
+        Err(why) => return fail(&why),
+    };
+    let (w, h, pitch) = (strip.width as usize, strip.height as usize, strip.pitch);
+    let mut ok_sent = false;
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim() == "-" {
+            break;
+        }
+        {
+            let px = strip.back_pixels();
+            let mut s = bar::Strip { px, w, h, pitch };
+            bar::draw(&mut s, &fonts, &line, screen_h as f32);
+        }
+        if let Err(e) = strip.present() {
+            if !ok_sent {
+                return fail(&format!("SETPLANE: {e}"));
+            }
+            // the game may be changing modes: the next line tries again
+            eprintln!("lume-menu: bar not shown: {e}");
+            continue;
+        }
+        if !ok_sent {
+            say("ok");
+            ok_sent = true;
+        }
+    }
+    drop(strip);
+    drop(screen);
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--hud") {
+        return match args.get(2).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0) {
+            Some(pgid) => hud(pgid),
+            None => {
+                eprintln!("usage: lume-menu --hud PGID");
+                ExitCode::from(2)
+            }
+        };
+    }
     let Some(pgid) = args.get(1).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0) else {
         eprintln!("usage: lume-menu PGID [--hints \"Choose|Back\"] [--warn TEXT]");
         return ExitCode::from(2);

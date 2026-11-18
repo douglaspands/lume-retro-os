@@ -49,9 +49,6 @@ const EXIT_LAUNCH: i32 = 64;
 const EXIT_MENU: i32 = 65;
 /// After cgroup.kill, how long the cgroup may take to empty
 const KILL_GRACE: Duration = Duration::from_secs(2);
-/// How long the bar waits for RetroArch's frame counter each second (a frozen RetroArch
-/// costs the loop no more than this)
-const HUD_STATUS_WAIT: Duration = Duration::from_millis(100);
 
 fn log(msg: &str) {
     eprintln!("{PROG}: {msg}");
@@ -108,6 +105,9 @@ struct Overlay {
     paused: Option<actions::Paused>,
     hint: Option<String>,
     hud: Option<(hud::Hud, Instant)>,
+    /// `lume-menu --hud`, the bar drawn by the system over any game (None: not on the screen
+    /// yet; the next tick tries again, a game may not have a screen in its first second)
+    bar: Option<sysmenu::SysMenu>,
     lang: String,
     /// the menu drawn by the system (lume-menu, D14), while it is open
     sysmenu: Option<sysmenu::SysMenu>,
@@ -247,12 +247,13 @@ impl Run {
             paused: None,
             hint: None,
             hud: None,
+            bar: None,
             lang,
             sysmenu: None,
             stopped_for_menu: false,
         };
-        // the bar stays on from one game to the next (D6)
-        if l.overlay && !l.menu && hud::load_shown(&self.hud_file()) {
+        // the bar stays on from one game to the next (D6), in any runner: the system draws it
+        if !l.menu && hud::load_shown(&self.hud_file()) {
             self.hud_show(&mut ov, child.pid, true);
         }
         let mut end = End::Normal;
@@ -323,10 +324,15 @@ impl Run {
                 break proc::reap(child.pid);
             }
             if Instant::now() >= next_tick {
-                self.tick(&mut ov, input.as_ref().map(|i| i.as_raw_fd()));
+                self.tick(&mut ov, child.pid, input.as_ref().map(|i| i.as_raw_fd()));
                 next_tick = Instant::now() + TICK;
             }
         };
+        // first of all: lume-menu --hud holds a copy of the game's DRM file, which keeps the
+        // screen's master open until it is closed (the launcher could not take the screen)
+        if let Some(b) = ov.bar.take() {
+            b.close();
+        }
         if ov.hud.is_some() {
             hud::panfrost_profiling(Path::new("/"), false);
         }
@@ -366,20 +372,42 @@ impl Run {
         actions::ra_send(self.ra_port, cmd);
     }
 
+    /// The status bar on or off (D6). Everything on it comes from the system (the user,
+    /// 2026-11-17: no number and no drawing from the emulator, other emulators come later):
+    /// lume-run samples it and `lume-menu --hud` draws it on an overlay plane over the game.
     fn hud_show(&self, ov: &mut Overlay, pid: libc::pid_t, on: bool) {
         if on {
             hud::panfrost_profiling(Path::new("/"), true);
             let mut h = hud::Hud::new(Path::new("/"), pid);
-            // the first count: the FPS shows from the next sample on
-            h.frames(actions::ra_frames(self.ra_port, HUD_STATUS_WAIT), 0.0);
             let text = h.sample(0.0);
-            self.ra(&format!("LUME_HUD {text}"));
             ov.hud = Some((h, Instant::now()));
+            self.bar_text(ov, pid, &text);
         } else {
             ov.hud = None;
+            if let Some(b) = ov.bar.take() {
+                b.close();
+            }
             hud::panfrost_profiling(Path::new("/"), false);
-            // "-" hides (a bare command makes RetroArch read past the end of its argument)
-            self.ra("LUME_HUD -");
+        }
+    }
+
+    /// One text of the bar: to lume-menu --hud, started when it is not running yet (a game
+    /// with no screen yet, or a lume-menu that ended: the next second tries again).
+    fn bar_text(&self, ov: &mut Overlay, pid: libc::pid_t, text: &str) {
+        if let Some(b) = ov.bar.as_mut() {
+            if b.update(text) {
+                return;
+            }
+            log("status bar: lume-menu --hud ended");
+            ov.bar = None;
+        }
+        let Some(bin) = self.menu_bin() else {
+            log("status bar: no lume-menu, the bar is not drawn");
+            return;
+        };
+        match sysmenu::SysMenu::start_hud(&bin, pid, text) {
+            Ok(b) => ov.bar = Some(b),
+            Err(why) => log(&format!("status bar not on the screen yet: {why}")),
         }
     }
 
@@ -460,12 +488,10 @@ impl Run {
     /// The renewal of every second: the bar's numbers, the menu and the hint (their widgets
     /// vanish after 3 s without one, so a dead lume-run leaves nothing on the screen), the
     /// capture (the daemon ends it after 2 s of silence).
-    fn tick(&self, ov: &mut Overlay, input: Option<RawFd>) {
-        if let Some((h, since)) = &mut ov.hud {
-            // the frame counter for the FPS: RetroArch answers on its next frame (~17 ms)
-            h.frames(actions::ra_frames(self.ra_port, HUD_STATUS_WAIT), since.elapsed().as_secs_f64());
-            let text = h.sample(since.elapsed().as_secs_f64());
-            self.ra(&format!("LUME_HUD {text}"));
+    fn tick(&self, ov: &mut Overlay, pid: libc::pid_t, input: Option<RawFd>) {
+        let text = ov.hud.as_mut().map(|(h, since)| h.sample(since.elapsed().as_secs_f64()));
+        if let Some(text) = text {
+            self.bar_text(ov, pid, &text);
         }
         if ov.menu.is_open() {
             actions::to_daemon(input, lume_core::input::CAPTURE_ON);
@@ -484,14 +510,11 @@ impl Run {
         match msg {
             Message::Action(Action::Quit) => return Some(End::QuitCombo),
             Message::Action(Action::Hud) => {
+                // any runner: the system draws the bar (lume-menu --hud)
                 self.hide_hint(ov);
-                if !l.overlay {
-                    log(&format!("hud ignored: runner {} draws no overlay", l.runner));
-                } else {
-                    let on = ov.hud.is_none();
-                    hud::save_shown(&self.hud_file(), on);
-                    self.hud_show(ov, pid, on);
-                }
+                let on = ov.hud.is_none();
+                hud::save_shown(&self.hud_file(), on);
+                self.hud_show(ov, pid, on);
             }
             Message::Action(a) => {
                 self.hide_hint(ov);

@@ -119,8 +119,27 @@ const GETPLANE: libc::c_ulong = ioc(RW, 0xb6, std::mem::size_of::<GetPlane>());
 const SETPLANE: libc::c_ulong = ioc(RW, 0xb7, std::mem::size_of::<SetPlane>());
 const ADDFB2: libc::c_ulong = ioc(RW, 0xb8, std::mem::size_of::<FbCmd2>());
 const GETFB2: libc::c_ulong = ioc(RW, 0xce, std::mem::size_of::<FbCmd2>());
+#[repr(C)]
+#[derive(Default)]
+struct CardRes {
+    fb_id_ptr: u64,
+    crtc_id_ptr: u64,
+    connector_id_ptr: u64,
+    encoder_id_ptr: u64,
+    count_fbs: u32,
+    count_crtcs: u32,
+    count_connectors: u32,
+    count_encoders: u32,
+    min_width: u32,
+    max_width: u32,
+    min_height: u32,
+    max_height: u32,
+}
+
+const GETRESOURCES: libc::c_ulong = ioc(RW, 0xa0, std::mem::size_of::<CardRes>());
 const CLIENT_CAP_UNIVERSAL_PLANES: u64 = 2;
 const XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
+const ARGB8888: u32 = u32::from_le_bytes(*b"AR24");
 const DRM_CLOEXEC: u32 = libc::O_CLOEXEC as u32;
 const DRM_RDWR: u32 = libc::O_RDWR as u32;
 
@@ -380,6 +399,165 @@ impl Drop for Overlay<'_> {
     }
 }
 
+/// The index of `crtc` in the card's CRTC list (the bit of a plane's possible_crtcs).
+fn crtc_index(fd: RawFd, crtc: u32) -> Option<u32> {
+    let mut crtcs = [0u32; 8];
+    let mut res = CardRes { crtc_id_ptr: crtcs.as_mut_ptr() as u64, count_crtcs: crtcs.len() as u32, ..Default::default() };
+    ioctl(fd, GETRESOURCES, &mut res).ok()?;
+    crtcs.iter().take(res.count_crtcs.min(8) as usize).position(|&c| c == crtc).map(|i| i as u32)
+}
+
+/// The planes that could carry the bar: unused, on our CRTC, with ARGB8888 (per-pixel alpha).
+fn free_alpha_planes(fd: RawFd, crtc: u32) -> Vec<u32> {
+    let Some(idx) = crtc_index(fd, crtc) else { return Vec::new() };
+    let mut ids = [0u32; 32];
+    let mut res = GetPlaneRes { plane_id_ptr: ids.as_mut_ptr() as u64, count_planes: ids.len() as u32, _pad: 0 };
+    if ioctl(fd, GETPLANERESOURCES, &mut res).is_err() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for &id in ids.iter().take(res.count_planes.min(32) as usize) {
+        let mut formats = [0u32; 64];
+        let mut p = GetPlane { plane_id: id, format_type_ptr: formats.as_mut_ptr() as u64, count_format_types: formats.len() as u32, ..Default::default() };
+        if ioctl(fd, GETPLANE, &mut p).is_err() || p.fb_id != 0 || p.crtc_id != 0 || p.possible_crtcs & (1 << idx) == 0 {
+            continue;
+        }
+        if formats.iter().take(p.count_format_types.min(64) as usize).any(|&f| f == ARGB8888) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// The status bar on a free overlay plane of the game's CRTC (lume-hud-actions D6, the
+/// user's change of 2026-11-17: drawn by the system, so it shows over any game). The game
+/// keeps running and presenting on its primary plane; ours, above it, holds an ARGB strip
+/// at the top. Two buffers, each new text drawn into the one off the screen. Dropping it
+/// turns the plane off and frees our buffers in the game's file.
+pub struct Bar<'a> {
+    screen: &'a Screen,
+    plane: u32,
+    bufs: Vec<Buf>,
+    front: Option<usize>,
+    pub width: u32,
+    pub height: u32,
+    pub pitch: usize,
+}
+
+impl<'a> Bar<'a> {
+    pub fn new(screen: &'a Screen, height: u32) -> Result<Bar<'a>, String> {
+        let fd = screen.fd.as_raw_fd();
+        let planes = free_alpha_planes(fd, screen.crtc);
+        if planes.is_empty() {
+            return Err("no free plane with alpha on the game's CRTC".into());
+        }
+        let mut bar = Bar { screen, plane: 0, bufs: Vec::new(), front: None, width: screen.fb.width, height, pitch: 0 };
+        for _ in 0..2 {
+            bar.add_buffer().map_err(|e| format!("our buffer: {e}"))?;
+        }
+        // the first plane that takes our buffer (a cursor plane, say, may refuse the size)
+        let mut why = String::new();
+        for p in planes {
+            bar.plane = p;
+            match bar.set(bar.bufs[0].fb) {
+                Ok(()) => {
+                    bar.front = Some(0);
+                    return Ok(bar);
+                }
+                Err(e) => why = format!("plane {p}: {e}"),
+            }
+        }
+        bar.plane = 0;
+        Err(why)
+    }
+
+    fn add_buffer(&mut self) -> io::Result<()> {
+        let fd = self.screen.fd.as_raw_fd();
+        let mut cd = CreateDumb { width: self.width, height: self.height, bpp: 32, ..Default::default() };
+        ioctl(fd, CREATE_DUMB, &mut cd)?;
+        self.bufs.push(Buf { handle: cd.handle, fb: 0, map: None });
+        let b = self.bufs.last_mut().unwrap();
+        self.pitch = cd.pitch as usize;
+        let mut md = MapDumb { handle: cd.handle, ..Default::default() };
+        ioctl(fd, MAP_DUMB, &mut md)?;
+        b.map = Map::new(fd, cd.size as usize, md.offset as i64, true);
+        if b.map.is_none() {
+            return Err(io::Error::last_os_error());
+        }
+        // transparent until the first text
+        b.map.as_mut().unwrap().bytes_mut().fill(0);
+        let mut add = FbCmd2 { width: cd.width, height: cd.height, pixel_format: ARGB8888, ..Default::default() };
+        add.handles[0] = cd.handle;
+        add.pitches[0] = cd.pitch;
+        ioctl(fd, ADDFB2, &mut add)?;
+        b.fb = add.fb_id;
+        Ok(())
+    }
+
+    fn set(&self, fb: u32) -> io::Result<()> {
+        let (w, h) = (self.width, self.height);
+        let mut sp = SetPlane {
+            plane_id: self.plane,
+            crtc_id: if fb == 0 { 0 } else { self.screen.crtc },
+            fb_id: fb,
+            crtc_w: if fb == 0 { 0 } else { w },
+            crtc_h: if fb == 0 { 0 } else { h },
+            src_w: if fb == 0 { 0 } else { w << 16 },
+            src_h: if fb == 0 { 0 } else { h << 16 },
+            ..Default::default()
+        };
+        let end = Instant::now() + Duration::from_millis(200);
+        loop {
+            match ioctl(self.screen.fd.as_raw_fd(), SETPLANE, &mut sp) {
+                Err(e) if e.raw_os_error() == Some(libc::EBUSY) && Instant::now() < end => {
+                    std::thread::sleep(Duration::from_millis(5))
+                }
+                r => return r,
+            }
+        }
+    }
+
+    fn back(&self) -> usize {
+        match self.front {
+            Some(0) => 1,
+            _ => 0,
+        }
+    }
+
+    /// The ARGB8888 pixels of the buffer off the screen.
+    pub fn back_pixels(&mut self) -> &mut [u8] {
+        let i = self.back();
+        self.bufs[i].map.as_mut().expect("mapped").bytes_mut()
+    }
+
+    /// Puts the buffer just drawn on the plane (again: a mode set of the game may have turned
+    /// the plane off, and the next text puts it back).
+    pub fn present(&mut self) -> io::Result<()> {
+        let i = self.back();
+        self.set(self.bufs[i].fb)?;
+        self.front = Some(i);
+        Ok(())
+    }
+}
+
+impl Drop for Bar<'_> {
+    fn drop(&mut self) {
+        let fd = self.screen.fd.as_raw_fd();
+        if self.plane != 0 && self.front.is_some() {
+            let _ = self.set(0);
+        }
+        for b in &mut self.bufs {
+            b.map = None;
+            if b.fb != 0 {
+                let mut id = b.fb;
+                let _ = ioctl(fd, RMFB, &mut id);
+            }
+            let mut h = b.handle;
+            let _ = ioctl(fd, DESTROY_DUMB, &mut h);
+        }
+    }
+}
+
 impl Drop for Screen {
     fn drop(&mut self) {
         // the handle GETFB2 opened in the game's file
@@ -407,6 +585,7 @@ mod tests {
         assert_eq!(RMFB, 0xc004_64af);
         assert_eq!(GEM_CLOSE, 0x4008_6409);
         assert_eq!(PRIME_HANDLE_TO_FD, 0xc00c_642d);
+        assert_eq!(GETRESOURCES, 0xc040_64a0);
     }
 
     #[test]

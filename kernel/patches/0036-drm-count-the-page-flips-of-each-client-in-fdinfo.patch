@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Tue, 17 Nov 2026 23:59:00 -0300
+Subject: [PATCH] drm: count the page flips of each client and show them in
+ fdinfo
+
+The status bar of the Lume Retro OS shows the frames per second of any
+game, whatever program runs it (RetroArch today, other emulators and
+ports later), so the number has to come from the system and not from
+the program.
+
+Count, per DRM file, the page flips the driver took: a successful
+legacy page flip, or an atomic commit (not a test) that asked for its
+flip event. Print the count as drm-page-flips in fdinfo, for the files
+of a modesetting driver. The FPS is the difference of two readings
+over the time between them.
+
+The KMS drivers of the consoles (sun4i-drm, rockchip) use the file
+operations of DEFINE_DRM_GEM_DMA_FOPS and DEFINE_DRM_GEM_FOPS, which
+had no show_fdinfo: both macros get drm_show_fdinfo, so those files
+show drm-driver, drm-client-id and the new key.
+
+
+diff --git a/drivers/gpu/drm/drm_atomic_uapi.c b/drivers/gpu/drm/drm_atomic_uapi.c
+index 4fc5f95..a4d69d1 100644
+--- a/drivers/gpu/drm/drm_atomic_uapi.c
++++ b/drivers/gpu/drm/drm_atomic_uapi.c
+@@ -1550,6 +1550,10 @@ int drm_mode_atomic_ioctl(struct drm_device *dev,
+ 	} else {
+ 		ret = drm_atomic_commit(state);
+ 	}
++	/* a presented frame: a real commit that asked for its flip event */
++	if (!ret && !(arg->flags & DRM_MODE_ATOMIC_TEST_ONLY) &&
++	    (arg->flags & DRM_MODE_PAGE_FLIP_EVENT))
++		atomic64_inc(&file_priv->page_flips);
+ 
+ out:
+ 	complete_signaling(dev, state, fence_state, num_fences, !ret);
+diff --git a/drivers/gpu/drm/drm_file.c b/drivers/gpu/drm/drm_file.c
+index be5e617..434027f 100644
+--- a/drivers/gpu/drm/drm_file.c
++++ b/drivers/gpu/drm/drm_file.c
+@@ -983,6 +983,10 @@ void drm_show_fdinfo(struct seq_file *m, struct file *f)
+ 
+ 	drm_printf(&p, "drm-driver:\t%s\n", dev->driver->name);
+ 	drm_printf(&p, "drm-client-id:\t%llu\n", file->client_id);
++	/* the frames this file presented (page flips): the FPS of any program */
++	if (drm_core_check_feature(dev, DRIVER_MODESET))
++		drm_printf(&p, "drm-page-flips:\t%llu\n",
++			   (u64)atomic64_read(&file->page_flips));
+ 
+ 	if (dev_is_pci(dev->dev)) {
+ 		struct pci_dev *pdev = to_pci_dev(dev->dev);
+diff --git a/drivers/gpu/drm/drm_plane.c b/drivers/gpu/drm/drm_plane.c
+index 4cadea9..30bc54a 100644
+--- a/drivers/gpu/drm/drm_plane.c
++++ b/drivers/gpu/drm/drm_plane.c
+@@ -1548,6 +1548,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
+ 		/* Keep the old fb, don't unref it. */
+ 		plane->old_fb = NULL;
+ 	} else {
++		atomic64_inc(&file_priv->page_flips);
+ 		if (!plane->state) {
+ 			plane->fb = fb;
+ 			drm_framebuffer_get(fb);
+diff --git a/include/drm/drm_file.h b/include/drm/drm_file.h
+index 1157637..3022b66 100644
+--- a/include/drm/drm_file.h
++++ b/include/drm/drm_file.h
+@@ -404,6 +404,15 @@ struct drm_file {
+ 	 */
+ 	struct mutex client_name_lock;
+ 
++	/**
++	 * @page_flips:
++	 *
++	 * Page flips this file asked for and the driver took (the legacy ioctl, or an atomic
++	 * commit with DRM_MODE_PAGE_FLIP_EVENT): the frames it presented. Printed in fdinfo as
++	 * drm-page-flips, so a tool can show the frames per second of any program.
++	 */
++	atomic64_t page_flips;
++
+ 	/**
+ 	 * @debugfs_client:
+ 	 *
+diff --git a/include/drm/drm_gem.h b/include/drm/drm_gem.h
+index 8d48d2a..68c7955 100644
+--- a/include/drm/drm_gem.h
++++ b/include/drm/drm_gem.h
+@@ -485,10 +485,14 @@ struct drm_gem_object {
+  * non-static version of this you're probably doing it wrong and will break the
+  * THIS_MODULE reference by accident.
+  */
++struct seq_file;
++void drm_show_fdinfo(struct seq_file *m, struct file *f);
++
+ #define DEFINE_DRM_GEM_FOPS(name) \
+ 	static const struct file_operations name = {\
+ 		.owner		= THIS_MODULE,\
+ 		DRM_GEM_FOPS,\
++		.show_fdinfo	= drm_show_fdinfo,\
+ 	}
+ 
+ void drm_gem_object_release(struct drm_gem_object *obj);
+diff --git a/include/drm/drm_gem_dma_helper.h b/include/drm/drm_gem_dma_helper.h
+index f2678e7..4ddcc93 100644
+--- a/include/drm/drm_gem_dma_helper.h
++++ b/include/drm/drm_gem_dma_helper.h
+@@ -268,6 +268,7 @@ unsigned long drm_gem_dma_get_unmapped_area(struct file *filp,
+ 		.llseek		= noop_llseek,\
+ 		.mmap		= drm_gem_mmap,\
+ 		.fop_flags = FOP_UNSIGNED_OFFSET, \
++		.show_fdinfo	= drm_show_fdinfo,\
+ 		DRM_GEM_DMA_UNMAPPED_AREA_FOPS \
+ 	}
+ 

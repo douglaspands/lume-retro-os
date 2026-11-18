@@ -83,7 +83,7 @@ impl Fonts {
     }
 
     /// A glyph of `font`, rasterized once per size.
-    fn glyph<R>(&self, font: &fontdue::Font, c: char, size: f32, f: impl FnOnce(&fontdue::Metrics, &[u8]) -> R) -> R {
+    pub(crate) fn glyph<R>(&self, font: &fontdue::Font, c: char, size: f32, f: impl FnOnce(&fontdue::Metrics, &[u8]) -> R) -> R {
         let key = (font as *const fontdue::Font as usize, c, (size * 8.0).round() as u32);
         let mut cache = self.cache.borrow_mut();
         let (m, bitmap) = cache.entry(key).or_insert_with(|| font.rasterize(c, size));
