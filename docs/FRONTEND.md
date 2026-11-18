@@ -66,7 +66,12 @@ interface (`lume-ui`) e, quando ela pede, o jogo, sempre como `game`:
 | 0 (Desligar) | sai com 0: a sessão desliga |
 | 64 | roda o jogo pedido em `$XDG_RUNTIME_DIR/lume/launch` e reabre a interface |
 | 65 | abre o menu do RetroArch sem jogo e reabre a interface ao sair dele |
+| 66 (Reiniciar) | sai com 66: a sessão reinicia |
 | outro | sai com 1: falha do frontend |
+
+Contrato de sessão do `lume-run` (congelado): sai com **0** para desligar, **66** para
+reiniciar e qualquer outro valor é falha. As constantes 64, 65 e 66 existem nos dois lados
+(`lume-ui` e `lume-run`); `tests/unit/test_session_exit_codes.py` confere.
 
 Durante o jogo, só o `lume-run` e o daemon de entrada (`lume-input`) ficam na memória.
 **Fn+Start** encerra o jogo e volta ao launcher. Sair pelo menu do RetroArch também volta ao
