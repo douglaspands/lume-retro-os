@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os.paths import REPO_ROOT, cache_dir
+from lume_tool.paths import REPO_ROOT, cache_dir
 
 APORT = REPO_ROOT / "aports/retroarch"
 APKBUILD = (APORT / "APKBUILD").read_text()

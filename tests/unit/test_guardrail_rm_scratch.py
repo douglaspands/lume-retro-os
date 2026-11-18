@@ -8,7 +8,7 @@ escapes with `..`, a symlink that points outside, an unknown option, a mix of ta
 import importlib.util
 import os
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 spec = importlib.util.spec_from_file_location("guardrail", REPO_ROOT / "scripts/guardrail.py")
 guardrail = importlib.util.module_from_spec(spec)

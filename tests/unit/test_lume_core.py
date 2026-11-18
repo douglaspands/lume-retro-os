@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-from r36os import packages
-from r36os.paths import REPO_ROOT
+from lume_tool import packages
+from lume_tool.paths import REPO_ROOT
 
 BASE_COMMIT = "76b148d"  # the last commit with every file still in rootfs/overlay
 APORT = REPO_ROOT / "aports/lume-core"

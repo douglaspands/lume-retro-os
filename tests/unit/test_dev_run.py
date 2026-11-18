@@ -1,9 +1,9 @@
-"""Unit tests of `r36os dev run` with a fake console and a fake clock: no device, no ssh."""
+"""Unit tests of `lume dev run` with a fake console and a fake clock: no device, no ssh."""
 import re
 
 import pytest
 
-from r36os import dev, dev_run, scripts
+from lume_tool import dev, dev_run, scripts
 
 SECRET = "Secret Game Title"
 

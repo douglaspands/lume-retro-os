@@ -4,9 +4,9 @@ import re
 
 import pytest
 
-from r36os import fragments as frag
-from r36os import packages
-from r36os.paths import REPO_ROOT
+from lume_tool import fragments as frag
+from lume_tool import packages
+from lume_tool.paths import REPO_ROOT
 
 FRAGMENTS = ("lume-usb", "lume-net", "lume-audio", "lume-saves", "lume-diag", "lume-power",
              "lume-games", "lume-launcher-data", "lume-retroarch-cfg", "lume-shaders")

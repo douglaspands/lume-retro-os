@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import archive, cli, fragment_build as fb, image, manifests, slots, version
-from r36os.targets import IMAGES
+from lume_tool import archive, cli, fragment_build as fb, image, manifests, slots, version
+from lume_tool.targets import IMAGES
 
 GROUPS = slots.Groups(patterns={"runtime": ("retroarch", "libretro-*", "mesa", "mesa-*"),
                                 "lume": ("lume-*",), "base": ()},
@@ -149,8 +149,8 @@ def test_plan_of_the_real_aports():
                                   ["build", "--all", "--console", "r36s"],
                                   ["build", "no-such-fragment"]])
 def test_cli_refuses_before_creating_anything(tmp_path, monkeypatch, capsys, argv):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     assert cli.main(argv) == 2
     assert capsys.readouterr().err.startswith("error: ")
     assert list(tmp_path.iterdir()) == []
@@ -177,7 +177,7 @@ def _file(path: Path, data: bytes) -> Path:
 
 def _layers(tmp_path):
     outs = {}
-    from r36os import kernel_packages
+    from lume_tool import kernel_packages
 
     for board, kernel in (("ga36", "zImage"), ("r36s", "Image")):
         out = tmp_path / board
@@ -197,9 +197,9 @@ def _layers(tmp_path):
 
 @pytest.fixture
 def console_set(tmp_path, monkeypatch):
-    from r36os import r36s_vendor
+    from lume_tool import r36s_vendor
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     outs = _layers(tmp_path)
     factory = {"factory.bin": _file(tmp_path / "factory/factory.bin", b"factory")}
     monkeypatch.setattr(r36s_vendor, "factory_boot_files", lambda: factory)
@@ -241,14 +241,14 @@ def test_console_set_lists_every_boot_file_and_stores_the_objects(console_set):
 
 def test_console_set_needs_the_outputs_of_a_console_build(tmp_path, monkeypatch, console_set):
     (console_set["outs"]["r36s"] / "kernel-pkg/boot/Image").unlink()
-    with pytest.raises(image.ConsoleImageError, match="last `r36os build console`.*Image"):
+    with pytest.raises(image.ConsoleImageError, match="last `lume build console`.*Image"):
         image.write_console_set(console_set["v"], ga36_out=console_set["outs"]["ga36"],
                                 r36s_out=console_set["outs"]["r36s"], out=console_set["out"],
                                 area_writer=lambda dest: _file(dest, b"a"))
 
 
 def test_archived_set_is_pushable_and_flashable(console_set):
-    from r36os import flash
+    from lume_tool import flash
 
     out, outs, v = console_set["out"], console_set["outs"], console_set["v"]
     extras = image.ga36_android_boot_images(outs["ga36"])
@@ -272,7 +272,7 @@ def test_archived_set_is_pushable_and_flashable(console_set):
 
 
 def test_latest_language(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     assert fb.latest_language() is None
     d = archive.images_dir(IMAGES["console"]) / "20261117-000000"
     d.mkdir(parents=True)

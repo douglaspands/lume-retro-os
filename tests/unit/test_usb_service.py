@@ -3,7 +3,7 @@ busybox (tests/usb/test_usb_gadget.sh)."""
 
 import re
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 INIT = (REPO_ROOT / "aports/lume-usb/files/etc/init.d/lume-usb").read_text()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()

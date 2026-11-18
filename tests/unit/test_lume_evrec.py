@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-from r36os import evrec
-from r36os.paths import REPO_ROOT
+from lume_tool import evrec
+from lume_tool.paths import REPO_ROOT
 
 APORT = REPO_ROOT / "aports/lume-input"
 CC = shutil.which("cc") or shutil.which("gcc")
@@ -364,7 +364,7 @@ def test_record_with_the_real_clock_ends_promptly_on_a_signal(exe, tmp_path, sig
 
 
 def test_record_under_nohup_survives_a_hangup(exe, tmp_path):
-    # `r36os dev record` starts the recorder with nohup: the ssh session ending is not a stop
+    # `lume dev record` starts the recorder with nohup: the ssh session ending is not a stop
     c = Console(exe, tmp_path, clock=None)
     out = tmp_path / "out.evrec"
     p = subprocess.Popen([str(exe), "record", str(out)], env=c.env, stdout=subprocess.PIPE,

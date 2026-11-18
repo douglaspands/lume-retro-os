@@ -1,14 +1,14 @@
 """GA36-MB V1.2 DTS against appendix B of the design (task 9.3).
 
 Reads the source (board/ga36/dts/) without compiling: dtc and dt-validate run in the build
-(r36os.kernel.build_dtbs). The expected values are those of appendix B.
+(lume_tool.kernel.build_dtbs). The expected values are those of appendix B.
 """
 
 import re
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 DTS_DIR = REPO_ROOT / "board/ga36/dts"
 DTSI = (DTS_DIR / "sun8i-a33-ga36-mb-v1.2.dtsi").read_text()

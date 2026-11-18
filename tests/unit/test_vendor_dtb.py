@@ -1,18 +1,18 @@
 """Vendor RK3326 device trees converted for the mainline kernel (boot-dtb-select D12, tasks
-7.4 to 7.8): r36os.vendor_dtb and the trees it wrote to board/r36s/dts-vendor/.
+7.4 to 7.8): lume_tool.vendor_dtb and the trees it wrote to board/r36s/dts-vendor/.
 
 The tests with real vendor DTBs use the copies in .cache/upstream (dArkOSRE-R36,
 arkos4clone, EE-Clones-DTB) and the factory tree of the R36S V5 in out/r36s-factory; they
 are skipped without them. The compile and the dt-validate of the converted trees run in
-the build (r36os.kernel.build_dtbs).
+the build (lume_tool.kernel.build_dtbs).
 """
 
 import re
 
 import pytest
 
-from r36os import fdt, vendor_dtb
-from r36os.paths import REPO_ROOT
+from lume_tool import fdt, vendor_dtb
+from lume_tool.paths import REPO_ROOT
 
 COLLECTIONS = vendor_dtb.default_sources()
 FACTORY = COLLECTIONS["factory"] / "rk3326-r35s-linux.dtb"
@@ -374,7 +374,7 @@ def test_every_collection_tree_converts_or_is_refused_with_a_reason(tmp_path):
     # the committed trees are what the importer writes today
     committed = {p.name: p.read_text() for p in VENDOR_DIR.glob("*")}
     fresh = {p.name: p.read_text() for p in tmp_path.glob("*")}
-    assert committed == fresh, "board/r36s/dts-vendor is stale: run r36os dtb-import"
+    assert committed == fresh, "board/r36s/dts-vendor is stale: run lume dtb-import"
 
 
 def _source_supply(data: bytes):

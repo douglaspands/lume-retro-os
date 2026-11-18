@@ -1,6 +1,6 @@
 import copy
 
-from r36os import catalog, pkglists
+from lume_tool import catalog, pkglists
 
 CAT = catalog.load()
 
@@ -71,7 +71,7 @@ def test_systems_match_design_table():
 def test_vm_core_tests_cover_what_has_a_free_rom():
     # the VM self-test runs a core with a ROM the build can generate (or Gridlee for fbneo);
     # fbalpha2012_* have no free romset: they are only checked by tests/cores/load_cores.sh
-    from r36os import testdata
+    from lume_tool import testdata
 
     tests = testdata.core_tests(CAT)
     assert tests["fbneo"] == ("arcade", "roms/arcade/gridlee.zip")
@@ -219,7 +219,7 @@ def test_validator_refuses_bad_runner():
 def test_new_folders_created_without_deleting(tmp_path):
     # love/ and ports/ come from the catalog ids, like every other system folder; an old
     # card keeps its games
-    from r36os import flash
+    from lume_tool import flash
 
     old = tmp_path / "roms/megadrive"
     old.mkdir(parents=True)

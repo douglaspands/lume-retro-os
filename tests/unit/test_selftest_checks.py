@@ -1,9 +1,9 @@
-"""The VM self-test (guest script) and `r36os test-vm` (host) agree on the checks."""
+"""The VM self-test (guest script) and `lume test-vm` (host) agree on the checks."""
 
 import re
 
-from r36os.paths import REPO_ROOT
-from r36os.selftest import KEY_PREFIX, KEYS, expected_checks
+from lume_tool.paths import REPO_ROOT
+from lume_tool.selftest import KEY_PREFIX, KEYS, expected_checks
 
 SELFTEST_SH = REPO_ROOT / "aports/lume-diag/files/usr/libexec/lume/selftest"
 # decided by the host from the serial, not by the guest script

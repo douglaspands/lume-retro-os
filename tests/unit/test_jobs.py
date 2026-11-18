@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from r36os import cli, jobs, kernel, packages, rootfs, uboot
-from r36os.container import Container
+from lume_tool import cli, jobs, kernel, packages, rootfs, uboot
+from lume_tool.container import Container
 
 
 def test_podman_argv_starts_with_nice_and_ionice():
@@ -14,7 +14,7 @@ def test_podman_argv_starts_with_nice_and_ionice():
 
 
 def test_jobs_default_is_half_the_cores_minimum_one(monkeypatch):
-    monkeypatch.delenv("R36OS_JOBS", raising=False)
+    monkeypatch.delenv("LUME_JOBS", raising=False)
     monkeypatch.setattr(os, "cpu_count", lambda: 16)
     assert jobs.jobs() == 8
     monkeypatch.setattr(os, "cpu_count", lambda: 1)
@@ -24,7 +24,7 @@ def test_jobs_default_is_half_the_cores_minimum_one(monkeypatch):
 
 
 def test_jobs_env_and_option_precedence(monkeypatch):
-    monkeypatch.setenv("R36OS_JOBS", "3")
+    monkeypatch.setenv("LUME_JOBS", "3")
     assert jobs.jobs() == 3
     jobs.set_jobs(5)  # the option beats the environment
     assert jobs.jobs() == 5
@@ -35,7 +35,7 @@ def test_jobs_env_and_option_precedence(monkeypatch):
 
 
 def test_cli_prints_one_line_and_applies_option(monkeypatch, capsys):
-    monkeypatch.setenv("R36OS_JOBS", "2")
+    monkeypatch.setenv("LUME_JOBS", "2")
     monkeypatch.setattr(packages, "build_packages", lambda *a, **k: None)
     assert cli.main(["pkg", "vm", "x", "--jobs", "4"]) == 0
     out = capsys.readouterr().out
@@ -44,14 +44,14 @@ def test_cli_prints_one_line_and_applies_option(monkeypatch, capsys):
 
 
 def test_make_scripts_carry_jobs(monkeypatch):
-    monkeypatch.setenv("R36OS_JOBS", "6")
+    monkeypatch.setenv("LUME_JOBS", "6")
     assert "-j{jobs}" in kernel._KERNEL_SCRIPT
     assert "-j{jobs}" in uboot._SCRIPT
     assert "nproc" not in kernel._KERNEL_SCRIPT + uboot._SCRIPT
 
 
 def test_mksquashfs_carries_processors(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_JOBS", "6")
+    monkeypatch.setenv("LUME_JOBS", "6")
     seen = []
 
     class FakeContainer:
@@ -72,9 +72,9 @@ def test_mksquashfs_carries_processors(tmp_path, monkeypatch):
 
 
 def test_abuild_container_env_carries_jobs(monkeypatch):
-    from r36os.targets import get_target
+    from lume_tool.targets import get_target
 
-    monkeypatch.setenv("R36OS_JOBS", "6")
+    monkeypatch.setenv("LUME_JOBS", "6")
     monkeypatch.setattr(packages, "ensure_builder", lambda t: "b")
     c = packages._container(get_target("vm"), packages.REPO_ROOT / "aports")
     assert c.env["JOBS"] == "6" and c.env["MAKEFLAGS"] == "-j6"
@@ -82,9 +82,9 @@ def test_abuild_container_env_carries_jobs(monkeypatch):
 
 
 def test_archive_zstd_uses_jobs_workers(tmp_path, monkeypatch):
-    from r36os import archive
+    from lume_tool import archive
 
-    monkeypatch.setenv("R36OS_JOBS", "2")
+    monkeypatch.setenv("LUME_JOBS", "2")
     src = tmp_path / "a.img"
     src.write_bytes(b"abc" * 1000)
     raw, _ = archive._compress(src, tmp_path / "a.img.zst")

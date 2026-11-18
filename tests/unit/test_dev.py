@@ -1,8 +1,8 @@
-"""Unit tests of r36os.dev: pure functions, no device."""
+"""Unit tests of lume_tool.dev: pure functions, no device."""
 
 import pytest
 
-from r36os import dev
+from lume_tool import dev
 
 GA36_DEVICES = """\
 I: Bus=0019 Vendor=0001 Product=0001 Version=0100

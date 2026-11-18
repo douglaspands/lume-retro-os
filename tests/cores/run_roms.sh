@@ -3,7 +3,7 @@
 # frames, with null video, audio and input. Prints the log line that confirms the content
 # was loaded.
 set -u
-cp /keys/r36os.rsa.pub /etc/apk/keys/
+cp /keys/lume.rsa.pub /etc/apk/keys/
 apk add -q -X /repo retroarch jq libretro-fceumm libretro-nestopia libretro-gambatte \
 	libretro-gpsp libretro-snes9x2005-plus libretro-genesis-plus-gx \
 	libretro-picodrive libretro-fbneo libretro-pcsx-rearmed >/dev/null || exit 1

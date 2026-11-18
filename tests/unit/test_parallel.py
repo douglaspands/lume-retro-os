@@ -6,8 +6,8 @@ import threading
 
 import pytest
 
-from r36os import jobs, parallel
-from r36os.stages import StageTimer
+from lume_tool import jobs, parallel
+from lume_tool.stages import StageTimer
 
 
 def test_split_even_odd_and_too_few():

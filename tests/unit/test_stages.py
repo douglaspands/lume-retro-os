@@ -1,6 +1,6 @@
 import pytest
 
-from r36os.stages import StageTimer, format_duration
+from lume_tool.stages import StageTimer, format_duration
 
 
 class Clock:

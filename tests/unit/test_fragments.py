@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from r36os import fragments as frag
-from r36os import manifests, packages
-from r36os.targets import get_target
+from lume_tool import fragments as frag
+from lume_tool import manifests, packages
+from lume_tool.targets import get_target
 
 H1 = "1" * 64
 H2 = "2" * 64
@@ -61,7 +61,7 @@ def make_apk(path: Path, name: str = "lume-x", version: str = "1.0-r0",
     data = [_dir("usr"), _dir("usr/share"), _dir("usr/share/x")]
     data += [_file(n, d, modes.get(n, 0o644)) for n, d in files.items()]
     data += [_link(n, t) for n, t in (links or {}).items()]
-    sig = gzip.compress(_tar([_file(".SIGN.RSA.r36os.rsa.pub", b"s" * 256)], cut=True))
+    sig = gzip.compress(_tar([_file(".SIGN.RSA.lume.rsa.pub", b"s" * 256)], cut=True))
     ctl = gzip.compress(_tar([_file(".PKGINFO", pkginfo)], cut=True))
     dat = gzip.compress(_tar(data, cut=False))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -298,7 +298,7 @@ class FakeBuilder:
     def sh(self, script, **kw):
         if self.repodest is None:   # key/reindex containers
             return None
-        name = re.search(r"/aports/r36os/([^ )]+) &&", script)[1]
+        name = re.search(r"/aports/lume/([^ )]+) &&", script)[1]
         commit = re.search(r"ABUILD_LAST_COMMIT=([0-9a-f]+)", script)[1]
         gen = next(h for h, g in self.volumes.items() if g.endswith(f"{name}/APKBUILD"))
         ver, rel = frag.apkbuild_version(Path(gen).read_text())
@@ -311,7 +311,7 @@ class FakeBuilder:
 
 @pytest.fixture
 def fake_build(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     calls: list[str] = []
     monkeypatch.setattr(packages, "_container",
                         lambda target, aports, **kw: FakeBuilder(calls, target, aports, **kw))

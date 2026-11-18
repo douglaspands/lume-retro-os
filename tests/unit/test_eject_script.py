@@ -3,7 +3,7 @@
 import importlib.util
 from pathlib import Path
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 EJECT_SCRIPT = REPO_ROOT / "scripts/eject.py"
 

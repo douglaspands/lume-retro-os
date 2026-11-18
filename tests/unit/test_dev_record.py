@@ -1,9 +1,9 @@
-"""Unit tests of `r36os dev record|play` with a fake console: no device, no ssh."""
+"""Unit tests of `lume dev record|play` with a fake console: no device, no ssh."""
 import time
 
 import pytest
 
-from r36os import dev, evrec
+from lume_tool import dev, evrec
 
 GOOD = "# lume-evrec 1 ga36\n10 1 304 1\n90 1 304 0\n# end 100\n"
 EMPTY = "# lume-evrec 1 ga36\n# end 100\n"

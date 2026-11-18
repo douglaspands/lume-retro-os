@@ -1,4 +1,4 @@
-"""Drive the running vm over QMP (the socket of `r36os vm`, .cache/vm/qmp.sock).
+"""Drive the running vm over QMP (the socket of `lume vm`, .cache/vm/qmp.sock).
 
   vm_qmp.py shot NAME             screen to cache/tmp/shots/vm/NAME.png (plain virtio-vga only)
   vm_qmp.py keys K1+K2 [HOLD_MS]  press qcodes together (f1, f1+w, down, x, z, ret...)
@@ -10,9 +10,9 @@ import shutil
 import sys
 import time
 
-from r36os.paths import REPO_ROOT
-from r36os.qmp import QMP
-from r36os.vm import run_dir
+from lume_tool.paths import REPO_ROOT
+from lume_tool.qmp import QMP
+from lume_tool.vm import run_dir
 
 OUT = REPO_ROOT / "cache/tmp/shots/vm"
 

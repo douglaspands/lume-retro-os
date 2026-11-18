@@ -1,6 +1,6 @@
-# Screens for `r36os dev shot --compare|--update <screen>` (build-speed D19).
+# Screens for `lume dev shot --compare|--update <screen>` (build-speed D19).
 #
-# `keys` is the button sequence (syntax of `r36os dev keys`) that reaches the screen from the
+# `keys` is the button sequence (syntax of `lume dev keys`) that reaches the screen from the
 # launcher home; empty means the home itself. Every sequence starts from the home, so go back
 # to the home (or restart the launcher) before comparing the next screen.
 # The references are tests/device/shots/<console>/<screen>.png, one directory per console

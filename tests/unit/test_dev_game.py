@@ -2,7 +2,7 @@
 console query parsed from a fake index answer. No device, no ssh."""
 import pytest
 
-from r36os import dev, dev_game, dev_run, scripts
+from lume_tool import dev, dev_game, dev_run, scripts
 
 SECRET = "Secret Game Title"
 

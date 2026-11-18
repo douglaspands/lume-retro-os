@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 POWER = REPO_ROOT / "aports/lume-power/files"
 SERVICE = POWER / "usr/bin/lume-power"

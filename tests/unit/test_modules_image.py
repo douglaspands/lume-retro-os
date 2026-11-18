@@ -1,9 +1,9 @@
 """kernel-modules-image: the console kernel modules live in BOOT/<console>/modules, not in
 SYSTEM (D1-D3)."""
 
-from r36os import build, rootfs
-from r36os.paths import REPO_ROOT
-from r36os.targets import get_target
+from lume_tool import build, rootfs
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import get_target
 
 
 def test_modules_image_command(tmp_path, monkeypatch):
@@ -43,7 +43,7 @@ def test_modules_image_command(tmp_path, monkeypatch):
 
 
 def test_build_console_kernel_makes_the_modules_image(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
     made = []
 
     def fake_kernel(board, kdir, initramfs_dir=None):

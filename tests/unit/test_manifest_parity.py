@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool.paths import REPO_ROOT, out_dir
 
 # the VM's Mesa is the local build with virgl (aports/mesa, arch x86_64)
 HW_VARIANTS = re.compile(r"^mesa(-.*)?$")

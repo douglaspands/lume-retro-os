@@ -1,7 +1,7 @@
 """R36S kernel config (task 4.1 of r36s-single-card): board/r36s/kernel.config and the
 generated .config.
 
-The final .config (out/r36s/kernel/config) only exists after `r36os build console`;
+The final .config (out/r36s/kernel/config) only exists after `lume build console`;
 without it the tests that depend on it are skipped.
 """
 
@@ -9,9 +9,9 @@ import re
 
 import pytest
 
-from r36os import bootarea, build
-from r36os.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool import bootarea, build
+from lume_tool.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
+from lume_tool.paths import REPO_ROOT, out_dir
 
 BOARD = REPO_ROOT / "board/r36s"
 FRAGMENT = (BOARD / "kernel.config").read_text()

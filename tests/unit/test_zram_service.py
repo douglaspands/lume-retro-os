@@ -3,8 +3,8 @@
 import subprocess
 from pathlib import Path
 
-from r36os.paths import REPO_ROOT
-from r36os.selftest import expected_checks
+from lume_tool.paths import REPO_ROOT
+from lume_tool.selftest import expected_checks
 
 ZRAM_SCRIPT = REPO_ROOT / "aports/lume-power/files/usr/libexec/lume/zram"
 ZRAM_INIT = REPO_ROOT / "aports/lume-power/files/etc/init.d/lume-zram"

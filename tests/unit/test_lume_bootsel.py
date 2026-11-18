@@ -3,7 +3,7 @@ initramfs, run on the PC against a fake root (--root).
 
 The binary is built static once per session in the x86_64 builder (musl), with libfdt
 from the dtc tarball of the aport (.cache/distfiles, fetched by
-`r36os pkg vm lume-bootsel`). In the fake root a device node that is a regular file is a
+`lume pkg vm lume-bootsel`). In the fake root a device node that is a regular file is a
 description of the device:
 
 - /dev/input/eventN: input_event records read by the list; eventN.held: the codes held at
@@ -21,10 +21,10 @@ import subprocess
 
 import pytest
 
-from r36os import fdt
-from r36os.container import Container, ensure_builder
-from r36os.paths import REPO_ROOT, cache_dir
-from r36os.targets import TARGETS
+from lume_tool import fdt
+from lume_tool.container import Container, ensure_builder
+from lume_tool.paths import REPO_ROOT, cache_dir
+from lume_tool.targets import TARGETS
 
 APORT = REPO_ROOT / "aports/lume-bootsel"
 SOURCE = APORT / "lume-bootsel.c"
@@ -55,7 +55,7 @@ def tools(tmp_path_factory):
     if shutil.which("podman") is None:
         pytest.skip("no podman")
     if not DTC_TAR.exists():
-        pytest.skip(f"no {DTC_TAR.name} (run: r36os pkg vm lume-bootsel --checksum)")
+        pytest.skip(f"no {DTC_TAR.name} (run: lume pkg vm lume-bootsel --checksum)")
     digest = hashlib.sha256(SOURCE.read_bytes() + _BUILD.encode()).hexdigest()[:16]
     out = cache_dir() / "test-bin" / f"lume-bootsel-{digest}"
     if not (out / "lume-bootsel").exists():
@@ -1198,7 +1198,7 @@ def _image_on(disk, size):
 
 
 def _expected_image(root, dtb_name):
-    from r36os import bootimg
+    from lume_tool import bootimg
     zimage = (root.path / "boot/ga36/zImage").read_bytes()
     dtb = (root.path / f"boot/dtbs/a33/{dtb_name}").read_bytes()
     return bootimg.make(zimage + dtb)

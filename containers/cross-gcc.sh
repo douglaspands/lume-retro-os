@@ -6,9 +6,9 @@
 # Alpine binary repository instead of being bootstrapped (no gcc-pass2, no musl build).
 # binutils-<arch> already ships in Alpine (same version as the target's binutils).
 #
-# Runs natively in localhost/r36os-builder:x86_64 (no qemu). Inputs (environment):
+# Runs natively in localhost/lume-builder:x86_64 (no qemu). Inputs (environment):
 #   CTARGET_ARCH  armv7 | aarch64
-#   GCC_COMMIT    aports commit of main/gcc (pinned in src/r36os/distcc.py)
+#   GCC_COMMIT    aports commit of main/gcc (pinned in src/lume_tool/distcc.py)
 #   GCC_VERSION   expected <pkgver>-r<pkgrel>; must match the target repository's gcc
 #   STOP_AFTER    optional: "prepare" stops after deps + fetch + unpack + patches
 # Output: /cross/repo/main/x86_64/{gcc,g++,libstdc++-dev}-<arch>-*.apk (and the
