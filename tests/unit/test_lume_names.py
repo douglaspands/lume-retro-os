@@ -4,7 +4,7 @@ Reads the map in docs/NOMES.md, scans the tracked files for `r36os` (in file nam
 content), leaves out the "Fica como está" items and reports what is still pending. Until task
 1.4 flips ENFORCE the report never fails the run; run this file as a script for the full list:
 
-    .venv/bin/python tests/unit/test_lume_names.py [--list]
+    .venv/bin/python tests/unit/test_lume_names.py [--console|--pc] [--list]
 """
 import re
 import subprocess
@@ -156,9 +156,8 @@ def test_new_names_do_not_keep_the_old_prefix():
 def test_kept_items_are_not_renamed():
     rename, keep = parse_map()
     kept = {t for item, _r in keep for t in re.findall(r"`([^`]+)`", item)}
-    # the factory variables are renamed AND the old name stays as a read-only alias (NOMES.md, 8)
-    alias_ok = {"R36OS_GA36_FACTORY", "R36OS_R36S_FACTORY"}
-    clash = [r["Antes"] for r in rename if r["Antes"] in kept and r["Antes"] not in alias_ok]
+    # no old name is kept as an alias (NOMES.md, 8 and 13: Q4)
+    clash = [r["Antes"] for r in rename if r["Antes"] in kept]
     assert not clash, f"in both the rename and the keep tables: {clash}"
 
 
@@ -244,10 +243,32 @@ def test_console_names_have_no_r36os():
     assert not pending, "\n".join(f"{p}:{n}: {t}" for p, n, t in pending[:50])
 
 
+# PC mode (task 1.3): the PC tool, its tests, helpers, containers, the ctx policy and the
+# agent skills. Nothing named r36os may be left here but the "Fica como está" items (the old
+# evrec header and the old signature, read for compatibility).
+PC_SCOPE = ("src/", "tests/", "scripts/", "containers/", "pyproject.toml", "policy.toml",
+            ".claude/", ".agents/", ".gitignore")
+
+
+def find_pc_pending(files=None, rename_rows=None, keep_rows=None):
+    """Like find_pending, limited to PC_SCOPE."""
+    if files is None:
+        files = tracked_files()
+    return find_pending([f for f in files if f.startswith(PC_SCOPE)], rename_rows, keep_rows)
+
+
+def test_pc_names_have_no_r36os():
+    """Task 1.3 closed the PC tool side: this check is enforced (ENFORCE is for 1.4)."""
+    pending = find_pc_pending()
+    assert not pending, "\n".join(f"{p}:{n}: {t}" for p, n, t in pending[:50])
+
+
 if __name__ == "__main__":
     result = find_pending()
     if "--console" in sys.argv:
         result = find_console_pending()
+    if "--pc" in sys.argv:
+        result = find_pc_pending()
     if "--list" in sys.argv:
         for path, num, text in result:
             print(f"{path}:{num}: {text}")
