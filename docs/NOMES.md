@@ -538,6 +538,8 @@ ocorrência.
 | `uv.lock` | Arquivo gerado: o `uv sync --inexact` o refaz depois da troca do nome do projeto |
 | `# r36os-evrec` | Cabeçalho das gravações de entrada feitas antes da troca (`evrec.LEGACY_MAGIC`): a ferramenta ainda as lê (compatibilidade de dados, 1.3) |
 | `.SIGN.RSA.r36os.rsa.pub` | Assinatura dos pacotes feitos antes da troca da chave: o teste da reassinatura única (`test_resign_published.py`, 1.3) a reconhece |
+| `OLD_BOOT_N = "/run/r36os/logs/boot-n"` | Console com um build de antes da troca (J0, 1.5): o `push` lê o número do boot no caminho antigo para mandar os nomes novos (`push.py`, compatibilidade) |
+| `cat /etc/r36os/board 2>/dev/null` | Idem, a placa do console no caminho antigo (`push.py`, compatibilidade) |
 
 Nome do repositório (pasta `r36s_all`, nome no GitHub): fica como está; é o nome do repositório,
 que não aparece em nenhum código (o D7 já o exclui). Nenhum arquivo do repositório tem

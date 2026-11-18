@@ -88,11 +88,16 @@ BACK_TIMEOUT = 180               # seconds for it to answer again over the cable
 BOOT_OK_TIMEOUT = 120            # seconds, once back, for `boot OK completed` in events.log
 POLL_INTERVAL = 2.0
 BOOT_N = "/run/lume/logs/boot-n"
+# A console still on a build from before the lume rename (device-fixes D7) keeps these under
+# the old prefix: the push that brings the new names has to read them once.
+OLD_BOOT_N = "/run/r36os/logs/boot-n"
+READ_BOARD = "cat /etc/lume/board 2>/dev/null || cat /etc/r36os/board 2>/dev/null"
 EVENTS_LOG = "/storage/logs/events.log"
 BOOT_OK = "boot OK completed"
-READ_BOOT_N = f"cat {BOOT_N} 2>/dev/null || true"
+READ_BOOT_N = f"cat {BOOT_N} 2>/dev/null || cat {OLD_BOOT_N} 2>/dev/null || true"
 # one line each: boot number, build of /boot/VERSION, last `boot OK completed` of that boot
-BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null); echo \"${{n:--}}\"; "
+BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null || cat {OLD_BOOT_N} 2>/dev/null); "
+               "echo \"${n:--}\"; "
                "sed -n 's/^build: //p' /boot/VERSION; "
                f"awk -v n=\"$n\" '$2 == n && /{BOOT_OK}/' {EVENTS_LOG} 2>/dev/null | tail -n 1")
 
@@ -101,7 +106,7 @@ BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null); echo \"${{n:--}}\"; "
 # the R36S and both answer at CONSOLE_ADDR, so `push`, `push --hot` and `dev` ask the console.
 CONSOLES = ("ga36", "r36s")
 MACHINE_CONSOLE = {"armv7l": "ga36", "aarch64": "r36s"}    # `uname -m` when there is no board
-IDENTIFY = 'b=$(cat /etc/lume/board 2>/dev/null); echo "${b:--}"; uname -m'
+IDENTIFY = f'b=$({READ_BOARD}); echo "${{b:--}}"; uname -m'
 
 
 def console_name(board: str, machine: str = "") -> str:
@@ -220,7 +225,7 @@ class Console:
 
 _PROBE = r"""
 sed -n 's/^build: //p' /boot/VERSION
-cat /etc/lume/board
+b=$(cat /etc/lume/board 2>/dev/null || cat /etc/r36os/board 2>/dev/null); echo "${b:--}"
 b=""; for p in /sys/class/power_supply/*; do [ "$(cat $p/type 2>/dev/null)" = Battery ] && b=$(cat $p/capacity); done; echo "${b:--}"
 df -Pk /storage | awk 'NR==2{print $4}'
 df -Pk /boot | awk 'NR==2{print $4}'
