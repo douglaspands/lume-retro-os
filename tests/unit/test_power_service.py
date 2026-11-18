@@ -518,6 +518,53 @@ def test_critical_needs_two_readings_in_a_row_while_discharging(tmp_path, servic
     assert "power OK shutdown: battery critical" in s.events()
 
 
+def test_suspend_applies_the_lowest_and_resume_restores_the_exact_scenario(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES).start()
+    s.send("game gba gpsp")
+    s.wait_event("profile: game -> gba")
+    before = {k: s.sysfs(k) for k in (f"{CF}/scaling_min_freq", f"{CF}/scaling_max_freq",
+                                      f"{CF}/scaling_governor", "devices/system/cpu/cpu3/online",
+                                      "class/devfreq/1c40000.gpu/max_freq")}
+    s.clear_writes()
+    s.send("suspend")
+    s.wait_event("profile: game -> suspend")
+    assert s.sysfs(f"{CF}/scaling_min_freq") == "120000"
+    assert s.sysfs(f"{CF}/scaling_max_freq") == "120000"
+    for n in (1, 2, 3):
+        assert s.sysfs(f"devices/system/cpu/cpu{n}/online") == "0"
+    assert s.sysfs("class/devfreq/1c40000.gpu/max_freq") == "144000000"
+    assert not any("cpu0/online" in w for w in s.writes())
+    assert "scenario suspend" in s.state() and "current suspend" in s.state()
+    # scenario messages wait for the resume; a second suspend is a no-op
+    s.send("menu")
+    s.send("suspend")
+    s.send("bogus message")
+    s.send("resume")
+    s.wait_event("profile: suspend -> gba")
+    assert {k: s.sysfs(k) for k in before} == before
+    assert "scenario game" in s.state() and "current gba" in s.state()
+    assert not any("-> menu" in e for e in s.events())  # the queued menu was not applied
+    assert sum("-> suspend" in e for e in s.events()) == 1
+    # a resume without a suspend is ignored
+    n = len(s.events())
+    s.send("resume")
+    s.send("idle")
+    s.wait_event("profile: idle -> idle")
+    assert len(s.events()) == n + 1
+
+
+def test_critical_battery_during_the_suspend_powers_off(tmp_path, services):
+    s = services(tmp_path, conf=PROFILES, tick=1).start()
+    s.send("menu")
+    s.wait_event("profile: menu -> menu")
+    s.send("suspend")
+    s.wait_event("profile: menu -> suspend")
+    assert not s.poweroff.exists()
+    s.set_battery(2)  # the ticks keep reading the battery: two readings in a row
+    s.wait(lambda: s.poweroff.exists(), "poweroff during the suspend", timeout=6)
+    assert "power OK shutdown: battery critical" in s.events()
+
+
 def test_battery_read_on_the_tick_without_messages(tmp_path, services):
     s = services(tmp_path, conf=PROFILES, tick=1).start()
     s.set_battery(1)
