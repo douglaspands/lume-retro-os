@@ -1,4 +1,10 @@
-# Spec Delta
+# Rascunho da spec `display-brightness` (P-95)
+
+> **Rascunho guardado para a change própria do P-95** (decisão do usuário, 2026-11-18: a
+> janela J2a e as tarefas de brilho saíram da `device-fixes` para serem feitas isoladas). Este
+> texto era o delta da capability nova `display-brightness` na `device-fixes`; a change do P-95
+> o retoma em `specs/display-brightness/spec.md` depois da J2a, ajustado pela revisão do D12
+> (correção de temporização ou temperatura limite).
 
 ## Purpose
 

@@ -2,21 +2,6 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Vídeo no painel interno
-O painel interno MUST mostrar imagem a 640x480 desde as mensagens do kernel, com aceleração GLES pelo driver mainline da GPU (Mali-400 com `lima` no GA36, Mali-G31 com `panfrost` no R36S) e brilho ajustável até o máximo do hardware, sem teto fixo (o limite seguro de cada aparelho é da capability `display-brightness`).
-
-#### Scenario: Primeiras mensagens no painel
-- **WHEN** o console é ligado
-- **THEN** as mensagens do kernel aparecem no painel interno antes da inicialização dos serviços
-
-#### Scenario: GPU disponível para o frontend
-- **WHEN** o frontend inicia no console
-- **THEN** ele usa renderização GLES acelerada pela GPU, e não renderização por software
-
-#### Scenario: Brilho até o máximo
-- **WHEN** o usuário sobe o brilho até o fim em qualquer console
-- **THEN** a luz de fundo chega ao nível máximo do hardware
-
 ### Requirement: Controle integrado
 O console MUST expor seus botões e direcionais como um único controle de jogo do Linux, com A, B, X, Y, L1, R1, L2, R2, Start, Select, direcional e os analógicos presentes no aparelho. Os analógicos MUST ser calibrados no início, pelo repouso lido no próprio aparelho, para que um stick solto fique no centro em qualquer unidade do mesmo modelo.
 

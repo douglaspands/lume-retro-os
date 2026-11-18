@@ -30,8 +30,8 @@ Regras do projeto em `openspec/config.yaml` (`rules.tasks`, `operations.apply`).
 sessão principal (merge, build, aparelho, aprovação do usuário).
 
 **Arquivos divididos (merges em sequência, por dependência):**
-- `lume-input/input.c`: 8.2 -> 9.4 -> 6.1 -> 7.2.
-- `lume-ui/src/app.rs`: 9.2 -> 5.4 -> 9.11 -> 8.5 -> 6.2 -> 9.13.
+- `lume-input/input.c`: 8.2 -> 9.4 -> 7.2.
+- `lume-ui/src/app.rs`: 9.2 -> 5.4 -> 9.11 -> 8.5 -> 9.13.
 - kernel e DTS: 6.3 e 7.1 -> 8.1.
 - áudio (`mixer`, `jack`): 7.3 e 7.4 -> 7.2.
 
@@ -55,7 +55,6 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 1.5 | 1.4 | CPU, ARCH:armv7, GA36, USUARIO | PR | — | 4 | J0 |
 | 3.1 | 1.4 | — | AG | sonnet | 4 | |
 | 3.2 | 1.4, 2.3 | — | AG | opus | 4 | |
-| 3.3 | 1.4, 6.5 | — | AG | sonnet | 7 | |
 | 3.4 | 1.4, 2.5 | — | AG | sonnet | 4 | |
 | 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
 | 9.5 | 1.4 | — | AG | sonnet | 4 | |
@@ -87,12 +86,9 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 9.3 | 1.4 | — | AG | sonnet | 5 | J2, J3 |
 | 5.4 | 3.1, 4.1, 9.2 | — | AG | sonnet | 6 | J2, J3 |
 | 8.1 | 2.3, 6.3, 7.1 | — | AG | opus | 6 | J2, J3 |
-| 6.5 | 6.3 | CPU, GA36, USUARIO | PR | — | 6 | J2a |
 | 9.4 | 8.2 | — | AG | sonnet | 6 | J2, J3 |
-| 6.1 | 3.3, 4.1, 9.4 | — | AG | sonnet | 8 | J2, J3 |
 | 8.5 | 3.2, 4.1, 5.4 | — | AG | sonnet | 7 | J2, J3 |
-| 6.2 | 3.3, 8.5 | — | AG | sonnet | 8 | J2, J3 |
-| 7.2 | 3.4, 6.1, 7.1, 7.3, 7.4 | — | AG | opus | 9 | J2, J3 |
+| 7.2 | 3.4, 7.1, 7.3, 7.4, 9.4 | — | AG | opus | 9 | J2, J3 |
 | 10.1 | todos os nós de código (3 a 9) | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 10 | |
 | 10.2 | 10.1 | GA36, USUARIO | PR | — | 11 | J2 |
 | 10.3 | 10.2 | R36S, USUARIO | PR | — | 12 | J3 |
@@ -114,18 +110,18 @@ Modelos aprovados pelo usuário em 2026-11-18.
           +--> 1.5 J0 (lume push no GA36 com nomes antigos)
           +--> 3.1 cartão --> 5.1 + 5.2, 5.3 ; 5.5 (2.2)
           +--> 4.1 protótipo (USUARIO) --+
-          +--> 9.2 nav --> 5.4 Cartão ---+--> 8.5 Suspender --> 6.2 pontinho (ui)
-          +--> 3.2 sono (2.3) --> 8.2 botão --> 9.4 calibração --> 6.1 brilho --> 7.2 volume
+          +--> 9.2 nav --> 5.4 Cartão ---+--> 8.5 Suspender
+          +--> 3.2 sono (2.3) --> 8.2 botão --> 9.4 calibração --> 7.2 volume
           |                  +--> 8.3 lume-sleep, 8.4 lume-run, 8.6 governor, 9.1 hora
-          +--> 3.3 limite do brilho ----------------------------------^
-          +--> 3.4 volume (2.5) --> 7.4 fone ------------------------------------^
+          +--> 3.4 volume (2.5) --> 7.4 fone ------------------------^
           +--> 7.1 RK817 (2.5), 7.3 silêncio (2.5) ------------------------------^
           +--> 6.3 kernel GA36 (2.7) --+--> 8.1 despertar
           +--> 7.1 --------------------+
           +--> 6.4 Mega Drive (2.6) ; 9.3 nós ; 9.5 flashed
                                               todos --> 10.1 build --> 10.2 J2 GA36 --> 10.3 J3 R36S
 
-  caminho crítico: 1.1 -> 1.2 -> 1.3 -> 1.4 -> 3.2 -> 8.2 -> 9.4 -> 6.1 -> 7.2 -> 10.1 -> 10.2 -> 10.3
+  caminho crítico: 1.1 -> 1.2 -> 1.3 -> 1.4 -> 3.2 -> 8.2 -> 9.4 -> 7.2 -> 10.1 -> 10.2 -> 10.3
+  (6.1, 6.2, 3.3 e a J2a saíram para a change do P-95)
 ```
 
 **Ondas:**
@@ -136,8 +132,8 @@ Modelos aprovados pelo usuário em 2026-11-18.
   do usuário.
 - **Onda 5:** 3.5, 5.1, 5.2, 5.3, 5.5, 6.3, 6.4, 7.1, 7.3, 7.4, 8.2, 8.3, 8.4, 8.6, 9.1, 9.2, 9.3, 9.10 e 9.14.
   A 8.4 só começa com a 3.1 da `lume-hud-actions` mesclada.
-- **Onda 6:** 5.4, 8.1, 9.4 e 9.12; 6.5 (PR, janela J2a: E4 e ~60 Hz no quente, revisão do D12).
-- **Onda 7:** 3.3 (formato conforme a revisão do D12), 8.5 e 9.11. **Onda 8:** 6.1, 6.2 e 9.13.
+- **Onda 6:** 5.4, 8.1, 9.4 e 9.12.
+- **Onda 7:** 8.5 e 9.11. **Onda 8:** 9.13. (A J2a e o brilho saíram para a change do P-95.)
   **Onda 9:** 7.2.
 - **Onda 10:** 10.1. **Onda 11:** 10.2 (J2). **Onda 12:** 10.3 (J3).
 
@@ -152,8 +148,8 @@ Modelos aprovados pelo usuário em 2026-11-18.
   - experimentos E2 e E3 do brilho (2.7, GA36).
 - **J0** (GA36, depois da onda `TREE`): `lume push` sobre o console com os nomes antigos,
   boot até o menu, caminhos do cartão preservados ou migrados.
-- **J2** (GA36, build da 10.1): todas as provas desta change no GA36, mais os kernels de
-  experimento E1 e E4 e o modo de ~60 Hz (6.3).
+- **J2** (GA36, build da 10.1): todas as provas desta change no GA36 (os kernels de
+  experimento e o ~60 Hz ficaram para a J2a da change do P-95).
 - **J3** (R36S, o mesmo cartão): as provas do R36S, junto com as das outras changes do branch
   (`lume-hud-actions` J1 4.1/4.6, 4.4 e J3 6.3; `virtual-gamepad` V2; `game-governor` 6.1 a
   6.4).
@@ -180,7 +176,6 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 - [x] 3.1 Pedidos do cartão (D4): a pasta `/run/lume/card/` (grupo `game`), os verbos `trim` e `check-next-boot`, o formato do `status` (`running`, `ok <bytes>`, `ok`, `fail <motivo>`) e os arquivos `ROMS/system/card/last-trim`, `last-check` e `check-next-boot` (número do boot em texto). Documentado em `docs/LAUNCHER.md` e num módulo Rust no `lume-core`. Verificação: testes de unidade do leitor (cada estado, arquivo ausente vira "nunca", conteúdo inválido ignorado). **Feito (2026-11-18, merge da `device-fixes/3.1`):** módulo `lume_core::cardreq` (tipos `Verb` e `Status`, leitores e escritores atômicos; `ok 0` para um TRIM sem bytes, `ok` só para o pedido de verificação), seção "Pedidos de manutenção do cartão" no `docs/LAUNCHER.md`; 55 testes do `lume-core` verdes, 6 novos.
 - [x] 3.2 Protocolo do sono (D11): as mensagens `power_tap` e `power_hold` do `lume-input`; `suspend` e `resume` aos clientes, com o prazo de resposta; o pedido ao `lume-sleep` (`/run/lume/sleep/`); o modo de cada console da 2.3; os eventos `sleep OK|FAIL`. Documentado em `docs/LAUNCHER.md` e `docs/LOGS.md`, com o leitor no `lume-core`. Verificação: testes de unidade do protocolo (cada mensagem, prazo estourado, pedido em dobro). **Feito (2026-11-18, merge da `device-fixes/3.2`):** `lume_core::sleep` (16 testes; 72 do `lume-core` verdes); o `lume-input` (root) cria o pedido em `/run/lume/sleep/` e manda `power_tap`/`power_hold` só como aviso; `suspend <seq>`/`resume <seq>` aos clientes, resposta `suspend_ok <seq>` em 2 s; o `lume-sleep` espera 3 s; guarda de 1 s contra o toque que acordou; modo em `/usr/share/lume/sleep/<placa>.conf` (`freeze` nos dois até a J1 do R36S); os dois achados da J1 (gadget USB e entrada acumulada) documentados para a 8.2 e a 8.3. Decisões a confirmar pelo usuário: os prazos (2 s, 3 s, 1 s) e como o `poweroff` segue o caminho do Desligar (8.3).
-- [ ] 3.3 Limite do brilho (D12): o arquivo `ROMS/system/display/limit-<serial>`, o número de série de cada console, o evento do relato (campos), o valor `none` ("sem limite", depois de recomeçar o aprendizado), o pedido de recomeçar do `lume-ui` ao `lume-input` e o `display OK limit <de> -> <para> (<motivo>)`. Documentado em `docs/LOGS.md`. Verificação: testes do leitor e do escritor (sem arquivo vira o padrão do console, `none` vira sem limite, conteúdo inválido vira o padrão, dois seriais no mesmo cartão).
 - [x] 3.4 Volume por saída (D9, D10): `ROMS/system/audio/level-<saída>` (`speaker`, `headphones`), a escala de 0 a 100 e a conversão para o controle escolhido na 2.5, e a conversão única do nível digital de hoje. **A escala é perceptiva (em dB), não linear na posição do controle** (achado do usuário na J0, 2026-11-18: hoje cada toque tira 4,5 dB do `DAC`, 6 passos de 0,75 dB, mas a barra só cai de 100% para 96%, e 50% da barra já é -60 dB, quase mudo): 100% é o máximo limpo, cada passo de 5% vale ~1,5 a 2 dB, o fim útil da escala fica perto de -40 dB e 0% é mudo; a barra (borda direita e Configurações) mostra esse número. **Feito (2026-11-18, merge da `device-fixes/3.4`):** curva em dB de 5 em 5% (100 = 0 dB, 95 = -1,5, 50 = -18, 5 = -39, 0 = mudo), em C (`aports/lume-input/volume.h`, ligado pela 7.2) e em Rust (`lume-ui/src/volume.rs`), com o teste `test_volume_scale.py` conferindo as duas tabelas e a do `docs/LAUNCHER.md`; GA36 `Headphone` 0..63 a 1,5 dB por passo (só a saída `speaker`), R36S `Master` 0..255 a 0,373 dB até a medida da 2.5; nível antigo convertido para o ponto mais próximo (o `DAC` em 154 vira 85%); sem arquivo e sem mixer, 70%. Verificação: testes da conversão nos dois consoles (0 é mudo, 100 é o máximo limpo da 2.5, curva crescente).
 
 - [x] 3.5 (Feito em 2026-11-18, merge da `device-fixes/3.5`: `Exit::Restart = 66` no `lume-ui`, `EXIT_RESTART` no `lume-run`, linha 66 no `docs/FRONTEND.md`, teste `test_session_exit_codes.py`; `cargo test` do `lume-ui` e do `lume-run` verdes.) Congelar o código de saída 66 no contrato de sessão (D19; era a `launcher-adjustments` 1.2): `docs/FRONTEND.md` com 0 (desligar), 66 (reiniciar) e qualquer outro (falha), e a constante nos dois lados (`lume-ui` e `lume-run`, junto de 64 e 65). Verificação: teste de unidade que confere a mesma constante nos dois crates e o texto do `docs/FRONTEND.md` (o teste lê o documento).
@@ -199,10 +194,14 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 ## 6. Tela
 
-- [ ] 6.1 `lume-input`, brilho (D12): `backlight_max` removido dos perfis e do código; o limite lido pelo formato da 3.3 (sem desenhar marca na linha da borda); Fn+Select grava o relato e baixa o limite, com a linha curta na tela pelo `ui_lang`; uma hora acumulada acima do limite sem relato o sobe; o pedido de recomeçar grava `none` (sem limite até o próximo relato); eventos no `events.log`. Verificação: `tests/unit/test_lume_input.py` com sysfs e relógio falsos (brilho até o máximo, relato no nível 8 vira limite 7, uma hora acima sobe o limite, outro serial no mesmo cartão não muda, a linha da borda nunca desenha marca); no aparelho, J2 e J3.
-- [ ] 6.2 `lume-ui`, painel Brilho (D12, D19): a barra sem marca de limite e a linha "Recomeçar o aprendizado" com confirmação (Sim em cima, Cancelar em foco) que grava o pedido; textos en/pt/es. Verificação: teste de tela (barra sem marca com e sem limite), a confirmação (cima e baixo só, A em Sim grava o pedido, Cancelar não grava) e o teste de régua da barra; no aparelho, J2 e J3 (recomeçar no GA36 registra `limit 7 -> none (reset)`).
-- [ ] 6.3 (Código mesclado em 2026-11-18, `device-fixes/6.3`; falta a J2a: `lume build --console ga36 kernel --variant <nome>` gera um build fora do `latest` com as variantes `e4-nonburst`, `e4-slow`, `e4-eotp`, `60hz`, `60hz-porch` e `e1` em `kernel/variants/ga36/`; comandos e como desfazer no `docs/BRINGUP-GA36.md` ("Kernels de experimento"); 34 testes novos. **Achado a medir:** o `pll-mipi` trava em 356,4 MHz (o DSI prende o `pll-video` em 297 MHz), então o pixel clock real seria 29,7 MHz e o painel rodaria a 55,13 Hz, não a 55,69: o `video_refresh_rate` e o P-25 podem estar ~1% errados; conferir pelos page flips na J2a. A fábrica usa rajada com EoT; o mainline nunca liga o EoT. Desfazer uma variante é `lume push --console ga36` do `latest`, não o `SLOTS.old`.) Kernel do GA36 (D12, D13): kernels de experimento E1 (DCDC1 a 3,3 V) e E4 (link do DSI mais lento ou outro modo de rajada) como variantes que não entram na imagem padrão, e o modo de ~60 Hz do JD9366 no patch 0005 com o `video_refresh_rate` do `retroarch-ga36.cfg`. Verificação: `test_ga36_refresh_rate_matches_panel_mode` e os testes do DTS; na J2, cada variante gravada pelo `push` só do kernel e desfeita pelo `SLOTS.old`, com o resultado (nível em que o defeito começa, imagem estável a ~60 Hz nos dois painéis) no P-95, no P-25 e no `docs/BRINGUP-GA36.md`. O modo de ~60 Hz só entra na imagem padrão se ficar estável nos dois painéis.
-- [ ] 6.5 Janela J2a no GA36 (revisão do D12 condicionada ao E4, usuário, 2026-11-18): build só do kernel com as variantes da 6.3 e `push` só do kernel (desfeito pelo `SLOTS.old`), cada uma testada **no quente** com a carga forçada do E3 (CPU a 1008 MHz nos 4 núcleos até ~66 °C, depois o brilho 8 por 10 min e o 6 por 5 min), com o usuário olhando a tela; o kernel padrão de hoje como controle no mesmo protocolo. Verificação: tabela no P-95 e no `docs/BRINGUP-GA36.md` (variante, temperatura em que a falha aparece ou "nenhuma até 70 °C"), e a revisão do D12 escrita no `design.md` (correção de temporização na imagem padrão e o limite de brilho retirado, ou a temperatura limite aprendida), com as tarefas 3.3, 6.1 e 6.2 e a spec `display-brightness` ajustadas antes de começarem.
+> **Saíram desta change (decisão do usuário, 2026-11-18): a janela J2a e as tarefas de brilho**
+> que dependiam do resultado dela (as antigas 3.3 limite do brilho, 6.1 brilho no `lume-input`,
+> 6.2 painel Brilho e 6.5 J2a, com a spec `display-brightness`) vão para uma change própria e
+> isolada do P-95. O texto das quatro tarefas, a spec e os comandos estão no P-95 do
+> `docs/PENDENCIAS.md` e em `docs/P-95-display-brightness-spec.md`. O GA36 continua com o teto
+> `backlight_max 7` de hoje até essa change.
+
+- [x] 6.3 (Código mesclado em 2026-11-18, `device-fixes/6.3`; a prova das variantes no quente e a decisão do ~60 Hz saíram para a change própria do P-95, decisão do usuário: `lume build --console ga36 kernel --variant <nome>` gera um build fora do `latest` com as variantes `e4-nonburst`, `e4-slow`, `e4-eotp`, `60hz`, `60hz-porch` e `e1` em `kernel/variants/ga36/`; comandos e como desfazer no `docs/BRINGUP-GA36.md` ("Kernels de experimento"); 34 testes novos. **Achado a medir:** o `pll-mipi` trava em 356,4 MHz (o DSI prende o `pll-video` em 297 MHz), então o pixel clock real seria 29,7 MHz e o painel rodaria a 55,13 Hz, não a 55,69: o `video_refresh_rate` e o P-25 podem estar ~1% errados; conferir pelos page flips na J2a. A fábrica usa rajada com EoT; o mainline nunca liga o EoT. Desfazer uma variante é `lume push --console ga36` do `latest`, não o `SLOTS.old`.) Kernel do GA36 (D12, D13): kernels de experimento E1 (DCDC1 a 3,3 V) e E4 (link do DSI mais lento ou outro modo de rajada) como variantes que não entram na imagem padrão, e o modo de ~60 Hz do JD9366 no patch 0005 com o `video_refresh_rate` do `retroarch-ga36.cfg`. Verificação: `test_ga36_refresh_rate_matches_panel_mode` e os testes do DTS; na J2, cada variante gravada pelo `push` só do kernel e desfeita pelo `SLOTS.old`, com o resultado (nível em que o defeito começa, imagem estável a ~60 Hz nos dois painéis) no P-95, no P-25 e no `docs/BRINGUP-GA36.md`. O modo de ~60 Hz só entra na imagem padrão se ficar estável nos dois painéis.
 - [ ] 6.4 (Achado no boot 193, 2026-11-18: o `picodrive` caiu com `exit=139` duas vezes, 9 s depois de abrir; reforça a hipótese do P-30, o modo Thumb do armv7 quebrando os ponteiros dos mapas de memória: primeiro caminho, compilar o `libretro-picodrive` com `-marm`.) (Código, 2026-11-18, branch `device-fixes/6.4`: `-marm` só no armv7 no `aports/libretro-picodrive/APKBUILD`, `pkgrel=1`, teste `test_picodrive_arm_mode_on_armv7` em `tests/unit/test_aports.py`; o fonte fixado confirma que o `-marm` basta, porque no armv7 do Alpine o `ARCH` é `armv7` e o build fica só em C, sem assembly ARM nem dynarec; detalhes no P-30. Falta o build do pacote e a prova na J2; se falhar, trocar o core do armv7 para o `genesis_plus_gx`.) Mega Drive no GA36 (D14), pelo caminho da 2.6: o formato de pixel corrigido no driver de vídeo ou o core do armv7 trocado no catálogo. Verificação: teste do catálogo ou do patch; na J2, o jogo aparece na tela em velocidade cheia pelas métricas (sem nome de jogo no registro).
 
 ## 7. Som
@@ -243,13 +242,13 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - [ ] 10.1 Build dos pacotes mudados nas duas arquiteturas e dos kernels (padrão e variantes de experimento da 6.3), um build por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk`, o initramfs e os kernels novos com a versão nova no repositório local, e o `push` terminando com `ok`.
 - [ ] 10.2 Janela J2 no GA36. Verificação: resultado de cada item no `docs/BRINGUP-GA36.md`:
   - **cartão:** três boots com `roms OK clean: check skipped` e o tempo do boot contra o de antes (ganho anotado no P-58, frente 3); corte de energia com `dirty: checked`; "Verificar no próximo boot" consumido uma vez; "Otimizar agora"; painel Cartão contra o protótipo; `read_ahead_kb`;
-  - **tela:** experimentos E1 e E4 e o modo de ~60 Hz (6.3), com o resultado no P-95 e no P-25; pontinho e relato do brilho; Mega Drive;
+  - **tela:** Mega Drive (os experimentos do P-95 e do P-25 e o brilho saíram para a change do P-95);
   - **som:** volume analógico e chiado, amplificador desligado no silêncio, fone;
   - **energia:** 20 suspensões, desligar pelo botão segurado;
   - **pequenos:** hora crescente, navegação vertical, nós só leitura, analógicos no centro.
 - [ ] 10.3 Janela J3 no R36S, com o mesmo cartão: as provas da 10.2 que valem para o R36S (o R36S não tem os experimentos do painel do GA36), o ganho da 7.1 e o zumbido do P-45, junto com as provas do R36S das outras changes do branch. Verificação:
   - resultado no `docs/BRINGUP-R36S.md`;
-  - no `docs/PENDENCIAS.md`, movidos para "Concluídas" (ou atualizados com o que ficou aberto) os itens P-64 (1, 2 e 4), P-95, P-25, P-29, P-42, P-45, P-30, P-26, P-07, P-87, P-47 (6.8), P-50, P-94 e P-71 (o desligar limpo pelo menu do sistema, trazido da `launcher-adjustments`);
+  - no `docs/PENDENCIAS.md`, movidos para "Concluídas" (ou atualizados com o que ficou aberto) os itens P-64 (1, 2 e 4), P-29, P-42, P-45, P-30, P-26, P-07, P-87, P-47 (6.8), P-50, P-94 e P-71 (o desligar limpo pelo menu do sistema, trazido da `launcher-adjustments`);
   - a frente 3 do P-58 atualizada.
 
 ## Workflow follow-up

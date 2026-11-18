@@ -366,6 +366,11 @@ clientes pelo socket, espera `suspend_ok <seq>` até 2 s e responde no arquivo `
 
 ### D12. Brilho: o limite aprendido no lugar da trava
 
+> **Saiu desta change (usuário, 2026-11-18):** a J2a, a revisão do D12 e as tarefas de brilho
+> (3.3, 6.1, 6.2, 6.5) vão para uma change própria e isolada do P-95. Ficam nesta change só os
+> kernels de experimento da 6.3, já mesclados, e os resultados do E2 e do E3 abaixo. O GA36
+> continua com o `backlight_max 7`. O texto abaixo fica como registro para a change do P-95.
+
 - O `backlight_max` sai dos perfis. O brilho vai até o máximo do hardware.
 - **Limite seguro** por aparelho, guardado em `ROMS/system/display/limit-<serial>` (formato
   congelado na 3.3). O padrão é 7 no GA36 e nenhum no R36S.
@@ -414,6 +419,9 @@ clientes pelo socket, espera `suspend_ok <seq>` até 2 s e responde no arquivo `
   grafo).
 
 ### D13. Painel do GA36 a ~60 Hz
+
+> **Saiu desta change (usuário, 2026-11-18):** a prova do ~60 Hz vai com a J2a para a change
+> do P-95; as variantes `60hz` e `60hz-porch` já estão prontas (6.3).
 
 Modo novo do JD9366 no patch 0005: pixel clock próximo de 32,3 MHz ou porches menores,
 dentro do PLL do vídeo do A33 e da taxa do DSI. É testado só com o build do kernel, junto

@@ -30,13 +30,11 @@ pedido do usuário.
 - Prova de que o desligamento deixa o volume limpo.
 
 **Tela**
-- **P-95:** achar a causa da imagem quebrada com brilho alto no GA36, pelos experimentos de
-  alimentação, corrente, calor e DSI. A trava fixa `backlight_max` sai; o limite seguro é
-  aprendido pelo que o aparelho registra (com o relato do usuário por atalho) e fica só no
-  registro, sem marca na tela (o pontinho vermelho foi dispensado pelo usuário em
-  2026-11-18). O padrão do GA36 é o nível 7.
-- **P-25:** o painel do GA36 a ~60 Hz, se o PLL, o JD9366 e a taxa do DSI permitirem. É o
-  mesmo modo do painel que os experimentos de DSI do P-95 tocam.
+- **P-95 e P-25 (parcial):** os experimentos sem build (E2 e E3) e os kernels de experimento
+  do GA36 (E1, E4, ~60 Hz) como variantes fora da imagem padrão. A prova das variantes no
+  quente (J2a), o limite de brilho aprendido e o modo de ~60 Hz na imagem padrão saíram para
+  uma change própria e isolada do P-95 (decisão do usuário, 2026-11-18); o GA36 continua com o
+  teto `backlight_max 7`.
 - **P-30:** o Mega Drive (picodrive) mostra a imagem no GA36. **P-26:** o arcade é conferido
   no GA36.
 
@@ -114,15 +112,13 @@ manual da hora (sem fonte garantida, a hora não aparece na tela); troca do exFA
   usada em cada console.
 - `audio-output`: o volume analógico por saída, o mudo e o desligamento do amplificador no
   silêncio, e a troca automática entre o alto-falante e o fone.
-- `display-brightness`: o limite seguro do brilho aprendido por aparelho, sem trava fixa, e
-  como ele é mostrado e registrado.
 
 ### Modified Capabilities
 - `boot-runtime`: a verificação da `ROMS` só com o volume sujo ou a pedido; a hora só anda
   para a frente; os nós de entrada passam a ser só leitura para o grupo `input`.
-- `device-support`: o requisito do áudio passa a ser volume analógico; o brilho deixa de ter
-  teto fixo; o desligamento passa a ser o botão segurado; o painel do GA36 passa a uns 60 Hz,
-  se a prova permitir; os analógicos são calibrados no início.
+- `device-support`: o requisito do áudio passa a ser volume analógico; o desligamento passa a
+  ser o botão segurado; os analógicos são calibrados no início. (O brilho sem teto e o ~60 Hz
+  saíram com a change do P-95.)
 - `game-launcher`: o menu do sistema pelo Fn (Configurações, Suspender, Reiniciar, Desligar),
   as dicas do Fn, o item "Cartão", as Configurações sem Desligar e sem RetroArch, e a regra de
   navegação dos menus verticais.
