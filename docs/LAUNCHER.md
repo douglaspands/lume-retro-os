@@ -48,7 +48,7 @@ imagem do jogo, sem a barra) em `ROMS/screenshots/`. Cada um só roda enquanto p
 enquanto ligada, a dica enquanto o Fn está segurado, a foto uma vez por aperto.
 
 A barra serve para avaliar o desempenho do jogo e achar o gargalo. Ela mostra
-`FPS 59.7 │ CPU 47% 1008 │ GPU 62% 38M │ MEM 124/492 sw 20 │ BAT 74% 1.9W 2:40`, espalhada
+`FPS 59.7 │ CPU 47% 1008 │ GPU 62% 38M │ MEM 124/492 sw 20 │ 52° │ BAT 74% 1.9W 2:40`, espalhada
 pela largura da tela numa faixa preta a 92%, com os rótulos na cor de destaque e uma divisória
 entre os grupos: quadros por segundo do jogo (as trocas de quadro que o kernel conta para os
 arquivos DRM do jogo, `drm-page-flips` no `fdinfo`, patch 0036, a cada segundo), uso (média dos
@@ -56,7 +56,9 @@ núcleos) e clock da CPU em MHz, uso
 da GPU e a memória que o jogo ocupa nela, em MiB (pelo `fdinfo` do arquivo DRM do jogo; a GPU
 não tem memória própria, são buffers na RAM do sistema; no GA36 isso vem do patch 0035 do
 kernel, e sem ele aparece o clock da GPU em MHz), memória usada/total e o swap só quando em uso,
-em MiB, e bateria (nível, potência e tempo restante;
+em MiB, temperatura do SoC em °C inteiros (`52°`, de `thermal_zone0`, lida na mesma amostra de
+1 s e só com a barra ligada; sem o rótulo `TMP`, porque com ele a barra não cabe a 640x480, e `--`
+sem zona ou sem leitura; o espaço mínimo entre grupos é de 14 px), e bateria (nível, potência e tempo restante;
 carregando, `BAT 74% + 0:50`, o tempo até encher). `--` é um valor que o aparelho não informa e
 `--:--` aparece nos primeiros 30 s, até haver uma estimativa.
 
