@@ -298,6 +298,9 @@ pub struct App<S: SystemAdapter> {
     overlay: Option<Overlay>,
     /// the Fn system menu, over everything (D19)
     system: Option<SystemMenu>,
+    /// the Fn hold hint (D19): the chords of the `fn_hold` table the launcher handles, as the
+    /// (chord label, text key) of each row; the panel takes no input
+    hold_hint: Option<Vec<(&'static str, &'static str)>>,
     /// the screen the Settings were opened from by the system menu (None: from the Dock)
     settings_from: Option<SettingsOrigin>,
     /// the request folder of lume-sleep (the Suspend item makes `suspend` there)
@@ -423,6 +426,7 @@ impl<S: SystemAdapter> App<S> {
             screen: Screen::Dock,
             overlay: None,
             system: None,
+            hold_hint: None,
             settings_from: None,
             sleep_dir: lume_core::sleep::dir(),
             toast: None,
@@ -751,10 +755,12 @@ impl<S: SystemAdapter> App<S> {
                 true
             }
             Ev::Brightness(v) => {
+                // a brightness event hides the Fn hold hint
+                let hid = self.hold_hint.take().is_some();
                 // the first button too: the daemon already moved the backlight, wake puts the
                 // user's level back and the key does nothing else
                 if self.wake() {
-                    return false;
+                    return hid;
                 }
                 // the same: the Brightness row in the Settings, the left line elsewhere
                 self.level.insert("brightness", v);
@@ -774,14 +780,29 @@ impl<S: SystemAdapter> App<S> {
                 if self.wake() || self.updating.is_some() {
                     return false;
                 }
+                self.hold_hint = None;
                 self.system = match self.system {
                     Some(_) => None,
                     None => Some(SystemMenu { focus: 0, confirm: None }),
                 };
                 true
             }
-            // no behaviour yet: tasks 9.13 and 8.5 use these
-            Ev::FnHold(_) | Ev::FnRelease | Ev::Sleep(_) => false,
+            // Fn held: the hint of the chords the launcher handles (D19); with the system menu
+            // open the table is ignored
+            Ev::FnHold(table) => {
+                if self.wake() || self.updating.is_some() || self.system.is_some() {
+                    return false;
+                }
+                let mut rows = vec![("Fn", "hint_tap")];
+                if table.iter().any(|e| e.button == "Vol" && e.action == "brightness") {
+                    rows.push(("Fn+Vol", "hint_brightness"));
+                }
+                self.hold_hint = Some(rows);
+                true
+            }
+            Ev::FnRelease => self.hold_hint.take().is_some(),
+            // no behaviour yet: task 8.5 uses this
+            Ev::Sleep(_) => false,
             Ev::Network(wifi, bt) => {
                 let changed = self.network != (wifi, bt);
                 self.network = (wifi, bt);
@@ -1813,6 +1834,9 @@ impl<S: SystemAdapter> App<S> {
             let dimmed = if self.overlay.as_ref().is_some_and(|o| !matches!(o, Overlay::Keyboard { .. })) { dimmed.under(th.color("overlay")) } else { dimmed };
             self.draw_status_battery_on(c, w, dimmed);
         }
+        if let Some(rows) = self.hold_hint.clone() {
+            self.draw_hold_hint(c, &rows, w, h);
+        }
         if let Some((text, _)) = &self.toast {
             let px = (th.em("label_px", w) as f32) * 0.9;
             let tw = c.text_width(text, px).min(w - 32) + 32;
@@ -2675,6 +2699,40 @@ impl<S: SystemAdapter> App<S> {
                 let title = self.tr("sys_menu");
                 self.draw_sheet(c, w, h, Cover::Narrow, &title, "", &rows, m.focus);
             }
+        }
+    }
+
+    /// The Fn hold hint (D19): a small panel centred on the screen, 1.4 em text, 0.7 em x 1.1 em
+    /// padding, 0.35 em between the rows, the chord in the accent and bold (prototype `hold`).
+    fn draw_hold_hint(&mut self, c: &mut dyn Canvas, rows: &[(&'static str, &'static str)], w: i32, h: i32) {
+        let th = self.theme.clone();
+        let em = w as f32 / 40.0;
+        let px = em * 1.4;
+        let line = (px * 1.2).round();
+        let space = c.text_width(" ", px) as f32;
+        let parts: Vec<(&str, String, f32)> = rows
+            .iter()
+            .map(|(chord, key)| {
+                let rest = self.tr(key);
+                // the text after the chord starts with a space unless it is a colon
+                let gap = if rest.starts_with(':') { 0.0 } else { space };
+                let width = c.text_width_bold(chord, px) as f32 + gap + c.text_width(&rest, px) as f32;
+                (*chord, rest, width)
+            })
+            .collect();
+        let text_w = parts.iter().map(|p| p.2).fold(0.0, f32::max);
+        // the paddings and the gap are in the panel's own em (the 1.4 em text size)
+        let pw = (text_w + 2.2 * px).round();
+        let ph = (rows.len() as f32 * line + (rows.len() as f32 - 1.0) * 0.35 * px + 1.4 * px).round();
+        let panel = Rect::new(((w as f32 - pw) / 2.0).round() as i32, ((h as f32 - ph) / 2.0).round() as i32, pw as i32, ph as i32);
+        c.fill(panel, th.em("radius_panel", w), th.color("panel_bg_opaque"));
+        for (i, (chord, rest, _)) in parts.iter().enumerate() {
+            let row_y = panel.y as f32 + 0.7 * px + i as f32 * (line + 0.35 * px);
+            let ty = (row_y + (line - px) / 2.0).round() as i32;
+            let x = panel.x + (1.1 * px).round() as i32;
+            let used = c.text_bold(chord, x, ty, px, th.color("accent"), Align::Left, panel.w);
+            let gap = if rest.starts_with(':') { 0 } else { space as i32 };
+            c.text(rest, x + used + gap, ty, px, th.color("fg"), Align::Left, panel.w);
         }
     }
 

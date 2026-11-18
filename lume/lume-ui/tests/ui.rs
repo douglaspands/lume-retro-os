@@ -960,6 +960,112 @@ fn system_menu_sheet_matches_the_prototype_ruler() {
     }
 }
 
+// ---- the Fn hold hint (device-fixes 9.13, D19) ----
+
+fn hold_table() -> Vec<lume_core::input::HoldEntry> {
+    ["B=app_menu", "Vol=brightness", "Start=quit"]
+        .iter()
+        .map(|p| {
+            let (b, a) = p.split_once('=').unwrap();
+            lume_core::input::HoldEntry { button: b.into(), action: a.into() }
+        })
+        .collect()
+}
+
+fn lang_app(c: &Card, lang: &str) -> App<FakeSystem> {
+    let mut a = app(c, FakeSystem::default());
+    a.settings.language = lang.into();
+    a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), lang);
+    a
+}
+
+fn hint_panel(a: &App<FakeSystem>, cv: &FakeCanvas) -> Option<lume_ui::canvas::Rect> {
+    cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("panel_bg_opaque") && r.w > 300 && r.h < 120).map(|(r, _)| *r)
+}
+
+#[test]
+fn hold_hint_matches_the_prototype_ruler_in_pt_and_es() {
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // The prototype's widths (pt 352.5, es 358.3; rows 303.2) come from the browser's font; the
+    // bundled one is wider, so the width is checked as the widest row plus the 1.1 em paddings
+    // (24.64 px each side) and the panel centred. Heights, y and the paddings are font-free.
+    for (lang, tap, bri) in [("pt", "(toque): Menu do sistema", ": Brilho"), ("es", "(toque): Menú del sistema", ": Brillo")] {
+        let c = card("hold-ruler", 3, false);
+        let mut a = lang_app(&c, lang);
+        assert!(a.handle(Ev::FnHold(hold_table())));
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        let p = hint_panel(&a, &cv).expect("hint panel");
+        assert!(near(p.y, 193.4) && near(p.h, 93.2), "{lang} {p:?}");
+        assert!(((p.x + p.w / 2) - 320).abs() <= 1, "centred {p:?}");
+        // the two rows at y 209.1 and 243.9 (27 high, 22.4 px text: the text top 2.3 below), x 168.4
+        let text = |s: &str| cv.texts.iter().find(|(t, r)| t == s && r.y >= p.y && r.y < p.bottom()).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+        let (fn1, t1, fn2, t2) = (text("Fn"), text(tap), text("Fn+Vol"), text(bri));
+        assert!(near(fn1.x, p.x as f32 + 24.64) && near(fn2.x, p.x as f32 + 24.64), "{fn1:?} {fn2:?}");
+        assert!(near(fn1.y, 209.1 + 2.3) && near(t1.y, 209.1 + 2.3) && near(fn2.y, 243.9 + 2.3) && near(t2.y, 243.9 + 2.3));
+        // the panel is the widest row (the first here) plus the paddings
+        assert!(near(p.w, (t1.right() - fn1.x) as f32 + 49.28), "{p:?} {fn1:?} {t1:?}");
+        assert!(t1.x > fn1.x + fn1.w - 1 && t2.x >= fn2.x + fn2.w - 1);
+    }
+}
+
+#[test]
+fn hold_hint_shows_the_two_items_and_hides_on_release_without_opening_the_menu() {
+    let c = card("hold-release", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Fn") && cv.has_text("(tap): System menu") && cv.has_text("Fn+Vol") && cv.has_text(": Brightness"));
+    assert!(!cv.has_text("System menu"), "no menu");
+    assert!(a.handle(Ev::FnRelease), "the hint needs a frame to go");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Fn+Vol") && hint_panel(&a, &cv).is_none());
+    assert!(!cv.has_text("System menu") && !cv.has_text("Suspend"), "the release is not a tap");
+    // a release without a hint changes nothing
+    assert!(!a.handle(Ev::FnRelease));
+}
+
+#[test]
+fn hold_hint_lists_only_the_chords_the_launcher_handles() {
+    let c = card("hold-chords", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(vec![])));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(hint_panel(&a, &cv).is_some() && !cv.has_text("Fn+Vol"));
+}
+
+#[test]
+fn hold_hint_hides_on_brightness() {
+    let c = card("hold-bri", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    assert!(a.handle(Ev::Brightness(40)));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Fn+Vol") && hint_panel(&a, &cv).is_none());
+}
+
+#[test]
+fn hold_hint_is_ignored_with_the_system_menu_open_and_goes_when_it_opens() {
+    let c = card("hold-menu", 3, false);
+    let mut a = lang_app(&c, "en");
+    fn_tap(&mut a);
+    assert!(!a.handle(Ev::FnHold(hold_table())));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && !cv.has_text("Fn+Vol"));
+    fn_tap(&mut a);
+    // a hint that is up when the menu opens (a tap event while held) goes away
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && !cv.has_text("Fn+Vol"));
+}
+
 #[test]
 fn suspend_item_writes_the_request_without_a_confirmation_and_closes_the_menu() {
     let c = card("sys-suspend", 3, false);
