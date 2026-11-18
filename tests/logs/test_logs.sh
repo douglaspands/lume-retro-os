@@ -906,6 +906,20 @@ printf '%s\n' "[    1.0] lume-bootsel: before kexec: selected ga36-panel2 (reaso
 rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
 BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
 check "dtb: confirmation on the screen becomes an event" 'grep -q " boot OK device tree confirmed on screen: ga36-panel2 kept" $LOGS_DIR/events.log'
+# device-fixes 5.1: the ROMS check lines of the initramfs become roms events, with the flags;
+# the other ROMS lines (created, mounted, the fsck output) do not
+printf '%s\n' "[    1.0] lume: ROMS clean: check skipped (flags 0x0000)" \
+	"[    1.1] lume: ROMS dirty: checked: errors corrected (flags 0x0002 VolumeDirty) (before kexec)" \
+	"[    1.2] lume: ROMS requested: checked: clean" \
+	"[    1.3] lume: ROMS checked: clean" \
+	"[    1.4] lume: ROMS mounted at /storage" \
+	"[    1.5] lume:   fsck output line: something" > "$W/dmesg"
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "roms: clean, dirty and requested events" \
+	'grep -q " roms OK clean: check skipped (flags 0x0000)$" $LOGS_DIR/events.log && grep -q " roms OK dirty: checked: errors corrected (flags 0x0002 VolumeDirty) (before kexec)$" $LOGS_DIR/events.log && grep -q " roms OK requested: checked: clean$" $LOGS_DIR/events.log'
+check "roms: an older initramfs still gives checked" 'grep -q " roms OK checked: clean$" $LOGS_DIR/events.log'
+check "roms: only those four lines" '[ "$(grep -c " roms " $LOGS_DIR/events.log)" = 4 ]'
 unset -f dmesg
 
 rm -rf "$W"

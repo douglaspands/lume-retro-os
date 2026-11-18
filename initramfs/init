@@ -87,14 +87,22 @@ mount_roms() {
 	mount -t exfat -o uid=1000,gid=1000,fmask=0022,dmask=0022,noatime \
 		"$(part_node "$DISK" 2)" /roms
 }
-if [ "$ROMS_OK" = ok ]; then
+case "$ROMS_OK" in ok*)
 	mkdir -p /roms
 	if mount_roms; then
 		ROMS_MOUNTED=1
+		# the ROMS lines of a start that restarted the kernel, then the check request
+		# (device-fixes D3): one file test each when there is nothing
+		roms_carry_replay /roms
+		if ! roms_request "$DISK" /roms mount_roms "${ROMS_OK#ok }"; then
+			ROMS_MOUNTED=""
+			log "ERROR: failed to mount ROMS after the requested check; continuing without games partition"
+		fi
 	else
 		log "ERROR: failed to mount ROMS; continuing without games partition"
 	fi
-fi
+	;;
+esac
 
 # Device tree selection (boot-dtb-select): lume-bootsel picks the DTB of BOOT/dtbs/<soc>/
 # and, when it is not the running one, loads this same kernel with it (status 10). Then
@@ -113,6 +121,7 @@ select_dtb() {
 		--disk "$DISK" || rc=$?
 	if [ $rc = 11 ]; then
 		log "rebooting into the boot image with the chosen device tree"
+		[ -n "$ROMS_MOUNTED" ] && roms_carry_save /roms "(before reboot)"
 		sync
 		[ -n "$ROMS_MOUNTED" ] && umount /roms
 		umount /boot
@@ -124,10 +133,12 @@ select_dtb() {
 			ROMS_MOUNTED=""
 			log "ERROR: failed to mount ROMS; continuing without games partition"
 		fi
+		[ -n "$ROMS_MOUNTED" ] && roms_carry_drop /roms
 		return 0
 	fi
 	[ $rc = 10 ] || return 0
 	log "restarting the kernel with the chosen device tree"
+	[ -n "$ROMS_MOUNTED" ] && roms_carry_save /roms "(before kexec)"
 	sync
 	[ -n "$ROMS_MOUNTED" ] && umount /roms
 	umount /boot
@@ -139,6 +150,7 @@ select_dtb() {
 		ROMS_MOUNTED=""
 		log "ERROR: failed to mount ROMS; continuing without games partition"
 	fi
+	[ -n "$ROMS_MOUNTED" ] && roms_carry_drop /roms
 	# the chosen device tree never ran: not pending, and the watchdog armed for it stops
 	lume-bootsel --boot /boot ${ROMS_MOUNTED:+--roms /roms} --kexec-failed || true
 }

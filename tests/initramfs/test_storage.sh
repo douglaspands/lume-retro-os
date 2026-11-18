@@ -43,27 +43,116 @@ check "sem-p2: rótulo ROMS" '[ "$(with_part "$IMG" 2 label_of)" = ROMS ]'
 check "sem-p2: mensagem na tela" 'grep -q "ROMS partition created" "$W/log1"'
 check "sem-p2: BOOT intacta" '[ "$(part_field "$IMG" 1 start)" = 32768 ] && [ "$(part_field "$IMG" 1 size)" = 2097152 ]'
 
-### 2. p2 exFAT existente: só verifica, nunca formata
+### 2. Existing clean exFAT p2 (device-fixes D1): never formatted, and not checked either:
+### one read of the VolumeFlags, the value in the log
 : > "$MKFS_LOG"
 SERIAL=$(p2_bytes "$IMG" 100 4)
-check "exfat: decisão check" '[ "$(decide_p2 "$IMG")" = check ]'
+P2=$(part_field "$IMG" 2 start)
+check "clean: decision check" '[ "$(decide_p2 "$IMG")" = check ]'
+check "clean: volume_flags 0" '[ "$(volume_flags "$IMG" "$P2")" = 0 ]'
 R=$(setup_storage "$IMG" 2>"$W/log2")
-check "exfat: setup ok" '[ "$R" = ok ]'
-check "exfat: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
-check "exfat: mesmo volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
-check "exfat: verificação no log" 'grep -q "ROMS checked" "$W/log2"'
+check "clean: setup ok, not checked" '[ "$R" = ok ]'
+check "clean: mkfs not called" '[ ! -s "$MKFS_LOG" ]'
+check "clean: same volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
+check "clean: skipped, with the flags, in the log" '[ "$(cat "$W/log2")" = "lume: ROMS clean: check skipped (flags 0x0000)" ]'
 
-### 3. p2 suja (VolumeDirty): fsck -p roda, resultado no log, monta
-FLAGS_OFF=$(( $(part_field "$IMG" 2 start) * 512 + 106 ))
-printf '\002' | dd of="$IMG" bs=1 seek=$FLAGS_OFF conv=notrunc 2>/dev/null
-check "suja: flag marcada" '[ "$(p2_bytes "$IMG" 106 1)" = 02 ]'
+### 3. Dirty p2 (VolumeDirty, a power cut): fsck -p runs, result and flags in the log, mounts
+FLAGS_OFF=$(( P2 * 512 + 106 ))
+set_flags() { printf "$1" | dd of="$IMG" bs=1 seek=$FLAGS_OFF conv=notrunc 2>/dev/null; }
+set_flags '\002\000'
+check "dirty: flag set" '[ "$(p2_bytes "$IMG" 106 2)" = 0200 ]'
+check "dirty: volume_flags 2" '[ "$(volume_flags "$IMG" "$P2")" = 2 ]'
 R=$(setup_storage "$IMG" 2>"$W/log3")
-check "suja: setup ok (monta)" '[ "$R" = ok ]'
-check "suja: verificação no log" 'grep -q "ROMS checked" "$W/log3"'
-check "suja: mkfs não chamado" '[ ! -s "$MKFS_LOG" ]'
-check "suja: mesmo volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
-check "suja: flag limpa após fsck" '[ "$(p2_bytes "$IMG" 106 1)" = 00 ]'
+check "dirty: setup ok, checked (mounts)" '[ "$R" = "ok checked" ]'
+check "dirty: checked, with the flags, in the log" 'grep -q "^lume: ROMS dirty: checked: [a-z ]* (flags 0x0002 VolumeDirty)$" "$W/log3"'
+check "dirty: no skip line" '! grep -q "check skipped" "$W/log3"'
+check "dirty: mkfs not called" '[ ! -s "$MKFS_LOG" ]'
+check "dirty: same volume (serial)" '[ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
+check "dirty: flag cleared by fsck" '[ "$(p2_bytes "$IMG" 106 1)" = 00 ]'
+R=$(setup_storage "$IMG" 2>"$W/log3b")
+check "dirty: the next boot is clean again" '[ "$R" = ok ] && grep -q "ROMS clean: check skipped" "$W/log3b"'
 
+### 3b. MediaFailure (bit 2), alone and with VolumeDirty: checked as well
+set_flags '\004\000'
+check "media failure: volume_flags 4" '[ "$(volume_flags "$IMG" "$P2")" = 4 ]'
+R=$(setup_storage "$IMG" 2>"$W/log3c")
+check "media failure: checked" '[ "$R" = "ok checked" ] && grep -q "^lume: ROMS dirty: checked: [a-z ]* (flags 0x0004 MediaFailure)$" "$W/log3c"'
+check "media failure: mkfs not called, same volume" '[ ! -s "$MKFS_LOG" ] && [ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
+set_flags '\006\000'
+R=$(setup_storage "$IMG" 2>"$W/log3d")
+check "both flags: checked, both named" '[ "$R" = "ok checked" ] && grep -q "(flags 0x0006 VolumeDirty MediaFailure)$" "$W/log3d"'
+# the high byte counts (little-endian), other bits alone do not trigger a check
+set_flags '\001\001'
+check "flags: little-endian" '[ "$(volume_flags "$IMG" "$P2")" = 257 ]'
+R=$(setup_storage "$IMG" 2>"$W/log3e")
+check "flags: ActiveFat and high bits alone are clean" '[ "$R" = ok ] && grep -q "ROMS clean: check skipped (flags 0x0101)" "$W/log3e"'
+set_flags '\000\000'
+check "flags_text" '[ "$(flags_text 0)" = 0x0000 ] && [ "$(flags_text 2)" = "0x0002 VolumeDirty" ] && [ "$(flags_text 6)" = "0x0006 VolumeDirty MediaFailure" ]'
+check "volume_flags: unreadable fails" '! volume_flags "$W/none.img" 0'
+
+### 3c. The check request of the user, on ROMS (device-fixes D3): a fake ROMS mount point
+### (a directory), fake umount and mount; the check itself runs on the image
+CALLS=$W/calls
+umount() { echo "umount $*" >> "$CALLS"; [ -z "${UMOUNT_FAILS:-}" ]; }
+fake_mount_roms() { echo "mount" >> "$CALLS"; [ -z "${MOUNT_FAILS:-}" ]; }
+M=$W/roms
+request() {  # $1: content of logs/.boot (unset: none)
+	rm -rf "$M"; mkdir -p "$M/system/card" "$M/logs"; : > "$CALLS"
+	echo 37 > "$M/system/card/check-next-boot"
+	[ $# -lt 1 ] || echo "$1" > "$M/logs/.boot"
+}
+request 41
+roms_request "$IMG" "$M" fake_mount_roms "" 2>"$W/log3f"; RC=$?
+check "request: unmount, check, mount again" '[ $RC = 0 ] && [ "$(cat "$CALLS" | tr "\n" " ")" = "umount $M mount " ]'
+check "request: checked, in the log" '[ "$(cat "$W/log3f")" = "lume: ROMS requested: checked: clean" ]'
+check "request: deleted" '[ ! -e "$M/system/card/check-next-boot" ]'
+check "request: last-check is this boot (.boot + 1)" '[ "$(cat "$M/system/card/last-check")" = 42 ] && [ ! -e "$M/system/card/last-check.tmp" ]'
+check "request: mkfs not called, same volume" '[ ! -s "$MKFS_LOG" ] && [ "$(p2_bytes "$IMG" 100 4)" = "$SERIAL" ]'
+: > "$CALLS"
+roms_request "$IMG" "$M" fake_mount_roms "" 2>"$W/log3g"
+check "no request: nothing done, nothing logged" '[ ! -s "$CALLS" ] && [ ! -s "$W/log3g" ] && [ "$(cat "$M/system/card/last-check")" = 42 ]'
+request 41
+roms_request "$IMG" "$M" fake_mount_roms checked 2>"$W/log3h"
+check "request after a dirty check: not checked twice" '[ ! -s "$CALLS" ] && [ ! -e "$M/system/card/check-next-boot" ] && [ "$(cat "$M/system/card/last-check")" = 42 ]'
+check "request after a dirty check: logged" '[ "$(cat "$W/log3h")" = "lume: ROMS requested: checked: by the dirty volume check of this boot" ]'
+request
+roms_request "$IMG" "$M" fake_mount_roms "" 2>/dev/null
+check "request, no boot counter yet: boot 1" '[ "$(cat "$M/system/card/last-check")" = 1 ]'
+request 08
+roms_request "$IMG" "$M" fake_mount_roms "" 2>/dev/null
+check "request, counter with a leading zero: boot 9" '[ "$(cat "$M/system/card/last-check")" = 9 ]'
+request 41
+UMOUNT_FAILS=1 roms_request "$IMG" "$M" fake_mount_roms "" 2>"$W/log3i"; RC=$?
+check "request, unmount fails: still mounted, request kept" '[ $RC = 0 ] && [ "$(cat "$CALLS")" = "umount $M" ] && [ -e "$M/system/card/check-next-boot" ] && [ ! -e "$M/system/card/last-check" ]'
+check "request, unmount fails: ERROR" 'grep -qx "lume: ERROR: failed to unmount ROMS for the requested check; the request stays for the next boot" "$W/log3i"'
+request 41
+MOUNT_FAILS=1 roms_request "$IMG" "$M" fake_mount_roms "" 2>/dev/null; RC=$?
+check "request, mount again fails: fails, request kept" '[ $RC = 1 ] && [ -e "$M/system/card/check-next-boot" ] && [ ! -e "$M/system/card/last-check" ]'
+unset -f umount
+# the init: the request right after the first mount, with the result of setup_storage
+INIT=../../initramfs/init
+check "init: request after the first mount" 'grep -A 6 "^	if mount_roms; then" "$INIT" | grep -q "roms_request \"\$DISK\" /roms mount_roms \"\${ROMS_OK#ok }\""'
+check "init: ROMS mounted for ok and ok checked" 'grep -q "^case \"\$ROMS_OK\" in ok\*)" "$INIT"'
+
+### 3d. The ROMS lines across a kexec (R36S) or the reboot into a new boot image (GA36): the
+### second start has a new kernel log
+dmesg() { printf '%s\n' "[    1.1] lume: console: R36S" "[    1.7] lume: ROMS dirty: checked: clean (flags 0x0002 VolumeDirty)" \
+	"[    1.8] lume: ROMS requested: checked: by the dirty volume check of this boot" "[    1.9] lume: ROMS partition created"; }
+rm -rf "$M"; mkdir -p "$M"
+roms_carry_save "$M" "(before kexec)"
+unset -f dmesg
+check "carry: only the check lines, with the suffix" '[ "$(cat "$M/system/card/.restart-log")" = "ROMS dirty: checked: clean (flags 0x0002 VolumeDirty) (before kexec)
+ROMS requested: checked: by the dirty volume check of this boot (before kexec)" ]'
+roms_carry_replay "$M" 2>"$W/log3j"
+check "carry: logged again by the next start, file deleted" '[ "$(sed -n 1p "$W/log3j")" = "lume: ROMS dirty: checked: clean (flags 0x0002 VolumeDirty) (before kexec)" ] && [ "$(wc -l < "$W/log3j")" = 2 ] && [ ! -e "$M/system/card/.restart-log" ]'
+roms_carry_replay "$M" 2>"$W/log3k"
+check "carry: nothing to replay" '[ ! -s "$W/log3k" ]'
+: > "$M/system/card/.restart-log"
+roms_carry_drop "$M"
+check "carry: dropped when the restart failed" '[ ! -e "$M/system/card/.restart-log" ]'
+check "init: saved before each restart, dropped after a failed one" \
+	'[ "$(grep -c "roms_carry_save /roms" "$INIT")" = 2 ] && [ "$(grep -c "roms_carry_drop /roms" "$INIT")" = 2 ] && grep -B 2 "^	sync$" "$INIT" | grep -q "roms_carry_save /roms \"(before kexec)\""'
+check "init: replayed right after the first mount" 'grep -A 4 "^	if mount_roms; then" "$INIT" | grep -q "roms_carry_replay /roms"'
 ### 4. p2 com outro sistema de arquivos: não toca, segue sem ROMS
 IMG4=$W/foreign.img
 mkimg "$IMG4" 1200M

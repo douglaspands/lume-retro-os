@@ -44,7 +44,9 @@ cmd_start() {
 
 	# ROMS (mensagens do initramfs no dmesg)
 	dmesg | sed -n 's/.*lume: \(ROMS partition created.*\)/\1/p' | while read -r l; do event roms OK "$l"; done
-	dmesg | sed -n 's/.*lume: ROMS checked: \(.*\)/\1/p' | while read -r l; do event roms OK "checked: $l"; done
+	# the check of ROMS (device-fixes D1, D3): "clean: check skipped (flags ...)",
+	# "dirty: checked: ..." or "requested: checked: ..."; "checked: ..." from an older initramfs
+	dmesg | sed -n 's/.*lume: ROMS \([a-z]*: .*\)/\1/p' | while read -r l; do event roms OK "$l"; done
 	dmesg | sed -n 's/.*lume: \(ERROR.*\)/\1/p' | while read -r l; do event boot FAIL "$l"; done
 	# Device tree choice (lume-bootsel in the initramfs; "before kexec:" once per kexec, so
 	# twice after a revert): the choice, the confirmation on the screen or the revert

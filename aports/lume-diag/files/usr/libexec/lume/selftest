@@ -282,7 +282,8 @@ phase_second() {
 	check var-tmp-gone '[ ! -e /var/tmp/lume-test ]'
 	check persist-after-reboot 'grep -q "^audio_volume = \"-3.000000\"" "$RA_CFG"'
 	check roms-preserved '[ -f "$STATE_ROM" ]'
-	check roms-checked-at-boot 'dmesg | grep -q "ROMS checked"' "$(dmesg | sed -n 's/.*lume: ROMS checked: //p')"
+	# the reset left ROMS mounted, so its VolumeDirty flag is set: checked (device-fixes D1)
+	check roms-checked-at-boot 'dmesg | grep -q "lume: ROMS dirty: checked: "' "$(dmesg | sed -n 's/.*lume: \(ROMS [a-z]*: .*\)/\1/p')"
 
 	wait_for 60 ui_running
 	stop_frontend
