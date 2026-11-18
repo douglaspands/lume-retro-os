@@ -43,9 +43,12 @@ GPU devfreq      simple_ondemand                 simple_ondemand, userspace
 - Troca de perfil só nas fronteiras de cenário, num serviço que não custa nada parado.
 - Medições confiáveis: o coletor deixa de pesar antes de medir qualquer perfil.
 
+- Achar o recurso que limita cada jogo (CPU, GPU, ritmo, térmico, memória) e subir só ele,
+  descendo o que sobra (D17), com cada recurso ajustável à mão por sistema e por jogo (D18).
+
 **Non-Goals:**
-- Controlador pelo FPS real (P-20, etapa 3): fica para depois, se os perfis por classe e o
-  controlador pela carga (D12, etapa 2) não bastarem; exige patch no RetroArch.
+- A tela de ajustes (P-85, P-91): esta change deixa o arquivo, o editor e o estado prontos.
+- Variar o clock da DRAM (D19, P-23 etapa 4).
 - Modo escolhido pelo usuário (Desempenho, Equilibrado, Economia).
 - Otimizar os cores (flags por CPU, PGO; P-10): adiado de propósito pelo usuário (2026-11-17).
   Todos os cores ficam no build padrão do upstream, inclusive o `snes9x2005_plus` (D15), para a
@@ -183,9 +186,16 @@ só mede.
 Ordem, para nunca passar do limite: liga os núcleos que faltam, ajusta `scaling_min_freq` e
 `scaling_max_freq` (descendo primeiro o mínimo, subindo primeiro o máximo), troca o governor,
 aplica os parâmetros do governor, desliga os núcleos a mais (nunca o `cpu0`), ajusta o
-`max_freq` do devfreq da GPU. A GPU só muda nas fronteiras, nunca no jogo (P-20: sem regulador
-nem refrigeração da Mali no DTS do GA36). O RetroArch com vídeo em thread e o áudio não são
-afetados por desligar núcleos porque a troca acontece antes do `exec` do jogo.
+`min_freq` e o `max_freq` do devfreq da GPU (`gpu_min`, `gpu_max`). O perfil muda a GPU só nas
+fronteiras; dentro do jogo, só o controlador por gargalo (D17) mexe no piso da GPU. O RetroArch
+com vídeo em thread e o áudio não são afetados por desligar núcleos porque a troca acontece
+antes do `exec` do jogo.
+
+*Revisão (2026-11-18):* a restrição antiga "GPU nunca no jogo" vinha do P-20 (Mali sem
+refrigeração). A tarefa 9.10 ligou o `CONFIG_DEVFREQ_THERMAL` (a Mali do GA36 é dispositivo de
+refrigeração da zona `cpu-thermal`), e o próprio `simple_ondemand` já troca o clock da GPU no
+meio do jogo, dentro do `[min_freq, max_freq]`. Mudar o piso no jogo não cria nenhuma troca
+de clock que o kernel já não faça; a J1 confere (5.2) que nenhuma trava aparece.
 
 ### D5. Medição que escolhe os valores
 
@@ -339,7 +349,97 @@ com o core da imagem: trocar o core depois invalidaria a classe e a exceção po
 - **Catálogo:** o `systems.json` já tem `snes9x2005_plus` como padrão, sem alternativos nem
   troca por arquitetura; um teste passa a garantir isso (spec `game-library`).
 
+### D17. Controlador por gargalo (`controller=auto`, pedido do usuário, 2026-11-18)
+
+Queixa do usuário: "alguns jogos simples estão com uma performance ruim; ora parece que a GPU
+não está com a potência que deveria, ora parece que a CPU está com potência demais". Pedido:
+o sistema identifica o gargalo e ajusta o recurso que está prejudicando, por exemplo subir a
+GPU em vez da CPU. Isto amplia o D12 (que só olha a CPU) e cumpre a "Ampliação" do P-20.
+
+Hipóteses para os jogos simples, todas cobertas pelos sinais abaixo: (a) o `simple_ondemand`
+da GPU faz a média da carga e, num jogo leve que desenha em rajadas, fica em 144 MHz e entrega
+o quadro tarde (a mesma doença do `schedutil` na CPU, D3); (b) a CPU no piso alto esquenta o A33
+e a zona térmica é uma só para a CPU e a GPU, então CPU sobrando rouba teto da GPU; (c) o coletor
+de métricas e a `sugov:0` (P-60, já trocados na 1.2) roubando tempo de núcleo.
+
+**Sinais**, por janela de 1 s, todos de fora do processo do jogo e sem patch novo:
+
+| Sinal | Fonte | Uso |
+|---|---|---|
+| Quadros entregues por segundo | `drm-page-flips` no `fdinfo` dos fds do DRM do jogo (patch 0036, os dois consoles) | queda de quadros |
+| Ocupação da GPU | `drm-engine-*` no `fdinfo` (GA36: `gp`/`pp` do patch 0035; R36S: `fragment`/`vertex-tiler` do `panfrost`, com o `profiling` ligado pelo serviço) | gargalo de GPU |
+| Ocupação da CPU | thread mais ocupada do cgroup do jogo (`/proc/<pid>/task/*/stat`, como no D12) | gargalo de CPU |
+| Teto térmico | `scaling_max_freq` da CPU e `max_freq` efetivo da GPU | não brigar com o kernel |
+| Memória | `MemAvailable` e `CmaFree` do `/proc/meminfo` | só diagnóstico (D19) |
+
+Os fds do DRM do jogo são achados a cada 2 s (`readlink` de `/proc/<pid>/fd/*` apontando para
+`/dev/dri/`) e o mesmo cliente aberto duas vezes conta uma só (`drm-client-id`). O alvo de
+quadros é o maior ritmo visto nos últimos 30 s (60 ou 50 Hz num jogo do RetroArch; 30 num jogo
+que desenha a 30), então um jogo que roda abaixo do painel por desenho não é visto como lento.
+
+**Regra**, um degrau por vez, cada recurso com a sua faixa e o seu teto:
+1. Recurso saturado (ocupação acima de 85% por 1 s) sobe um degrau: CPU pelo `scaling_setspeed`
+   (governor `userspace`, como no D12), GPU pelo piso `min_freq` do devfreq (o `simple_ondemand`
+   continua livre para ir acima do piso).
+2. Queda de quadros (abaixo do alvo menos 5%, por 1 s) sem nenhum saturado: sobe o recurso mais
+   ocupado (gargalo de ritmo: a carga média é baixa, mas o quadro chega tarde, hipótese a).
+3. Recurso folgado (abaixo de 50% por 3 s), sem queda de quadros nesses 3 s e sem subida
+   nos últimos 5 s: desce um degrau (é a "CPU com potência demais" da queixa, hipótese b).
+4. O teto térmico do kernel manda: nunca se escreve acima dele; tempo sob teto é registrado.
+5. Sem sinal de quadros (kernel sem o patch 0036, ou jogo sem DRM) o controlador vira o D12 nos
+   dois recursos (só as regras 1 e 3).
+
+Um recurso só é controlado quando a faixa dele tem mais de um degrau: `min=max` trava a CPU e
+`gpu_min=gpu_max` trava a GPU (D18). O controlador grava a cada mudança o
+`/run/r36os/powerctl.state` (degrau atual de cada recurso, ocupação, quadros, alvo e o último
+gargalo: `cpu`, `gpu`, `pacing`, `thermal` ou `none`), para a barra de status e a tela futura, e
+ao parar a linha `power OK controller: ...` com o tempo por degrau de cada recurso e a contagem
+por gargalo. O modo `controller=load` (D12) continua aceito.
+
+*Alternativas descartadas:* subir tudo junto (gasta bateria e esquenta, que é o contrário do
+pedido); trocar o governor da GPU para `userspace` (no GA36 ele não está no kernel e o piso já
+basta); controlador pelo FPS do `GET_STATUS` do RetroArch (preso ao RetroArch, D2 e memória do
+projeto; os page flips valem para qualquer jogo).
+
+### D18. Ajuste manual por recurso, por sistema e por jogo (pedido do usuário, 2026-11-18)
+
+Para a interface futura (P-85, P-91) poder escolher o nível de cada recurso:
+- **Por recurso:** chaves de perfil `min`/`max` (CPU, kHz) e `gpu_min`/`gpu_max` (GPU, Hz).
+  Faixa com um degrau só = recurso travado à mão; faixa maior com `controller=auto` = o
+  controlador escolhe dentro dela. Assim "subir só a GPU" é `gpu_min` alto com a CPU livre, e
+  "deixar a CPU baixa" é `max` baixo, sem conceito novo no arquivo.
+- **Por jogo:** linha `game <chave> <perfil>` no `power.conf` (só no cartão; a imagem não traz
+  jogo nenhum). A chave é o FNV-1a de 64 bits, em 16 dígitos hexadecimais, do caminho da ROM
+  relativo a `ROMS/roms/` (`lume_core::power::game_key`), então nem o `power.conf`, nem o
+  `power.state`, nem o `events.log` levam nome de jogo. A mensagem do FIFO passa a
+  `game <sistema> <core> <chave>` (a chave é opcional: um escritor antigo continua valendo).
+- **Precedência:** jogo, depois core, depois classe, depois `game`. O piso dos jogos do GA36 (D3)
+  vale também para um perfil escolhido por jogo.
+- **Editor:** o `powerconf` do `lume-core` ganha `Setting::Game` e as chaves `gpu_min` e
+  `controller=auto`; o `power.state` publica as linhas `game` com a origem.
+
+### D19. "Memória da GPU" nestes consoles
+
+O A33 (Mali-400 MP2) e o RK3326 (Mali-G31) não têm memória de vídeo própria: a GPU usa a mesma
+DRAM da CPU (o `lima` e o `panfrost` alocam da memória comum; a tela usa a CMA). Não há quantidade
+de memória de GPU para aumentar. O que existe:
+- **Banda da memória** (clock da DRAM): fixa nos dois consoles no mainline. O A33 tem driver de
+  devfreq do MBUS no kernel (`sun8i-a33-mbus`, `CONFIG_ARM_SUN8I_A33_MBUS_DEVFREQ`), mas o
+  `sun8i-a33.dtsi` não declara o nó; ligá-lo é design novo e arriscado (P-23, etapa 4).
+- **Falta de memória**: o controlador registra o menor `MemAvailable` e `CmaFree` da sessão e
+  marca o gargalo `memory` quando o `MemAvailable` fica abaixo de 32 MiB; não há o que subir,
+  então é só diagnóstico (a falta de CMA da `lume-hud-actions` foi um vazamento, já corrigido).
+
 ## Risks / Trade-offs
+
+- [Controlador por gargalo sobe a GPU num jogo que perde quadros por outro motivo (áudio, disco)]
+  → A regra 2 sobe um degrau por segundo e a regra 3 só desce sem queda de quadros, então um
+  jogo que perde quadros por outro motivo acaba com o recurso mais ocupado no máximo: é o
+  comportamento do `performance` de hoje (custo de bateria, nunca de quadro). O `powerctl.state` e
+  a linha do `events.log` mostram o gargalo `pacing`, e o caso vira exceção por core ou por jogo.
+- [Ler o `fdinfo` a cada 250 ms custa CPU] → Só os fds do DRM achados a cada 2 s, poucos
+  arquivos pequenos por amostra; medido na J1 junto do custo do `logd` (meta: abaixo de 1% de um
+  núcleo).
 
 - [Desligar núcleos com o jogo esperando mais threads] → Os perfis só desligam núcleos onde a
   medição mostrar que não há `slow` a mais; `cpu0` nunca sai.

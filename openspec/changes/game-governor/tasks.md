@@ -36,7 +36,9 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 3.2 | 1.1, 3.0 | — | AG | sonnet | 1 | J1 |
 | 4.1 | — | — | AG | sonnet | 0 | J1 |
 | 4.2 | — | — | AG | sonnet | 0 | J1 |
-| 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 2.5 | 2.3 | — | PR | opus | 2b | J1 |
+| 2.6 | 2.2 | — | PR | opus | 2b | J1 |
+| 5.1 | 1.2, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 4.1, 4.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 5.2 | 1.3, 5.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 5.3 | 5.2 | — | AG | sonnet | 5 | |
 | 5.4 | 5.3 | CPU, ARCH:armv7 | PR | — | 6 | |
@@ -48,6 +50,13 @@ perfis iguais ao padrão do kernel até a 5.4.
 
 Modelos: ondas 0, 1 e 2 aprovadas pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
 outras ondas aguardam aprovação antes de começar.
+
+**Revisão de 2026-11-18 (pedido do usuário):** controlador por gargalo (D17) e ajuste manual por
+recurso e por jogo (D18) entram como a onda 2b (2.5 e 2.6). O usuário autorizou ir até o fim
+sem pedir aprovação ("vá até o final sem solicitar permissão", 2026-11-18): a onda 2b e as
+seguintes do GA36 rodam na sessão principal, e o GA36 fecha o ciclo com o R36S para o fim. As
+partes da J1 e da J3 que precisam de mão ou de bateria descarregando ficam anotadas como
+pendentes do usuário.
 
 **GA36 primeiro (pedido do usuário, 2026-11-17):** o usuário vai levar o GA36 e ficar fora;
 o GA36 fecha o ciclo inteiro (J1, perfis, build, J3) antes de qualquer janela do R36S, que
@@ -109,6 +118,9 @@ cartão; ordem J1, J3, J2, J4):
 - [ ] 2.3 Controlador pela carga `r36os-powerctl` (D12): aport em C por arquitetura, governor `userspace`, amostra de 250 ms da thread mais ocupada do processo principal do cgroup do jogo, sobe um degrau acima de 85% por 1 s e desce abaixo de 50% por 3 s, dentro do `min`/`max` do perfil e sob o `scaling_max_freq` atual; o `r36os-power` o liga nos perfis com `controller=load`, mata no `end`, reaplica o perfil sem ele se ele cair, e registra `power OK controller` com o tempo por degrau. Verificação: testes com `/proc` e sysfs falsos e relógio falso (sobe, desce, respeita o teto térmico, para no fim do jogo, queda do controlador volta ao perfil); no GA36, um jogo pesado com o controlador mostra a frequência variando nas métricas (J1, J3).
 - [ ] 2.4 Prioridade do jogo (D13): o `r36os-power`, 2 s depois do `game` e de novo 2 s depois, aplica `nice -5` e `ioprio` best-effort 2 a todos os processos e threads do cgroup mais novo em `/sys/fs/cgroup/lume/game-*`; o init do `r36os-input` passa a `nice -10`; spec `game-runners`. Verificação: teste do shell com um cgroup e um `/proc` falsos (todos os pids recebem a prioridade, nada em tempo real, cgroup vazio não falha) e o init do `r36os-input` conferido em teste; no GA36, Fn+Start encerra um jogo travado (J3).
 
+- [ ] 2.5 Controlador por gargalo (D17): o `r36os-powerctl` ganha `--mode auto` (o `load` continua): janela de 1 s com os quadros entregues (`drm-page-flips` dos fds do DRM do cgroup do jogo, achados a cada 2 s, um por `drm-client-id`), a ocupação da GPU (o maior `drm-engine-*` sobre o tempo) e a thread mais ocupada da CPU; alvo de quadros = maior ritmo dos últimos 30 s; regras 1 a 5 do D17; CPU pelo `scaling_setspeed`, GPU pelo `min_freq` do devfreq (restaurado ao parar); recurso com faixa de um degrau não é controlado; `/run/r36os/powerctl.state` a cada mudança; linha final com o tempo por degrau de cada recurso e a contagem por gargalo; o `r36os-power` liga o modo pelo `controller=auto` com as faixas do perfil (`--gpu-min`, `--gpu-max`) e, no R36S, liga o `profiling` do `panfrost`. Verificação: testes com `/proc`, `fdinfo` e sysfs falsos e relógio falso (GPU saturada sobe só a GPU, CPU saturada sobe só a CPU, queda de quadros sem saturação sobe o mais ocupado, folga desce, GPU travada não muda, sem `drm-page-flips` vira o D12 nos dois, teto térmico respeitado, `min_freq` da GPU devolvido ao parar, mesmo cliente em dois fds conta uma vez); no GA36, um jogo leve e um pesado mostram o gargalo e os degraus no `powerctl.state` e na linha `power OK controller` (J1).
+- [ ] 2.6 Ajuste manual por recurso e por jogo (D18): chaves `gpu_min` e `controller=auto` no validador do shell e no editor do `lume-core`; linha `game <chave> <perfil>` (só no cartão) com a precedência jogo > core > classe > `game` e o piso do GA36; `lume_core::power::game_key` (FNV-1a 64 do caminho relativo a `ROMS/roms/`, 16 dígitos hex) e a mensagem `game <sistema> <core> <chave>` do `lume-run`; `power.state` com as linhas `game`; `docs/LOGS.md` com a gramática, o `powerctl.state` e os eventos. Verificação: testes do shell (perfil por jogo vence core e classe, `game` na imagem recusado, `gpu_min` fora da tabela recusado, `gpu_min` acima de `gpu_max` recusado, mensagem antiga de 3 palavras continua valendo), testes Rust (chave estável e sem nome, linha do FIFO com 4 palavras, editor grava `Setting::Game` e `gpu_min`); no GA36, um perfil por jogo no `power.conf` vale com `reload` no jogo seguinte (J3).
+
 ## 3. Avisos do supervisor e launcher
 
 - [x] 3.0 Protótipo (`docs/lume-launcher/prototipo/`, D9): a marca de carga na bateria da barra de status e o aviso de bateria fraca, nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
@@ -125,7 +137,7 @@ cartão; ordem J1, J3, J2, J4):
 
 - [ ] 5.1 Build de medição: pacotes da onda 0 e 1 e o kernel do GA36, nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push`. Verificação: os `.apk` e o kernel novos no repositório local e o `push` terminando com `ok`.
 - [ ] 5.2 Janela J1 no GA36: custo do `logd` e do `sugov:0` (1.2), governors novos (2.1), DRAM no retrato (4.1), eventos `power` (3.1); depois as sessões do D5 por classe e por candidato com o modo manual, com e sem o controlador nos pesados. Verificação: tabela do `r36os power report` (1.3) no `design.md` por classe e candidato (corrente média, eventos `slow`, temperatura máxima, clock médio), sem nome de jogo, e o candidato escolhido por classe pela regra do D5; o CSV do relatório, com a versão de cada core (build padrão, linha de base do P-10), em `docs/referencia/medicoes/game-governor/`.
-- [ ] 5.3 Escrever `ga36.conf` com os perfis escolhidos na 5.2 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria, o `game_min` e o piso do GBA conferidos pela medição, nunca abaixo de 600 MHz); o `r36s.conf` continua igual ao padrão do kernel. Verificação: os testes do validador da 1.1 com o arquivo real contra a tabela de OPP do GA36 (copiada do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
+- [ ] 5.3 Escrever `ga36.conf` com os perfis escolhidos na 5.2 (classes dos sistemas do `systems.json`, exceções por core que a medição mostrou, limites da bateria, o `game_min` e o piso do GBA conferidos pela medição, nunca abaixo de 600 MHz; os perfis de jogo com `controller=auto` se a J1 mostrar o controlador por gargalo sem quadros a mais perdidos que o perfil sem ele); o `r36s.conf` continua igual ao padrão do kernel. Verificação: os testes do validador da 1.1 com o arquivo real contra a tabela de OPP do GA36 (copiada do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
 - [ ] 5.4 Build final do GA36 com os perfis da 5.3 (armv7) e `r36os push`. Verificação: `.apk` novos e `push` com `ok`.
 - [ ] 5.5 Janela J3 no GA36: os eventos `power` do boot ao menu, ao jogo de cada classe e de volta; o tempo do boot com o perfil `boot` comparado com o de antes (anotado no P-58); a tela escurece em 2 minutos parada e o primeiro botão só devolve a luz; a marca de carga aparece e some em até 5 s; numa sessão longa sem carregador, o aviso aparece uma vez no jogo e o console desliga sozinho no nível crítico com o save interno gravado e o boot seguinte com `previous clean`; numa sessão de cada classe, nenhum `slow` a mais que na tabela da 5.2; o controlador num jogo pesado (frequência variando, linha `power OK controller`); Fn+Start encerra um jogo travado (2.4); `enabled 0` no `power.conf` devolve o padrão do kernel depois do reboot, com o piso nos jogos; no GBA, nenhuma amostra abaixo do mínimo do perfil (fora do teto térmico); uma linha mudada no `power.conf` com `reload` pelo cabo vale no jogo seguinte sem reboot e aparece no `power.state`. Verificação: resultado no `docs/BRINGUP-GA36.md`, sem nome de jogo, e o `r36os power report` antes e depois lado a lado no `design.md`.
 

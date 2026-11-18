@@ -25,6 +25,16 @@ pendências (P-20, P-83, P-23), com o P-60, o P-78 e o item 3 do P-64.
 - **Controlador pela carga do jogo** (P-20, etapa 2), ligado por perfil: dentro da faixa do
   perfil, sobe o clock quando a thread principal do jogo passa de ~85% de um núcleo e desce
   abaixo de ~50%, sempre sob o teto térmico do kernel.
+- **Controlador por gargalo** (pedido do usuário, 2026-11-18; P-20 "Ampliação"): jogos simples
+  rodam mal ora por GPU baixa demais, ora por CPU sobrando. Com `controller=auto`, o sistema
+  mede a cada segundo os quadros entregues (page flips do DRM), a ocupação da GPU (`fdinfo`) e
+  a da thread mais ocupada da CPU, acha o recurso que limita e sobe só ele (o clock da CPU ou o
+  piso do clock da GPU), descendo o que sobra; o teto térmico do kernel continua mandando. A
+  GPU não tem memória própria nestes consoles (usa a DRAM comum): a falta de memória só é
+  registrada.
+- **Ajuste manual por recurso, por sistema e por jogo**, pronto para a tela futura: cada perfil
+  fixa ou limita a CPU e a GPU separadas, e um perfil pode valer para um jogo (chave sem nome
+  de jogo) acima do core e da classe.
 - **Prioridade do jogo**: os processos do jogo acima dos serviços de fundo (índice, playlists,
   saves, logs), sem tempo real; o daemon de entrada acima do jogo, para o Fn+Start encerrar até
   um jogo travado.
@@ -58,9 +68,10 @@ Fora do escopo: overclock do GA36 (P-11), flags de compilação por CPU e userla
 P-82, reservados para a change de cores, P-80; o P-10 foi adiado de propósito pelo usuário em
 2026-11-17: todos os cores ficam no build padrão do upstream, para as medições desta change
 mostrarem só o ganho do sistema e servirem de linha de base à otimização dos cores), Mesa sem LLVM (P-59, vai para o P-58), modo de
-energia escolhido pelo usuário (fica para depois de medido), o controlador por FPS real (P-20,
-etapa 3, exige patch no RetroArch) e a barra de status sobre o jogo
-(`lume-hud-actions`, parada).
+energia escolhido pelo usuário (fica para depois de medido), a tela de ajustes (P-85, P-91; o
+arquivo, o editor e o estado ficam prontos aqui) e o clock variável da DRAM (P-23). O
+controlador por FPS real (P-20, etapa 3) entra aqui pelos page flips do kernel, sem patch no
+RetroArch (D17).
 
 ## Capabilities
 
@@ -84,8 +95,8 @@ etapa 3, exige patch no RetroArch) e a barra de status sobre o jogo
 - `lume/lume-run` (avisos de início e fim de jogo com sistema e core) e `lume/lume-ui` (menu,
   ocioso, escurecer a tela, indicador de carga; telas no protótipo com a régua).
 - `aports/lume-core/.../logd` (P-60) e `aports/lume-diag/.../hwinfo` (DRAM do A33, P-23).
-- Binário pequeno em C do controlador pela carga (`r36os-powerctl`, um aport por arquitetura,
-  como o `r36os-input`) e o init do `r36os-input` (prioridade acima do jogo).
+- Binário pequeno em C do controlador pela carga e por gargalo (`r36os-powerctl`, um aport por
+  arquitetura, como o `r36os-input`; lê o `fdinfo` dos patches 0035 e 0036 do kernel) e o init do `r36os-input` (prioridade acima do jogo).
 - `src/r36os/power_report.py` e o comando `r36os power report` no PC.
 - `aports/libretro-snes9x2005-plus` (commit novo do upstream, build padrão) e a remoção de
   `aports/libretro-snes9x`, com as referências a ele em `lume/`, `docs/` e nos testes.

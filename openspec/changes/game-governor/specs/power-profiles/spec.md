@@ -9,7 +9,7 @@ quando a bateria está acabando.
 ## ADDED Requirements
 
 ### Requirement: Perfil escolhido pelo cenário
-O console MUST aplicar sozinho, sem precisar de escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo; dentro do jogo, só o controlador pela carga, quando o perfil o liga, MAY variar o clock, e sempre dentro da faixa do perfil.
+O console MUST aplicar sozinho, sem precisar de escolha do usuário, o perfil de energia do cenário em curso: boot, menu do launcher, launcher parado e jogo. A troca de perfil MUST acontecer só na mudança de cenário, nunca no meio de um jogo; dentro do jogo, só o controlador (pela carga ou por gargalo), quando o perfil o liga, MAY variar o clock da CPU ou o piso do clock da GPU, e sempre dentro da faixa de cada recurso no perfil.
 
 #### Scenario: Do menu ao jogo e de volta
 - **WHEN** o usuário abre um jogo pelo launcher e depois volta ao launcher
@@ -20,7 +20,7 @@ O console MUST aplicar sozinho, sem precisar de escolha do usuário, o perfil de
 - **THEN** o perfil não muda durante o jogo, a menos que a proteção térmica do kernel reduza o clock
 
 ### Requirement: Perfil do jogo por classe de sistema
-O perfil de um jogo MUST vir da classe do sistema do jogo, com exceção possível por core. Um sistema sem classe MUST usar o perfil de jogo padrão.
+O perfil de um jogo MUST vir da classe do sistema do jogo, com exceção possível por core e, acima dela, por jogo (ajuste do cartão). Um sistema sem classe MUST usar o perfil de jogo padrão.
 
 #### Scenario: Sistemas leves e pesados
 - **WHEN** o usuário abre um jogo de NES e depois um de PlayStation
@@ -76,6 +76,36 @@ Um perfil de jogo MAY ligar o controlador pela carga: durante o jogo, a frequên
 #### Scenario: Fim do jogo
 - **WHEN** o jogo com o controlador ligado termina
 - **THEN** o controlador para e o perfil do menu volta, como em qualquer fim de jogo
+
+### Requirement: Controlador por gargalo
+Um perfil de jogo MAY ligar o controlador por gargalo. Durante o jogo, ele MUST medir a cada segundo os quadros entregues à tela, a ocupação da GPU e a da thread mais ocupada da CPU, e MUST subir só o recurso que limita: o recurso acima de cerca de 85% de ocupação sobe um degrau; com quadros perdidos e nenhum recurso saturado, sobe o mais ocupado; um recurso abaixo de cerca de 50% por 3 s, sem quadros perdidos nesse tempo, desce um degrau. Cada recurso MUST ficar dentro da sua faixa no perfil e abaixo do teto térmico do kernel. O controlador MUST publicar, legível sem root, o degrau de cada recurso e o último gargalo visto, e MUST registrar no `events.log`, ao fim do jogo, o tempo em cada degrau de cada recurso e quantas vezes cada gargalo apareceu. Nenhum dado publicado ou registrado MAY trazer nome de jogo.
+
+#### Scenario: Jogo limitado pela GPU
+- **WHEN** num jogo com o controlador por gargalo a GPU passa de 85% de ocupação e a CPU fica folgada
+- **THEN** o piso do clock da GPU sobe e o clock da CPU não sobe
+
+#### Scenario: Jogo leve com CPU sobrando
+- **WHEN** num jogo com o controlador por gargalo a thread mais ocupada fica abaixo de 50% de um núcleo por mais de 3 s, sem quadros perdidos
+- **THEN** o clock da CPU desce um degrau, sem passar abaixo do mínimo do perfil (no GA36, o piso de jogo)
+
+#### Scenario: Quadros perdidos sem recurso saturado
+- **WHEN** o jogo entrega menos quadros que o seu ritmo e nem a CPU nem a GPU passam de 85%
+- **THEN** o recurso mais ocupado sobe um degrau, e o gargalo publicado é o de ritmo
+
+#### Scenario: Recurso travado
+- **WHEN** o perfil do jogo tem a faixa da GPU com um só degrau
+- **THEN** o controlador nunca muda a GPU e continua controlando a CPU
+
+### Requirement: Ajuste manual por recurso e por jogo
+O arquivo de ajustes do cartão MUST permitir escolher, separadamente, a faixa de clock da CPU e a da GPU de um perfil (uma faixa de um só degrau trava o recurso), e MUST permitir ligar um perfil a um jogo, acima da exceção por core e da classe do sistema. Um jogo MUST ser identificado por uma chave calculada do caminho da ROM, nunca pelo nome, no arquivo, no estado publicado e nos logs. O piso de clock nos jogos do GA36 MUST valer também para o perfil de um jogo.
+
+#### Scenario: Perfil de um jogo
+- **WHEN** o arquivo de ajustes liga um perfil à chave de um jogo e o usuário abre esse jogo
+- **THEN** o jogo roda com esse perfil, mesmo com uma classe ou exceção por core para o sistema dele, e o `events.log` e o estado publicado mostram só a chave
+
+#### Scenario: Só a GPU fixada pelo usuário
+- **WHEN** um perfil traz o piso e o teto da GPU no mesmo clock e a CPU com a faixa inteira e o controlador por gargalo
+- **THEN** a GPU fica nesse clock durante o jogo e a CPU varia pelo controlador
 
 ### Requirement: Ajustes pelo cartão
 O usuário MUST poder, num arquivo de texto da partição `ROMS`, sobrescrever perfis, mudar o tempo do launcher parado e desligar os perfis. Com os perfis desligados, a CPU e a GPU MUST ficar no padrão do kernel, exceto o piso de clock nos jogos do GA36. Um valor inválido MUST ser ignorado com uma linha no log, valendo o padrão.
