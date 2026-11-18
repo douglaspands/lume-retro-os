@@ -326,6 +326,20 @@ Leitor: `lume_core::powerstate::PowerState::read`. Editor do `power.conf`
 comentários, ordem e linhas desconhecidas byte a byte e grava de forma atômica (temporário na
 mesma pasta, `fsync`, `rename`); depois a interface manda `reload`.
 
+## Coletor: `r36os-logd` e `lume-logd`
+
+O serviço `r36os-logd` (shell, `lume-core`) abre o boot, grava o retrato do hardware, confirma o
+device tree e então passa o laço de amostras ao `lume-logd` (C, APK `lume-logd`,
+`/usr/bin/lume-logd run`), que a cada `interval` grava a linha de métricas, as linhas `fe=` e
+`usb:` do rastreio e os eventos da amostra, e rastreia as mensagens do kernel (`k [...]`) direto
+do `/dev/kmsg`, durante a espera. O formato é o mesmo das seções abaixo. Para o trabalho raro
+ele chama o shell de volta: `logd flush` (a descarga a cada `flush` s, numa troca de estado do
+frontend e enquanto ele não responde), `logd snapshot <pid> <estado>` (o retrato detalhado de um
+RetroArch travado) e `logd kick` (reabilitar a interrupção da tela mascarada; saída 0 = a tela
+voltou, 1 = gravou sem efeito, 2 = nada gravado). Sem o binário (imagem antiga), o laço em shell
+roda como antes. Custo medido no GA36 (game-governor 1.2): 0,8% de um núcleo no launcher parado
+e 0,9% num jogo.
+
 ## `metrics/boot-<n>.csv`
 
 CSV com cabeçalho, uma linha a cada `interval` segundos. As colunas que dependem do

@@ -110,8 +110,12 @@ cartão; ordem J1, J3, J2, J4):
   com o piso, modo manual), 2.3 (o modo `load` não foi usado: os perfis do GA36 usam o `auto`),
   3.2 (escurece em 2 min, primeiro botão só devolve a luz e o perfil `menu`), 4.2 (SNES no
   `snes9x2005_plus` novo a 60,1 quadros/s; falta o save state antigo), 5.1 (só armv7).
-- 1.2: o `logd` caiu de ~30% para 5,5 a 7,3% de um núcleo, ainda acima da meta de 1%: falta o
-  coletor em C. O `sugov:0` caiu de 30% para 4,4% com o `rate_limit_us` de 100 ms no menu.
+- 1.2, provado no GA36 (falta o R36S): o laço de amostras virou o `lume-logd` em C (APK
+  próprio, pedido do usuário; o `logd` em shell faz o resto e o chama), com o mesmo formato.
+  Medido em 120 s: **0,8%** de um núcleo no launcher parado e **0,9%** num jogo, ~550 KB de
+  memória (era ~30%; 5,5 a 7,3% com o shell barato e o `logs.conf` do cartão em 2 s / 5 s, que
+  voltou ao padrão 5 s / 60 s; 1,8% com o shell no padrão). O `sugov:0` caiu de 30% para 4,4%
+  com o `rate_limit_us` de 100 ms no menu.
 - 5.2: as sessões do D5 com corrente da bateria precisam do usuário jogando sem carregador. Pelo
   cabo saíram a medição de quadros e de clock (tabela no bring-up) e o achado do P-93 (vídeo em
   thread). 5.3/5.4: o `ga36.conf` já leva o controlador por gargalo e os `rate_limit_us`; o piso
