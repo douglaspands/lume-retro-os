@@ -5,6 +5,7 @@
 //!   run lume-ui      exit 0  -> exit 0 (the session powers off)
 //!                    exit 64 -> run the game of $XDG_RUNTIME_DIR/lume/launch, then loop
 //!                    exit 65 -> same, the RetroArch menu without a game
+//!                    exit 66 -> restart the session (contract frozen, docs/FRONTEND.md)
 //!                    other   -> exit 1 (a frontend failure for the session)
 //! ```
 //!
@@ -47,6 +48,9 @@ const TICK: Duration = Duration::from_secs(1);
 const PROG: &str = "lume-run";
 const EXIT_LAUNCH: i32 = 64;
 const EXIT_MENU: i32 = 65;
+/// Restart the session (frozen in docs/FRONTEND.md; the behaviour comes later)
+#[allow(dead_code)]
+const EXIT_RESTART: i32 = 66;
 /// After cgroup.kill, how long the cgroup may take to empty
 const KILL_GRACE: Duration = Duration::from_secs(2);
 

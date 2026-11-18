@@ -28,6 +28,9 @@ pub enum Exit {
     Shutdown = 0,
     Launch = 64,
     RetroArch = 65,
+    /// restart the session (frozen in the session contract, docs/FRONTEND.md; used by the system menu)
+    #[allow(dead_code)]
+    Restart = 66,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
