@@ -750,29 +750,274 @@ fn game_menu_sheet_matches_the_prototype_ruler() {
     assert!(cv.texts.iter().any(|(t, r)| *t == a.lib.systems[1].abbr && r.x < 220));
 }
 
+// ---- the system menu of the Fn button (device-fixes 9.11, D19) ----
+
+fn fn_tap(a: &mut App<FakeSystem>) {
+    assert!(a.handle(Ev::FnTap));
+}
+
+/// The sheet of the system menu: the panel_bg fill that is not the whole width.
+fn panel(a: &App<FakeSystem>, cv: &FakeCanvas, min_w: i32) -> lume_ui::canvas::Rect {
+    cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > min_w).map(|(r, _)| *r).expect("sheet")
+}
+
 #[test]
-fn power_off_is_a_sheet_with_power_off_on_top_and_cancel_focused() {
-    let c = card("powersheet", 3, false);
+fn system_menu_over_the_grid_and_back_on_the_same_game() {
+    let c = card("sys-grid", 12, false);
     let mut a = app(&c, FakeSystem::default());
-    go_dock(&mut a, DockItem::Settings);
+    go_dock(&mut a, DockItem::System(1));
     press(&mut a, Action::A);
-    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Power).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    let name = a.focused_name().unwrap();
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && cv.has_text("Settings") && cv.has_text("Suspend") && cv.has_text("Restart") && cv.has_text("Power off"));
+    // the buttons go to the menu, not to the grid: Down moves the menu's focus
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Right);
+    assert_eq!(a.focused_name().unwrap(), name);
+    // another tap closes it; the grid is as it was
+    fn_tap(&mut a);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("System menu"));
+    // B closes it too
+    fn_tap(&mut a);
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+}
+
+#[test]
+fn system_menu_over_an_open_sheet_keeps_it() {
+    let c = card("sys-sheet", 3, true);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::A); // the game sheet
+    assert!(a.overlay_open());
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && cv.has_text("Start game"), "both layers are drawn");
+    fn_tap(&mut a);
+    assert!(a.overlay_open(), "the sheet stays open under the menu");
+    // the sheet takes the buttons again
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+}
+
+#[test]
+fn system_menu_focus_starts_on_settings_and_wraps() {
+    let c = card("sys-focus", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    fn_tap(&mut a);
+    // A on the first item opens the Settings
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    // up from Settings wraps to Power off: its confirmation opens
+    let mut b = app(&c, FakeSystem::default());
+    fn_tap(&mut b);
+    press(&mut b, Action::Up);
+    press(&mut b, Action::A);
+    let mut cv = FakeCanvas::new(640, 480);
+    b.draw(&mut cv);
+    assert!(cv.has_text("The device will be turned off."));
+}
+
+#[test]
+fn restart_and_power_off_confirmations_default_to_cancel_and_only_up_down_change_it() {
+    let c = card("sys-confirm", 3, false);
+    // (the item index, the exit code the action gives, the question)
+    for (downs, exit, ask) in [(2, Exit::Restart, "The device will restart."), (3, Exit::Shutdown, "The device will be turned off.")] {
+        let mut a = app(&c, FakeSystem::default());
+        fn_tap(&mut a);
+        for _ in 0..downs {
+            press(&mut a, Action::Down);
+        }
+        press(&mut a, Action::A);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text(ask) && cv.has_text("Cancel"));
+        // the focus starts on Cancel: A does nothing and the menu is back
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text("System menu"), "Cancel goes back to the menu");
+        // reopen: left and right change nothing, A still cancels
+        press(&mut a, Action::A);
+        press(&mut a, Action::Left);
+        press(&mut a, Action::Right);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None);
+        // reopen: Up picks the action (left/right again do nothing), Down gets back to Cancel
+        press(&mut a, Action::A);
+        press(&mut a, Action::Up);
+        press(&mut a, Action::Down);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None, "Down went back to Cancel");
+        press(&mut a, Action::A);
+        press(&mut a, Action::Up);
+        press(&mut a, Action::Left);
+        press(&mut a, Action::Right);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, Some(exit));
+    }
+    assert_eq!(Exit::Restart as i32, 66);
+    assert_eq!(Exit::Shutdown as i32, 0);
+}
+
+#[test]
+fn confirmation_has_the_action_above_cancel_and_matches_the_prototype_ruler() {
+    let c = card("sys-confirm-ruler", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
     press(&mut a, Action::A);
     let mut cv = FakeCanvas::new(640, 480);
     a.draw(&mut cv);
-    assert!(cv.has_text("The device will be turned off.") && cv.has_text("Cancel"));
-    // no cover column: the body starts 14.4 inside the sheet
-    let sheet = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
-    let cancel = cv.texts.iter().find(|(t, _)| t == "Cancel").unwrap().1;
-    assert!((cancel.x - (sheet.x + 14 + 16)).abs() <= 1, "{cancel:?}");
-    // the rule for every confirmation (user, 2026-11-17): the affirmative on top, Cancel below
-    // (the title "Power off" is the first text of that name, the row the last)
-    // (only the sheet's texts: the list behind it may show a "Power off" row, lower or not)
-    let power_row = cv.texts.iter().filter(|(t, r)| t == "Power off" && r.x >= sheet.x).map(|(_, r)| r.y).max().unwrap();
-    assert!(power_row < cancel.y, "Power off {power_row} must be above Cancel {}", cancel.y);
-    // the focus starts on Cancel: A turns nothing off
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // the sheet 576 x 177.7 at (32, 151.2)
+    let sheet = panel(&a, &cv, 500);
+    assert!(near(sheet.x, 32.0) && near(sheet.y, 151.2) && near(sheet.w, 576.0) && near(sheet.h, 177.7), "{sheet:?}");
+    let t = |s: &str| cv.texts.iter().find(|(x, _)| x == s).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+    let (action, cancel) = (t("Restart"), t("Cancel"));
+    assert!(action.y < cancel.y);
+    // the rows 39.2 tall from 236.1: the action, then Cancel (the focused pill) at 275.3
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 46.4) && near(pill.y, 275.3) && near(pill.w, 547.2) && near(pill.h, 39.2), "{pill:?}");
+    assert!(near(action.y, 236.1 + 7.6) && near(cancel.y, 275.3 + 7.6), "{action:?} {cancel:?}");
+}
+
+#[test]
+fn system_menu_sheet_matches_the_prototype_ruler() {
+    let c = card("sys-ruler", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    // the table was measured in Portuguese
+    a.settings.language = "pt".into();
+    a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), "pt");
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // the sheet 259.6 x 220.5 at (190.2, 129.7)
+    // (the last one drawn: the Dock's icons come before the sheet)
+    let sheet = cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 200 && r.h > 200).map(|(r, _)| *r).expect("sheet");
+    assert!(near(sheet.x, 190.2) && near(sheet.y, 129.7) && near(sheet.w, 259.6) && near(sheet.h, 220.5), "{sheet:?}");
+    // the first item in focus (the pill) 230.8 x 39.2 at (204.6, 179.1)
+    let pill = cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("sel_bg") && r.w > 100).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 204.6) && near(pill.y, 179.1) && near(pill.w, 230.8) && near(pill.h, 39.2), "{pill:?}");
+    // the items every 39.2 (Suspend, Restart, Power off at 218.3, 257.5, 296.7 + the 7.6 of the text)
+    let items: Vec<(String, i32)> = ["Configurações", "Suspender", "Reiniciar", "Desligar"]
+        .iter()
+        .map(|s| (s.to_string(), cv.texts.iter().filter(|(t, r)| t == s && r.x > 200 && r.y > 170).map(|(_, r)| r.y).min().unwrap_or_else(|| panic!("{s}"))))
+        .collect();
+    for (i, (s, y)) in items.iter().enumerate() {
+        assert!(near(*y, 179.1 + i as f32 * 39.2 + 7.6), "{s} at {y}");
+    }
+}
+
+#[test]
+fn suspend_item_writes_the_request_without_a_confirmation_and_closes_the_menu() {
+    let c = card("sys-suspend", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let dir = c.root.join("sleep");
+    fs::create_dir_all(&dir).unwrap();
+    a.sleep_dir = dir.clone();
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
     press(&mut a, Action::A);
+    assert!(dir.join("suspend").is_file());
     assert_eq!(a.exit, None);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("System menu"), "the menu closed");
+    // a second one while the first waits makes nothing new and does not fail
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert!(dir.join("suspend").is_file());
+}
+
+#[test]
+fn settings_from_the_menu_and_b_back_to_the_grid_and_to_a_sheet() {
+    let c = card("sys-settings", 12, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Down);
+    let name = a.focused_name().unwrap();
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    assert_eq!(a.settings_focus, 0);
+    // B on the list: back to the grid, on the same game
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+    // with a game sheet open: it comes back open
+    press(&mut a, Action::A);
+    assert!(a.overlay_open());
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    assert!(!a.overlay_open(), "the sheet waits behind the Settings");
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert!(a.overlay_open());
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+    // from the Dock, B goes to the Dock as before
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Dock);
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Dock);
+}
+
+#[test]
+fn settings_lose_power_suspend_and_retroarch_and_wrap_at_games() {
+    let c = card("sys-setrows", 3, false);
+    let a = app(&c, FakeSystem::default());
+    assert_eq!(a.set_rows().last(), Some(&SetRow::Games));
+    let mut a = app(&c, FakeSystem { wifi: true, bluetooth: true, ..Default::default() });
+    assert_eq!(&a.set_rows()[..2], [SetRow::Wifi, SetRow::Bluetooth]);
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let n = a.set_rows().len();
+    assert_eq!(a.set_rows()[n - 1], SetRow::Games);
+    // down on Games goes to the first item; up on the first goes to Games
+    a.settings_focus = n - 1;
+    press(&mut a, Action::Down);
+    assert_eq!(a.settings_focus, 0);
+    press(&mut a, Action::Up);
+    assert_eq!(a.settings_focus, n - 1);
+    // no text of the removed items on any row of the list
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Power off") && !cv.has_text("Suspend") && !cv.has_text("RetroArch"));
+}
+
+#[test]
+fn dock_footer_shows_the_fn_hint_after_navigate_and_select() {
+    let c = card("sys-hint", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let t = |s: &str| cv.texts.iter().find(|(x, _)| x == s).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+    let (nav, sel, menu) = (t("Navigate"), t("Select"), t("Menu"));
+    assert!(nav.x < sel.x && sel.x < menu.x, "the third hint, after ◀▶ and A");
+    assert!((menu.y - 448).abs() <= 2 && menu.y == sel.y, "{menu:?} {sel:?}");
+    assert!(cv.has_text("Fn"));
 }
 
 #[test]
@@ -1281,7 +1526,7 @@ fn favorites_and_recents() {
 }
 
 #[test]
-fn settings_adapters_language_and_power() {
+fn settings_adapters_and_language() {
     let c = card("settings", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
     assert!(!a.set_rows().contains(&SetRow::Wifi) && !a.set_rows().contains(&SetRow::Bluetooth));
@@ -1322,40 +1567,15 @@ fn settings_adapters_language_and_power() {
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 45);
     press(&mut a, Action::B);
-    // Power off: the focus starts on Cancel
-    a.settings_focus = a.set_rows().len() - 1;
-    press(&mut a, Action::A);
-    press(&mut a, Action::A);
     assert_eq!(a.exit, None);
-    press(&mut a, Action::A);
-    // Left and Right never change the choice: A still cancels
-    press(&mut a, Action::Left);
-    press(&mut a, Action::Right);
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, None);
-    // reopen; Left and Right keep the focus on Cancel, Up picks the upper option (Power off)
-    press(&mut a, Action::A);
-    press(&mut a, Action::Right);
-    press(&mut a, Action::Left);
-    press(&mut a, Action::Up);
-    press(&mut a, Action::Left);
-    press(&mut a, Action::Right);
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, Some(Exit::Shutdown));
 }
 
 #[test]
-fn power_confirmation_down_returns_to_cancel_and_the_list_ignores_left() {
+fn settings_list_ignores_left() {
     let c = card("confirm-nav", 3, false);
     let mut a = app(&c, FakeSystem::default());
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
-    a.settings_focus = a.set_rows().len() - 1;
-    press(&mut a, Action::A);
-    press(&mut a, Action::Up);
-    press(&mut a, Action::Down);
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, None, "Down went back to Cancel");
     // in the list, Left does not change the item or enter the panel
     let f = a.settings_focus;
     press(&mut a, Action::Left);
@@ -1457,18 +1677,14 @@ fn save_states_show_their_picture() {
 }
 
 #[test]
-fn retroarch_item_opens_the_menu_with_code_65() {
+fn settings_come_back_with_the_levels_read() {
     let c = card("ramenu", 3, false);
     let mut a = app(&c, FakeSystem::default());
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
-    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::RetroArch).unwrap();
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, Some(Exit::RetroArch));
-    assert!(fs::read_to_string(c.root.join("run/launch")).unwrap().starts_with("kind=menu\n"));
     a.current_state().save(&a.runtime).unwrap();
-    // back from the menu: the Settings again, with the volume and brightness read (not "—",
-    // seen on the GA36 on 2026-11-14)
+    // back from a restart of the launcher: the Settings again, with the volume and brightness
+    // read (not "—", seen on the GA36 on 2026-11-14)
     let mut b = app(&c, FakeSystem { vol: 60, bri: 70, ..Default::default() });
     assert_eq!(b.screen, Screen::Settings);
     // the panel of each level shows it
