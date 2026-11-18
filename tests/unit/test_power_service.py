@@ -285,6 +285,28 @@ def test_ga36_conf_boot_default_game_floor_and_slow_launcher_rate(tmp_path, serv
     assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "200000"
 
 
+def test_a_profile_without_rate_limit_puts_the_kernel_one_back(tmp_path, services):
+    s = services(tmp_path, conf=GA36_CONF.read_text(), card="enabled 0\n")
+    su = s.sys / "devices/system/cpu/cpufreq/schedutil"
+    su.mkdir(parents=True, exist_ok=True)
+    (su / "rate_limit_us").write_text("366\n")
+    s.start()
+    s.wait_event("disabled: enabled 0")
+    # profiles off from the start: the menu stays on the kernel rate
+    s.send("menu")
+    s.wait_event("profile: menu -> default")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "366"
+    # profiles on: the menu slows it down; switched off again, the kernel rate comes back
+    s.card.write_text("")
+    s.send("reload")
+    s.wait_event("profile: menu -> menu")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "100000"
+    s.card.write_text("enabled 0\n")
+    s.send("reload")
+    s.wait_event("profile: menu -> default", count=2)
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "366"
+
+
 def test_refused_game_profile_keeps_the_floor(tmp_path, services):
     conf = "limit game_min=600000\nprofile psxp governor=ondemand min=240000\nclass psx psxp\n"
     s = services(tmp_path, conf=conf).start()

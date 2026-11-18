@@ -271,9 +271,10 @@ pw_defaults() {
 	g=$(pp_gpu_file)
 	PW_GPU_DIR=${g%/available_frequencies}
 	if [ -r "$PW_DEFAULT_FILE" ]; then
-		read -r PW_D_GOV PW_D_MIN PW_D_MAX PW_D_GPU PW_D_GPUMIN <"$PW_DEFAULT_FILE"
-		# a file from an older service has no GPU min: the lowest step of the table
+		read -r PW_D_GOV PW_D_MIN PW_D_MAX PW_D_GPU PW_D_GPUMIN PW_D_RATE <"$PW_DEFAULT_FILE"
+		# a file from an older service has no GPU min (the lowest step of the table) nor rate
 		[ -n "$PW_D_GPUMIN" ] || PW_D_GPUMIN=-
+		[ -n "$PW_D_RATE" ] || PW_D_RATE=-
 	else
 		pw_read "$PW_CF/scaling_governor"
 		PW_D_GOV=${PW_V:--}
@@ -288,8 +289,17 @@ pw_defaults() {
 			pw_read "$PW_GPU_DIR/min_freq"
 			PW_D_GPUMIN=${PW_V:--}
 		fi
-		echo "$PW_D_GOV $PW_D_MIN $PW_D_MAX $PW_D_GPU $PW_D_GPUMIN" >"$PW_DEFAULT_FILE"
+		# schedutil's rate limit (per policy or global), put back by any profile without it
+		PW_D_RATE=-
+		for g in "$PW_CF/schedutil/rate_limit_us" "$PW_CPU/cpufreq/schedutil/rate_limit_us"; do
+			[ -r "$g" ] || continue
+			pw_read "$g"
+			PW_D_RATE=${PW_V:--}
+			break
+		done
+		echo "$PW_D_GOV $PW_D_MIN $PW_D_MAX $PW_D_GPU $PW_D_GPUMIN $PW_D_RATE" >"$PW_DEFAULT_FILE"
 	fi
+	[ "$PW_D_RATE" != - ] || PW_D_RATE=
 	if [ "$PW_D_GPUMIN" = - ] && [ -n "$PW_GPU_DIR" ]; then
 		for PW_D_GPUMIN in $(pp_table "$PW_GPU_DIR/available_frequencies"); do
 			break
@@ -350,8 +360,13 @@ pw_apply() {
 		[ -z "$min" ] || pw_write "$PW_CF/scaling_min_freq" "$min"
 		[ -z "$max" ] || pw_write "$PW_CF/scaling_max_freq" "$max"
 	fi
-	# 3. governor, 4. its parameters
+	# 3. governor, 4. its parameters; schedutil's rate limit back to the kernel's when the
+	# profile does not set it (a menu profile must not leave its slow rate to the next one)
 	[ -z "$gov" ] || pw_write "$PW_CF/scaling_governor" "$gov"
+	case " $params " in
+	*" rate_limit_us="*) ;;
+	*) [ "$gov" != schedutil ] || [ -z "$PW_D_RATE" ] || params="$params rate_limit_us=$PW_D_RATE" ;;
+	esac
 	for kv in $params; do
 		pw_param "$gov" "${kv%%=*}" "${kv#*=}"
 	done

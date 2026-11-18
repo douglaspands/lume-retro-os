@@ -376,6 +376,60 @@ o handle do plano primário (33, CRTC 49) porque o fd é o mesmo arquivo aberto,
 aberto da aplicação; sem `RMFB`, `DESTROY_DUMB` e `GEM_CLOSE` ao fechar, os buffers ficam até o
 jogo acabar, e a CMA acabou na terceira rodada (`CREATE_DUMB: Out of memory`).
 
+### Governor por gargalo da `game-governor` (2026-11-18, builds `20261118-005049` a `-011308`, boots 180 a 182)
+
+Medido pelo cabo, com o console no carregador (a corrente da bateria não vale nestas provas) e
+os jogos abertos pelo `r36os dev run` e deixados rodando (telas de título e demonstração; no GBA,
+uma corrida com os karts da IA). Só números por sistema; nenhum nome de jogo.
+
+**Sinais do controlador no kernel real:** o `fdinfo` dos arquivos do DRM do jogo traz
+`drm-page-flips` no `card0` (`sun4i-drm`, patch 0036) e `drm-engine-gp`/`drm-engine-pp` no
+`renderD128` (`lima`, patch 0035); o mesmo cliente aparece em dois ou três fds com o mesmo
+`drm-client-id` (contado uma vez). O `GET_STATUS` do RetroArch dá o ritmo do core (patch 0004).
+
+**O gargalo dos jogos simples (P-93):** o painel faz 55,7 vblanks/s. Com o vídeo na thread
+principal do RetroArch, o core rodava na velocidade certa, mas poucas trocas de quadro chegavam
+ao painel, com a CPU e a GPU quase paradas, e nenhum clock mudava isso:
+
+| Caso (vídeo na thread principal) | Core (quadros/s) | Trocas no painel/s | Thread principal | GPU (`pp`) |
+|---|---|---|---|---|
+| NES, padrão do kernel | 60,3 | 42 | ~10% | 8% (144 MHz) |
+| NES, GPU travada em 384 MHz | — | 43 | — | 5% |
+| NES, GPU 384 MHz e CPU em `performance` | — | 47 | — | 5% |
+| NES, `video_vsync` desligado | — | 43 | — | 4% |
+| CPS-1, controlador ou padrão do kernel | 59,7 | 45 a 48 | 52% (1008 MHz) | 6 a 9% |
+| GBA, perfil `gba` (1008 MHz) | 59,7 | 47 | 45% | 8% |
+
+Com `video_threaded = "true"` (agora fixo no `retroarch-ga36.cfg`):
+
+| Caso (vídeo em thread) | Core | Trocas no painel/s | Clock que o controlador escolheu |
+|---|---|---|---|
+| NES | 60,3 | 54,4 | CPU 720 MHz, GPU 144 MHz |
+| CPS-1 | 59,8 | 54,3 a 54,6 | CPU 816 a 1008 MHz, GPU 144 MHz |
+| CPS-1 com a barra de status ligada | 59,7 | 53,2 | CPU 1008 MHz |
+| SNES (`snes9x2005_plus` do upstream) | 60,1 | 54,4 | CPU 816 MHz |
+| GBA, tela de título, perfil `game` (sem o piso de 1008) | 59,7 | 55,1 | CPU 648 MHz |
+| GBA, corrida, perfil `game` | 59,8 | 55,1 | CPU 912 MHz (thread em 67%) |
+
+**Provas do controlador e dos ajustes:** o controlador marca `sync` a perda de quadros com a CPU
+e a GPU ociosas (não sobe clock por ela) e desce o que sobra (linha
+`power OK controller: cpu: 1008000=3.0s 912000=6.0s 816000=9.0s 720000=35.7s gpu: ... 144000000=43.8s up=0 down=5 ... sync=1`
+num jogo de NES); com a primeira versão (queda abaixo de 95% numa janela só) ele oscilava no
+CPS-1 com o vídeo em thread (`up=14 down=14`), corrigido com 90% e duas janelas (`up=0` na
+prova seguinte). Perfil por jogo: uma linha `game <chave>` no `power.conf` com
+`gpu_min=gpu_max=384000000`, `r36os-power reload` e o jogo aberto de novo: `current gpulock`, GPU
+travada em 384 MHz pela mão e a CPU no controlador (720 MHz), na velocidade cheia. Fn+Start
+encerra um jogo normal (`end=quit-combo`) e um congelado de propósito com `SIGSTOP`
+(`end=killed`, volta ao menu). O `snes9x2005_plus` novo abre e roda a 60,1.
+
+**Custo no launcher parado (60 s, P-60):** o `logd` barato (1.2) com os filhos gastou 5,5 a 7,3%
+de um núcleo (era ~30%; a meta de 1% ainda não foi alcançada). A thread `sugov:0` do `schedutil`
+gastava **30%** com o `rate_limit_us` padrão do kernel (366 µs); com 50 ms, 6,9%; 100 ms, 4,4%;
+200 ms, 2,8%. O `ga36.conf` passou a usar 100 ms no menu e 200 ms no launcher parado.
+
+**DRAM (P-23):** o retrato mostra `PLL_DDR1` com sigma-delta ligado e o clock efetivo de 540 MHz
+(controlador a 270 MHz), sem variação.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
