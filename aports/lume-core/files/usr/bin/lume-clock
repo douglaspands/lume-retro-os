@@ -1,0 +1,149 @@
+#!/bin/sh
+# lume-clock (device-fixes 9.1, D15): a clock that only moves forward.
+#
+# The console has no battery-backed clock and Wi-Fi is optional, so no time source is
+# guaranteed. The time is kept on the card instead:
+#   lume-clock save [--force]   writes the current time to ROMS/system/clock (atomic); never
+#                               lowers the saved time unless forced; ignores a time before
+#                               the build date
+#   lume-clock restore          system time = the largest of the saved time, the build date
+#                               (/boot/VERSION "date:"), the RTC when it is valid (after the
+#                               build date) and the system time itself; then writes the RTC
+#   lume-clock set <epoch> <source>   a real source (the PC over the cable): sets the system
+#                               time and the RTC, saves it
+#   lume-clock ntp              a real source (Wi-Fi up): busybox ntpd -q when the image has
+#                               it, then the same as `set`; silent no-op without ntpd
+# Called by: the session (save, before the card is remounted read-only), lume-sleep (save),
+# the lume-clock service (restore, after the frontend: nothing on the boot path), the
+# NetworkManager dispatcher hook (ntp) and `lume push` / `lume dev` (set).
+# Nothing here ever draws on the screen. LUME_CLOCK_LIB=1 loads only the functions (tests).
+CLOCK_FILE=${CLOCK_FILE:-/storage/system/clock}
+VERSION_FILE=${VERSION_FILE:-/boot/VERSION}
+RTC_EPOCH_FILE=${RTC_EPOCH_FILE:-/sys/class/rtc/rtc0/since_epoch}
+LIBEXEC=${LUME_LIBEXEC:-/usr/libexec/lume}
+NTP_SERVER=${NTP_SERVER:-pool.ntp.org}
+NTP_TIMEOUT=${NTP_TIMEOUT:-30}
+# a saved time past this is corruption, not a clock (2100-01-01)
+MAX_EPOCH=4102444800
+
+# Hooks the tests replace.
+now() { date +%s; }
+set_system() { date -u -s "@$1" >/dev/null 2>&1; }
+rtc_write() { hwclock -w -u 2>/dev/null; return 0; }
+rtc_epoch() { cat "$RTC_EPOCH_FILE" 2>/dev/null; }
+run_ntpd() { timeout "$NTP_TIMEOUT" ntpd -q -n -p "$NTP_SERVER" >/dev/null 2>&1; }
+have_ntpd() { command -v ntpd >/dev/null 2>&1; }
+
+is_epoch() {  # digits only, a sane size
+	case "$1" in
+	'' | *[!0-9]*) return 1 ;;
+	esac
+	[ "${#1}" -le 11 ] && [ "$1" -le "$MAX_EPOCH" ]
+}
+
+# Build date as epoch seconds ("date: 2026-11-09T21:42:33", the builder's time taken as UTC:
+# a floor, a few hours of error do not matter). Prints 0 when unreadable.
+build_epoch() {
+	local d e
+	d=$(sed -n 's/^date: *//p' "$VERSION_FILE" 2>/dev/null | head -n 1)
+	d=$(echo "$d" | tr 'T' ' ')
+	e=$([ -n "$d" ] && date -u -d "$d" +%s 2>/dev/null)
+	is_epoch "$e" && echo "$e" || echo 0
+}
+
+saved_epoch() {
+	local s
+	s=$(head -n 1 "$CLOCK_FILE" 2>/dev/null)
+	is_epoch "$s" && echo "$s" || echo 0
+}
+
+# save [--force]
+clock_save() {
+	local n b s tmp
+	n=$(now)
+	b=$(build_epoch)
+	if [ "$n" -le "$b" ]; then
+		echo "lume-clock: not saving a time before the build date" >&2
+		return 1
+	fi
+	s=$(saved_epoch)
+	if [ "${1:-}" != --force ] && [ "$s" -gt "$n" ]; then
+		return 0   # the clock has not been restored yet: never lower the saved time
+	fi
+	mkdir -p "$(dirname "$CLOCK_FILE")" 2>/dev/null || return 1
+	tmp="$CLOCK_FILE.tmp.$$"
+	if echo "$n" > "$tmp" 2>/dev/null && mv "$tmp" "$CLOCK_FILE" 2>/dev/null; then
+		return 0
+	fi
+	rm -f "$tmp" 2>/dev/null
+	echo "lume-clock: could not write $CLOCK_FILE" >&2
+	return 1
+}
+
+clock_restore() {
+	local n b s r best src
+	n=$(now); b=$(build_epoch); s=$(saved_epoch); r=$(rtc_epoch)
+	best=$b; src=build
+	[ "$s" -gt "$best" ] && { best=$s; src=saved; }
+	# the RTC counts as a source only when it is past the build date (an RTC that lost its
+	# power starts near 1970 and is ignored)
+	if is_epoch "$r" && [ "$r" -gt "$b" ] && [ "$r" -gt "$best" ]; then best=$r; src=rtc; fi
+	if [ "$n" -ge "$best" ]; then
+		# the system time (boot sets it from the RTC) is already the largest
+		[ "$n" -gt "$b" ] && src=system
+		best=$n
+	else
+		set_system "$best" || { event clock FAIL "restore: could not set the system time"; return 1; }
+	fi
+	rtc_write
+	event clock OK "restored $src"
+	return 0
+}
+
+# A real source corrected the time: RTC and card follow it.
+clock_finish_set() {  # <source>
+	rtc_write
+	clock_save --force
+	event clock OK "set by $1"
+}
+
+clock_set() {  # <epoch> <source>
+	local e="$1" src="${2:-pc}" b
+	is_epoch "$e" || { echo "lume-clock: bad epoch '$e'" >&2; return 2; }
+	b=$(build_epoch)
+	if [ "$e" -le "$b" ]; then
+		echo "lume-clock: refusing a time before the build date" >&2
+		return 1
+	fi
+	set_system "$e" || { event clock FAIL "set by $src: could not set the system time"; return 1; }
+	clock_finish_set "$src"
+}
+
+clock_ntp() {
+	have_ntpd || return 0
+	run_ntpd || return 1   # no answer: the clock stays as it is
+	clock_finish_set ntp
+}
+
+[ -n "${LUME_CLOCK_LIB:-}" ] && return 0   # tests: only the functions
+
+# the event log is optional: without logs.sh the tool still works
+if ! command -v event >/dev/null 2>&1; then
+	if [ -f "$LIBEXEC/lib.sh" ] && [ -f "$LIBEXEC/logs.sh" ]; then
+		. "$LIBEXEC/lib.sh"
+		. "$LIBEXEC/logs.sh"
+	else
+		event() { return 0; }
+	fi
+fi
+
+case "${1:-}" in
+save) clock_save "${2:-}" ;;
+restore) clock_restore ;;
+set) clock_set "${2:-}" "${3:-pc}" ;;
+ntp) clock_ntp ;;
+*)
+	echo "usage: lume-clock save [--force] | restore | set <epoch> <source> | ntp" >&2
+	exit 2
+	;;
+esac

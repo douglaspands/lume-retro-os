@@ -136,6 +136,9 @@ power_off() {
 	kmsg "frontend closed by user: saving and powering off"
 	event frontend OK "$FRONTEND closed by user: shutting down"
 	"$LIBEXEC/persist" flush
+	# the clock goes to the card while ROMS is still writable (release_storage remounts it
+	# read-only); device-fixes D15
+	command -v lume-clock >/dev/null 2>&1 && lume-clock save
 	sync
 	release_storage
 	poweroff
