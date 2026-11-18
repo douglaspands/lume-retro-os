@@ -248,9 +248,9 @@ Hoje não existem `/etc/lume` nem `/run/lume` (conferido): sem colisão.
 
 Todas viram `LUME_*` (mesmo sufixo). Nenhuma já tem o nome novo (conferido: `LUME_*` existentes
 são outras: `LUME_CATALOG`, `LUME_SHARE`, `LUME_FONT*`, `LUME_RESTORE`, `LUME_LEVEL`), então não
-há colisão. As do PC (`R36OS_OUT`, `R36OS_CACHE`, `R36OS_JOBS` etc.) são lidas pelo ambiente do
-usuário: a 1.3 aceita o nome antigo por uma versão, com aviso, para não quebrar o shell de quem
-já as exporta.
+há colisão. As do PC (`R36OS_OUT`, `R36OS_CACHE`, `R36OS_JOBS` etc.) trocam de nome de uma vez,
+sem aceitar o nome antigo (decisão do usuário, 2026-11-18, Q4): quem as exporta no shell troca
+o nome junto.
 
 | Antes | Depois | Tipo | Observação |
 |---|---|---|---|
@@ -278,7 +278,7 @@ já as exporta.
 | `R36OS_TEMP_SENSOR` | `LUME_TEMP_SENSOR` | var-pc | `heat.py` |
 | `R36OS_TEMP_MAX` | `LUME_TEMP_MAX` | var-pc | `heat.py` |
 | `R36OS_TEMP_GUARD` | `LUME_TEMP_GUARD` | var-pc | `heat.py`, `cli.py` |
-| `R36OS_GA36_FACTORY` | `LUME_GA36_FACTORY` | var-pc | **usada em código** (`src/r36os/vendor.py:36`, `ENV_VAR`): o código aceita os dois nomes (ver a nota abaixo) |
+| `R36OS_GA36_FACTORY` | `LUME_GA36_FACTORY` | var-pc | **usada em código** (`src/r36os/vendor.py:36`, `ENV_VAR`): só o nome novo (ver a nota abaixo) |
 | `R36OS_R36S_FACTORY` | `LUME_R36S_FACTORY` | var-pc | **usada em código** (`src/r36os/r36s_vendor.py:34`, `ENV_VAR`), mesma regra |
 | `r36os_jobs` | `lume_jobs` | identificador | nome da `ContextVar` em `jobs.py` |
 | `r36os_pipeline` | `lume_pipeline` | identificador | nome da `ContextVar` em `parallel.py` |
@@ -286,11 +286,9 @@ já as exporta.
 **`R36OS_GA36_FACTORY` e `R36OS_R36S_FACTORY`.** O design deixa o nome da *área de fábrica do
 GA36* (o arquivo fora do git) como está e só renomeia se houver uso em código. **Há uso em
 código** nos dois módulos de vendor (`ENV_VAR`), e o mesmo vale para a variável irmã do R36S.
-Resolução proposta para a 1.3: o código lê `LUME_GA36_FACTORY` e, se vazio, `R36OS_GA36_FACTORY`
-(idem para o R36S), e as mensagens de erro citam o nome novo; os documentos passam a dizer só o
-nome novo, com uma linha dizendo que o antigo ainda vale. O arquivo em si (a imagem de fábrica
-no disco do usuário) não é renomeado. As linhas dessas duas variáveis ficam, por isso, também na
-tabela `Fica como está` (a ocorrência do nome antigo no código de leitura de compatibilidade).
+Decisão do usuário (2026-11-18, "tudo padronizado"): a 1.3 troca para `LUME_GA36_FACTORY` e
+`LUME_R36S_FACTORY` sem alias, como as outras variáveis do PC. O arquivo de fábrica no disco do
+usuário (fora do git) passa a ser apontado pelo nome novo da variável.
 
 ## 9. Ferramenta do PC (`src/r36os`, comando `r36os`)
 
@@ -532,43 +530,34 @@ ocorrência.
 
 | Item | Motivo |
 |---|---|
-| `board/r36s/dts-vendor/` | Comentários dos DTS de clones convertidos (aparece `r36os` ao lado do nome do console clone), gerados pela ferramenta a partir de fontes de terceiros: a próxima conversão já sai com o nome novo. `SOURCES.tsv` também. Editar à mão seria desfeito na próxima importação |
-| `kernel/patches/` | Patches do kernel são fixados (regra dos patches: as mudanças vão em patches numerados e o kernel fica intacto). Os dois `r36os` são texto de mensagem de commit (`0017`, `0021`); mudar o texto muda o digest e refaz a árvore e o build do kernel |
-| `aports/retroarch/0001-quit-shuts-down.patch` | Patches do RetroArch: só texto de mensagem de commit. Mudar o digest refaz o build do RetroArch (CPU pesada) por um nome em comentário |
-| `aports/retroarch/0004-status-frame-count.patch` | idem |
-| `aports/retroarch/0009-network-commands-on-localhost.patch` | idem |
-| `aports/retroarch/0011-lume-level-line.patch` | idem |
-| `aports/retroarch/APKBUILD` | Os três comentários que citam `r36os-logd` e `r36os-session` acompanham os patches acima; mexer no `APKBUILD` muda o `pkgrel` implícito e refaz o RetroArch |
 | `openspec/changes/archive/` | Changes arquivadas são histórico: não se reescreve |
 | `docs/referencia/` | Material de referência medido (dados do GA36 e de outros projetos), copiado com crédito; não é nome do projeto |
 | `openspec/changes/device-fixes/` | A própria change que descreve a troca precisa dos nomes antigos para explicar o que muda (design, proposta, tarefas e specs) |
 | `docs/NOMES.md` | Este mapa lista os nomes antigos |
 | `tests/unit/test_lume_names.py` | O teste-guarda cita o prefixo antigo |
 | `uv.lock` | Arquivo gerado: o `uv sync --inexact` o refaz depois da troca do nome do projeto |
-| `CONFIG_LOCALVERSION="-r36os"` | **A confirmar (Q1)**. É a versão do kernel (`6.18.62-r36os`), que aparece em `/lib/modules/<versão>/`. Trocar para `-lume` refaz kernel e módulos (build pesado, só da 1.5 em diante) e muda o caminho dos módulos no console. Fica até o usuário decidir |
-| `6.18.61-r36os` | Versão do kernel em `tests/initramfs/test_storage.sh` (acompanha `CONFIG_LOCALVERSION`) |
-| `6.18.62-r36os` | Idem, em `docs/BRINGUP-GA36.md` e `tests/initramfs/test_storage.sh` |
-| `/lib/modules/6.18.62-r36os/modules.dep` | Idem, caminho em `docs/BRINGUP-GA36.md` |
-| `lib/modules/6.18.62-r36os/kernel/x.ko` | Idem, em `tests/unit/test_stage_inputs.py` |
-| `/keys/r36os.rsa.pub` | **A confirmar (Q2)**. Nome do arquivo da chave de assinatura dos APKs (`rootfs.py`, `initramfs.py`). O nome vai dentro de toda assinatura (`.SIGN.RSA.r36os.rsa.pub`): trocá-lo obriga a reassinar e reconstruir todos os pacotes e o repositório local. Fica |
-| `/root/.abuild/r36os.rsa.pub` | Idem, no `lume_cross.py` |
-| `r36os.rsa.pub` | Idem, em `tests/unit/test_lume_cross.py` |
-| `.SIGN.RSA.r36os.rsa.pub` | Idem, em `tests/unit/test_fragments.py` e `test_noarch.py` |
-| `R36OS_GA36_FACTORY` | Nome da área de fábrica do GA36 (arquivo fora do git). Fica como alias de compatibilidade: o código lê `LUME_GA36_FACTORY` e, se vazio, este (ver tabela 8) |
-| `R36OS_R36S_FACTORY` | Variável irmã do R36S, mesma regra do alias |
 
 Nome do repositório (pasta `r36s_all`, nome no GitHub): fica como está; é o nome do repositório,
 que não aparece em nenhum código (o D7 já o exclui). Nenhum arquivo do repositório tem
 `r36os` como parte do nome do repositório.
 
-## Perguntas para o usuário (antes da 1.2)
+## 13. Itens decididos pelo usuário (2026-11-18: "mude tudo, quero tudo padronizado")
 
-- **Q1. `CONFIG_LOCALVERSION="-r36os"`** (`board/*/kernel.config`): trocar para `-lume`? Custo:
-  um rebuild completo de kernel e módulos e novo caminho `/lib/modules/<versão>-lume`. Sugestão:
-  deixar para uma troca de versão do kernel (quando o rebuild já acontece).
-- **Q2. Nome da chave de assinatura `r36os.rsa.pub`**: manter (sugestão) ou trocar e reassinar todos
-  os APKs?
-- **Q3. `~/.cache/r36os` e `<repo>/.cache/r36os`** (cache de build do PC): renomear para `lume` com
-  uma migração (mover a pasta) ou refazer o cache?
-- **Q4. Variáveis do PC `R36OS_*`**: aceitar o nome antigo por uma versão (sugestão) ou cortar já?
-- **Q5. Módulo `lume.py`** do PC: `launcher_stage.py` (proposta) ou outro nome?
+Os itens que o mapa deixava como está por custo de build também trocam de nome. Ficam como estão
+só o histórico e o material de terceiros da tabela acima.
+
+| Antes | Depois | Tipo | Observação |
+|---|---|---|---|
+| `CONFIG_LOCALVERSION="-r36os"` | `CONFIG_LOCALVERSION="-lume"` | kernel | Q1: versão `6.18.62-lume` e `/lib/modules/<versão>-lume/`; refaz kernel e módulos dos dois consoles (build da 1.5 e da 10.1). Os textos `6.18.6x-r36os` em `tests/initramfs/test_storage.sh`, `tests/unit/test_stage_inputs.py` e `docs/BRINGUP-GA36.md` acompanham |
+| `r36os.rsa.pub` | `lume.rsa.pub` | chave | Q2: chave de assinatura dos APKs (`rootfs.py`, `initramfs.py`, `lume_cross.py`, `/keys/`, `/root/.abuild/`, `.SIGN.RSA.*` nos testes); reassina e refaz todos os pacotes e o repositório local, e a imagem passa a confiar na chave nova |
+| `board/r36s/dts-vendor/` | `board/r36s/dts-vendor/` | dts | comentários `r36os` dos DTS convertidos e o `SOURCES.tsv`: a ferramenta de conversão passa a gerar `lume`, e os arquivos atuais são regenerados (ou trocados no mesmo texto) |
+| `kernel/patches/` | `kernel/patches/` | patch | só o texto `r36os` das mensagens de commit (`0017`, `0021`); o código dos patches não muda; refaz a árvore do kernel |
+| `aports/retroarch/*.patch` | `aports/retroarch/*.patch` | patch | texto de commit de `0001`, `0004`, `0009`, `0011` e os comentários do `APKBUILD` (`r36os-logd`, `r36os-session`); refaz o RetroArch nas duas arquiteturas (recurso `CPU` da 10.1) |
+
+Respostas às perguntas do mapa:
+- **Q1** e **Q2**: trocar (tabela acima).
+- **Q3**: o cache do PC vira `.cache/lume` e `~/.cache/lume`; a 1.3 move a pasta existente (sem
+  refazer o que já está pronto).
+- **Q4**: as variáveis `R36OS_*` trocam sem alias, incluindo `R36OS_GA36_FACTORY` e
+  `R36OS_R36S_FACTORY`.
+- **Q5**: `lume.py` vira `launcher_stage.py`.
