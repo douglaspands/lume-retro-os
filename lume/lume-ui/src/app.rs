@@ -1138,7 +1138,7 @@ impl<S: SystemAdapter> App<S> {
                     Action::Left | Action::Right | Action::Up | Action::Down => focus ^= 1,
                     Action::B => return None,
                     Action::A => {
-                        if focus == 1 {
+                        if focus == 0 {
                             self.exit = Some(Exit::Shutdown);
                         }
                         return None;
@@ -1435,7 +1435,7 @@ impl<S: SystemAdapter> App<S> {
                         }
                     }
                 }
-                SetRow::Power => self.overlay = Some(Overlay::Confirm { focus: 0 }),
+                SetRow::Power => self.overlay = Some(Overlay::Confirm { focus: 1 }),
                 _ => {}
             },
             _ => {}
@@ -2296,8 +2296,9 @@ impl<S: SystemAdapter> App<S> {
             Overlay::Slots { game, slots, focus } => self.draw_slots(c, *game, slots, *focus, w, h),
             Overlay::Keyboard { .. } => {}
             Overlay::Confirm { focus } => {
-                // the safe choice (Cancel) first and focused, as the prototype
-                let rows = [self.tr("cancel"), self.tr("power_off")].map(|label| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false });
+                // the project's rule for every confirmation (user, 2026-11-17): the affirmative
+                // (Power off) on top or left, the safe choice (Cancel) below and focused
+                let rows = [self.tr("power_off"), self.tr("cancel")].map(|label| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false });
                 let (title, sub) = (self.tr("power_off"), self.tr("power_ask"));
                 self.draw_sheet(c, w, h, Cover::None, &title, &sub, &rows, *focus);
             }

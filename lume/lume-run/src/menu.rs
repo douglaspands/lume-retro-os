@@ -153,13 +153,15 @@ impl Menu {
                 }
                 vec![]
             }
+            // Yes on top (or left), No below: the project's rule for every confirmation (user,
+            // 2026-11-17); the focus still starts on No
             State::Confirm { item, yes } => match n {
                 Nav::Left | Nav::Up => {
-                    self.state = State::Confirm { item, yes: false };
+                    self.state = State::Confirm { item, yes: true };
                     vec![]
                 }
                 Nav::Right | Nav::Down => {
-                    self.state = State::Confirm { item, yes: true };
+                    self.state = State::Confirm { item, yes: false };
                     vec![]
                 }
                 Nav::A if yes => {
@@ -206,9 +208,9 @@ impl Menu {
                 let q = if item == Item::Reset { Text::ConfirmReset } else { Text::ConfirmEnd };
                 [
                     text(&self.lang, q, &self.app),
-                    text(&self.lang, Text::No, &self.app),
                     text(&self.lang, Text::Yes, &self.app),
-                    (yes as u8).to_string(),
+                    text(&self.lang, Text::No, &self.app),
+                    (!yes as u8).to_string(),
                 ]
                 .join("|")
             }
@@ -295,8 +297,10 @@ mod tests {
         // A without moving the focus is No: back to the list, nothing reset
         assert!(m.nav(Nav::A).is_empty());
         assert_eq!(m.state, State::List { focus: 2 });
+        // Yes is on top: Up reaches it
         m.nav(Nav::A);
-        m.nav(Nav::Right);
+        m.nav(Nav::Up);
+        assert_eq!(m.draw_text(), "Reset the game?|Yes|No|0");
         assert_eq!(m.nav(Nav::A), [Effect::Reset]);
         assert_eq!(m.state, State::Closed);
         // End: B is No, Yes quits
@@ -307,11 +311,11 @@ mod tests {
         m.nav(Nav::B);
         assert_eq!(m.state, State::List { focus: 1 });
         m.nav(Nav::A);
-        m.nav(Nav::Down);
-        m.nav(Nav::Left);
-        assert!(m.nav(Nav::A).is_empty(), "Left went back to No");
-        m.nav(Nav::A);
+        m.nav(Nav::Up);
         m.nav(Nav::Right);
+        assert!(m.nav(Nav::A).is_empty(), "Right went back to No");
+        m.nav(Nav::A);
+        m.nav(Nav::Left);
         assert_eq!(m.nav(Nav::A), [Effect::Quit]);
     }
 
@@ -351,7 +355,7 @@ mod tests {
         m.nav(Nav::Down);
         m.nav(Nav::Down);
         m.nav(Nav::A);
-        assert_eq!(m.draw_text(), "Reiniciar o jogo?|Não|Sim|0");
+        assert_eq!(m.draw_text(), "Reiniciar o jogo?|Sim|Não|1");
         assert!(Menu::new("en", "R", "A|B", false, false).title.contains('|'));
     }
 

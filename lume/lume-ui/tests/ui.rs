@@ -751,7 +751,7 @@ fn game_menu_sheet_matches_the_prototype_ruler() {
 }
 
 #[test]
-fn power_off_is_a_sheet_with_cancel_first() {
+fn power_off_is_a_sheet_with_power_off_on_top_and_cancel_focused() {
     let c = card("powersheet", 3, false);
     let mut a = app(&c, FakeSystem::default());
     go_dock(&mut a, DockItem::Settings);
@@ -765,6 +765,13 @@ fn power_off_is_a_sheet_with_cancel_first() {
     let sheet = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
     let cancel = cv.texts.iter().find(|(t, _)| t == "Cancel").unwrap().1;
     assert!((cancel.x - (sheet.x + 14 + 16)).abs() <= 1, "{cancel:?}");
+    // the rule for every confirmation (user, 2026-11-17): the affirmative on top, Cancel below
+    // (the title "Power off" is the first text of that name, the row the last)
+    let power_row = cv.texts.iter().filter(|(t, _)| t == "Power off").map(|(_, r)| r.y).max().unwrap();
+    assert!(power_row < cancel.y, "Power off {power_row} must be above Cancel {}", cancel.y);
+    // the focus starts on Cancel: A turns nothing off
+    press(&mut a, Action::A);
+    assert_eq!(a.exit, None);
 }
 
 #[test]
@@ -1114,7 +1121,7 @@ fn settings_adapters_language_and_power() {
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 45);
     press(&mut a, Action::B);
-    // Power off: Cancel first
+    // Power off: the focus starts on Cancel
     a.settings_focus = a.set_rows().len() - 1;
     press(&mut a, Action::A);
     press(&mut a, Action::A);

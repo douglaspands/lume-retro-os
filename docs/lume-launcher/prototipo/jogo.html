@@ -132,7 +132,8 @@
       const p = $('#lmenu .panel'), hints = `<div class="hints"><span><b>A</b>${t('choose')}</span><span><b>B</b>${t('ret')}</span></div>`;
       if (v.startsWith('confirm')) {
         const q = v === 'confirm' ? t('askEnd') : t('askReset');
-        p.innerHTML = `<h2>${esc(q)}</h2>` + [t('no'), t('yes')].map((x, i) => `<div class="opt${i === Math.min(st.focus, 1) ? ' sel' : ''}"><span class="l"><span class="lt">${esc(x)}</span></span></div>`).join('');
+        /* regra de toda confirmação (usuário, 2026-11-17): Sim em cima ou à esquerda, Não embaixo com o foco */
+        p.innerHTML = `<h2>${esc(q)}</h2>` + [t('yes'), t('no')].map((x, i) => `<div class="opt${i === Math.min(st.focus, 1) ? ' sel' : ''}"><span class="l"><span class="lt">${esc(x)}</span></span></div>`).join('');
       } else if (onMenu) {
         const it = items(), f = Math.min(st.focus, it.length - 1);
         p.innerHTML = `<h2>${esc(v === 'silent' ? t('silent') : 'Exemplo de Jogo (Rev 1)')}</h2>` +
@@ -146,9 +147,10 @@
     $('#theme').innerHTML = Lume.themes.list().map(x => `<option value="${x.id}">${x.name}</option>`).join('');
     $('#theme').onchange = e => { st.theme = e.target.value; render(); };
     $('#lang').onchange = e => { st.lang = e.target.value; render(); };
-    $('#view').onchange = e => { st.view = e.target.value; st.focus = st.view === 'silent' ? 2 : 0; render(); };
+    $('#view').onchange = e => { st.view = e.target.value; st.focus = st.view === 'silent' ? 2 : st.view.startsWith('confirm') ? 1 : 0; render(); };
     $('#withhud').onchange = e => { st.withHud = e.target.checked; render(); };
     if (st.view === 'silent') st.focus = 2;
+    if (st.view.startsWith('confirm')) st.focus = 1;
     if (QS.has('foco')) st.focus = parseInt(QS.get('foco'), 10) || 0;
     /* teclado: o mesmo comportamento da máquina de estados do lume-run (menu.rs) */
     let f1Down = 0, holdT = null, prevView = 'game';
@@ -162,10 +164,10 @@
       else if (e.key === 'Escape') { if (conf) { st.view = 'menu'; st.focus = 0; } else if (menu) st.view = 'game'; }
       else if (e.key === 'Enter' && menu) {
         const x = items()[st.focus];
-        if (x === t('end')) { st.view = 'confirm'; st.focus = 0; }
-        else if (x === t('reset')) { st.view = 'confirm-reset'; st.focus = 0; }
+        if (x === t('end')) { st.view = 'confirm'; st.focus = 1; }
+        else if (x === t('reset')) { st.view = 'confirm-reset'; st.focus = 1; }
         else st.view = 'game';
-      } else if (e.key === 'Enter' && conf) { st.view = st.focus ? 'game' : 'menu'; st.focus = 0; }
+      } else if (e.key === 'Enter' && conf) { st.view = st.focus ? 'menu' : 'game'; st.focus = 0; }
       else return;
       e.preventDefault(); render();
     });

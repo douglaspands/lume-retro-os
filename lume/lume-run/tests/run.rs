@@ -588,16 +588,16 @@ fn menu_reset_and_end_go_through_the_runner() {
     let mut run = spawn_logged(&e, ra.port);
     read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
-    // Reset: A without moving the focus is No; Right then A is Yes
+    // Reset: Yes on top, No below with the focus; A without moving is No; Up then A is Yes
     d.send("fn_tap");
     d.send("nav down");
     d.send("nav down");
     d.send("nav a");
-    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Reset the game?|No|Yes|0"), "{:?}", ra.cmds());
+    assert!(ra.cmds().iter().any(|c| c == "LUME_MENU Reset the game?|Yes|No|1"), "{:?}", ra.cmds());
     d.send("nav a");
     assert!(!ra.plain().contains(&"RESET".to_string()));
     d.send("nav a");
-    d.send("nav right");
+    d.send("nav up");
     d.send("nav a");
     // unpaused before the reset, so RetroArch carries it out
     let plain = ra.plain();
@@ -612,7 +612,7 @@ fn menu_reset_and_end_go_through_the_runner() {
     // End game, second in the list: the polite quit (QUIT twice)
     *ra.state.lock().unwrap() = "PLAYING";
     d.send("fn_tap");
-    for n in ["nav down", "nav a", "nav right", "nav a"] {
+    for n in ["nav down", "nav a", "nav up", "nav a"] {
         d.send(n);
     }
     ra.wait_for("QUIT");

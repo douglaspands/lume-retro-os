@@ -2,6 +2,11 @@
 
 > Requisitos do usuário, 2026-11-14.
 
+## Regra de toda confirmação (usuário, 2026-11-17)
+- Em todo pedido de confirmação do sistema (launcher, menu do Lume, e o que vier), a opção
+  afirmativa (Sim, Desligar, ...) fica **em cima**, ou **à esquerda** quando as opções ficam lado
+  a lado. A opção segura (Não, Cancelar) fica embaixo ou à direita e **começa com o foco**.
+
 ## Tela principal: Dock de consoles
 - Ícones **quadrados** com o logo de cada console.
 - **Rotação infinita**: depois do último volta ao primeiro, e vice-versa.
@@ -71,7 +76,7 @@ Medido nas capturas de 640x480 (Chromium headless, `?limpo`), em 2026-11-17, ori
 | Barra de status | 0 | 0 | 640 | 28 | 16 px, fundo preto a 60%, padding 8 px; por grupo (`CPU`, `GPU`, `MEM`, `BAT`): rótulo em negrito na cor `accent`, valores em `fg`, divisória de 1 px `muted` a 60% entre os grupos (escolha do usuário, 2026-11-17) |
 
 Regras desenhadas:
-- **Menu:** confirmação com Não em foco (Não à esquerda, Sim à direita na ordem da lista); o título vira a pergunta. App sem resposta: o título diz "RetroArch não responde" e "Forçar fechamento" entra por último, já em foco. Port: só Voltar ao jogo e Encerrar jogo.
+- **Menu:** confirmação com Sim em cima e Não embaixo, com o foco no Não; o título vira a pergunta. App sem resposta: o título diz "RetroArch não responde" e "Forçar fechamento" entra por último, já em foco. Port: só Voltar ao jogo e Encerrar jogo.
 - **Dica:** uma linha por acorde que o runner declara, mais Fn+Start; some ao soltar o Fn. O jogo segue rodando por baixo, por isso o painel é transparente e não há fundo escurecido.
 - **Barra:** só texto, sem ícones, em uma linha; com o menu aberto ela continua visível por cima do fundo escurecido.
 

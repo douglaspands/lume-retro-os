@@ -112,7 +112,7 @@ Se a aplicação não responder à pausa em até 1 segundo depois do toque no Fn
 - **THEN** em até 2 segundos o menu do Lume aparece com "Forçar fechamento", e escolhê-lo fecha o RetroArch e mostra o launcher
 
 ### Requirement: Confirmação de Reiniciar e Encerrar
-Reiniciar e Encerrar jogo MUST pedir confirmação, com Não em foco, antes de agir. Confirmado, Reiniciar MUST reiniciar o jogo pela ação `reset` do runner, e Encerrar MUST seguir o mesmo encerramento educado do Fn+Start. Não ou B MUST voltar ao menu do Lume sem mudar nada.
+Reiniciar e Encerrar jogo MUST pedir confirmação antes de agir, com Sim em cima e Não embaixo, em foco (regra de toda confirmação do sistema, usuário 2026-11-17). Confirmado, Reiniciar MUST reiniciar o jogo pela ação `reset` do runner, e Encerrar MUST seguir o mesmo encerramento educado do Fn+Start. Não ou B MUST voltar ao menu do Lume sem mudar nada.
 
 #### Scenario: Encerrar confirmado
 - **WHEN** o usuário escolhe Encerrar jogo e confirma com Sim

@@ -340,8 +340,8 @@
     `<div class="opt${i === cur ? ' sel' : ''}${o.dis ? ' dis' : ''}"><span class="l">${o.th ? `<img class="sth" alt="" src="${o.th}">` : ''}<span class="lt">${o.l}</span></span><span class="v${o.ovr ? ' ov' : ''}">${o.cyc && i === cur ? '‹ ' + o.v + ' ›' : (o.v || '')}</span></div>`).join('');
   function renderMenu() {
     const m = S.menu;
-    if (m.kind === 'power') {                         // confirmação de desligar: a opção segura (Cancelar) vem primeiro e é a padrão
-      m.opts = [{ k: 'no', l: t('no') }, { k: 'yes', l: t('yes') }];
+    if (m.kind === 'power') {                         // regra de toda confirmação (2026-11-17): a afirmativa em cima, Cancelar embaixo e com o foco
+      m.opts = [{ k: 'yes', l: t('yes') }, { k: 'no', l: t('no') }];
       $('#o-menu .sheet').innerHTML = `<div class="sbody"><h2>${t('power')}</h2><div class="sub">${t('powerAsk')}</div>` +
         m.opts.map((o, i) => `<div class="opt${i === m.i ? ' sel' : ''}"><span class="l">${o.l}</span></div>`).join('') + '</div>';
       return;
@@ -473,7 +473,7 @@
   }
 
   /* ------------------------------------------------------------ Desligar o aparelho */
-  function askPower() { S.menu = { kind: 'power', i: 0 }; renderMenu(); $('#o-menu').classList.add('on'); }
+  function askPower() { S.menu = { kind: 'power', i: 1 }; renderMenu(); $('#o-menu').classList.add('on'); }
   function shutdown() {                              // simulado; no aparelho chama o desligamento do sistema
     S.off = true;
     const el = $('#launch');

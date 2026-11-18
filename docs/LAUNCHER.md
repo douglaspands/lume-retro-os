@@ -26,7 +26,7 @@ os atalhos e **segurar + outro botão** faz o atalho. Um atalho nunca vira toque
 
 | Gesto | O que faz |
 |---|---|
-| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch (Reiniciar e Encerrar pedem confirmação, com Não em foco). Com o menu aberto, os botões não chegam ao jogo |
+| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch (Reiniciar e Encerrar pedem confirmação: Sim em cima, Não embaixo e em foco). Com o menu aberto, os botões não chegam ao jogo |
 | Segurar o Fn (meio segundo) | mostra a lista dos atalhos que valem neste jogo; soltar a esconde |
 | Fn+B | menu do RetroArch (abre e fecha) |
 | Fn+R1 / Fn+L1 | salva / carrega o estado no slot rápido (o slot com que o jogo abriu; pela grade, o 0) |
@@ -91,7 +91,7 @@ Tema (Lume, o padrão, e Material escuro e claro), Tela (mostrar ou não o perce
 da bateria), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
 selecionado), Games (com **Atualizar listas**: A atualiza), RetroArch (o menu completo, sem jogo; ao sair, volta às
-Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
+Configurações) e Desligar (pede confirmação: Desligar em cima, Cancelar embaixo e em foco). Wi-Fi e Bluetooth aparecem
 só com um adaptador USB conectado.
 
 Na lista, ▲▼ escolhem o item e A ou ▶ entram no painel dele; no painel, ▲▼ trocam a linha, ◀▶
