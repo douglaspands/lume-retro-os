@@ -5,7 +5,7 @@
 # pkgrel alto para o repositório local vencer o pacote do Alpine.
 pkgname=retroarch
 pkgver=1.22.2
-pkgrel=114
+pkgrel=115
 arch="all"
 url="https://retroarch.com"
 pkgdesc="Reference frontend for the libretro API (KMS/GLES, Lume Retro OS)"
@@ -27,6 +27,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0011-lume-level-line.patch
 	0012-lume-hud-hint-menu.patch
 	0013-lume-menu-lock.patch
+	0014-alsa-close-the-stream-while-paused.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -67,6 +68,10 @@ options="!check" # No tests
 # on the command line) the menu is the Quick Menu only; Back at its root resumes the game,
 # and the main menu never stays on screen. The menu opened without a game is not locked
 # (device-fixes 9.9; the unlock in the Lume settings is P-101).
+# 0014: the ALSA driver closes the playback stream when stopped (menu open) instead of
+# pausing it, and pausing the game stops the driver too; the first samples after the pause
+# open it again. Only a closed stream lets DAPM switch the speaker amplifier off: a paused
+# or underrun one keeps it on (~12 mA on the GA36; device-fixes 7.3, D9).
 #
 # Wi-Fi and Bluetooth (usb-device-access D9-D11): the menus use NetworkManager (nmcli, the
 # only Wi-Fi driver outside Lakka builds) and bluez (bluetoothctl, no D-Bus build needed).
@@ -122,4 +127,5 @@ dc91434f4555c7c244e4c45877291d591679674776172256c65efafe8831c7287608c3a5e34e196c
 49e2003e2ad732207966f9e61595071694925b9650683296ba7fa5968b4662ee5937aa13ee5cf7de63b2b807b9984815003116152ec2178229f6186062ecdfa1  0011-lume-level-line.patch
 41d6e38440e31df5b51576911ac88bed988448cd2ca5dc5d028f6b0082ed01fbf9aa11baac024314bf9f29048de906b869b9301dacaed1c4ca2d21bb6552dbbd  0012-lume-hud-hint-menu.patch
 ecb97380d1e19e657168dff1e0edc156f9f1433b774e5f42be4ca24fe53b13816a13597757c2e4d8681bfbdc10536545790e7eaba29d17245e110fd67d7b50dc  0013-lume-menu-lock.patch
+b2e121b73d8286e3f76beec31f0afc11e6a55fc72dc2d55c3478c18ec0848442c1653701c1bc267c8a63298b9810c059255780c26c1e369af7d0184f427244d2  0014-alsa-close-the-stream-while-paused.patch
 "

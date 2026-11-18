@@ -239,6 +239,37 @@ fica em 0 dB.
   gasta **~12 mA** (336 contra 324 mA da bateria, launcher parado no brilho 7). O caminho do
   silêncio no GA36 é, então, fechar o fluxo (pausa ou menu); o ganho de energia é pequeno.
 
+**Caminho escolhido (7.3, 2026-11-18): o RetroArch fecha o fluxo na pausa e no menu (patch
+0014).** O que o código mostra:
+- No kernel (6.18), o ASoC só desliga o caminho de reprodução, com o amplificador, quando os
+  parâmetros do fluxo são liberados: `soc_pcm_hw_clean` → `snd_soc_dapm_stream_stop`, no
+  `hw_free` ou no `close` (`sound/soc/soc-pcm.c`). Pausa (`snd_pcm_pause`), `snd_pcm_drop` e
+  *underrun* não passam por aí: o fluxo pausado ou parado deixa o amplificador ligado. Só fechar
+  (ou `hw_free`) serve.
+- O desligamento depois do fechamento espera o `pmdown_time` (5 s por padrão, `soc-core.c`)
+  só se um componente do link pedir (`use_pmdown_time`). No GA36 nenhum pede (`sun8i-codec`,
+  `sun8i-codec-analog`, `sun4i-i2s`, `simple-amplifier`): desliga na hora, como a 2.5 mediu.
+  No R36S o `rk817_codec` pede: o amplificador desliga 5 s depois da pausa, e voltar ao jogo
+  antes disso não religa nada. **R36S não medido** (a J1 dele está pendente); o mecanismo é o
+  mesmo, e a J3 confere a corrente.
+- No RetroArch 1.22.2, o menu (com `menu_pause_libretro`) para o driver de áudio
+  (`menu_driver_toggle` → `CMD_EVENT_AUDIO_STOP` → `audio_driver_stop`), mas o `alsa_stop` só
+  faz `snd_pcm_pause(1)`; a pausa simples (`PAUSE_TOGGLE` do `lume-run`, o menu Lume) nem para
+  o driver (`runloop_pause_checks`), e o fluxo fica em *underrun*. Nenhuma opção existente
+  (`audio_enable_menu`, `audio_mute_enable`, `menu_pause_libretro`) fecha o fluxo.
+- O patch 0014: o `alsa_stop` fecha o fluxo; o `alsa_start` não abre nada (o menu fechado
+  sobre um jogo pausado não religa o amplificador); a primeira escrita reabre o fluxo com o
+  mesmo dispositivo, taxa e latência; a pausa do jogo para o driver como o menu.
+- **Espera para o som voltar:** a reabertura acontece antes da primeira amostra; o kernel liga
+  o caminho no `prepare` (~0,1 s medido no GA36), e só então as amostras entram, então o começo
+  do som não é cortado. O custo é o primeiro quadro depois da pausa esperar essa abertura uma
+  vez. No R36S, voltar em menos de 5 s nem espera.
+- **Launcher:** o `lume-ui` não abre o PCM (o SDL sobe só o vídeo; o volume é pelo `amixer`,
+  que mexe só nos controles); com o launcher na tela o amplificador fica desligado.
+- **Suspensão (8.3):** nada a fazer para o som. Antes do `freeze`, o `lume-run` pausa o jogo
+  (8.4), e a pausa já fecha o fluxo. Mesmo com um fluxo aberto, o `snd_soc_suspend` do kernel
+  desliga o DAPM na suspensão.
+
 ### D10. Fone nos dois consoles
 
 O `jack` passa a valer nos dois consoles. Encaixar e tirar o fone troca a saída, e cada

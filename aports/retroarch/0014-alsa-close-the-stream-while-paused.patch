@@ -1,0 +1,217 @@
+From: Lume Retro OS
+Subject: [PATCH] alsa: close the playback stream while paused, so the speaker amplifier goes off
+
+The consoles' speaker amplifier (simple-audio-amplifier, an enable GPIO) is a
+DAPM widget: ASoC switches it on when a playback stream is prepared and off
+when the stream's hardware parameters are freed (soc_pcm_hw_clean ->
+snd_soc_dapm_stream_stop, on hw_free or close). A paused (snd_pcm_pause),
+drained or underrun stream keeps its parameters, so the amplifier stays on.
+On the GA36 an open stream of silence costs ~12 mA (device-fixes 2.5, D9).
+
+Upstream keeps the stream open for the whole session: the menu (with
+menu_pause_libretro) stops the driver, and the ALSA driver's stop is
+snd_pcm_pause(1); a plain pause (the PAUSE_TOGGLE network command of lume-run,
+the Lume menu) does not stop the driver at all, the stream just underruns.
+
+  alsa_stop          closes the stream (alsa_free_pcm: drop + close) instead
+                     of pausing it
+  alsa_start         only marks the driver running; the stream is not opened
+                     yet, so the menu closing over a paused game (a start with
+                     nothing to play) keeps the amplifier off
+  alsa_write         opens the stream again before the first samples, with the
+                     device, rate and latency of the first open (alsa_reopen);
+                     the kernel powers the path up in prepare, before any
+                     sample is queued, so the sound starts whole
+  alsa_write_avail   a closed stream reports an empty buffer
+  runloop_pause_checks  pausing the game stops the audio driver, as the menu
+                     does
+
+The pause itself is untouched: a paused game draws its last frame, and the
+first frame after it waits once for the stream to open (the DAPM power-up,
+~0.1 s measured on the GA36).
+
+diff --git a/audio/drivers/alsa.c b/audio/drivers/alsa.c
+--- a/audio/drivers/alsa.c
++++ b/audio/drivers/alsa.c
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include <stdlib.h>
++#include <string.h>
+ 
+ #include <lists/string_list.h>
+ #include <string/stdstring.h>
+@@ -310,6 +311,11 @@ typedef struct alsa
+    /* The device stopped consuming: audio is dropped without waiting until
+     * there is room in the buffer again. */
+    bool stalled;
++   /* What the stream was opened with, to open it again after a stop: the
++    * stream is closed while stopped (pcm is NULL) so the codec powers down. */
++   char *device;
++   unsigned rate;
++   unsigned latency;
+ } alsa_t;
+ 
+ static bool alsa_use_float(void *data)
+@@ -337,6 +343,10 @@ static void *alsa_init(const char *device, unsigned rate, unsigned latency,
+             latency, 2, &alsa->stream_info, new_rate, SND_PCM_NONBLOCK) < 0)
+       goto error;
+ 
++   alsa->device  = device ? strdup(device) : NULL;
++   alsa->rate    = (new_rate && *new_rate) ? *new_rate : rate;
++   alsa->latency = latency;
++
+    return alsa;
+ 
+ error:
+@@ -350,26 +360,36 @@ error:
+ #define BYTES_TO_FRAMES(bytes, frame_bits)  ((bytes) * 8 / frame_bits)
+ #define FRAMES_TO_BYTES(frames, frame_bits) ((frames) * frame_bits / 8)
+ 
+-static bool alsa_start(void *data, bool is_shutdown)
++/* Opens the stream again, with what it was first opened with. The kernel
++ * powers the codec and the speaker amplifier up while the stream is
++ * prepared, before the first sample is written, so the sound starts whole. */
++static bool alsa_reopen(alsa_t *alsa)
+ {
+-   alsa_t *alsa = (alsa_t*)data;
+-   if (!alsa->is_paused)
+-      return true;
++   unsigned rate = alsa->rate;
+ 
+-   if (     alsa->stream_info.can_pause
+-         && alsa->is_paused)
++   if (alsa_init_pcm(&alsa->pcm, alsa->device, SND_PCM_STREAM_PLAYBACK,
++            alsa->rate, alsa->latency, 2, &alsa->stream_info, &rate,
++            SND_PCM_NONBLOCK) < 0)
+    {
+-      int ret = snd_pcm_pause(alsa->pcm, 0);
++      alsa->pcm = NULL;
++      return false;
++   }
+ 
+-      if (ret < 0)
+-      {
+-         RARCH_ERR("[ALSA] Failed to unpause: %s.\n",
+-               snd_strerror(ret));
+-         return false;
+-      }
++   if (rate != alsa->rate)
++      RARCH_WARN("[ALSA] Stream opened again at %u Hz instead of %u Hz.\n",
++            rate, alsa->rate);
+ 
+-      alsa->is_paused = false;
+-   }
++   RARCH_LOG("[ALSA] Stream opened again.\n");
++   return true;
++}
++
++/* Start does not open the stream: the first write does. A start with
++ * nothing to play (the menu closed over a paused game) keeps the speaker
++ * amplifier off. */
++static bool alsa_start(void *data, bool is_shutdown)
++{
++   alsa_t *alsa    = (alsa_t*)data;
++   alsa->is_paused = false;
+    return true;
+ }
+ 
+@@ -378,14 +398,19 @@ static ssize_t alsa_write(void *data, const void *buf_, size_t len)
+    ssize_t _len = 0;
+    alsa_t *alsa           = (alsa_t*)data;
+    const uint8_t *buf     = (const uint8_t*)buf_;
+-   snd_pcm_sframes_t size = BYTES_TO_FRAMES(len, alsa->stream_info.frame_bits);
+-   size_t frames_size     = alsa->stream_info.has_float ? sizeof(float) : sizeof(int16_t);
++   snd_pcm_sframes_t size;
++   size_t frames_size;
+ 
+-   /* Workaround buggy menu code.
+-    * If a write happens while we're paused, we might never progress. */
+-   if (alsa->is_paused && !alsa_start(alsa, false))
++   /* A write while stopped (menu sounds, or the game resumed) starts the
++    * driver again, and the stream closed by the stop is opened again. */
++   if (alsa->is_paused)
++      alsa_start(alsa, false);
++   if (!alsa->pcm && !alsa_reopen(alsa))
+       return -1;
+ 
++   size                   = BYTES_TO_FRAMES(len, alsa->stream_info.frame_bits);
++   frames_size            = alsa->stream_info.has_float ? sizeof(float) : sizeof(int16_t);
++
+    if (alsa->nonblock)
+    {
+       while (size)
+@@ -487,23 +512,27 @@ static bool alsa_alive(void *data)
+    return !alsa->is_paused;
+ }
+ 
++/* Stop closes the stream instead of pausing it (snd_pcm_pause). A paused,
++ * drained or underrun stream keeps its hardware parameters, and ASoC powers
++ * the codec path down (DAPM, with the speaker amplifier) only when they are
++ * freed: on hw_free or close. Closed, the amplifier goes off while the game
++ * is paused or the menu is open. */
+ static bool alsa_stop(void *data)
+ {
+    alsa_t *alsa = (alsa_t*)data;
+    if (alsa->is_paused)
+ 	  return true;
+ 
+-   if (alsa->stream_info.can_pause
+-         && !alsa->is_paused)
++   if (alsa->pcm)
+    {
+-      int ret = snd_pcm_pause(alsa->pcm, 1);
+-
+-      if (ret < 0)
+-         return false;
+-
+-      alsa->is_paused = true;
++      alsa_free_pcm(alsa->pcm);
++      alsa->pcm = NULL;
++      RARCH_LOG("[ALSA] Stream closed while stopped.\n");
+    }
+ 
++   alsa->stalled   = false;
++   alsa->is_paused = true;
++
+    return true;
+ }
+ 
+@@ -522,6 +551,7 @@ static void alsa_free(void *data)
+       alsa_free_pcm(alsa->pcm);
+ 
+       snd_config_update_free_global();
++      free(alsa->device);
+       free(alsa);
+    }
+ }
+@@ -529,7 +559,13 @@ static void alsa_free(void *data)
+ static size_t alsa_write_avail(void *data)
+ {
+    alsa_t *alsa            = (alsa_t*)data;
+-   snd_pcm_sframes_t avail = snd_pcm_avail(alsa->pcm);
++   snd_pcm_sframes_t avail;
++
++   /* Closed while stopped: the buffer is empty. */
++   if (!alsa->pcm)
++      return alsa->stream_info.buffer_size;
++
++   avail                   = snd_pcm_avail(alsa->pcm);
+ 
+    if (avail < 0)
+       return alsa->stream_info.buffer_size;
+diff --git a/runloop.c b/runloop.c
+--- a/runloop.c
++++ b/runloop.c
+@@ -4872,6 +4872,11 @@ void runloop_pause_checks(void)
+ 
+       midi_driver_set_all_sounds_off();
+ 
++      /* Stop the audio driver while paused, as the menu does: the ALSA
++       * driver closes the stream, so the speaker amplifier goes off. The
++       * first samples after the pause open it again. */
++      audio_driver_stop();
++
+ #ifdef HAVE_PRESENCE
+       userdata.status = PRESENCE_GAME_PAUSED;
+       command_event(CMD_EVENT_PRESENCE_UPDATE, &userdata);
