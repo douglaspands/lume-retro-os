@@ -2,7 +2,8 @@
 # lume-session (D10): runs the configured frontend on tty1 as the game user.
 #
 #   exit 0            -> writes what is pending (persist flush) and powers off
-#   exit != 0         -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
+#   exit 66           -> the same clean steps, then reboots (device-fixes D19)
+#   other exit codes  -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
 #   SIGTERM (service) -> ends the frontend without powering off
 #   SIGUSR1 (lume-sleep, the power button held 2 s, device-fixes D11) -> ends the frontend
 #                        (SIGTERM: lume-run quits the game politely), waits for it, then the
@@ -19,6 +20,8 @@ TTY=/dev/tty1
 LOG=/var/log/frontend.log
 WINDOW=60
 MAX_FAILS=3
+# frozen in docs/FRONTEND.md, same value as Exit::Restart (lume-ui) and EXIT_RESTART (lume-run)
+EXIT_RESTART=66
 
 # dmesg (log de boot) + serial de debug + syslog
 SERIAL=/dev/$(cat /etc/lume/serial-tty 2>/dev/null)
@@ -148,19 +151,59 @@ release_storage() {
 	return 0
 }
 
-# Exit 0 of the frontend, or the power button held (SIGUSR1, $closed_by): what is pending goes
-# to the card, the card is left clean, power off.
-power_off() {
-	kmsg "frontend closed by ${closed_by:-user}: saving and powering off"
-	event frontend OK "$FRONTEND closed by ${closed_by:-user}: shutting down"
+# The clean steps before the console ends, shared by power_off and restart: what is pending
+# goes to the card, then the clock while ROMS is still writable (release_storage remounts it
+# read-only; device-fixes D15), then the card is left clean.
+end_clean() {
 	"$LIBEXEC/persist" flush
-	# the clock goes to the card while ROMS is still writable (release_storage remounts it
-	# read-only); device-fixes D15
 	command -v lume-clock >/dev/null 2>&1 && lume-clock save
 	sync
 	release_storage
+}
+
+# Exit 0 of the frontend, or the power button held (SIGUSR1, $closed_by): power off.
+power_off() {
+	kmsg "frontend closed by ${closed_by:-user}: saving and powering off"
+	event frontend OK "$FRONTEND closed by ${closed_by:-user}: shutting down"
+	end_clean
 	poweroff
 }
+
+# Exit 66 of the frontend (Restart in the system menu, device-fixes D19): reboot.
+restart() {
+	kmsg "frontend closed by user: saving and rebooting"
+	event frontend OK "$FRONTEND closed by user: rebooting"
+	end_clean
+	reboot
+}
+
+# frontend_ended: what the session does with the end of the frontend ($rc, $closed_by).
+# Exit 0 or the power button held powers off (the button wins over any code), 66 reboots;
+# any other code is one more failure in the window ($fail_times, $n) and the MAX_FAILS-th
+# gives up. Returns only when the frontend should start again.
+frontend_ended() {
+	if [ "$rc" -eq 0 ] || [ -n "$closed_by" ]; then
+		power_off
+		exit 0
+	fi
+	if [ "$rc" -eq $EXIT_RESTART ]; then
+		restart
+		exit 0
+	fi
+	now=$(date +%s)
+	recent=""
+	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
+	fail_times="$recent $now"
+	n=$(echo $fail_times | wc -w)
+	kmsg "frontend terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	event frontend FAIL "$FRONTEND terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	# also in the frontend log: a frontend that fails silently leaves the log empty
+	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
+	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
+	return 0
+}
+
+fail_times=""
 
 [ -n "${SESSION_LIB:-}" ] && return 0   # tests: only the functions
 
@@ -180,7 +223,6 @@ rm -f "$LUME_RUN/cgroup.err"
 # lume-run (game) appends its game lines to the events buffer (lume-launcher D10)
 events_shared game || kmsg "events buffer not shared with the game user"
 
-fail_times=""
 while :; do
 	# the power button held between two runs of the frontend (during the restart pause)
 	if [ -n "$closed_by" ]; then
@@ -203,19 +245,6 @@ while :; do
 		event frontend OK "$FRONTEND closed by service (code $rc)"
 		exit 0
 	fi
-	if [ "$rc" -eq 0 ] || [ -n "$closed_by" ]; then
-		power_off
-		exit 0
-	fi
-	now=$(date +%s)
-	recent=""
-	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
-	fail_times="$recent $now"
-	n=$(echo $fail_times | wc -w)
-	kmsg "frontend terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
-	event frontend FAIL "$FRONTEND terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
-	# também no log do frontend: um frontend que falha calado deixa o log vazio
-	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
-	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
+	frontend_ended
 	sleep 1
 done

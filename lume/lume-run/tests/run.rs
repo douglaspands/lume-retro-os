@@ -180,6 +180,27 @@ fn ui_exit_0_ends_with_0() {
 }
 
 #[test]
+fn ui_exit_66_ends_with_66() {
+    let e = setup("restart", false);
+    e.step(1, 66, "");
+    assert_eq!(wait(&mut e.spawn(&[]), Duration::from_secs(5)), 66);
+    assert_eq!(e.ui_runs(), 1);
+}
+
+#[test]
+fn codes_64_and_65_still_run_the_game_before_a_66() {
+    let e = setup("restart-after", false);
+    e.step(1, 64, &launch("ports", "sigterm", 2, &["/bin/true"]));
+    e.step(2, 65, &launch("ports", "sigterm", 2, &["/bin/true"]));
+    e.step(3, 66, "");
+    assert_eq!(wait(&mut e.spawn(&[]), Duration::from_secs(10)), 66);
+    assert_eq!(e.ui_runs(), 3);
+    let ev = e.events();
+    assert!(ev.contains(" game OK ports fake fakecore start\n"), "{ev}");
+    assert!(ev.contains(" game OK ports fake fakecore menu\n"), "{ev}");
+}
+
+#[test]
 fn ui_failure_ends_with_1() {
     let e = setup("fail", false);
     e.step(1, 3, "");

@@ -148,6 +148,52 @@ check "power button: the closing event names the power button" \
 check "session: SIGUSR1 trapped and checked between two runs of the frontend" \
 	'grep -q "^trap .closed_by=\"the power button\"" $S && grep -B1 -A3 "if \[ -n \"\$closed_by\" \]; then" $S | grep -q "power_off"'
 
+### device-fixes 9.12 (D19): what the session does with each exit code of the frontend
+### (frontend_ended, the body of the loop): 0 powers off, 66 reboots after the same clean
+### steps, any other code counts a failure. Fake poweroff and reboot in PATH.
+printf '#!/bin/sh\necho poweroff >> "$CALLS"\n' > "$W/bin/poweroff"
+printf '#!/bin/sh\necho reboot >> "$CALLS"\n' > "$W/bin/reboot"
+printf '#!/bin/sh\necho "lume-clock $*" >> "$CALLS"\n' > "$W/bin/lume-clock"
+chmod +x "$W/bin/poweroff" "$W/bin/reboot" "$W/bin/lume-clock"
+run_end() {  # $1: exit code of the frontend, $2: closed_by -> $CALLS, kernel log in $W/kmsg
+	: > "$CALLS"; : > "$W/kmsg"; : > "$W/frontend.log"
+	rm -f "$LOGS_RAM"/*.pending
+	(
+		PATH="$W/bin:$PATH"
+		SESSION_LIB=1
+		SESSION_LIBDIR=$L
+		STORAGE=$W/storage
+		. aports/lume-core/files/usr/libexec/lume/session
+		LOG=$W/frontend.log
+		kmsg() { echo "$*" >> "$W/kmsg"; }
+		sync() { echo sync >> "$CALLS"; }
+		mountpoint() { echo "mountpoint $*" >> "$CALLS"; }
+		mount() { echo "mount $*" >> "$CALLS"; }
+		rc=$1
+		closed_by=$2
+		fail_times=""
+		frontend_ended
+		echo "returned n=$n" >> "$CALLS"
+	)
+}
+CLEAN="persist flush|lume-clock save|sync|mountpoint -q $W/storage|rc-service lume-logd stop|sync|mount -o remount,ro $W/storage"
+run_end 0 ""
+check "exit 0: the clean steps, then poweroff, and the session ends" '[ "$(calls)" = "$CLEAN|poweroff|" ]'
+run_end 66 ""
+check "exit 66: the same clean steps, then reboot, and the session ends" '[ "$(calls)" = "$CLEAN|reboot|" ]'
+check "exit 66: rebooting in the kernel log and in the events" \
+	'grep -qx "frontend closed by user: saving and rebooting" "$W/kmsg" && grep -q " frontend OK retroarch closed by user: rebooting$" "$LOGS_RAM/events.pending"'
+check "exit 66: no failure counted" '! grep -q " frontend FAIL " "$LOGS_RAM/events.pending" && [ ! -s "$W/frontend.log" ]'
+run_end 66 "the power button"
+check "exit 66 with the power button held: the button wins, poweroff" '[ "$(calls)" = "$CLEAN|poweroff|" ]'
+run_end 1 ""
+check "exit 1: no power off nor reboot, one failure counted, the loop goes on" '[ "$(calls)" = "returned n=1|" ]'
+check "exit 1: the failure in the events and in the frontend log" \
+	'grep -q " frontend FAIL retroarch terminated with error (code 1): failure 1 of 3 in 60s$" "$LOGS_RAM/events.pending" && grep -q "terminated with error (code 1), failure 1 of 3$" "$W/frontend.log"'
+rm -f "$W/bin/poweroff" "$W/bin/reboot" "$W/bin/lume-clock"
+check "session: the loop hands every end to frontend_ended, reboot called once" \
+	'grep -q "^	frontend_ended$" $S && [ "$(grep -c "^[[:space:]]*reboot$" $S)" = 1 ] && grep -q "^EXIT_RESTART=66$" $S'
+
 rm -rf "$W"
 echo "failures: $FAILS"
 [ "$FAILS" = 0 ]

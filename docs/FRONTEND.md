@@ -39,8 +39,14 @@ Outro frontend pode tomar o lugar dos dois sem mexer na distro nem no contrato d
 5. Código de saída:
    - **0**: o usuário escolheu desligar (no launcher, o item Desligar das Configurações; no
      RetroArch de reserva, o item "Desligar"). A sessão grava o pendente
-     (`/usr/libexec/lume/persist flush`) e desliga o aparelho.
-   - **diferente de 0**: falha. A sessão reinicia o frontend; na 3ª falha em 60 s, ela
+     (`/usr/libexec/lume/persist flush`), salva o relógio (`lume-clock save`), deixa o cartão
+     limpo (para o `lume-logd` e remonta `/storage` só leitura) e desliga o aparelho. O botão
+     de energia segurado (SIGUSR1 do `lume-sleep`) encerra o frontend e segue o mesmo caminho.
+   - **66**: o usuário escolheu reiniciar (no launcher, Reiniciar no menu do sistema). A
+     sessão faz os mesmos passos do desligar e chama `reboot` no lugar do `poweroff`; o
+     `events.log` registra `frontend OK <frontend> closed by user: rebooting`. Se o botão de
+     energia foi segurado enquanto isso, ele vence e o aparelho desliga.
+   - **outro valor**: falha. A sessão reinicia o frontend; na 3ª falha em 60 s, ela
      para e deixa na tela o erro e o caminho do log (`ROMS/logs/frontend/boot-<n>.log`;
      só sem partição de jogos, `BOOT/logs/frontend-error.log`).
    - O fim de um jogo aberto pelo launcher nunca chega à sessão: quem roda o jogo é o
@@ -66,7 +72,7 @@ interface (`lume-ui`) e, quando ela pede, o jogo, sempre como `game`:
 | 0 (Desligar) | sai com 0: a sessão desliga |
 | 64 | roda o jogo pedido em `$XDG_RUNTIME_DIR/lume/launch` e reabre a interface |
 | 65 | abre o menu do RetroArch sem jogo e reabre a interface ao sair dele |
-| 66 (Reiniciar) | sai com 66: a sessão reinicia |
+| 66 (Reiniciar) | sai com 66: a sessão reinicia o aparelho |
 | outro | sai com 1: falha do frontend |
 
 Contrato de sessão do `lume-run` (congelado): sai com **0** para desligar, **66** para
