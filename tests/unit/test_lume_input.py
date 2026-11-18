@@ -187,6 +187,8 @@ class Daemon:
         self.ra.bind(("127.0.0.1", 0))
         self.ra.settimeout(1)
         self.colors = tmp / "level-colors"
+        # the folder of lume-sleep (device-fixes D11): absent unless a test makes it
+        self.sleep = tmp / "sleep"
         self.fifos = {}
         args = [str(exe), "--profile", str(profile or APORT / f"{board}.conf"), "--test", str(self.out),
                 "--socket", str(self.sock)]
@@ -196,7 +198,8 @@ class Daemon:
             self.fifos[name] = fifo
             args += ["--source", f"{name}={fifo}"]
         env = {**os.environ, "LUME_INPUT_AMIXER": str(amixer), "LUME_INPUT_BACKLIGHT": str(self.backlight),
-               "LUME_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "LUME_INPUT_LEVEL_COLORS": str(self.colors)}
+               "LUME_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "LUME_INPUT_LEVEL_COLORS": str(self.colors),
+               "LUME_SLEEP_DIR": str(self.sleep)}
         self.proc = subprocess.Popen(args, env=env,
                                      stderr=subprocess.PIPE, text=True)
         self.writers = {name: open(f, "wb", buffering=0) for name, f in self.fifos.items()}
@@ -221,6 +224,16 @@ class Daemon:
 
     def keys(self) -> list[tuple[int, int]]:
         return [(c, v) for t, c, v in self.events() if t == EV_KEY]
+
+    def phase(self, text: str):
+        """lume-sleep's notice: written to a hidden name, then renamed (as the service does)."""
+        tmp = self.sleep / ".phase.tmp"
+        tmp.write_text(text + "\n")
+        os.replace(tmp, self.sleep / "phase")
+        time.sleep(0.15)
+
+    def requests(self) -> list[str]:
+        return sorted(p.name for p in self.sleep.iterdir() if p.name in ("suspend", "poweroff"))
 
     def client(self) -> socket.socket:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
@@ -657,6 +670,275 @@ def test_vm_profile_passes_the_keyboard_through(daemon_exe, tmp_path):
         assert _recv_all(c)[0] == HOLD_MSG
     finally:
         d.stop()
+
+
+# ---- the power button and the sleep protocol (device-fixes D11, task 8.2) ----
+
+KEY_POWER = 116
+GA36_SOURCES = ["GA36-MB Gamepad", "1c22800.lradc", "axp20x-pek"]
+PWR = "axp20x-pek"
+
+
+def test_each_console_names_its_power_button():
+    assert re.findall(r"^power (.+)$", _profile("ga36"), re.M) == ["axp20x-pek"]
+    # the rk805-pwrkey driver names its input device "rk805 pwrkey"
+    assert re.findall(r"^power (.+)$", _profile("r36s"), re.M) == ["rk805 pwrkey"]
+    assert not re.search(r"^power ", _profile("vm"), re.M)
+    # the frozen protocol: the times of lume_core::sleep
+    sleep_rs = (REPO_ROOT / "lume/lume-core/src/sleep.rs").read_text()
+    for name, ms in (("TAP_MAX", 1000), ("HOLD", 2000), ("CLIENT_REPLY", 2000), ("WAKE_GUARD", 1000)):
+        assert re.search(rf"pub const {name}: Duration = Duration::from_secs\({ms // 1000}\);", sleep_rs), name
+    for name, ms in (("POWER_TAP_MS", 1000), ("POWER_HOLD_MS", 2000), ("CLIENT_REPLY_MS", 2000),
+                     ("WAKE_GUARD_MS", 1000)):
+        assert re.search(rf"^#define {name} {ms}\b", SOURCE, re.M), name
+
+
+@pytest.fixture
+def ga36(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "ga36", GA36_SOURCES)
+    d.sleep.mkdir()
+    yield d
+    d.stop()
+
+
+def _tap_power(d: Daemon, source: str = PWR):
+    d.press(source, KEY_POWER)
+    d.release(source, KEY_POWER)
+
+
+def test_a_short_power_tap_requests_the_suspension(ga36):
+    c = ga36.client()
+    _tap_power(ga36)
+    assert ga36.requests() == ["suspend"]
+    assert _recv_all(c) == [b"power_tap"]
+    # nothing of the button reaches the game, not even its SYN
+    assert ga36.events() == []
+    c.close()
+
+
+def test_power_held_two_seconds_requests_the_shutdown_once(ga36):
+    c = ga36.client()
+    ga36.press(PWR, KEY_POWER)
+    time.sleep(2.1)
+    assert ga36.requests() == ["poweroff"]
+    # still held, with autorepeat: no second request nor notice
+    for _ in range(3):
+        ga36.send(PWR, (EV_KEY, KEY_POWER, 2), SYN)
+    time.sleep(0.5)
+    ga36.release(PWR, KEY_POWER)
+    assert _recv_all(c) == [b"power_hold"]
+    assert ga36.requests() == ["poweroff"]
+    assert ga36.events() == []
+    c.close()
+
+
+def test_power_let_go_at_one_and_a_half_seconds_does_nothing(ga36):
+    c = ga36.client()
+    ga36.press(PWR, KEY_POWER)
+    time.sleep(1.35)
+    ga36.release(PWR, KEY_POWER)
+    time.sleep(1)
+    assert _recv_all(c) == []
+    assert ga36.requests() == []
+    c.close()
+
+
+def test_a_repeated_tap_does_not_duplicate_the_request(ga36):
+    c = ga36.client()
+    _tap_power(ga36)
+    _tap_power(ga36)   # lume-sleep has not taken the first one yet
+    assert ga36.requests() == ["suspend"]
+    assert _recv_all(c) == [b"power_tap"]
+    # taken by lume-sleep: the next tap is a new request
+    (ga36.sleep / "suspend").unlink()
+    _tap_power(ga36)
+    assert ga36.requests() == ["suspend"]
+    assert _recv_all(c) == [b"power_tap"]
+    c.close()
+    assert "suspend request already pending" in ga36.stop()
+
+
+def test_without_the_sleep_service_a_tap_is_one_log_line(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "ga36", GA36_SOURCES)
+    try:
+        c = d.client()
+        _tap_power(d)
+        assert _recv_all(c) == []
+        assert not d.sleep.exists()
+        c.close()
+    finally:
+        err = d.stop()
+    assert f"no sleep service ({d.sleep} missing): power button request dropped" in err
+
+
+def test_the_power_key_of_another_source_never_goes_out(r36s):
+    # a profile source that also reports KEY_POWER (the VM keyboard passes everything)
+    r36s.sleep.mkdir()
+    c = r36s.client()
+    _tap_power(r36s, "gpio-keys")
+    assert _recv_all(c) == [b"power_tap"]
+    assert r36s.keys() == []
+    c.close()
+
+
+def _clients_file(d: Daemon, seq: int, wait: float = 3.0) -> str:
+    """The `clients` answer of `seq`, once it is there ("" if it never comes)."""
+    for _ in range(int(wait / 0.05)):
+        f = d.sleep / "clients"
+        if f.exists() and f.read_text().startswith(f"suspend {seq} "):
+            return f.read_text()
+        time.sleep(0.05)
+    return ""
+
+
+def test_every_client_answering_ends_the_wait_at_once(ga36):
+    a, b = ga36.client(), ga36.client()
+    t0 = time.monotonic()
+    ga36.phase("suspend 4")
+    assert a.recv(32) == b"suspend 4" and b.recv(32) == b"suspend 4"
+    a.send(b"suspend_ok 4")
+    b.send(b"suspend_ok 4")
+    assert _clients_file(ga36, 4) == "suspend 4 ok 2/2\n"
+    assert time.monotonic() - t0 < 1.5
+    assert not (ga36.sleep / ".clients.tmp").exists()
+    a.close()
+    b.close()
+
+
+def test_a_mute_client_ends_the_wait_at_the_deadline(ga36):
+    talker, mute = ga36.client(), ga36.client()
+    t0 = time.monotonic()
+    ga36.phase("suspend 7")
+    assert talker.recv(32) == b"suspend 7" and mute.recv(32) == b"suspend 7"
+    # an answer to an older sequence, then the right one twice: one counts
+    talker.send(b"suspend_ok 6")
+    talker.send(b"suspend_ok 7")
+    talker.send(b"suspend_ok 7")
+    time.sleep(0.5)
+    assert not (ga36.sleep / "clients").exists(), "the mute client is still awaited"
+    assert _clients_file(ga36, 7) == "suspend 7 timeout 1/2\n"
+    assert 1.8 < time.monotonic() - t0 < 3
+    # a late answer changes nothing
+    mute.send(b"suspend_ok 7")
+    time.sleep(0.2)
+    assert (ga36.sleep / "clients").read_text() == "suspend 7 timeout 1/2\n"
+    talker.close()
+    mute.close()
+    assert "suspend 7: 1 of 2 client(s) answered within 2 s" in ga36.stop()
+
+
+def test_no_client_or_one_that_hangs_up_is_not_awaited(ga36):
+    ga36.phase("suspend 1")
+    assert _clients_file(ga36, 1, 0.5) == "suspend 1 ok 0/0\n"
+    ga36.phase("resume 1")
+    stays, leaves = ga36.client(), ga36.client()
+    ga36.phase("suspend 2")
+    assert stays.recv(32) == b"suspend 2"
+    leaves.close()
+    stays.send(b"suspend_ok 2")
+    assert _clients_file(ga36, 2, 1.0) == "suspend 2 ok 1/1\n"
+    # a client that connects after the notice is not awaited either
+    ga36.phase("resume 2")
+    assert stays.recv(32) == b"resume 2"
+    ga36.phase("suspend 3")
+    late = ga36.client()
+    assert stays.recv(32) == b"suspend 3"
+    stays.send(b"suspend_ok 3")
+    assert _clients_file(ga36, 3, 1.0) == "suspend 3 ok 1/1\n"
+    stays.close()
+    late.close()
+
+
+def test_nothing_is_forwarded_asleep_and_the_resume_releases_held_keys(ga36):
+    c = ga36.client()
+    pad, vol = "GA36-MB Gamepad", "1c22800.lradc"
+    a, b = CODES["BTN_A"], CODES["BTN_B"]
+    ga36.press(pad, a)   # held in the game when the console goes to sleep
+    ga36.phase("suspend 5")
+    assert c.recv(32) == b"suspend 5"
+    c.send(b"suspend_ok 5")
+    # asleep: buttons, sticks, Fn, volume, the power button and a client's tap all dropped
+    ga36.press(pad, b)
+    ga36.release(pad, a)
+    ga36.send(pad, (EV_ABS, 0, 900), SYN)
+    ga36.press(pad, CODES["BTN_MODE"])
+    ga36.release(pad, CODES["BTN_MODE"])
+    ga36.press(vol, CODES["KEY_VOLUMEUP"])
+    ga36.release(vol, CODES["KEY_VOLUMEUP"])
+    _tap_power(ga36)
+    c.send(b"tap KEY_F2")
+    time.sleep(0.2)
+    assert _recv_all(c) == []
+    assert ga36.keys() == [(a, 1)]
+    assert [e for e in ga36.events() if e[0] == EV_ABS] == []
+    assert ga36.requests() == []
+    assert not ga36.amixer_log.exists()
+    # the resume: the held key is released, then the clients hear of it
+    ga36.phase("resume 5")
+    assert _recv_all(c) == [b"resume 5"]
+    assert ga36.keys() == [(a, 1), (a, 0)]
+    # B, pressed asleep, is let go and pressed again: a whole new press
+    ga36.release(pad, b)
+    ga36.press(pad, b)
+    assert ga36.keys() == [(a, 1), (a, 0), (b, 1)]
+    c.close()
+    assert "resume 5: " in ga36.stop()
+
+
+def test_the_press_that_woke_the_console_does_not_suspend_it_again(ga36):
+    c = ga36.client()
+    ga36.phase("suspend 8")
+    ga36.press(PWR, KEY_POWER)   # the waking press, read before the resume
+    ga36.phase("resume 8")
+    assert _recv_all(c) == [b"suspend 8", b"resume 8"]
+    # its release, then a bounce within the guard: nothing
+    ga36.release(PWR, KEY_POWER)
+    _tap_power(ga36)
+    time.sleep(0.2)
+    assert ga36.requests() == [] and _recv_all(c) == []
+    # past the guard a tap suspends again
+    time.sleep(1.0)
+    _tap_power(ga36)
+    assert ga36.requests() == ["suspend"]
+    assert _recv_all(c) == [b"power_tap"]
+    c.close()
+
+
+def test_a_release_dropped_asleep_does_not_eat_the_next_tap(ga36):
+    # the waking tap was pressed and let go while asleep: no release comes after the resume,
+    # and a tap after the guard still suspends
+    c = ga36.client()
+    ga36.phase("suspend 9")
+    _tap_power(ga36)
+    ga36.phase("resume 9")
+    time.sleep(1.1)
+    _tap_power(ga36)
+    assert ga36.requests() == ["suspend"]
+    assert _recv_all(c) == [b"suspend 9", b"resume 9", b"power_tap"]
+    c.close()
+
+
+def test_the_sleep_folder_may_appear_after_the_daemon(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "ga36", GA36_SOURCES)
+    try:
+        c = d.client()
+        d.sleep.mkdir()
+        time.sleep(0.2)
+        d.phase("suspend 1")
+        assert c.recv(32) == b"suspend 1"
+        c.send(b"suspend_ok 1")
+        assert _clients_file(d, 1, 1.0) == "suspend 1 ok 1/1\n"
+        d.phase("resume 1")
+        assert c.recv(32) == b"resume 1"
+        # the same phase seen twice is acted on once; a broken one is only logged
+        d.phase("resume 1")
+        d.phase("suspend 0")
+        d.phase("hibernate 2")
+        assert _recv_all(c) == []
+        c.close()
+    finally:
+        err = d.stop()
+    assert 'bad phase "suspend 0"' in err and 'bad phase "hibernate 2"' in err
 
 
 def test_missing_required_source_and_bad_profile(daemon_exe, tmp_path):

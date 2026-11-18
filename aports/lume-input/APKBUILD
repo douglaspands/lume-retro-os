@@ -1,7 +1,9 @@
 # Lume Retro OS: the input daemon (lume-launcher D8; it grew out of lume-padmerge). Grabs
 # the built-in controls of the console, publishes one virtual gamepad under the name the
 # RetroArch autoconfig knows, turns Fn+Start into "quit" for the launcher and handles the
-# volume buttons. One profile per board in /usr/share/lume/input/.
+# volume buttons. One profile per board in /usr/share/lume/input/. The power button: a tap
+# asks lume-sleep to suspend, held 2 s to power off, and the sleep notices go to the clients
+# (device-fixes D11).
 # Also lume-shot (lume-launcher D12): a PNG of the screen through DRM, used over the cable,
 # and lume-evrec (virtual-gamepad D2): record and replay the virtual gamepad, as root.
 pkgname=lume-input
@@ -48,12 +50,12 @@ package() {
 }
 
 sha512sums="
-b36163be5a9b27dd42f7bf83d68ebdc6981b0963e6d41bbc40ae0bc3fbc3079e30f644eeb00f68eb493cb989357da4a413d60797fbb06ec67b84a2741c2c5bda  input.c
+9f5f4f98a0a04c74902ccc3fa15b3a4b633d03c38d1718cd1eaaca41aa4fdbc1cebc5bdb1813279c9f90d0b7e663b10156be9ad6b28e83aacf5b5761c72d830d  input.c
 e447e4b14314e8b6579bda892f515f241b043407343ef066b1e868fb21812a28b1be634eae449f8d7d0999babcd7c0274bd2f0c607f0434da3a56a069d225f03  shot.c
 49c57e09ae31616cf2f0dfc104d892e5fea36c82444d2a32a6fca492a55cb42f5b0308c10ed792016d27c00c3972717db358410363344d2c94e3fa3267c113cf  evrec.c
 f6c6211de265ddc9564e9090cf128adeca596515bd5d242aa4297cbde16ec76784642b480dabdb13fc17fe6ff80a54b7846241f76d0919d244ed4eb06c84d5c0  lume-input.initd
 72b28472e0c73fc618903e19a8787c7ceb18581e640d1fe465e1102174baba0a503f9c7670a09bd362a55dd531b0c88e958bb8131388243cbb537a913e531400  61-lume-input.rules
-344adada88386d412bc716633cd1d9534baefc33c4d49a7ca9d1fb13bdafa9701f8d67980d2bd344787ba3e8fdbff7faf599d33f78e2ac8aa33c11682986984c  ga36.conf
-a7a25d3aa3d12f444bd7981c40c16c901bb347c8fe08725e2e6621ca69f5a1ee35c38e2ccd0d5ae8641550422fae2651e5db008c664f519add27c5d26ac37d9c  r36s.conf
+9c1f1b2a6b2b9e43558bd731f3981094f21feec21e40b9e7c01f5d48a7400244948c245efeecfb02850dec533709eea691b15e529addc573a9183995ddf855df  ga36.conf
+3357c758c4089859ccf9cbfad700c96f03283e030f5392fe21d5350be7a7c3f09c27cc9f4f2e270731af8dce79365852effa0503ce6f01a038bea9c45663c76c  r36s.conf
 535c52e9d8f1ae514073b8590e12380d8e49974d4354326153526c8dd333f2d208edc9e66289d364288ff33669230e3d2a586937fe446a96e9a16db77c038727  vm.conf
 "

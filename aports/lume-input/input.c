@@ -23,24 +23,46 @@
  *    device, which declares those keys) and "capture on" / "capture off" (D11: the held keys
  *    are released, nothing is forwarded and the client gets "nav up|down|left|right|a|b";
  *    "capture off", the end of that client's connection or 2 s without a message from it
- *    end the capture). The Fn gestures and chords keep working during a capture.
+ *    end the capture). The Fn gestures and chords keep working during a capture;
+ *  - the power button (device-fixes D11, task 8.2; the protocol is frozen in
+ *    lume_core::sleep and docs/LAUNCHER.md, "Protocolo do sono") is read from the profile's
+ *    "power" source and never goes out: let go before 1 s it creates the request
+ *    <sleep dir>/suspend (O_EXCL) and sends "power_tap"; held 2 s it creates
+ *    <sleep dir>/poweroff and sends "power_hold", once per hold; let go between 1 s and 2 s
+ *    it does nothing. Without the folder (lume-sleep not up) a request is one kernel log line
+ *    and no notice;
+ *  - the sleep folder is watched (inotify) for "phase", written by lume-sleep: on
+ *    "suspend <seq>" the clients connected then get "suspend <seq>" and their
+ *    "suspend_ok <seq>" are collected for 2 s, then "clients" is written by rename
+ *    ("suspend <seq> ok <n>/<n>" or "suspend <seq> timeout <a>/<n>"); until "resume <seq>"
+ *    nothing is forwarded (no key, no axis, no gesture, no request, no client tap). On
+ *    "resume <seq>" the queued input of every source is read and dropped, the keys held on
+ *    the virtual device are released, the sticks are read again, the power button is ignored
+ *    until it is seen let go (a press within 1 s of the resume is still the waking one, and a
+ *    tap begun within that 1 s makes no request; a hold still powers off), and then the
+ *    clients get "resume <seq>". With no "resume" within 60 s of awake time, the input comes back on
+ *    its own (a stuck or dead lume-sleep must not leave the console without controls).
  *
  * The socket protocol (SOCK_SEQPACKET, one message per packet, lume_core::input mirrors it):
  *   daemon -> client: quit | app_menu | save_state | load_state | screenshot | hud |
  *                     fn_tap | fn_hold <button>=<action>... | fn_release |
- *                     volume | brightness | nav up|down|left|right|a|b
- *   client -> daemon: tap KEY_<name> | capture on | capture off
+ *                     volume | brightness | nav up|down|left|right|a|b |
+ *                     power_tap | power_hold | suspend <seq> | resume <seq>
+ *   client -> daemon: tap KEY_<name> | capture on | capture off | suspend_ok <seq>
  *
  * Profile lines of the chords: "fn <code>", "fn_hold_ms <ms>" (default 500) and
  * "chord <code> <action>" in output codes; the older "quit <code>" reads as "chord <code> quit".
+ * "power <device name>": the optional source of the power button (only its KEY_POWER is
+ * read); a KEY_POWER of any other source is the power button too and never goes out.
  *
  * usage: lume-input --profile FILE [--socket PATH] [--timeout SECONDS]
  *        lume-input --profile FILE --test OUT --source NAME=PATH... [--socket PATH]
  *        lume-input --list
  *
  * --test runs the same loop with files or FIFOs as sources and a file as the output, with no
- * input device and no uinput (the host tests use it). LUME_INPUT_AMIXER replaces amixer and
- * LUME_INPUT_BACKLIGHT replaces /sys/class/backlight.
+ * input device and no uinput (the host tests use it). LUME_INPUT_AMIXER replaces amixer,
+ * LUME_INPUT_BACKLIGHT replaces /sys/class/backlight and LUME_SLEEP_DIR replaces the sleep
+ * folder /run/lume/sleep.
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -57,6 +79,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -66,15 +89,23 @@
 
 #define PROG "lume-input"
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-#define MAX_SOURCES 4
+#define MAX_SOURCES 6
 #define MAX_KEYS 64
 #define MAX_AXES 8
 #define MAX_CLIENTS 8
 #define MAX_CHORDS 16
 #define DEFAULT_SOCKET "/run/lume/input.sock"
+#define DEFAULT_SLEEP_DIR "/run/lume/sleep"
 #define FN_HOLD_MS 500		/* default of fn_hold_ms */
 #define TAP_MS 50		/* press to release of a client's "tap" */
 #define CAPTURE_IDLE_MS 2000	/* a capture ends after this long without a message */
+/* the sleep protocol (lume_core::sleep: TAP_MAX, HOLD, CLIENT_REPLY, WAKE_GUARD) */
+#define POWER_TAP_MS 1000	/* a power press let go before this is a tap */
+#define POWER_HOLD_MS 2000	/* held this long it is the shutdown */
+#define CLIENT_REPLY_MS 2000	/* the wait for "suspend_ok <seq>" */
+#define WAKE_GUARD_MS 1000	/* a press this soon after the resume is the waking one */
+#define SLEEP_STUCK_MS 60000	/* awake time without "resume": the input comes back */
+#define WATCH_RETRY_MS 1000	/* no folder to watch yet: try again */
 
 struct code_name {
 	const char *name;
@@ -123,6 +154,7 @@ static const struct code_name NAMES[] = {
 struct source {
 	char name[128];
 	int optional;
+	int power;	/* the power button: only its KEY_POWER is read */
 	int fd;
 };
 
@@ -166,6 +198,9 @@ static long long capture_seen;
 /* a client's "tap": the release still to send (-1: none) and when */
 static int tap_code = -1;
 static long long tap_at;
+/* D11: between "phase suspend" and "phase resume" nothing is forwarded */
+static int asleep;
+static void reply_gone(int fd);
 
 static long long now_ms(void)
 {
@@ -360,6 +395,12 @@ static int load_profile(const char *path, struct profile *p)
 			snprintf(p->src[p->nsrc].name, sizeof(p->src[0].name), "%s", arg);
 			p->src[p->nsrc].optional = !strcmp(s, "source-optional");
 			p->src[p->nsrc++].fd = -1;
+		} else if (!strcmp(s, "power") && *arg && p->nsrc < MAX_SOURCES) {
+			/* optional: without it the console still plays, only the button is gone */
+			snprintf(p->src[p->nsrc].name, sizeof(p->src[0].name), "%s", arg);
+			p->src[p->nsrc].optional = 1;
+			p->src[p->nsrc].power = 1;
+			p->src[p->nsrc++].fd = -1;
 		} else if (!strcmp(s, "key") && p->nkeys < MAX_KEYS) {
 			char from[64], to[64];
 
@@ -418,7 +459,7 @@ bad:
 
 static int map_key(const struct profile *p, unsigned short code)
 {
-	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN)
+	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN || code == KEY_POWER)
 		return code;	/* handled by the daemon, never forwarded */
 	for (int i = 0; i < p->nkeys; i++)
 		if (p->keys[i].from == code)
@@ -517,7 +558,7 @@ static int create_device(const struct profile *p)
 	ioctl(fd, UI_SET_EVBIT, EV_KEY);
 	if (p->passthrough)
 		for (int c = 1; c < 256; c++)
-			if (c != KEY_VOLUMEUP && c != KEY_VOLUMEDOWN)
+			if (c != KEY_VOLUMEUP && c != KEY_VOLUMEDOWN && c != KEY_POWER)
 				ioctl(fd, UI_SET_KEYBIT, c);
 	for (int i = 0; i < p->nkeys; i++)
 		ioctl(fd, UI_SET_KEYBIT, p->keys[i].to);
@@ -625,6 +666,7 @@ static void drop_client(int i)
 {
 	if (clients[i] == capture_fd)
 		capture_end("client gone");
+	reply_gone(clients[i]);
 	close(clients[i]);
 	clients[i] = clients[--nclients];
 }
@@ -985,10 +1027,458 @@ static void capture_send(const char *msg)
 		logline("nav not delivered: %s", strerror(errno));
 }
 
+/* ---- the power button and the sleep protocol (device-fixes D11, lume_core::sleep) ---- */
+
+static const char *sleep_dir = DEFAULT_SLEEP_DIR;
+static unsigned int asleep_seq;
+static long long asleep_since;
+
+/* the power button: down since, the hold already sent, ignored until let go (after a resume) */
+static struct {
+	int down, held, ignore;
+	long long since;
+} pw;
+static long long resumed_at = -WAKE_GUARD_MS;	/* no resume yet: no guard */
+
+/* the wait for the answers to "suspend <seq>" (wait_seq 0: none); the clients awaited are
+ * the ones connected when the notice went out */
+static unsigned int wait_seq;
+static long long wait_deadline;
+static int waiting[MAX_CLIENTS], nwaiting, wait_answered, wait_total;
+
+/* inotify on the sleep folder, and on its parent until the folder appears (lume-sleep
+ * starts after the frontend, this daemon before it) */
+static int ino_fd = -1, ino_dir_wd = -1, ino_parent_wd = -1;
+static long long ino_retry_at;
+static char last_phase[32];
+
+/* A sequence number: a positive decimal integer that fits in 32 bits; 0 if it is not one. */
+static unsigned int parse_seq(const char *s)
+{
+	size_t n = strlen(s);
+	unsigned long long v;
+
+	if (!n || n > 10 || strspn(s, "0123456789") != n)
+		return 0;
+	v = strtoull(s, NULL, 10);
+	return v > 0xffffffffULL ? 0 : (unsigned int)v;
+}
+
+/* Text of a file as it may go in a log line: printable ASCII, the rest as '?'. */
+static void log_safe(char *s)
+{
+	for (; *s; s++)
+		if ((unsigned char)*s < 0x20 || (unsigned char)*s > 0x7e)
+			*s = '?';
+}
+
+/* Creates the request `name` in the sleep folder, never twice (O_EXCL); 1 when made. */
+static int sleep_request(const char *name)
+{
+	char path[512];
+	int fd;
+
+	snprintf(path, sizeof(path), "%s/%s", sleep_dir, name);
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+	if (fd >= 0) {
+		close(fd);
+		return 1;
+	}
+	if (errno == EEXIST)
+		logline("%s request already pending", name);
+	else if (errno == ENOENT)
+		logline("no sleep service (%s missing): power button request dropped", sleep_dir);
+	else
+		logline("power button request %s not made: %s", name, strerror(errno));
+	return 0;
+}
+
+/* A gesture of the power button: the request, then the notice (only for a new request). */
+static void power_gesture(const char *request, const char *notice)
+{
+	if (sleep_request(request))
+		send_all(notice, 1);
+}
+
+/* Milliseconds until the hold is due; -1 when none is pending. */
+static long long power_hold_due(long long now)
+{
+	long long left;
+
+	if (!pw.down || pw.held || asleep)
+		return -1;
+	left = pw.since + POWER_HOLD_MS - now;
+	return left > 0 ? left : 0;
+}
+
+static void power_check(long long now)
+{
+	if (power_hold_due(now) == 0) {
+		pw.held = 1;
+		power_gesture("poweroff", "power_hold");
+	}
+}
+
+/* A KEY_POWER event: the tap and the hold; the button never goes out. */
+static void power_key(int value)
+{
+	long long now = now_ms();
+
+	if (asleep || value == 2)
+		return;
+	if (pw.ignore) {
+		/* the press that woke the console: wait for its release; a press within the
+		 * guard is that one too, a later one is new (its release was dropped asleep) */
+		if (value == 0)
+			pw.ignore = 0;
+		if (value == 0 || now - resumed_at < WAKE_GUARD_MS)
+			return;
+		pw.ignore = 0;
+	}
+	if (value == 1) {
+		pw.down = 1;
+		pw.held = 0;
+		pw.since = now;
+		return;
+	}
+	if (!pw.down)
+		return;
+	power_check(now);	/* a release read late must not turn a hold into nothing */
+	if (!pw.held && now - pw.since < POWER_TAP_MS) {
+		/* a tap begun within the guard is the waking press bouncing: no request (lume-sleep
+		 * drops it too); a hold still powers off */
+		if (pw.since - resumed_at < WAKE_GUARD_MS)
+			logline("power tap within 1 s of the resume dropped: the press that woke the console");
+		else
+			power_gesture("suspend", "power_tap");
+	}
+	pw.down = pw.held = 0;
+}
+
+/* "clients", written by rename: how the clients answered "suspend <seq>". */
+static void write_clients(void)
+{
+	char tmp[512], path[512], line[64];
+	int fd, len, ok, err = 0;
+
+	len = snprintf(line, sizeof(line), "suspend %u %s %d/%d\n", wait_seq,
+		       nwaiting ? "timeout" : "ok", wait_answered, wait_total);
+	snprintf(tmp, sizeof(tmp), "%s/.clients.tmp", sleep_dir);
+	snprintf(path, sizeof(path), "%s/clients", sleep_dir);
+	unlink(tmp);
+	fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+	ok = fd >= 0 && write(fd, line, (size_t)len) == len;
+	if (!ok)
+		err = errno;
+	if (fd >= 0)
+		close(fd);
+	if (ok && rename(tmp, path) < 0) {
+		ok = 0;
+		err = errno;
+	}
+	if (!ok) {
+		logline("clients not written: %s", strerror(err));
+		unlink(tmp);
+	}
+}
+
+/* The wait is over (everyone answered, the deadline, or a newer phase): "clients" goes out. */
+static void reply_finish(void)
+{
+	if (!wait_seq)
+		return;
+	if (nwaiting)
+		logline("suspend %u: %d of %d client(s) answered within 2 s", wait_seq, wait_answered,
+			wait_total);
+	write_clients();
+	wait_seq = 0;
+	nwaiting = 0;
+}
+
+/* `fd` is no longer awaited: it answered, or it hung up (then it does not count at all). */
+static void reply_take(int fd, int answered)
+{
+	for (int i = 0; i < nwaiting; i++)
+		if (waiting[i] == fd) {
+			waiting[i] = waiting[--nwaiting];
+			if (answered)
+				wait_answered++;
+			else
+				wait_total--;
+			if (!nwaiting)
+				reply_finish();
+			return;
+		}
+}
+
+static void reply_gone(int fd)
+{
+	if (wait_seq)
+		reply_take(fd, 0);
+}
+
+/* "suspend_ok <seq>": another sequence, a second answer or a client not asked is ignored. */
+static void reply_answer(int fd, unsigned int seq)
+{
+	if (wait_seq && seq == wait_seq)
+		reply_take(fd, 1);
+}
+
+static void reply_start(unsigned int seq)
+{
+	char msg[32];
+
+	reply_finish();	/* an older wait still open answers now */
+	snprintf(msg, sizeof(msg), "suspend %u", seq);
+	send_all(msg, 1);
+	nwaiting = 0;
+	for (int i = 0; i < nclients; i++)
+		waiting[nwaiting++] = clients[i];
+	wait_total = nwaiting;
+	wait_answered = 0;
+	wait_deadline = now_ms() + CLIENT_REPLY_MS;
+	wait_seq = seq;
+	if (!nwaiting)
+		reply_finish();
+}
+
+/* Releases every key the virtual device shows as held; the number released. */
+static int release_held(int out)
+{
+	int released = 0;
+
+	for (int k = 0; k <= KEY_MAX; k++)
+		if (out_down[k]) {
+			emit(out, EV_KEY, (unsigned short)k, 0);
+			released++;
+		}
+	if (released)
+		emit(out, EV_SYN, SYN_REPORT, 0);
+	return released;
+}
+
+/* Fn back to rest; a hint on the screen goes away first. */
+static void chord_reset(struct chord *c)
+{
+	if (c->fn_held)
+		send_all("fn_release", 1);
+	c->fn_down = c->fn_used = c->fn_held = 0;
+	memset(c->swallow, 0, sizeof(c->swallow));
+}
+
+/* Reads and drops everything queued on the sources; the number of events dropped. */
+static int drain(const struct profile *p)
+{
+	struct input_event ev[64];
+	int dropped = 0;
+
+	for (int s = 0; s < p->nsrc; s++) {
+		ssize_t n;
+
+		if (p->src[s].fd < 0)
+			continue;
+		for (int k = 0; k < 256 && (n = read(p->src[s].fd, ev, sizeof(ev))) > 0; k++)
+			dropped += (int)((size_t)n / sizeof(ev[0]));
+	}
+	return dropped;
+}
+
+/* The sticks as they are now (the moves made asleep were dropped, and the kernel only
+ * reports changes); a source that cannot tell (a test FIFO) is skipped. */
+static void sync_axes(const struct profile *p, int out)
+{
+	int sent = 0;
+
+	for (int i = 0; i < p->naxes; i++)
+		for (int s = 0; s < p->nsrc; s++) {
+			struct input_absinfo abs;
+
+			if (p->src[s].fd < 0 || p->src[s].power ||
+			    ioctl(p->src[s].fd, EVIOCGABS(p->axes[i]), &abs) < 0 || abs.maximum <= abs.minimum)
+				continue;
+			emit(out, EV_ABS, p->axes[i], abs.value);
+			sent = 1;
+			break;
+		}
+	if (sent)
+		emit(out, EV_SYN, SYN_REPORT, 0);
+}
+
+/* May the power button be down right now? The key state of each power source; one that
+ * cannot tell (a test FIFO) counts as down. */
+static int power_maybe_down(const struct profile *p)
+{
+	for (int s = 0; s < p->nsrc; s++) {
+		unsigned char bits[KEY_MAX / 8 + 1];
+
+		if (!p->src[s].power || p->src[s].fd < 0)
+			continue;
+		memset(bits, 0, sizeof(bits));
+		if (ioctl(p->src[s].fd, EVIOCGKEY(sizeof(bits)), bits) < 0 ||
+		    (bits[KEY_POWER / 8] & (1 << (KEY_POWER % 8))))
+			return 1;
+	}
+	return 0;
+}
+
+/* "phase suspend <seq>": tell the clients and stop forwarding. */
+static void sleep_begin(unsigned int seq, struct chord *c)
+{
+	chord_reset(c);
+	pw.down = pw.held = pw.ignore = 0;
+	asleep = 1;
+	asleep_seq = seq;
+	asleep_since = now_ms();
+	reply_start(seq);
+}
+
+/* "phase resume <seq>" (or the input coming back on its own): drop the queued input,
+ * release the held keys, then tell the clients. */
+static void sleep_end(unsigned int seq, const struct profile *p, struct chord *c, int out)
+{
+	char msg[32];
+	int dropped, released;
+
+	reply_finish();
+	dropped = drain(p);
+	released = release_held(out);
+	tap_code = -1;	/* released above */
+	sync_axes(p, out);
+	chord_reset(c);
+	pw.down = pw.held = 0;
+	pw.ignore = power_maybe_down(p);
+	resumed_at = now_ms();
+	if (capture_fd >= 0)
+		capture_seen = resumed_at;	/* the menu could not renew it asleep */
+	asleep = 0;
+	logline("resume %u: %d queued event(s) dropped, %d key(s) released", seq, dropped, released);
+	snprintf(msg, sizeof(msg), "resume %u", seq);
+	send_all(msg, 1);
+}
+
+/* Reads "phase" (root's only; the owner of the daemon in the tests). */
+static void read_phase(const struct profile *p, struct chord *c, int out)
+{
+	char path[512], buf[32], *word, *rest;
+	struct stat st = { 0 };
+	unsigned int seq = 0;
+	ssize_t n;
+	int fd;
+
+	snprintf(path, sizeof(path), "%s/phase", sleep_dir);
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode) || (st.st_uid != 0 && st.st_uid != geteuid())) {
+		close(fd);
+		logline("phase not trusted (owner %u)", (unsigned int)st.st_uid);
+		return;
+	}
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	if (n <= 0)
+		return;
+	buf[n] = 0;
+	word = trim(buf);
+	if (!strcmp(word, last_phase))
+		return;	/* the same phase seen twice (written, then renamed) */
+	snprintf(last_phase, sizeof(last_phase), "%s", word);
+	rest = strchr(word, ' ');
+	if (rest) {
+		*rest++ = 0;
+		seq = parse_seq(trim(rest));
+	}
+	if (seq && !strcmp(word, "suspend")) {
+		sleep_begin(seq, c);
+	} else if (seq && !strcmp(word, "resume")) {
+		sleep_end(seq, p, c, out);
+	} else {
+		char shown[32];
+
+		snprintf(shown, sizeof(shown), "%s", last_phase);
+		log_safe(shown);
+		logline("bad phase \"%s\"", shown);
+	}
+}
+
+/* Watches the sleep folder (or its parent until the folder appears). */
+static void sleep_watch(void)
+{
+	char parent[512], *slash;
+
+	if (ino_fd < 0)
+		ino_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	if (ino_fd < 0)
+		return;
+	if (ino_parent_wd < 0) {
+		snprintf(parent, sizeof(parent), "%s", sleep_dir);
+		slash = strrchr(parent, '/');
+		if (!slash)
+			snprintf(parent, sizeof(parent), ".");
+		else if (slash == parent)
+			slash[1] = 0;
+		else
+			*slash = 0;
+		ino_parent_wd = inotify_add_watch(ino_fd, parent, IN_CREATE | IN_MOVED_TO | IN_ONLYDIR);
+	}
+	if (ino_dir_wd < 0) {
+		ino_dir_wd = inotify_add_watch(ino_fd, sleep_dir, IN_CLOSE_WRITE | IN_MOVED_TO |
+					       IN_DELETE_SELF | IN_MOVE_SELF | IN_ONLYDIR);
+		if (ino_dir_wd >= 0)
+			last_phase[0] = 0;	/* a phase left there before is not acted on */
+	}
+	if (ino_dir_wd < 0 && ino_parent_wd < 0)
+		ino_retry_at = now_ms() + WATCH_RETRY_MS;
+}
+
+static void sleep_events(const struct profile *p, struct chord *c, int out)
+{
+	char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+	const char *base = strrchr(sleep_dir, '/');
+	int phase = 0, appeared = 0, gone = 0;
+	ssize_t n;
+
+	base = base ? base + 1 : sleep_dir;
+	while ((n = read(ino_fd, buf, sizeof(buf))) > 0) {
+		for (char *at = buf; at < buf + n;) {
+			const struct inotify_event *ev = (const struct inotify_event *)(void *)at;
+
+			at += sizeof(*ev) + ev->len;
+			if (ino_dir_wd >= 0 && ev->wd == ino_dir_wd) {
+				if (ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED))
+					gone = 1;
+				else if (ev->len && !strcmp(ev->name, "phase"))
+					phase = 1;
+			} else if (ino_parent_wd >= 0 && ev->wd == ino_parent_wd && ev->len &&
+				   !strcmp(ev->name, base)) {
+				appeared = 1;
+			}
+		}
+	}
+	if (gone) {
+		inotify_rm_watch(ino_fd, ino_dir_wd);
+		ino_dir_wd = -1;
+		phase = 0;
+		appeared = 1;	/* it may be there again already */
+		if (asleep) {
+			logline("sleep folder gone while asleep: input back");
+			sleep_end(asleep_seq, p, c, out);
+		}
+	}
+	if (appeared)
+		sleep_watch();
+	if (phase)
+		read_phase(p, c, out);
+}
+
 static void key_event(const struct profile *p, struct chord *c, int out, int code, int value)
 {
 	const char *action;
 
+	if (code == KEY_POWER) {
+		power_key(value);
+		return;
+	}
 	if (code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN) {
 		if (value != 1)
 			return;
@@ -1041,6 +1531,8 @@ static void key_event(const struct profile *p, struct chord *c, int out, int cod
 			capture_send(nav);
 		return;
 	}
+	if (value != 1 && code <= KEY_MAX && !out_down[code])
+		return;	/* the repeat or release of a press the game never got (asleep, a capture) */
 	emit(out, EV_KEY, code, value);
 }
 
@@ -1048,19 +1540,13 @@ static void key_event(const struct profile *p, struct chord *c, int out, int cod
 
 static void capture_start(int fd, int out)
 {
-	int released = 0;
+	int released;
 
 	capture_seen = now_ms();
 	if (capture_fd == fd)
 		return;	/* the renewal of every second */
 	/* nothing stays held in the game */
-	for (int k = 0; k <= KEY_MAX; k++)
-		if (out_down[k]) {
-			emit(out, EV_KEY, (unsigned short)k, 0);
-			released++;
-		}
-	if (released)
-		emit(out, EV_SYN, SYN_REPORT, 0);
+	released = release_held(out);
 	capture_fd = fd;
 	logline("capture on (%d key(s) released)", released);
 }
@@ -1077,7 +1563,11 @@ static void client_message(int fd, char *msg, int out)
 	} else if (!strcmp(m, "capture off")) {
 		if (fd == capture_fd)
 			capture_end("asked");
+	} else if (!strncmp(m, "suspend_ok ", 11)) {
+		reply_answer(fd, parse_seq(trim(m + 11)));
 	} else if (!strncmp(m, "tap ", 4)) {
+		if (asleep)
+			return;	/* D11: nothing reaches the game until the resume */
 		code = parse_code(trim(m + 4));
 		if (strncmp(trim(m + 4), "KEY_", 4) || code < 0 || !tappable(code)) {
 			logline("tap refused: \"%s\"", m + 4);
@@ -1092,12 +1582,23 @@ static void client_message(int fd, char *msg, int out)
 	/* anything else: a newer client, ignored */
 }
 
-/* The timers of the loop: fn_hold, the release of a tap, the idle end of a capture. */
+/* The timers of the loop: fn_hold, the power hold, the release of a tap, the idle end of a
+ * capture, the deadline of the clients' answers, a suspension without resume, the watch of
+ * the sleep folder. */
 static void timers(const struct profile *p, struct chord *c, int out)
 {
 	long long now = now_ms();
 
 	hold_check(p, c, now);
+	power_check(now);
+	if (wait_seq && now >= wait_deadline)
+		reply_finish();
+	if (asleep && now - asleep_since >= SLEEP_STUCK_MS) {
+		logline("no resume within %d s of suspend %u: input back", SLEEP_STUCK_MS / 1000, asleep_seq);
+		sleep_end(asleep_seq, p, c, out);
+	}
+	if (ino_dir_wd < 0 && ino_parent_wd < 0 && now >= ino_retry_at)
+		sleep_watch();
 	if (tap_code >= 0 && now >= tap_at) {
 		emit_key(out, (unsigned short)tap_code, 0);
 		tap_code = -1;
@@ -1125,22 +1626,49 @@ static int next_timer(const struct profile *p, const struct chord *c, int base)
 		if (t < 0 || d < t)
 			t = d;
 	}
+	d = power_hold_due(now);
+	if (d >= 0 && (t < 0 || d < t))
+		t = d;
+	if (wait_seq) {
+		d = wait_deadline > now ? wait_deadline - now : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
+	if (asleep) {
+		d = asleep_since + SLEEP_STUCK_MS - now;
+		d = d > 0 ? d : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
+	if (ino_dir_wd < 0 && ino_parent_wd < 0) {
+		d = ino_retry_at > now ? ino_retry_at - now : 0;
+		if (t < 0 || d < t)
+			t = d;
+	}
 	return (int)t;
 }
 
 /* Forward the events of one source; -1 when the device is gone (or a file ended). */
-static int forward(const struct profile *p, struct chord *c, int src, int out)
+static int forward(const struct profile *p, struct chord *c, const struct source *src, int out)
 {
 	struct input_event ev[64];
-	ssize_t n = read(src, ev, sizeof(ev));
+	ssize_t n = read(src->fd, ev, sizeof(ev));
 
 	if (n < 0)
 		return errno == EAGAIN || errno == EINTR ? 0 : -1;
 	if (n == 0)
 		return -1;
+	if (asleep)
+		return 0;	/* D11: read and dropped until the resume */
 	for (size_t i = 0; i < (size_t)n / sizeof(ev[0]); i++) {
 		int code;
 
+		if (src->power) {
+			/* only the button: its SYN and anything else never reach the game */
+			if (ev[i].type == EV_KEY && ev[i].code == KEY_POWER)
+				key_event(p, c, out, KEY_POWER, ev[i].value);
+			continue;
+		}
 		switch (ev[i].type) {
 		case EV_KEY:
 			code = map_key(p, ev[i].code);
@@ -1238,6 +1766,9 @@ int main(int argc, char **argv)
 	lfd = open_socket(sock_path);
 	if (lfd < 0)
 		logline("no socket at %s: the Fn chords do nothing", sock_path);
+	if (getenv("LUME_SLEEP_DIR") && *getenv("LUME_SLEEP_DIR"))
+		sleep_dir = getenv("LUME_SLEEP_DIR");
+	sleep_watch();
 	clamp_backlight(&p);
 	{
 		int found = 0;
@@ -1249,7 +1780,7 @@ int main(int argc, char **argv)
 	}
 
 	while (!stop) {
-		struct pollfd fds[MAX_SOURCES + 1 + MAX_CLIENTS];
+		struct pollfd fds[MAX_SOURCES + 2 + MAX_CLIENTS];
 		int src_idx[MAX_SOURCES], n = 0, live = 0;
 
 		for (int s = 0; s < p.nsrc; s++) {
@@ -1262,6 +1793,7 @@ int main(int argc, char **argv)
 		if (!live)
 			break;
 		fds[n++] = (struct pollfd){ .fd = lfd, .events = POLLIN };
+		fds[n++] = (struct pollfd){ .fd = ino_fd, .events = POLLIN };
 		for (int i = 0; i < nclients; i++)
 			fds[n++] = (struct pollfd){ .fd = clients[i], .events = POLLIN };
 		/* a timeout only while a timer runs (Fn held, a tap, a capture) */
@@ -1275,7 +1807,7 @@ int main(int argc, char **argv)
 		for (int i = 0; i < live; i++) {
 			struct source *src = &p.src[src_idx[i]];
 
-			if ((fds[i].revents & POLLIN) && forward(&p, &chord, src->fd, out) == 0)
+			if ((fds[i].revents & POLLIN) && forward(&p, &chord, src, out) == 0)
 				continue;
 			if (!(fds[i].revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)))
 				continue;
@@ -1288,24 +1820,36 @@ int main(int argc, char **argv)
 			rc = 1;
 			stop = 1;
 		}
+		/* the phases of lume-sleep */
+		if (ino_fd >= 0 && (fds[live + 1].revents & POLLIN))
+			sleep_events(&p, &chord, out);
+		/* the clients' messages; a client that hung up (lume-run between two games). A
+		 * message above may have dropped a client and moved the others: each polled slot
+		 * is looked up again by its descriptor */
+		for (int at = live + 2; at < n; at++) {
+			char buf[128];
+			ssize_t got;
+			int i;
+
+			if (!(fds[at].revents & (POLLHUP | POLLERR | POLLIN)))
+				continue;
+			for (i = 0; i < nclients && clients[i] != fds[at].fd; i++)
+				;
+			if (i == nclients)
+				continue;
+			got = recv(clients[i], buf, sizeof(buf) - 1, MSG_DONTWAIT);
+			if (got < 0 && (errno == EAGAIN || errno == EINTR))
+				continue;
+			if (got <= 0) {
+				drop_client(i);
+				continue;
+			}
+			buf[got] = 0;
+			client_message(clients[i], buf, out);
+		}
+		/* new clients last: the ones polled above keep their slots */
 		if (lfd >= 0 && (fds[live].revents & POLLIN))
 			accept_client(lfd);
-		/* the clients' messages; a client that hung up (lume-run between two games) */
-		for (int i = nclients - 1; i >= 0; i--) {
-			int at = live + 1 + i;
-
-			if (at < n && (fds[at].revents & (POLLHUP | POLLERR | POLLIN))) {
-				char buf[128];
-				ssize_t got = recv(clients[i], buf, sizeof(buf) - 1, MSG_DONTWAIT);
-
-				if (got <= 0) {
-					drop_client(i);
-					continue;
-				}
-				buf[got] = 0;
-				client_message(clients[i], buf, out);
-			}
-		}
 	}
 	if (!test_out)
 		ioctl(out, UI_DEV_DESTROY);
