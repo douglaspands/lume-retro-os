@@ -37,7 +37,10 @@ menu do sistema da `device-fixes` já mesclado.
 | 2.3 | 3.1 (protótipo) | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
 | 3.2 | `device-fixes` 9.1 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
 | 3.3 | 3.1, 3.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
-| 4.1 | 2.1, 2.2, 3.3 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 5.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 5.2 | — | — | AG | opus (a aprovar: toca o boot e o fim da sessão) | 1 | J1, J2 |
+| 5.3 | 5.1, 5.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
+| 4.1 | 2.1, 2.2, 2.3, 3.3, 5.3 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | J2 |
 
@@ -57,9 +60,9 @@ Modelos aprovados pelo usuário em 2026-11-17.
 ```
 
 **Ondas:**
-- Onda 0: 1.1, 1.4, 3.1 (AG, em paralelo; a 3.1 termina com a escolha e a aprovação do usuário).
-- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2.
-- Onda 2: 2.1, 3.3.
+- Onda 0: 1.1, 1.4, 3.1, 5.1 (AG, em paralelo; a 3.1 e a 5.1 terminam com a aprovação do usuário).
+- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2, 5.2.
+- Onda 2: 2.1, 2.3, 3.3, 5.3.
 - Onda 3: 4.1 (build dos pacotes, fila única de CPU).
 - Onda 4: 4.2 (janela J1). Onda 5: 4.3 (janela J2).
 
@@ -86,6 +89,12 @@ Modelos aprovados pelo usuário em 2026-11-17.
 - [ ] 3.1 (Protótipo feito e mesclado em 2026-11-18, `docs/lume-launcher/prototipo/` e a seção "Relógio e acerto da hora" do `design-das-telas.md`. **Decidido pelo usuário:** posição **B, canto superior esquerdo** (visto no Dock e na grade). **Guardado para a retomada desta change, ainda a responder:** (a) unificar a altura do cabeçalho do Dock com a das outras telas (hoje a bateria e o relógio ficam 9 a 11 px mais altos no Dock; unificar move a bateria já aprovada) ou deixar assim; (b) a data no acerto, `AAAA-MM-DD` em todos os idiomas ou `DD/MM/AAAA` em pt e es; (c) 24 h sempre ou 12 h em inglês; (d) relógio ligado ou desligado de fábrica (o protótipo usa ligado); (e) o L1/R1 nos campos do acerto, que o subagente acrescentou sem pedido: manter ou tirar. Falta a aprovação final das telas no navegador.) Protótipo do relógio (`docs/lume-launcher/prototipo/`): 2 ou 3 variações de posição (ao lado da bateria no canto superior direito, no canto superior esquerdo, centralizado no topo) para o usuário escolher; formato de 24 h; nas Configurações, as linhas "Mostrar relógio" (interruptor) e "Acertar a hora" (seletores de data e hora pelo direcional, com confirmação vertical); o estado "hora nunca acertada" sem relógio; nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário escolhe a posição e aprova as telas no navegador (aprovação anotada com a data).
 - [ ] 3.2 Pedido de acerto da hora (o `lume-ui` roda como `game`): um pedido em `/run/lume/clock/` atendido por um serviço root que chama `lume-clock set <epoch> manual` (o `lume-clock` da `device-fixes` 9.1, que grava o sistema, o RTC e o `ROMS/system/clock`); a marca "hora já acertada por uma fonte real" guardada pelo `lume-clock` e lida pelo `lume-ui`. Verificação: testes do shell com relógio falso (pedido válido acerta e marca, pedido inválido recusado e registrado) e do leitor da marca.
 - [ ] 3.3 `lume-ui`, relógio e Configurações: o relógio no lugar aprovado em todas as telas, redesenhado uma vez por minuto só com a tela acesa, escondido sem a marca da 3.2; as linhas "Mostrar relógio" e "Acertar a hora"; textos en/pt/es. Verificação: testes de tela (mesmo lugar em cada tela, desligado some, sem marca não aparece, acerto grava o pedido, régua igual à tabela da 3.1); no aparelho, J1 e J2.
+
+## 5. Telas de carregamento com barra de progresso (P-100, incluído pelo usuário em 2026-11-18)
+
+- [ ] 5.1 Protótipo das telas de carregamento (`docs/lume-launcher/prototipo/`): (1) inicialização do sistema; (2) carregamento do jogo, do A no launcher até o primeiro quadro; (3) finalização do jogo, da gravação da SRAM até a volta ao launcher; (4) encerramento e reinício do sistema; (5) tarefa demorada genérica (verificação e TRIM do cartão, indexação das listas, `push`, migrações). Todas com barra de progresso; **o tipo de barra de cada tela é decidido com o usuário tela a tela** (por etapas conhecidas, por bytes, ou indeterminada quando não há como medir); temas, três idiomas e medidas a 640x480 no `design-das-telas.md`. Verificação: o usuário aprova cada tela e o tipo de barra no navegador (aprovação anotada com a data).
+- [ ] 5.2 Fonte do progresso: um protocolo único e barato para quem tem etapas publicar o andamento (por exemplo um arquivo em `/run/lume/progress/` com etapa, total e texto, lido pela tela), usado pelo boot (só as etapas que ele já registra: nada novo no caminho do boot, P-58), pelo `lume-run` (core carregado, conteúdo carregado, primeiro quadro pelo contador de quadros), pelo fim da sessão (gravar, `sync`, remontar, desligar) e pelos scripts demorados. Verificação: testes do formato e de cada publicador com relógio falso; o boot não fica mais lento (tempo de boot medido antes e depois na J1).
+- [ ] 5.3 Desenho das telas no sistema (o `lume-ui` ou uma tela leve própria onde o `lume-ui` ainda não roda, como no initramfs e no fim do boot), no tema ativo, com a barra aprovada na 5.1. Verificação: testes de tela de cada uma com o progresso falso da 5.2 e a régua igual à tabela da 5.1; no aparelho, J1 e J2 (cada tela vista, sem piscar entre elas e o launcher ou o jogo).
 
 ## 4. Build e provas nos consoles
 

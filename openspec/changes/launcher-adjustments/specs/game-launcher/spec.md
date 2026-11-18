@@ -50,6 +50,21 @@ As Configurações MUST oferecer o acerto da data e da hora à mão, só com o c
 - **WHEN** o usuário ajusta a data e a hora com o direcional e confirma
 - **THEN** o relógio da tela passa a mostrar a hora nova e ela continua certa depois de desligar e ligar
 
+### Requirement: Telas de carregamento com barra de progresso
+O sistema MUST mostrar uma tela própria do Lume, no tema ativo e com barra de progresso, em cada espera: a inicialização do sistema, o carregamento do jogo, a finalização do jogo, o encerramento ou reinício do sistema e as tarefas demoradas. A barra MUST seguir o tipo aprovado para cada tela (por etapas, por bytes ou indeterminada). A tela de inicialização MUST NOT deixar o boot mais lento: ela só usa as etapas que o boot já registra.
+
+#### Scenario: Carregamento do jogo
+- **WHEN** o usuário abre um jogo no launcher
+- **THEN** a tela de carregamento aparece com a barra avançando pelas etapas até o primeiro quadro do jogo, sem tela preta entre elas
+
+#### Scenario: Tarefa demorada
+- **WHEN** uma tarefa demorada do sistema roda com a tela acesa (verificação do cartão, indexação)
+- **THEN** a tela mostra o nome da tarefa e a barra de progresso até o fim
+
+#### Scenario: Boot sem atraso
+- **WHEN** o console liga com a tela de inicialização
+- **THEN** o tempo de boot até o launcher não aumenta em relação ao boot sem ela
+
 ## MODIFIED Requirements
 
 ### Requirement: Ícones de console próprios
