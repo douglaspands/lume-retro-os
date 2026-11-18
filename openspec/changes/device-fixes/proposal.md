@@ -52,15 +52,19 @@ pedido do usuário.
 **Energia**
 - **Suspensão:** um **toque curto no botão de energia suspende** e **segurar desliga**. Outro
   toque acorda o console no mesmo ponto, com o jogo pausado antes, o `sync` do cartão, a
-  tela, a luz e o som desligados, e o cenário `suspend` no governor. O menu do sistema ganha
-  "Suspender". A profundidade (`s2idle` ou `deep`) sai de um spike no aparelho que mede a
+  tela, a luz e o som desligados, e o cenário `suspend` no governor. As Configurações ganham
+  "Suspender", logo acima de Desligar (o menu do sistema pelo Fn, da `launcher-adjustments`,
+  herda o item). A profundidade (`s2idle` ou `deep`) sai de um spike no aparelho que mede a
   corrente de cada modo.
 
 **Relógio**
-- **P-07:** a hipótese é que o RTC dos dois consoles (o `sun6i` no GA36, o RK817 no R36S)
-  segue ligado pela bateria principal, e o console só sobe em 1970 porque nunca acertou a
-  hora. Se a prova confirmar, a hora é acertada pela rede (NTP) quando houver Wi-Fi e
-  gravada no RTC, sem tela nova. Logs e saves passam a ter data real.
+- **P-07, uma hora que só anda para a frente:** o Wi-Fi é um acessório opcional e os consoles
+  não têm bateria para o relógio, então nenhuma fonte de hora é garantida. A hora é gravada no
+  cartão ao desligar e ao suspender. No boot, vale a maior entre a hora gravada, a data do
+  build e o RTC (se ele trouxer uma hora válida). Uma fonte real, quando aparecer (NTP com o
+  dongle de Wi-Fi, ou o PC pelo cabo), corrige a hora, mas nada depende dela. Os saves deixam
+  de ganhar datas que voltam a 1970. Os logs continuam ordenados pelo número do boot. Nada
+  aparece na tela.
 
 **Nomes `lume-` (P-94, incluído pelo usuário em 2026-11-18)**
 - Motivo: a mistura de `r36os-*` e `lume-*` está atrapalhando as correções; não fica claro o
@@ -91,7 +95,7 @@ pedido do usuário.
 
 **Fora do escopo:** shaders (a tarefa 2.2 da `lume-shaders` e o P-89, depois); desligamento
 por bateria fraca (`game-governor`); aprendizado da bateria (P-98); relógio na tela e acerto
-manual da hora; troca do exFAT por outro sistema de arquivos.
+manual da hora (sem fonte garantida, a hora não aparece na tela); troca do exFAT por outro sistema de arquivos.
 
 ## Capabilities
 
@@ -107,8 +111,8 @@ manual da hora; troca do exFAT por outro sistema de arquivos.
   como ele é mostrado e registrado.
 
 ### Modified Capabilities
-- `boot-runtime`: a verificação da `ROMS` só com o volume sujo ou a pedido; a hora vem do RTC
-  e é acertada pela rede; os nós de entrada passam a ser só leitura para o grupo `input`.
+- `boot-runtime`: a verificação da `ROMS` só com o volume sujo ou a pedido; a hora só anda
+  para a frente; os nós de entrada passam a ser só leitura para o grupo `input`.
 - `device-support`: o requisito do áudio passa a ser volume analógico; o brilho deixa de ter
   teto fixo; o desligamento passa a ser o botão segurado; o painel do GA36 passa a uns 60 Hz,
   se a prova permitir; os analógicos são calibrados no início.
@@ -116,8 +120,10 @@ manual da hora; troca do exFAT por outro sistema de arquivos.
   linha do brilho; a regra de navegação dos menus verticais.
 
 - Nomes `lume-`: só entram deltas nas specs cujos requisitos citam um nome ou caminho
-  `r36os` (a lista exata sai da varredura no `design.md`). Uma troca só de nome, sem mudança
-  de comportamento, é o mesmo requisito com o nome novo.
+  `r36os`: `system-image`, `system-update`, `device-testing`, `build-performance`,
+  `build-cache`, `build-packages`, `boot-runtime`, `vendor-dtb-compat` e `vm-validation`.
+  Uma troca só de nome, sem mudança de comportamento, é o mesmo requisito com o nome novo.
+  Esses deltas são escritos na tarefa 1.4, dentro da onda `TREE`.
 
 O menu do jogo (`lume-run`) é da capability `game-actions`, que ainda está na change
 `lume-hud-actions`. A regra de navegação vertical entra nela no `design.md`, e o delta só é
@@ -144,7 +150,8 @@ escrito depois que aquela change for arquivada.
   abertas da `game-governor`, da `lume-hud-actions` e da `virtual-gamepad`. Como um nome
   errado num serviço do boot deixa o console sem subir, cada troca é provada na VM antes do
   aparelho.
-- **Outros:** regra do udev dos nós de entrada; `src/r36os/flash.py` (P-50); NTP e RTC.
+- **Outros:** regra do udev dos nós de entrada; `src/r36os/flash.py` (P-50); a hora gravada no
+  cartão (sessão e initramfs ou um serviço depois do frontend).
 - **Documentação:** `docs/LOGS.md`, `docs/LAUNCHER.md`, guias de bring-up, `PENDENCIAS.md`
   (os P-NN deste pacote apontam para `device-fixes`).
 - **Provas:** no GA36 e no R36S, com o mesmo cartão e um console de cada vez, juntas em

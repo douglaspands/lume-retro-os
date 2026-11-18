@@ -1,102 +1,230 @@
 # Tasks
 
-Verificação desta change: testes de unidade (Python, Rust e shell, incluindo os do initramfs com
-imagens de partição de teste), o protótipo do launcher no navegador (painel Cartão) e o aparelho
-(GA36 e R36S, com um único cartão passado de um console ao outro: nunca os dois ligados ao mesmo
-tempo). A imagem `vm` segue fora do ciclo (P-81).
+Verificação desta change:
+- testes de unidade (Python, Rust e shell, incluindo os do initramfs com imagens de partição
+  de teste);
+- o protótipo do launcher no navegador;
+- o aparelho: GA36 e R36S, com um único cartão passado de um console ao outro, nunca os dois
+  ligados ao mesmo tempo.
+
+A imagem `vm` segue fora do ciclo (P-81). Padrão proposto (design, Open Questions): os nós
+`TREE` são provados pelas suítes mais o boot no GA36 da J0.
 
 ## Grafo de execução
 
 Regras do projeto em `openspec/config.yaml` (`rules.tasks`, `operations.apply`).
 
-**Recursos exclusivos:** `CPU` (um build pesado por vez, sob a proteção de calor),
-`ARCH:armv7` e `ARCH:aarch64` (um `r36os pkg` por arquitetura), `GA36`, `R36S`, `USUARIO`
-(ação física ou olho humano), `MERGE` (um merge por vez em `feature/card-health`, seguido de
-`pytest tests/unit`, `cargo test` do `lume/` e das suítes de shell).
+**Recursos exclusivos:**
+- `CPU`: um build pesado por vez, sob a proteção de calor.
+- `ARCH:armv7` e `ARCH:aarch64`: um build de pacotes por arquitetura.
+- `GA36`, `R36S` e `USUARIO` (ação física ou olho humano).
+- `MERGE`: um merge por vez em `feature/virtual-gamepad`, seguido de `pytest tests/unit`,
+  `cargo test` do `lume/` e das suítes de shell.
+- `TREE`: o repositório inteiro; o nó roda sozinho na sua onda, sem nenhuma worktree aberta.
+
+**Outras changes ativas no mesmo branch:** `game-governor`, `lume-hud-actions` e
+`virtual-gamepad` (ciclo do R36S pausado à espera desta). Elas dividem esses recursos. A
+1.4 atualiza os nomes nas tarefas abertas delas, e a J3 junta as provas do R36S delas.
 
 **Executores:** `AG` = subagente em `out/worktrees/<nó>` (código e teste de unidade); `PR` =
 sessão principal (merge, build, aparelho, aprovação do usuário).
 
-**Ordem de merge que importa:** a 2.1 (pular a verificação com o volume limpo) só é mesclada
-depois de a 1.1 mostrar o bit limpo após um desligamento normal, ou junto da 2.2, que o deixa
-limpo. Nunca existe um build que pula a verificação com o desligamento deixando o volume sujo.
+**Arquivos divididos (merges em sequência, por dependência):**
+- `lume-input/input.c`: 8.2 -> 9.4 -> 6.1 -> 7.2.
+- `lume-ui/src/app.rs`: 9.2 -> 5.4 -> 8.5 -> 6.2.
+- kernel e DTS: 6.3 e 7.1 -> 8.1.
+- áudio (`mixer`, `jack`): 7.3 e 7.4 -> 7.2.
+
+**Ordem de merge que importa:** a 5.1 (pular a verificação com o volume limpo) só é mesclada
+depois de a 2.1 mostrar o bit limpo após um desligamento normal, ou junto da 5.2.
 
 | Nó | Depende de | Recursos | Executor | Modelo | Onda | Janela |
 |---|---|---|---|---|---|---|
-| 1.1 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
-| 1.2 | — | — | AG | sonnet | 0 | |
-| 2.1 | — | — | AG | opus | 0 | J2, J3 |
-| 2.2 | 1.1 | — | AG | opus | 1 | J2, J3 |
-| 3.1 | 1.2 | — | AG | sonnet | 1 | J2, J3 |
-| 4.1 | — | USUARIO | AG+PR | sonnet | 0 | |
-| 4.2 | 1.2, 4.1 | — | AG | sonnet | 1 | J2, J3 |
-| 5.1 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
-| 5.2 | 5.1 | — | AG | sonnet | 1 | J2, J3 |
-| 6.1 | 2.1, 2.2, 3.1, 4.2, 5.2 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 2 | |
-| 6.2 | 6.1 | GA36, USUARIO | PR | — | 3 | J2 |
-| 6.3 | 6.2 | R36S, USUARIO | PR | — | 4 | J3 |
+| 1.1 | — | — | AG | sonnet | 0 | |
+| 2.1 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
+| 2.2 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
+| 2.3 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
+| 2.4 | — | GA36, R36S | PR | — | 0 | J1 |
+| 2.5 | — | GA36, R36S, USUARIO | PR | — | 0 | J1 |
+| 2.6 | — | GA36, USUARIO | PR | — | 0 | J1 |
+| 2.7 | — | GA36, USUARIO | PR | — | 0 | J1 |
+| 1.2 | 1.1 | TREE | AG | opus | 1 | |
+| 1.3 | 1.2 | TREE | AG | opus | 2 | |
+| 1.4 | 1.3 | TREE | AG | sonnet | 3 | |
+| 1.5 | 1.4 | CPU, ARCH:armv7, GA36, USUARIO | PR | — | 4 | J0 |
+| 3.1 | 1.4 | — | AG | sonnet | 4 | |
+| 3.2 | 1.4, 2.3 | — | AG | opus | 4 | |
+| 3.3 | 1.4 | — | AG | sonnet | 4 | |
+| 3.4 | 1.4, 2.5 | — | AG | sonnet | 4 | |
+| 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
+| 9.5 | 1.4 | — | AG | sonnet | 4 | |
+| 5.1 | 3.1 | — | AG | opus | 5 | J2, J3 |
+| 5.2 | 1.4, 2.1 | — | AG | opus | 5 | J2, J3 |
+| 5.3 | 3.1 | — | AG | sonnet | 5 | J2, J3 |
+| 5.5 | 1.4, 2.2 | — | AG | sonnet | 5 | J2, J3 |
+| 6.3 | 1.4, 2.7 | — | AG | opus | 5 | J2 |
+| 6.4 | 1.4, 2.6 | — | AG | opus | 5 | J2 |
+| 7.1 | 1.4, 2.5 | — | AG | opus | 5 | J3 |
+| 7.3 | 1.4, 2.5 | — | AG | opus | 5 | J2, J3 |
+| 7.4 | 3.4 | — | AG | sonnet | 5 | J2, J3 |
+| 8.2 | 3.2 | — | AG | opus | 5 | J2, J3 |
+| 8.3 | 3.2 | — | AG | opus | 5 | J2, J3 |
+| 8.4 | 3.2, `lume-hud-actions` 3.1 | — | AG | sonnet | 5 | J2, J3 |
+| 8.6 | 3.2 | — | AG | sonnet | 5 | J2, J3 |
+| 9.1 | 2.4, 3.2 | — | AG | sonnet | 5 | J2, J3 |
+| 9.2 | 1.4 | — | AG | sonnet | 5 | J2, J3 |
+| 9.3 | 1.4 | — | AG | sonnet | 5 | J2, J3 |
+| 5.4 | 3.1, 4.1, 9.2 | — | AG | sonnet | 6 | J2, J3 |
+| 8.1 | 2.3, 6.3, 7.1 | — | AG | opus | 6 | J2, J3 |
+| 9.4 | 8.2 | — | AG | sonnet | 6 | J2, J3 |
+| 6.1 | 3.3, 4.1, 9.4 | — | AG | sonnet | 7 | J2, J3 |
+| 8.5 | 3.2, 4.1, 5.4 | — | AG | sonnet | 7 | J2, J3 |
+| 6.2 | 3.3, 8.5 | — | AG | sonnet | 8 | J2, J3 |
+| 7.2 | 3.4, 6.1, 7.1, 7.3, 7.4 | — | AG | opus | 8 | J2, J3 |
+| 10.1 | todos os nós de código (3 a 9) | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 9 | |
+| 10.2 | 10.1 | GA36, USUARIO | PR | — | 10 | J2 |
+| 10.3 | 10.2 | R36S, USUARIO | PR | — | 11 | J3 |
 
 Modelos: propostos, aguardando aprovação do usuário.
+
+- **opus:** 1.2, 1.3, 3.2, 5.1, 5.2, 6.3, 6.4, 7.1, 7.2, 7.3, 8.1, 8.2, 8.3.
+- **sonnet:** 1.1, 1.4, 3.1, 3.3, 3.4, 4.1, 5.3, 5.4, 5.5, 6.1, 6.2, 7.4, 8.4, 8.5, 8.6,
+  9.1 a 9.5.
 
 **Trilhas e caminho crítico:**
 
 ```
-  1.1 (prova do bit, J1) --> 2.2 (desligamento limpo) --+
-  2.1 (initramfs: bit e pedido) ------------------------+
-  1.2 (pedidos) --+--> 3.1 (serviço r36os-card) --------+--> 6.1 build --> 6.2 GA36 (J2) --> 6.3 R36S (J3)
-                  +--> 4.2 (painel Cartão) -------------+
-  4.1 (protótipo, USUARIO) --^                          |
-  5.1 (medição read-ahead, J1) --> 5.2 (regra udev) ----+
+  J1 (2.1..2.7, build atual) -----------------------------------------------+
+  1.1 mapa --> 1.2 TREE console --> 1.3 TREE PC --> 1.4 TREE docs --+        |
+                                                                    v        v
+          +--> 1.5 J0 (lume push no GA36 com nomes antigos)
+          +--> 3.1 cartão --> 5.1, 5.3 ; 5.2 (2.1) ; 5.5 (2.2)
+          +--> 4.1 protótipo (USUARIO) --+
+          +--> 9.2 nav --> 5.4 Cartão ---+--> 8.5 Suspender --> 6.2 pontinho (ui)
+          +--> 3.2 sono (2.3) --> 8.2 botão --> 9.4 calibração --> 6.1 brilho --> 7.2 volume
+          |                  +--> 8.3 lume-sleep, 8.4 lume-run, 8.6 governor, 9.1 hora
+          +--> 3.3 limite do brilho ----------------------------------^
+          +--> 3.4 volume (2.5) --> 7.4 fone ------------------------------------^
+          +--> 7.1 RK817 (2.5), 7.3 silêncio (2.5) ------------------------------^
+          +--> 6.3 kernel GA36 (2.7) --+--> 8.1 despertar
+          +--> 7.1 --------------------+
+          +--> 6.4 Mega Drive (2.6) ; 9.3 nós ; 9.5 flashed
+                                              todos --> 10.1 build --> 10.2 J2 GA36 --> 10.3 J3 R36S
 
-  caminho crítico: 1.1 -> 2.2 -> 6.1 -> 6.2 -> 6.3
+  caminho crítico: 1.1 -> 1.2 -> 1.3 -> 1.4 -> 3.2 -> 8.2 -> 9.4 -> 6.1 -> 7.2 -> 10.1 -> 10.2 -> 10.3
 ```
 
 **Ondas:**
-- Onda 0: 1.2, 2.1, 4.1 (AG, em paralelo; a 4.1 termina com a aprovação do usuário); 1.1 e 5.1
-  (PR, janela J1 com o build atual).
-- Onda 1: 2.2, 3.1, 4.2, 5.2.
-- Onda 2: 6.1. Onda 3: 6.2 (janela J2). Onda 4: 6.3 (janela J3).
+- **Onda 0:** 1.1 (AG); J1 com 2.1 a 2.7 (PR, build atual, sem código novo).
+- **Ondas 1, 2 e 3:** 1.2, 1.3 e 1.4, uma por onda e sozinhas (`TREE`). Antes da 1.2, nenhuma
+  worktree aberta em `out/worktrees/`, de nenhuma change.
+- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1 e 9.5 (AG). A 4.1 termina com a aprovação
+  do usuário.
+- **Onda 5:** 5.1, 5.2, 5.3, 5.5, 6.3, 6.4, 7.1, 7.3, 7.4, 8.2, 8.3, 8.4, 8.6, 9.1, 9.2 e 9.3.
+  A 8.4 só começa com a 3.1 da `lume-hud-actions` mesclada.
+- **Onda 6:** 5.4, 8.1 e 9.4. **Onda 7:** 6.1 e 8.5. **Onda 8:** 6.2 e 7.2.
+- **Onda 9:** 10.1. **Onda 10:** 10.2 (J2). **Onda 11:** 10.3 (J3).
 
 **Janelas de aparelho:**
-- **J1** (build atual, sem código novo; GA36 e depois R36S, o mesmo cartão): o usuário desliga
-  pelo menu, desliga pelo botão e corta a energia (tirar a bateria não é preciso: segurar o
-  botão até desligar à força); depois de cada um, o bit é lido pelo cabo no boot seguinte, antes
-  da verificação de hoje (o log do initramfs, ou `dd` do setor da `ROMS` com o console no
-  launcher). Na mesma janela, a medição do read-ahead (5.1).
-- **J2** (GA36, build da 6.1): boot limpo sem verificação, corte de energia com verificação,
-  pedido consumido uma vez, TRIM, painel Cartão, read-ahead aplicado.
-- **J3** (R36S, o mesmo cartão): as mesmas provas da J2.
+- **J1** (build atual, nomes antigos; primeiro o GA36, depois o R36S com o mesmo cartão):
+  - bit do exFAT depois de desligar pelo menu, pelo botão e por corte (2.1);
+  - medição do read-ahead (2.2);
+  - suspensão `mem`/`freeze` e corrente (2.3);
+  - RTC depois de desligar (2.4);
+  - ganho analógico, ruído, amplificador e fone (2.5);
+  - Mega Drive, arcade e o relógio escondido (2.6);
+  - experimentos E2 e E3 do brilho (2.7, GA36).
+- **J0** (GA36, depois da onda `TREE`): `lume push` sobre o console com os nomes antigos,
+  boot até o menu, caminhos do cartão preservados ou migrados.
+- **J2** (GA36, build da 10.1): todas as provas desta change no GA36, mais os kernels de
+  experimento E1 e E4 e o modo de ~60 Hz (6.3).
+- **J3** (R36S, o mesmo cartão): as provas do R36S, junto com as das outras changes do branch
+  (`lume-hud-actions` J1 4.1/4.6, 4.4 e J3 6.3; `virtual-gamepad` V2; `game-governor` 6.1 a
+  6.4).
 
-## 1. Prova do bit e pedidos
+## 1. Nomes `lume` (TREE)
 
-- [ ] 1.1 Janela J1: ler o `VolumeFlags` (deslocamento 106 do setor de boot da `ROMS`) depois de um desligamento pelo menu, de um pelo botão e de um corte de energia, no GA36 e no R36S. Verificação: tabela no `docs/BRINGUP-GA36.md` e no `docs/BRINGUP-R36S.md` com o bit em cada caso, e a decisão do D2 (remontar ou não) anotada no `design.md`.
-- [ ] 1.2 Congelar os pedidos (D4): a pasta `/run/r36os/card/` (grupo `game`), os verbos `trim` e `check-next-boot`, o formato do `status` (`running`, `ok <bytes>`, `ok`, `fail <motivo>`) e os arquivos `ROMS/system/card/last-trim`, `last-check` e `check-next-boot` (número do boot em texto). Documentado em `docs/LAUNCHER.md` e num módulo Rust no `lume-core` com o leitor do `status` e dos `last-*`. Verificação: testes de unidade do leitor (cada estado, arquivo ausente vira "nunca", conteúdo inválido ignorado).
+- [ ] 1.1 Mapa de nomes (D7): `docs/NOMES.md` com cada nome e caminho `r36os` do console e da ferramenta do PC, o nome novo, o que fica como está (com o motivo), as colisões em `/usr/share/lume`, as variáveis `R36OS_*`, e a lista dos caminhos persistidos no cartão que contêm `r36os`. Verificação: `tests/unit/test_lume_names.py` lê o mapa e lista as ocorrências pendentes (ainda sem falhar), e o usuário revisa a tabela antes da 1.2.
+- [ ] 1.2 `TREE` do console: renomear os aports (`r36os-input`, `r36os-powerctl`, `r36os-devmem`, `r36os-initramfs-static`), os serviços, as ferramentas, as pastas (`/usr/libexec`, `/usr/share`, `/etc`, `/run`), as regras do udev, o `initramfs`, o `rootfs` (`packages.txt`, `configure.sh`, `slots.toml`), os apps do `lume/` e os testes; a migração única dos caminhos persistidos (`persist OK migrated ...`, depois do frontend). Verificação: `pytest tests/unit`, `cargo test` do `lume/`, as suítes de shell e a `test_boot_order` verdes; nenhuma ocorrência de `r36os` nos nomes do console pelo teste da 1.1 (modo do console).
+- [ ] 1.3 `TREE` da ferramenta do PC: `src/r36os` vira o pacote `src/lume_tool` com o comando `lume`, a entrada no `pyproject.toml`, o `uv.lock`, os `scripts/dev/`, os `containers/`, o `policy.toml` do `ctx` e as receitas. Verificação: `uv run lume --help` lista os mesmos subcomandos de antes; `pytest tests/unit` verde; o guardrail aceita `lume build`/`lume push` como aceitava os antigos.
+- [ ] 1.4 `TREE` da documentação e do plano: `README.md`, `docs/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `openspec/config.yaml`; os deltas só de nome das specs `system-image`, `system-update`, `device-testing`, `build-performance`, `build-cache`, `build-packages`, `boot-runtime`, `vendor-dtb-compat` e `vm-validation` (em `specs/` desta change); as tarefas abertas da `game-governor`, da `lume-hud-actions`, da `virtual-gamepad`, da `launcher-adjustments`, da `r36s-usb-proof`, da `hide-clock` e da `lume-shaders`, sem mudar o que pedem; o `PENDENCIAS.md` (o P-94 e os outros itens deste pacote apontando para `device-fixes`). Verificação: `test_lume_names.py` passa a falhar com qualquer `r36os` fora da lista do que fica como está; `openspec validate device-fixes` sem erro.
+- [ ] 1.5 Janela J0 no GA36: `lume build` dos pacotes armv7 e do kernel, e `lume push` sobre o console com os nomes antigos. Verificação: boot até o menu; nenhum serviço `r36os-*` no `rc-status`; os caminhos persistidos migrados (eventos `persist OK migrated` no `events.log`) e as escolhas do usuário (idioma, tema, volume) mantidas; resultado no `docs/BRINGUP-GA36.md`.
 
-## 2. Boot e desligamento
+## 2. Janela J1: provas no build atual
 
-- [ ] 2.1 `initramfs/lib/storage.sh` (D1, D3): `volume_flags` lê os 2 bytes do `VolumeFlags`; o caso `check` verifica só com `VolumeDirty` ou `MediaFailure` ligados ou com o pedido `system/card/check-next-boot` (lido com a `ROMS` montada, desmontando para o `fsck` e montando de novo); o pedido é apagado e o número do boot gravado em `system/card/last-check`; eventos `clean: check skipped`, `dirty: checked ...` e `requested: checked ...`; `docs/LOGS.md` com os eventos. Verificação: testes do initramfs com imagens de partição exFAT de teste (limpa, suja, com falha de mídia, limpa com pedido), cada uma com o resultado e o log esperados; spec `boot-runtime`. Mesclada só depois da 1.1 ou junto da 2.2 (ordem de merge acima).
-- [ ] 2.2 Desligamento limpo (D2), conforme a 1.1: se o bit ficou ligado depois do desligamento normal, o fim da sessão remonta `/storage` como somente leitura depois do `sync` e antes do `poweroff` (desmontando, se a prova mostrar que remontar não basta), registrando a falha sem impedir o desligamento; se o bit já ficava limpo, a task registra isso e fica marcada. Verificação: teste do shell do `session` (ordem `sync`, remontar, `poweroff`; falha registrada e desligamento segue); no aparelho, o bit limpo depois do desligamento pelo menu e pelo botão (J2, J3).
+- [ ] 2.1 Ler o `VolumeFlags` (deslocamento 106 do setor de boot da `ROMS`) depois de um desligamento pelo menu, de um pelo botão e de um corte de energia, no GA36 e no R36S. Verificação: tabela no `docs/BRINGUP-GA36.md` e no `docs/BRINGUP-R36S.md` com o bit em cada caso, e a decisão do D2 anotada no `design.md`.
+- [ ] 2.2 Medir o tempo de abrir uma ROM grande de PS1 e uma de arcade com `read_ahead_kb` em 128, 256, 512 e 1024, com o cache limpo entre as medidas, três vezes cada, nos dois consoles. Verificação: tabela no `design.md` (D6) só com os tempos por sistema, sem nome de jogo, e o valor escolhido (ou "nenhum ganho claro").
+- [ ] 2.3 Suspensão: `/sys/power/mem_sleep` de cada console; suspender pelo cabo com `freeze` e com `mem` (se houver), acordar pelo botão de energia (com o `wakeup-source` aplicado por overlay de teste, se faltar) 10 vezes cada, e a corrente da bateria suspenso em cada modo. Verificação: tabela no `design.md` (D11) com o modo escolhido por console e a corrente; falhas de despertar registradas.
+- [ ] 2.4 Acertar a hora pelo cabo, desligar 5 minutos, ligar e ler o `rtc0`, nos dois consoles. Verificação: resultado no `design.md` (D15): a hora sobreviveu ou não.
+- [ ] 2.5 Áudio: no GA36, o chiado em silêncio e o volume máximo limpo com o `Headphone` em cada quarto da escala e o `DAC` em 0 dB (`amixer` pelo cabo), a detecção do fone (pino e evento) e a corrente com o amplificador ligado e desligado; no R36S, pelo I2C com um tom tocando, os registradores de ganho do classe D e do fone que mudam o volume, o zumbido com cada um e a corrente com o amplificador ligado e desligado. Verificação: tabela no `design.md` (D9, D10) com o controle escolhido em cada console, o caminho do silêncio e o tempo para o som voltar.
+- [ ] 2.6 GA36: o Mega Drive (tela preta) com o log do RetroArch e o formato de pixel do core, e o mesmo jogo com o `genesis_plus_gx`, se ele estiver no build; o arcade com romsets do FBNeo; o relógio do RetroArch escondido num cartão gravado com `flash --full` (`hide-clock` 2.1). Verificação: resultado no `docs/BRINGUP-GA36.md` sem nome de jogo; a 2.1 da `hide-clock` marcada se passar; o caminho do D14 anotado no `design.md`.
+- [ ] 2.7 Brilho no GA36 (experimentos E2 e E3 do P-95): o nível em que o defeito começa na bateria cheia, na bateria baixa e no carregador, com a tensão e a corrente no instante; e o tempo até o defeito no nível 8 com o console frio e quente. Verificação: tabela no P-95 e no `docs/BRINGUP-GA36.md`.
 
-## 3. Serviço de manutenção
+## 3. Interfaces congeladas
 
-- [ ] 3.1 Serviço `r36os-card` (D4) no `lume-saves`: `inotifyd` em `/run/r36os/card/`, verbos `trim` (`fstrim -v /storage`, um por vez, `status` e `last-trim`) e `check-next-boot` (cria o pedido na `ROMS`); outro nome recusado com uma linha no log; eventos `card OK trim`/`card FAIL trim` no `events.log`; sobe depois do `frontend`. Verificação: testes do shell com `fstrim` falso (sucesso, falha, pedido em dobro, verbo desconhecido) e com a `ROMS` numa pasta de teste; no aparelho, o serviço sem CPU parado e o TRIM pelo painel (J2, J3).
+- [ ] 3.1 Pedidos do cartão (D4): a pasta `/run/lume/card/` (grupo `game`), os verbos `trim` e `check-next-boot`, o formato do `status` (`running`, `ok <bytes>`, `ok`, `fail <motivo>`) e os arquivos `ROMS/system/card/last-trim`, `last-check` e `check-next-boot` (número do boot em texto). Documentado em `docs/LAUNCHER.md` e num módulo Rust no `lume-core`. Verificação: testes de unidade do leitor (cada estado, arquivo ausente vira "nunca", conteúdo inválido ignorado).
+- [ ] 3.2 Protocolo do sono (D11): as mensagens `power_tap` e `power_hold` do `lume-input`; `suspend` e `resume` aos clientes, com o prazo de resposta; o pedido ao `lume-sleep` (`/run/lume/sleep/`); o modo de cada console da 2.3; os eventos `sleep OK|FAIL`. Documentado em `docs/LAUNCHER.md` e `docs/LOGS.md`, com o leitor no `lume-core`. Verificação: testes de unidade do protocolo (cada mensagem, prazo estourado, pedido em dobro).
+- [ ] 3.3 Limite do brilho (D12): o arquivo `ROMS/system/display/limit-<serial>`, o número de série de cada console, o evento do relato (campos) e o `display OK limit <de> -> <para> (<motivo>)`. Documentado em `docs/LOGS.md`. Verificação: testes do leitor e do escritor (sem arquivo vira o padrão do console, conteúdo inválido vira o padrão, dois seriais no mesmo cartão).
+- [ ] 3.4 Volume por saída (D9, D10): `ROMS/system/audio/level-<saída>` (`speaker`, `headphones`), a escala de 0 a 100 e a conversão para o controle escolhido na 2.5, e a conversão única do nível digital de hoje. Verificação: testes da conversão nos dois consoles (0 é mudo, 100 é o máximo limpo da 2.5, curva crescente).
 
-## 4. Painel Cartão no launcher
+## 4. Protótipo
 
-- [ ] 4.1 Painel Cartão no protótipo (`docs/lume-launcher/prototipo/`, D5), no molde do painel Sistema: espaço livre, última otimização e última verificação pelo número do boot ("nunca" quando não houver), "Otimizar agora" com os estados em andamento, concluído e falha, e "Verificar no próximo boot" com a confirmação de que ficou pedido, nos temas e nos três idiomas; medidas a 640x480 anotadas no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
-- [ ] 4.2 `lume-ui` (D5): `SetRow::Card` entre Sistema e Games; painel com o espaço livre (`statvfs`), `last-trim` e `last-check`; A nas ações escreve o pedido na pasta do D4; com o TRIM em andamento e o painel aberto, lê o `status` a cada segundo, e não lê nada com o painel fechado; textos en/pt/es no `i18n`. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` (painel com e sem histórico, cada estado do TRIM, pedido escrito na pasta) e o teste de régua `card_matches_the_prototype_ruler` (1 px a 640x480); no aparelho, J2 e J3.
+- [ ] 4.1 Protótipo (`docs/lume-launcher/prototipo/`, D5, D11, D12): o painel Cartão (espaço livre, últimas manutenções pelo número do boot, "Otimizar agora" com os estados, "Verificar no próximo boot"); o item Suspender acima de Desligar; o pontinho vermelho na linha de brilho da borda e na barra do Brilho; a linha curta do relato da falha; nos temas e nos três idiomas; medidas a 640x480 no `docs/lume-launcher/design-das-telas.md`. Verificação: o usuário aprova no navegador a 640x480 (aprovação anotada com a data).
 
-## 5. Read-ahead
+## 5. Cartão
 
-- [ ] 5.1 Janela J1: medir o tempo de abrir uma ROM grande de PS1 e uma de arcade com `read_ahead_kb` em 128, 256, 512 e 1024, com o cache do kernel limpo entre as medidas (`echo 3 > /proc/sys/vm/drop_caches` pelo cabo), três vezes cada, nos dois consoles. Verificação: tabela no `design.md` (D6) só com os tempos por sistema, sem nome de jogo, e o valor escolhido (ou "nenhum ganho claro").
-- [ ] 5.2 Regra do udev no `lume-power` com o valor da 5.1 (ou nenhuma regra, registrado na task, se a medição não mostrou ganho). Verificação: teste da regra como o da `90-lume-backlight.rules`; no aparelho, o `read_ahead_kb` do cartão com o valor depois do boot e `mem_avail_mb` num jogo pesado anotado (J2, J3).
+- [ ] 5.1 `initramfs/lib/storage.sh` (D1, D3): `volume_flags`; verificação só com `VolumeDirty`, `MediaFailure` ou o pedido; o pedido apagado e `last-check` gravado; eventos `clean: check skipped`, `dirty: checked ...` e `requested: checked ...` no `docs/LOGS.md`. Verificação: testes do initramfs com imagens exFAT de teste (limpa, suja, com falha de mídia, limpa com pedido), cada uma com o resultado e o log esperados. Mesclada só depois da 2.1 ou junto da 5.2.
+- [ ] 5.2 Desligamento limpo (D2), conforme a 2.1: se o bit ficou ligado, o fim da sessão remonta `/storage` como somente leitura depois do `sync` e antes do `poweroff` (ou desmonta), registrando a falha sem impedir o desligamento; se o bit já ficava limpo, a task registra isso. Verificação: teste do shell do `session` (ordem `sync`, remontar, `poweroff`; falha registrada); no aparelho, o bit limpo depois do desligamento pelo menu e pelo botão segurado (J2, J3).
+- [ ] 5.3 Serviço `lume-card` (D4) no `lume-saves`: `inotifyd` em `/run/lume/card/`, verbos `trim` e `check-next-boot`, outro nome recusado com uma linha no log, eventos `card OK|FAIL trim`, sobe depois do `frontend`. Verificação: testes do shell com `fstrim` falso (sucesso, falha, pedido em dobro, verbo desconhecido); no aparelho, o serviço sem CPU parado e o TRIM pelo painel (J2, J3).
+- [ ] 5.4 `lume-ui`, painel Cartão (D5): `SetRow::Card` entre Sistema e Games; espaço livre, `last-trim` e `last-check`; A escreve o pedido; o `status` lido a cada segundo só com o TRIM em andamento e o painel aberto; textos en/pt/es. Verificação: testes em `lume/lume-ui/tests/ui.rs` (com e sem histórico, cada estado do TRIM, pedido escrito) e `card_matches_the_prototype_ruler` (1 px a 640x480).
+- [ ] 5.5 Read-ahead (D6): regra do udev no `lume-power` com o valor da 2.2, ou nenhuma regra, registrado na task. Verificação: teste da regra como o da `90-lume-backlight.rules`; no aparelho, o `read_ahead_kb` com o valor depois do boot e o `mem_avail_mb` num jogo pesado (J2, J3).
 
-## 6. Build e provas nos consoles
+## 6. Tela
 
-- [ ] 6.1 Build dos pacotes mudados (initramfs, `lume-saves`, `lume-power`, `lume-launcher`, `lume-core`) nas duas arquiteturas, um `r36os pkg` por vez sob a proteção de calor, e `r36os push` para o cartão. Verificação: os `.apk` e o initramfs novos com a versão nova no repositório local e o `push` terminando com `ok`.
-- [ ] 6.2 Janela J2 no GA36: três boots depois de desligar pelo menu com `roms OK clean: check skipped` e o tempo do boot comparado com o de antes (o ganho anotado no P-58, frente 3); um corte de energia seguido de boot com `dirty: checked`; "Verificar no próximo boot" consumido no boot seguinte e não no outro; "Otimizar agora" com o resultado na tela e no `events.log`; o painel comparado com o protótipo; o serviço sem CPU parado 5 minutos; o `read_ahead_kb` aplicado. Verificação: resultado anotado no `docs/BRINGUP-GA36.md`.
-- [ ] 6.3 Janela J3 no R36S, com o mesmo cartão: as mesmas provas da 6.2. Verificação: resultado anotado no `docs/BRINGUP-R36S.md`; P-64 movido para "Concluídas" no `docs/PENDENCIAS.md` (itens 1, 2 e 4, com o item 3 apontando para a change do governor) e a frente 3 do P-58 atualizada.
+- [ ] 6.1 `lume-input`, brilho (D12): `backlight_max` removido dos perfis e do código; o limite lido pelo formato da 3.3; o pontinho vermelho na linha da borda esquerda; Fn+Select grava o relato e baixa o limite, com a linha curta na tela pelo `ui_lang`; uma hora acumulada acima do limite sem relato o sobe; eventos no `events.log`. Verificação: `tests/unit/test_lume_input.py` com sysfs e relógio falsos (brilho até o máximo, relato no nível 8 vira limite 7, uma hora acima sobe o limite, outro serial no mesmo cartão não muda, R36S sem limite não desenha o ponto); no aparelho, J2 e J3.
+- [ ] 6.2 `lume-ui`, barra do Brilho com o pontinho vermelho no nível do limite (D12). Verificação: teste de tela com e sem limite e o teste de régua da barra; no aparelho, J2 e J3.
+- [ ] 6.3 Kernel do GA36 (D12, D13): kernels de experimento E1 (DCDC1 a 3,3 V) e E4 (link do DSI mais lento ou outro modo de rajada) como variantes que não entram na imagem padrão, e o modo de ~60 Hz do JD9366 no patch 0005 com o `video_refresh_rate` do `retroarch-ga36.cfg`. Verificação: `test_ga36_refresh_rate_matches_panel_mode` e os testes do DTS; na J2, cada variante gravada pelo `push` só do kernel e desfeita pelo `SLOTS.old`, com o resultado (nível em que o defeito começa, imagem estável a ~60 Hz nos dois painéis) no P-95, no P-25 e no `docs/BRINGUP-GA36.md`. O modo de ~60 Hz só entra na imagem padrão se ficar estável nos dois painéis.
+- [ ] 6.4 Mega Drive no GA36 (D14), pelo caminho da 2.6: o formato de pixel corrigido no driver de vídeo ou o core do armv7 trocado no catálogo. Verificação: teste do catálogo ou do patch; na J2, o jogo aparece na tela em velocidade cheia pelas métricas (sem nome de jogo no registro).
+
+## 7. Som
+
+- [ ] 7.1 Kernel do R36S (D9), se a 2.5 achou o ganho: patch que expõe o ganho analógico do classe D e do fone do RK817 como controles ALSA. Verificação: teste dos patches do kernel (série aplica, controle declarado); na J3, `amixer` lista os controles e o volume muda sem mudar o ruído de fundo. Sem ganho achado na 2.5, a task registra isso no P-45 e é marcada.
+- [ ] 7.2 `lume-input`, volume analógico (D9): perfis `ga36.conf` (`Headphone`) e `r36s.conf` (o controle da 7.1, ou o `Master` registrado); o volume 0 desliga a saída; o nível da saída ativa pelo formato da 3.4, reaplicado no boot pelo `mixer` com o `DAC` em 0 dB; a conversão única do nível antigo; o patch 0005 do RetroArch ajustado, se precisar. Verificação: testes com `amixer` falso (passos na escala analógica, 0 é mudo, troca de saída aplica o nível dela, conversão do nível antigo) e `tests/audio/test_mixer.sh`; no aparelho, o chiado em silêncio menor com o volume baixo, julgado pelo usuário (J2, J3).
+- [ ] 7.3 Amplificador desligado sem som (D9), pelo caminho da 2.5: com o jogo pausado, no menu do RetroArch, no launcher e na suspensão. Verificação: teste do caminho escolhido (estado do DAPM ou do `spk-ctl` por evento, ou o fluxo fechado na pausa); no aparelho, a corrente com o jogo pausado igual à do amplificador desligado da 2.5, e o som voltando sem corte perceptível (J2, J3).
+- [ ] 7.4 Fone (D10): o `jack` sem o laço no R36S (leitura de eventos sem o `od`), a detecção do GA36 pela 2.5 (ou a limitação documentada), e a troca de saída aplicando o volume dela. Verificação: `tests/audio/test_jack.sh` com eventos de encaixe e retirada nos dois consoles e o serviço vivo depois de 60 s; no aparelho, encaixar e tirar o fone com um jogo tocando troca a saída nos dois sentidos (J2, J3).
+
+## 8. Suspensão
+
+- [ ] 8.1 DTS e kernel (D11): `wakeup-source` no `axp20x-pek` (GA36) e no `rk805-pwrkey` (R36S), o resto sem despertar, e as opções que a 2.3 pediu. Verificação: testes do DTS e do `.config` dos dois consoles; na J2 e na J3, só o botão de energia acorda.
+- [ ] 8.2 `lume-input`, botão de energia (D11): lê a fonte do botão de cada console; toque solto antes de 1 s manda `power_tap`; segurado 2 s manda `power_hold` uma vez; nada vai para os jogos. Verificação: testes do `lume-input` em modo `--test` (toque curto, segurado 2 s, segurado e solto em 1,5 s, repetição sem duplicar); no aparelho, J2 e J3.
+- [ ] 8.3 Serviço `lume-sleep` (D11) no `lume-power`: a sequência do D11 com prazos, o modo do console pela 3.2, a volta na ordem inversa, a falha que devolve o estado de antes com a tela acesa, eventos `sleep OK|FAIL`; o `power_hold` vai ao desligamento da sessão. Verificação: testes do shell com sysfs falso e clientes falsos (ordem dos passos, cliente mudo não trava a suspensão, falha do kernel volta com a tela acesa, `power_hold` chama o desligamento); no aparelho, suspender e acordar 20 vezes seguidas, com e sem jogo (J2, J3).
+- [ ] 8.4 `lume-run` (D11): `suspend` pausa o jogo pelo caminho de pausa da `lume-hud-actions` 3.1 e `resume` continua sozinho. Verificação: teste em `lume/lume-run/tests/run.rs` com o RetroArch falso (pausa no `suspend`, continua no `resume`, runner sem pausa usa `SIGSTOP`/`SIGCONT`); no aparelho, J2 e J3.
+- [ ] 8.5 `lume-ui` (D11): item Suspender acima de Desligar, que pede a suspensão sem confirmação; para de desenhar no `suspend` e redesenha no `resume`; textos en/pt/es. Verificação: testes de tela (item na ordem, A pede a suspensão, nada desenhado entre `suspend` e `resume`) e o teste de régua do protótipo; no aparelho, J2 e J3.
+- [ ] 8.6 Governor (D11): cenário `suspend` no `lume-power`, aplicado no `suspend` e trocado de volta no `resume`, e a bateria lida no `freeze` para o desligamento pelo crítico. Verificação: testes do `power` com sysfs falso (cenário aplicado e restaurado, crítico durante o `freeze` desliga); no aparelho, J2 e J3.
+
+## 9. Hora e ajustes pequenos
+
+- [ ] 9.1 Hora que só anda para a frente (D15): gravar `ROMS/system/clock` no desligamento e na suspensão; restaurar depois do `frontend` como a maior entre a gravada, a data do build e o RTC válido; corrigir pela rede (NTP quando o Wi-Fi conectar) e pelo PC (`lume push` e `lume dev` acertam a hora pelo cabo). Verificação: testes do shell com relógio e arquivos falsos (gravada mais nova vence, data do build como mínimo, RTC inválido ignorado, fonte real corrige) e teste da ferramenta do PC; no aparelho, dois saves separados por um reboot com datas crescentes (J2, J3).
+- [ ] 9.2 Navegação vertical (D8): no `lume-ui`, esquerda e direita não trocam de item em listas e confirmações verticais, só mudam o valor de um seletor ou passam para a coluna ao lado; no `lume-run`, o mesmo na confirmação do menu do jogo. Verificação: testes em `lume/lume-ui/tests/ui.rs` e `lume/lume-run/src/menu.rs` (confirmação ignora esquerda e direita, cima escolhe a opção de cima, seletor continua mudando, ▶ na lista ainda entra no painel); no aparelho, J2 e J3.
+- [ ] 9.3 Nós de entrada (D16): regra do udev com `0640 root input` para o controle do aparelho, o controle virtual e os botões; controles USB com `0660`. Verificação: teste da regra; no aparelho, como `game`, escrever no controle virtual falha, e o launcher e o RetroArch continuam lendo; um controle USB com vibração funciona, se houver um (J2).
+- [ ] 9.4 `lume-input`, calibração dos analógicos (D17): repouso lido nas primeiras amostras, `valor - repouso + centro` com a zona morta do perfil; repouso fora da faixa usa o centro do DTS e registra o aviso. Verificação: testes do `lume-input` com eixos falsos (repouso deslocado vira centro, stick segurado no início usa o DTS e avisa); no aparelho, os sticks soltos no centro no teste de entrada do RetroArch (J2, J3).
+- [ ] 9.5 `flashed` (D18): `mark_flashed()` resolve o `latest` antes de criar o link, e o `flash` avisa quando roda com `sudo`. Verificação: teste do `flash` pelo `latest` (o link aponta para o build real) e do aviso.
+
+## 10. Build e provas nos consoles
+
+- [ ] 10.1 Build dos pacotes mudados nas duas arquiteturas e dos kernels (padrão e variantes de experimento da 6.3), um build por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk`, o initramfs e os kernels novos com a versão nova no repositório local, e o `push` terminando com `ok`.
+- [ ] 10.2 Janela J2 no GA36. Verificação: resultado de cada item no `docs/BRINGUP-GA36.md`:
+  - **cartão:** três boots com `roms OK clean: check skipped` e o tempo do boot contra o de antes (ganho anotado no P-58, frente 3); corte de energia com `dirty: checked`; "Verificar no próximo boot" consumido uma vez; "Otimizar agora"; painel Cartão contra o protótipo; `read_ahead_kb`;
+  - **tela:** experimentos E1 e E4 e o modo de ~60 Hz (6.3), com o resultado no P-95 e no P-25; pontinho e relato do brilho; Mega Drive;
+  - **som:** volume analógico e chiado, amplificador desligado no silêncio, fone;
+  - **energia:** 20 suspensões, desligar pelo botão segurado;
+  - **pequenos:** hora crescente, navegação vertical, nós só leitura, analógicos no centro.
+- [ ] 10.3 Janela J3 no R36S, com o mesmo cartão: as provas da 10.2 que valem para o R36S (o R36S não tem os experimentos do painel do GA36), o ganho da 7.1 e o zumbido do P-45, junto com as provas do R36S das outras changes do branch. Verificação:
+  - resultado no `docs/BRINGUP-R36S.md`;
+  - no `docs/PENDENCIAS.md`, movidos para "Concluídas" (ou atualizados com o que ficou aberto) os itens P-64 (1, 2 e 4), P-95, P-25, P-29, P-42, P-45, P-30, P-26, P-07, P-87, P-47 (6.8), P-50 e P-94;
+  - a frente 3 do P-58 atualizada.
 
 ## Workflow follow-up
 
-- Arquivar a change depois das provas da J2 e da J3.
+- Arquivar a change depois da J2 e da J3, junto com as outras changes do branch que fecharem
+  na mesma J3.
