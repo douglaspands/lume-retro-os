@@ -66,7 +66,8 @@ lume-power
 lume-games
 lume-launcher-data
 lume-retroarch-cfg
-lume-shaders
+# lume-shaders: out of the image until they run at full speed on the GA36 (P-89; 26.7 fps with
+# gba-modern-remaster on lima, 2026-11-17)
 
 # Frontend
 retroarch

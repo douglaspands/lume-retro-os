@@ -240,10 +240,12 @@ impl Hud {
             }
             _ => "--:--".into(),
         };
-        if b.full {
-            format!("BAT {pct} {watts}")
+        // compact (the user's choice, 2026-11-17): full, or charging at 100% (the AXP223 keeps
+        // "Charging" there), shows no time; charging without an estimate yet, only "+"
+        if b.full || (b.charging && b.capacity == Some(100)) {
+            format!("BAT {pct}{}", if b.charging { " +" } else { "" })
         } else if b.charging {
-            format!("BAT {pct} + {time}")
+            if time == "--:--" { format!("BAT {pct} +") } else { format!("BAT {pct} + {time}") }
         } else {
             format!("BAT {pct} {watts} {time}")
         }
@@ -251,16 +253,24 @@ impl Hud {
 
     /// One sample: the text of the bar. `elapsed` is seconds since the bar started.
     pub fn sample(&mut self, elapsed: f64) -> String {
+        // compact (the user's choice, 2026-11-17): no units where they are obvious (the
+        // clocks in MHz, the memory in MiB), the swap only when in use
         let cpu = self.cpu().map(|c| format!("{c}%")).unwrap_or_else(|| "--".into());
-        let mhz = self.mhz().map(|m| format!("{m}MHz")).unwrap_or_else(|| "--MHz".into());
+        let cpu = match self.mhz() {
+            Some(m) => format!("{cpu} {m}"),
+            None => cpu,
+        };
         // the use when the driver reports it (panfrost), else the clock (lima), else --
         let gpu = match self.gpu(elapsed) {
             Some(g) => format!("{g}%"),
-            None => self.gpu_mhz().map(|m| format!("{m}MHz")).unwrap_or_else(|| "--".into()),
+            None => self.gpu_mhz().map(|m| m.to_string()).unwrap_or_else(|| "--".into()),
         };
-        let mem = self.mem().map(|(u, t, s)| format!("{u}/{t}M sw {s}M")).unwrap_or_else(|| "--".into());
+        let mem = self
+            .mem()
+            .map(|(u, t, s)| if s > 0 { format!("{u}/{t} sw {s}") } else { format!("{u}/{t}") })
+            .unwrap_or_else(|| "--".into());
         let bat = self.battery_text(elapsed);
-        format!("CPU {cpu} {mhz}|GPU {gpu}|MEM {mem}|{bat}")
+        format!("CPU {cpu}|GPU {gpu}|MEM {mem}|{bat}")
     }
 }
 
@@ -345,10 +355,10 @@ mod tests {
         gpu(&d, &[("gp", 0), ("pp", 0)]);
         let mut h = Hud::new(&d, 42);
         // the first sample has no difference yet
-        assert_eq!(h.sample(0.0), "CPU -- 1008MHz|GPU --|MEM 124/1006M sw 200M|BAT --");
+        assert_eq!(h.sample(0.0), "CPU -- 1008|GPU --|MEM 124/1006 sw 200|BAT --");
         stat(&d, 147, 953); // 47 busy of 100
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
-        assert_eq!(h.sample(1.0), "CPU 47% 1008MHz|GPU 62%|MEM 124/1006M sw 200M|BAT --");
+        assert_eq!(h.sample(1.0), "CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
     }
 
     #[test]
@@ -366,7 +376,7 @@ mod tests {
         assert!(h2.sample(1.0).contains("GPU --"));
         // no cpufreq (the vm): the clock is --
         fs::remove_file(d2.join("sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq")).unwrap();
-        assert!(h2.sample(2.0).contains("CPU -- --MHz"));
+        assert!(h2.sample(2.0).starts_with("CPU --|"), "no clock: only the use");
     }
 
     #[test]
@@ -388,6 +398,12 @@ mod tests {
         let mut h = Hud::new(&d, 42);
         h.sample(0.0);
         assert!(h.sample(40.0).ends_with("BAT 50% + 1:00"), "{}", h.sample(40.0));
+        // at 100% the AXP223 keeps "Charging": no time, only the mark (J2, "+ 0:00" before)
+        let d = tree("bat100");
+        battery(&d, "Charging", 100, 4_250_000, 100_000, None);
+        let mut h = Hud::new(&d, 42);
+        h.sample(0.0);
+        assert!(h.sample(60.0).ends_with("BAT 100% +"), "{}", h.sample(60.0));
         // only the percent: 80% falling 1% per minute -> 80 minutes
         let d = tree("bat3");
         battery(&d, "Discharging", 80, 3_700_000, 0, None);
@@ -412,7 +428,7 @@ mod tests {
         let mut h = Hud::new(&d, 42);
         h.sample(0.0);
         let s = h.sample(31.0);
-        assert!(s.contains("GPU 240MHz"), "{s}");
+        assert!(s.contains("GPU 240|"), "{s}");
         // 50% of 3000 mAh at 500 mA: 3:00
         assert!(s.ends_with("BAT 50% 2.0W 3:00"), "{s}");
     }

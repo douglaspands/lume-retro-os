@@ -10,6 +10,7 @@
 
 - [x] 2.1 Build `vm` e `test-vm`: os arquivos estão no `SYSTEM` em `/usr/share/libretro/shaders/lume-shaders/`. Verificação: manifesto de arquivos do rootfs ou listagem do `SYSTEM`.
 - [ ] 2.2 No aparelho (GA36 e R36S): Shaders → Carregar abre em `/usr/share/libretro/shaders`, e cada preset carrega num jogo do seu sistema. Verificação: anotar no `docs/BRINGUP-R36S.md` e no `docs/BRINGUP-GA36.md`.
+  - **2026-11-17 (J2 da `lume-hud-actions`, GA36):** o `gba-modern-remaster` carrega, mas o jogo roda a 26,7 FPS (GPU no limite, com ou sem V-Sync). Por decisão do usuário, o `lume-shaders` saiu da imagem até a otimização para o `lima` (P-89); esta tarefa espera a P-89.
 
 ## Workflow follow-up
 

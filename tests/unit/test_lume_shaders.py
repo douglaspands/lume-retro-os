@@ -59,6 +59,15 @@ def test_no_shader_on_by_default():
     assert not [p for p in factory_dir.rglob("*") if p.suffix in (".glslp", ".slangp")]
 
 
+def test_out_of_the_image_until_they_run_at_full_speed():
+    # P-89 (user, 2026-11-17): 26.7 fps with gba-modern-remaster on the GA36 (lima), with or
+    # without V-Sync; the package stays built, the image does not install it
+    names = [line.split("#")[0].strip() for line in
+             (REPO_ROOT / "rootfs/packages.txt").read_text().splitlines()]
+    assert "lume-shaders" not in names
+    assert "P-89" in (REPO_ROOT / "docs/PENDENCIAS.md").read_text()
+
+
 def test_origin_credited_in_readme():
     readme = (REPO_ROOT / "README.md").read_text()
     assert "lume-shaders" in readme

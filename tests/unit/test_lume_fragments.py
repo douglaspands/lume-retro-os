@@ -59,7 +59,9 @@ def test_a_fragment_is_built_after_the_fragment_it_depends_on(tmp_path):
 def test_image_installs_every_fragment():
     names = {line.split("#")[0].strip() for line in
              (REPO_ROOT / "rootfs/packages.txt").read_text().splitlines()}
-    assert set(FRAGMENTS) <= names
+    # lume-shaders is built but stays out of the image until P-89 (user, 2026-11-17)
+    assert set(FRAGMENTS) - {"lume-shaders"} <= names
+    assert "lume-shaders" not in names
 
 
 def test_overlay_keeps_only_what_the_build_generates():
