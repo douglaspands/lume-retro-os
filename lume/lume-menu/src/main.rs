@@ -1,38 +1,27 @@
-//! lume-menu: the Lume menu over a game, drawn by the system on the game's own screen
-//! (lume-hud-actions D14, task 3.4). lume-run starts it only while the menu is open, with
-//! the game already paused and its process group stopped:
+//! lume-menu: what the system draws over a game on the game's own screen (lume-hud-actions
+//! D14, D6; device-fixes 9.14): the Lume menu, the status bar and the chord hint.
 //!
 //! ```text
-//! lume-menu PGID [--hints "Choose|Back"] [--warn "Force close"]
-//!   stdin   one line per change: "title|item|...|focus"; "-" or the end of stdin closes
-//!   stdout  "ok" once the menu is on the screen, or "fail <why>" (exit 3): lume-run then
-//!           falls back to RetroArch's LUME_MENU widget
+//! lume-menu --serve PGID [--hints "Choose|Back"] [--warn "Force close"]
+//!     one process per game, started by lume-run with the game; protocol in serve.rs
+//! lume-menu --shot PGID OUT.png
+//!     the picture on the game's screen (its plane, without the bar or the menu) as PNG
 //! ```
 //!
-//! It duplicates the game's DRM file (pidfd_getfd: same user, no capability), copies the
-//! last frame from the primary plane, draws the menu over it in software into a buffer of
-//! its own and puts that buffer on the plane. On close it puts the game's framebuffer back
-//! and frees what it made in the game's file, then exits: nothing runs with the menu closed.
-//!
-//! The status bar (D6; drawn by the system since 2026-11-17, over any game):
-//!
-//! ```text
-//! lume-menu --hud PGID
-//!   stdin   one line per second: the bar's text ("FPS 59.7|CPU 9% 1008|..."); "-" or the
-//!           end of stdin takes the bar away
-//!   stdout  "ok" once the bar is on the screen, or "fail <why>" (exit 3)
-//! ```
-//!
-//! The game keeps running: the bar lives on a free overlay plane with alpha above the game's
-//! primary plane. lume-run must end it when the game ends, since the duplicated DRM file
-//! keeps the screen's master open until it is closed.
+//! The server makes its buffers once, in a DRM file of its own, as soon as the game has a
+//! screen, then blocks on its stdin. To show something it duplicates the game's master DRM
+//! file (pidfd_getfd: the same user, no capability; the card is crw-rw---- root:video and
+//! the user `game` is in `video`), sets the plane, and closes the duplicate at once.
 
 mod bar;
 mod draw;
 mod drm;
+mod serve;
 
-use std::io::{BufRead, Write};
+use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 fn say(s: &str) {
     let mut out = std::io::stdout().lock();
@@ -46,22 +35,29 @@ fn fail(why: &str) -> ExitCode {
     ExitCode::from(3)
 }
 
-/// `--shot PGID OUT.png`: the picture on the game's screen (its primary plane, so without the
-/// bar, the hint or the menu), saved as PNG; the game keeps running. Written to a temporary
-/// name and renamed, so a cut never leaves half a picture.
+/// `--shot PGID OUT.png`: the picture on the game's screen (its plane, so without the bar,
+/// the hint or the menu), saved as PNG; the game keeps running. Written to a temporary name
+/// and renamed, so a cut never leaves half a picture.
 fn shot(pgid: i32, out: &std::path::Path) -> ExitCode {
-    let screen = match drm::Screen::of_group(pgid) {
-        Ok(s) => s,
+    let Some(card) = drm::Card::of_group(pgid) else { return fail("no process of the group has a DRM card open") };
+    let Some((crtc, _, _, _)) = card.active_crtc() else { return fail("no screen") };
+    let mut last = None;
+    let file = match drm::GameFile::find(pgid, Some(&card), &mut last) {
+        Ok(f) => f,
         Err(why) => return fail(&why),
     };
-    let (w, h) = (screen.fb.width as usize, screen.fb.height as usize);
+    let planes = card.planes();
+    let Some(gp) = drm::game_plane(&planes, crtc, &[]) else { return fail("no plane with the game's picture") };
+    let Some(fr) = file.frame(gp.fb_id) else { return fail("cannot read the game's framebuffer") };
+    let (w, h) = (fr.fb.width as usize, fr.fb.height as usize);
     let mut frame = vec![0u8; w * h * 4];
     {
-        let Some(src) = screen.map_frame() else { return fail("cannot read the game's framebuffer") };
+        let Some(src) = fr.map() else { return fail("cannot map the game's framebuffer") };
         let mut img = draw::Image { px: &mut frame, w, h, pitch: w * 4 };
-        draw::copy_frame(&mut img, src.bytes(), screen.fb.pitches[0] as usize, screen.fb.pixel_format);
+        draw::copy_frame(&mut img, src.bytes(), fr.fb.pitches[0] as usize, fr.fb.pixel_format);
     }
-    drop(screen);
+    drop(fr);
+    drop(file);
     // XRGB8888 (B G R X) to RGB
     let rgb: Vec<u8> = frame.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
     let tmp = out.with_extension("png.part");
@@ -91,188 +87,100 @@ fn shot(pgid: i32, out: &std::path::Path) -> ExitCode {
     }
 }
 
-/// `--hint PGID`: the chord hint in the middle of the screen while stdin is open; each line
-/// is the hint ("Fn+B\tRetroArch menu|Fn+R1\tSave state|..."), "-" or the end takes it away.
-fn hint(pgid: i32) -> ExitCode {
-    let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
-    let screen = match drm::Screen::of_group(pgid) {
-        Ok(s) => s,
-        Err(why) => return fail(&why),
-    };
-    let (sw, sh) = (screen.fb.width as f32, screen.fb.height as f32);
-    let mut stdin = std::io::stdin().lock().lines();
-    let Some(Ok(first)) = stdin.next() else { return ExitCode::SUCCESS };
-    let rows = bar::hint_rows(&first);
-    let (w, h) = bar::hint_size(&fonts, &rows, sh);
-    let (x, y) = (((sw - w as f32) / 2.0).round() as i32, ((sh - h as f32) / 2.0).round() as i32);
-    let mut panel = match drm::Bar::at(&screen, x, y, w, h) {
-        Ok(b) => b,
-        Err(why) => return fail(&why),
-    };
-    let (pw, ph, pitch) = (panel.width as usize, panel.height as usize, panel.pitch);
-    let mut line = first;
-    loop {
-        {
-            let px = panel.back_pixels();
-            let mut s = bar::Strip { px, w: pw, h: ph, pitch };
-            bar::draw_hint(&mut s, &fonts, &bar::hint_rows(&line), sh);
-        }
-        if let Err(e) = panel.present() {
-            return fail(&format!("SETPLANE: {e}"));
-        }
-        say("ok");
-        match stdin.next() {
-            Some(Ok(l)) if l.trim() != "-" => line = l,
-            _ => break,
-        }
-    }
-    drop(panel);
-    drop(screen);
-    ExitCode::SUCCESS
+/// How long the server waits between looks for the game's screen while it has none: often
+/// at first (a game opens its screen in its first second or two), then rarely; after
+/// `PREPARE_GIVE_UP` it only looks again when a command comes.
+fn prepare_wait(since: Duration) -> Duration {
+    if since < Duration::from_secs(10) { Duration::from_millis(250) } else { Duration::from_secs(1) }
 }
+const PREPARE_GIVE_UP: Duration = Duration::from_secs(60);
 
-/// `--hud PGID`: the status bar until stdin ends.
-fn hud(pgid: i32) -> ExitCode {
-    let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
-    let screen = match drm::Screen::of_group(pgid) {
-        Ok(s) => s,
-        Err(why) => return fail(&why),
+/// `--serve PGID`: see serve.rs.
+fn serve(pgid: i32, hints: (String, String), warn: Option<String>) -> ExitCode {
+    let Some(fonts) = draw::Fonts::bundled() else {
+        // no answer can come: every "menu" gets a fail, so lume-run falls back at once
+        eprintln!("lume-menu: no font in /usr/share/lume/fonts");
+        for line in std::io::stdin().lines() {
+            if line.is_ok_and(|l| l.starts_with("menu ") && l.trim_end() != "menu -") {
+                say("menu fail no font in /usr/share/lume/fonts");
+            } else {
+                say("menu closed");
+            }
+        }
+        return ExitCode::from(3);
     };
-    let screen_h = screen.fb.height;
-    let mut strip = match drm::Bar::new(&screen, bar::height(screen_h)) {
-        Ok(b) => b,
-        Err(why) => return fail(&why),
-    };
-    let (w, h, pitch) = (strip.width as usize, strip.height as usize, strip.pitch);
-    let mut ok_sent = false;
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        if line.trim() == "-" {
+    let mut srv = serve::Server::new(serve::DrmGpu::new(pgid), fonts, hints, warn);
+    let started = Instant::now();
+    let stdin = std::io::stdin();
+    let fd = stdin.as_raw_fd();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 4096];
+    let mut why_logged = String::new();
+    loop {
+        // nothing runs here once the buffers are made: poll without a timeout
+        let since = started.elapsed();
+        let timeout = if srv.prepared() || since >= PREPARE_GIVE_UP { -1 } else { prepare_wait(since).as_millis() as i32 };
+        let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let r = unsafe { libc::poll(&mut p, 1, timeout) };
+        if r < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
             break;
         }
-        {
-            let px = strip.back_pixels();
-            let mut s = bar::Strip { px, w, h, pitch };
-            bar::draw(&mut s, &fonts, &line, screen_h as f32);
-        }
-        if let Err(e) = strip.present() {
-            if !ok_sent {
-                return fail(&format!("SETPLANE: {e}"));
+        if r == 0 {
+            match srv.prepare() {
+                Ok(_) => {}
+                Err(e) if e != why_logged => {
+                    eprintln!("lume-menu: not ready yet: {e}");
+                    why_logged = e;
+                }
+                Err(_) => {}
             }
-            // the game may be changing modes: the next line tries again
-            eprintln!("lume-menu: bar not shown: {e}");
             continue;
         }
-        if !ok_sent {
-            say("ok");
-            ok_sent = true;
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        if n <= 0 {
+            break;
+        }
+        pending.extend_from_slice(&buf[..n as usize]);
+        while let Some(i) = pending.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = pending.drain(..=i).collect();
+            let line = String::from_utf8_lossy(&line);
+            srv.handle(&line, &mut |l| say(l));
         }
     }
-    drop(strip);
-    drop(screen);
+    srv.finish();
     ExitCode::SUCCESS
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(String::as_str);
-    if matches!(mode, Some("--hud" | "--hint" | "--shot")) {
-        let pgid = args.get(2).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0);
-        return match (mode, pgid, args.get(3)) {
-            (Some("--hud"), Some(p), _) => hud(p),
-            (Some("--hint"), Some(p), _) => hint(p),
-            (Some("--shot"), Some(p), Some(out)) => shot(p, std::path::Path::new(out)),
-            _ => {
-                eprintln!("usage: lume-menu --hud PGID | --hint PGID | --shot PGID OUT.png");
-                ExitCode::from(2)
-            }
-        };
-    }
-    let Some(pgid) = args.get(1).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0) else {
-        eprintln!("usage: lume-menu PGID [--hints \"Choose|Back\"] [--warn TEXT]");
-        return ExitCode::from(2);
-    };
-    let mut hints = ("Select".to_string(), "Back".to_string());
-    let mut warn: Option<String> = None;
-    let mut i = 2;
-    while i + 1 < args.len() {
-        match args[i].as_str() {
-            "--hints" => {
-                if let Some((a, b)) = args[i + 1].split_once('|') {
-                    hints = (a.into(), b.into());
+    let pgid = args.get(2).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0);
+    match (mode, pgid) {
+        (Some("--shot"), Some(p)) if args.len() > 3 => shot(p, std::path::Path::new(&args[3])),
+        (Some("--serve"), Some(p)) => {
+            let mut hints = ("Select".to_string(), "Back".to_string());
+            let mut warn: Option<String> = None;
+            let mut i = 3;
+            while i + 1 < args.len() {
+                match args[i].as_str() {
+                    "--hints" => {
+                        if let Some((a, b)) = args[i + 1].split_once('|') {
+                            hints = (a.into(), b.into());
+                        }
+                    }
+                    "--warn" => warn = Some(args[i + 1].clone()),
+                    _ => {}
                 }
+                i += 2;
             }
-            "--warn" => warn = Some(args[i + 1].clone()),
-            _ => {}
+            serve(p, hints, warn)
         }
-        i += 2;
-    }
-    let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
-    let screen = match drm::Screen::of_group(pgid) {
-        Ok(s) => s,
-        Err(why) => return fail(&why),
-    };
-    let (w, h) = (screen.fb.width as usize, screen.fb.height as usize);
-    // the game's last frame, converted once to XRGB8888
-    let mut frame = vec![0u8; w * h * 4];
-    {
-        let mut img = draw::Image { px: &mut frame, w, h, pitch: w * 4 };
-        if let Some(src) = screen.map_frame() {
-            draw::copy_frame(&mut img, src.bytes(), screen.fb.pitches[0] as usize, screen.fb.pixel_format);
+        _ => {
+            eprintln!("usage: lume-menu --serve PGID [--hints \"Choose|Back\"] [--warn TEXT] | --shot PGID OUT.png");
+            ExitCode::from(2)
         }
     }
-    let mut ov = match drm::Overlay::new(&screen) {
-        Ok(o) => o,
-        Err(e) => return fail(&format!("our buffer: {e}")),
-    };
-    let pitch = ov.pitch;
-    let mut ok_sent = false;
-    // the base (dimmed game, panel, title, hints) of the current list, drawn once
-    let mut base: Vec<u8> = Vec::new();
-    let mut base_key: Option<(String, Vec<String>)> = None;
-    let mut next = vec![0u8; w * h * 4];
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        if line.trim() == "-" {
-            break;
-        }
-        let Some(st) = draw::parse(&line) else { continue };
-        let t = std::time::Instant::now();
-        let key = (st.title.clone(), st.items.clone());
-        if base_key.as_ref() != Some(&key) {
-            base = frame.clone();
-            let mut img = draw::Image { px: &mut base, w, h, pitch: w * 4 };
-            draw::draw_base(&mut img, &fonts, &st, (&hints.0, &hints.1));
-            base_key = Some(key);
-        }
-        next.copy_from_slice(&base);
-        let mut img = draw::Image { px: &mut next, w, h, pitch: w * 4 };
-        draw::draw_items(&mut img, &fonts, &st, warn.as_deref());
-        // the first picture fades in over a few frames (the user asked for a smoother
-        // appearance, J2 on the GA36); later ones are drawn off the screen and swapped in
-        let steps: &[u32] = if ok_sent { &[256] } else { &[72, 140, 200, 256] };
-        for &a in steps {
-            let buf = ov.back_pixels();
-            for y in 0..h {
-                let (row, from, to) = (y * pitch, &frame[y * w * 4..(y + 1) * w * 4], &next[y * w * 4..(y + 1) * w * 4]);
-                if a == 256 {
-                    buf[row..row + w * 4].copy_from_slice(to);
-                } else {
-                    draw::mix_into(&mut buf[row..row + w * 4], from, to, a);
-                }
-            }
-            if let Err(e) = ov.present() {
-                return fail(&format!("SETPLANE: {e}"));
-            }
-        }
-        eprintln!("lume-menu: {} in {} ms", if ok_sent { "redraw" } else { "shown" }, t.elapsed().as_millis());
-        if !ok_sent {
-            say("ok");
-            ok_sent = true;
-        }
-    }
-    // dropping the overlay and the screen gives the plane back and frees our buffers
-    drop(ov);
-    drop(screen);
-    ExitCode::SUCCESS
 }

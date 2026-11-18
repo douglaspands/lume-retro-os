@@ -472,3 +472,33 @@ largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação
   fechar o do RetroArch. Decidir na J2.
 - Resultado da prova do D14 (J1, tarefa 4.6): decide se o menu é desenhado pelo sistema ou
   pelo widget de reserva.
+
+## Revisão do D14 pela device-fixes 9.14 (2026-11-18)
+
+O log do GA36 (boot 193, um jogo LÖVE) mostrou três falhas do desenho pelo sistema; a 9.14
+muda a forma do `lume-menu`, não a decisão do D14:
+
+- **`our buffer: Out of memory`:** o `lume-menu` criava os buffers a cada abertura, no arquivo
+  DRM do jogo, numa CMA de 16 MiB (o padrão do Kconfig; o motor de vídeo do A33 não tem
+  IOMMU) já cheia pelo jogo. Agora a CMA do GA36 tem 64 MiB (`CONFIG_CMA_SIZE_MBYTES` no
+  fragmento do kernel) e o `lume-menu --serve PGID` nasce com o jogo, cria **uma vez** os
+  buffers (dois de tela cheia para o menu, também usados pela dica; duas faixas para a
+  barra) num arquivo DRM **próprio**, não mestre, e reaproveita. Depois disso fica parado na
+  leitura do stdin: nada roda com o menu, a barra e a dica fechados. O R36S não precisa: o
+  VOP tem IOMMU e o defconfig do arm64 já reserva 32 MiB.
+- **`bar not shown: Permission denied`:** o `--hud` guardava a cópia (`pidfd_getfd`) de um
+  arquivo do jogo que deixou de ser o mestre (hipótese, não medida: o SDL larga o mestre e
+  reabre o card quando o LÖVE recria a janela); todo `SETPLANE` dava `EACCES`, que no
+  `drm_ioctl` só vem da falta de mestre. Agora cada operação pega o arquivo mestre atual do
+  jogo (conferido com `AUTH_MAGIC`, que só o mestre pode chamar) e o fecha logo depois. Nenhum
+  privilégio novo: o `game` já está no grupo `video` e o `pidfd_getfd` do mesmo usuário passa
+  sem Yama (J1).
+- **`plane 45: Invalid argument`:** o `sun4i_backend_atomic_check` aceita no máximo dois
+  planos com alfa no A33; o SDL do LÖVE já põe ARGB8888 no plano primário, então a barra e a
+  dica juntas passavam do limite. A escolha do plano tenta primeiro todos os planos livres em
+  ARGB8888 e depois os mesmos em XRGB8888 (opaco, sem alfa); o motivo de cada recusa vai para
+  o log.
+- **Toque:** o grupo para na hora (`SIGSTOP`, ou a pausa do RetroArch e depois o `SIGSTOP`), o
+  `lume-run` manda `menu ...` ao processo que já está pronto e espera o `menu ok`, que sai
+  depois do primeiro quadro (o fade continua depois). O `--hud`, o `--hint` e o `lume-menu
+  PGID` de uma vez saíram; o `--shot` continua um processo curto.
