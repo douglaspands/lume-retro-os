@@ -48,8 +48,7 @@ const TICK: Duration = Duration::from_secs(1);
 const PROG: &str = "lume-run";
 const EXIT_LAUNCH: i32 = 64;
 const EXIT_MENU: i32 = 65;
-/// Restart the session (frozen in docs/FRONTEND.md; the behaviour comes later)
-#[allow(dead_code)]
+/// Restart the console (docs/FRONTEND.md): passed through to the session, which reboots
 const EXIT_RESTART: i32 = 66;
 /// After cgroup.kill, how long the cgroup may take to empty
 const KILL_GRACE: Duration = Duration::from_secs(2);
@@ -817,6 +816,11 @@ fn main() -> ExitCode {
             Exit::Code(0) => {
                 run.status("off");
                 return ExitCode::SUCCESS;
+            }
+            // the session reboots on 66 as it powers off on 0
+            Exit::Code(EXIT_RESTART) => {
+                run.status("off");
+                return ExitCode::from(EXIT_RESTART as u8);
             }
             Exit::Code(c @ (EXIT_LAUNCH | EXIT_MENU)) => c,
             other => {
