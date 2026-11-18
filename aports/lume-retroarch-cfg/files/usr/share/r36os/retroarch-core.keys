@@ -1,0 +1,11 @@
+# Lume Retro OS: RetroArch keys for the runs of one core, read by the frontend script
+# (frontends/retroarch). One line per key: <core> <key>=<value>, where <core> is the name of
+# the libretro file without _libretro.so. They count for that run only, after the fixed keys
+# of retroarch-lume.cfg and retroarch-<board>.cfg, and the user's value comes back when the
+# run ends (the same way as the launcher's --lume-set).
+
+# PlayStation (game-governor, 2026-11-18): the video thread of the boards (retroarch-ga36.cfg)
+# crashed RetroArch once right after a resolution change of the core (SET_GEOMETRY,
+# exit 139 on the GA36). PS1 games change resolution all the time, so this core keeps the
+# video in the main thread, as before (user decision).
+pcsx_rearmed video_threaded=false

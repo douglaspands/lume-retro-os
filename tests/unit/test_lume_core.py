@@ -77,6 +77,8 @@ ADDED_AFTER_MOVE = {
     "usr/share/lume/power/r36s.conf",
     "usr/libexec/r36os/vm-net",             # virtual-gamepad 3.3: the vm's ssh network (lume-net)
     "etc/init.d/r36os-vmnet",
+    # game-governor: RetroArch keys per core (the PlayStation keeps the main-thread video)
+    "usr/share/r36os/retroarch-core.keys",
 }
 
 

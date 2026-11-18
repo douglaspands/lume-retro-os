@@ -21,6 +21,7 @@
 # Keys for one run only (lume-launcher D7), given before the RetroArch arguments:
 #   --lume-set KEY=VALUE   the value for this run (aspect_ratio_index)
 #   --lume-keep KEY        a key RetroArch itself changes for this run (state_slot, by -e)
+# and the keys of the core given with -L in retroarch-core.keys (same handling).
 # The user's values of those keys are saved in LUME_RESTORE (on the card) and written back
 # when RetroArch ends; if it was killed, at the start of the next run. RetroArch saves its
 # whole config, so without this the run's value would become the user's.
@@ -109,6 +110,24 @@ while :; do
 	*) break ;;
 	esac
 done
+# keys of the core of this run (retroarch-core.keys): "<core> <key>=<value>" lines for
+# the libretro file given with -L, added to the keys of this run
+CORE=""
+prev=""
+for a in "$@"; do
+	[ "$prev" = -L ] && CORE=${a##*/} && CORE=${CORE%_libretro.so}
+	prev=$a
+done
+if [ -n "$CORE" ] && [ -f "$SHARE/retroarch-core.keys" ]; then
+	while read -r c kv rest; do
+		case "$c" in ''|\#*) continue ;; esac
+		[ "$c" = "$CORE" ] || continue
+		k=${kv%%=*}
+		case "$k" in ''|*[!A-Za-z0-9_]*) continue ;; esac
+		printf '%s = "%s"\n' "$k" "${kv#*=}" >> "$RUN_KEYS"
+		SAVE="$SAVE $k"
+	done < "$SHARE/retroarch-core.keys"
+fi
 if [ -z "$SAVE" ]; then
 	exec retroarch \
 		--config "$USER_CFG" \

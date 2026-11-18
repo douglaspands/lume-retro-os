@@ -231,7 +231,7 @@ echo "$@"
 echo "defaults=$LUME_RETROARCH_DEFAULTS"
 echo "quit=$LUME_RETROARCH_QUIT"
 cfg=$(echo "$@" | sed 's/.*--config \\([^ ]*\\).*/\\1/')
-grep -E '^(aspect_ratio_index|state_slot) ' "$cfg" | sed 's/^/during: /'
+grep -E '^(aspect_ratio_index|state_slot|video_threaded) ' "$cfg" | sed 's/^/during: /'
 # what RetroArch does with -e: the slot becomes the current one, saved with the config
 case " $* " in *" -e "*) echo 'state_slot = "3"' >> "$cfg" ;; esac
 [ -n "$FAKE_DIE" ] && kill -KILL $PPID
@@ -348,6 +348,22 @@ def test_run_only_keys_go_back_after_a_kill(tmp_path):
     assert 'during: aspect_ratio_index = "22"' in out and 'during: state_slot = "1"' in out
     assert cfg.count("aspect_ratio_index") == 1 and cfg.count("state_slot") == 1
     assert not (tmp_path / "card/restore.cfg").exists()
+
+
+def test_core_keys_count_for_that_core_only_and_go_back(tmp_path):
+    # retroarch-core.keys (game-governor, 2026-11-18): the PlayStation core keeps the video
+    # in the main thread (a crash after a resolution change with the video thread)
+    psx = ("-L", "/usr/lib/libretro/pcsx_rearmed_libretro.so", "/storage/roms/psx/x.chd")
+    out, cfg, _ = _frontend(tmp_path, "ga36", "", args=psx)
+    assert 'during: video_threaded = "false"' in out
+    assert 'video_threaded = "true"' in cfg.splitlines()         # the board's value comes back
+    assert not (tmp_path / "card/restore.cfg").exists()
+    snes = ("-L", "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/x.sfc")
+    out, cfg, _ = _frontend(tmp_path, "ga36", "", args=snes)
+    assert 'during: video_threaded = "true"' in out
+    keys = (SHARE / "retroarch-core.keys").read_text()
+    assert "pcsx_rearmed video_threaded=false" in keys
+    assert not any(ord(c) > 127 for c in keys)
 
 
 def test_without_launcher_keys_nothing_changes(tmp_path):
