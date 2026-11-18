@@ -106,6 +106,15 @@ static inline int vol_pct_from_raw(const struct vol_control *c, int raw)
 	return vol_pct_from_db((raw - c->ref) * c->mdb_step);
 }
 
+/* One key step of `step` percent, on the grid of the step: up from 87 is 90, down from 87
+ * is 85; the ends hold (0 and 100). */
+static inline int vol_step(int pct, int up, int step)
+{
+	int v = up ? (pct / step + 1) * step : ((pct + step - 1) / step - 1) * step;
+
+	return v < 0 ? 0 : v > 100 ? 100 : v;
+}
+
 /* One-time conversion: the percent that keeps the gain of today's digital level (raw of the
  * old control), the nearest position of the new scale. Used when level-<output> does not
  * exist yet; afterwards the file is the truth. */

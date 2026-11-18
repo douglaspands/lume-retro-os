@@ -428,9 +428,28 @@ Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jog
 (`70`). É o nível que a borda direita e as Configurações mostram, e o `mixer` o reaplica no
 boot. **GA36:** a entrada do fone tem uma chave mecânica e nenhuma detecção, então só existe o
 `level-speaker`; o `headphones` fica sem uso. **R36S:** os dois valem (D10): o serviço `jack`
-(`lume-audio`) troca o `Playback Mux` (`SPK`/`HP`) a cada encaixe ou retirada do fone e aplica
-o nível da saída nova pela conversão desta seção (hoje no `Master`; a 7.2 troca o controle).
-No GA36 o `jack` não faz nada: chave mecânica, um nível só.
+(`lume-audio`) troca o `Playback Mux` (`SPK`/`HP`) a cada encaixe ou retirada do fone, grava a
+saída ativa em `/run/lume/audio/output` (`speaker` ou `headphones`) e aplica o nível da saída
+nova pela conversão desta seção (no `Master` digital até a 7.1 medir um ganho analógico). No
+GA36 o `jack` não faz nada: chave mecânica, um nível só.
+
+**Quem mexe (7.2).** As teclas de volume (`lume-input`) e a linha Volume das Configurações
+(`lume-ui`) andam de 5 em 5% na grade (de 87%, sobe para 90% e desce para 85%), na saída ativa
+(sem o arquivo de saída, `speaker`), aplicam a posição bruta e gravam `level-<saída>` (arquivo
+oculto renomeado por cima). A borda direita sobre o jogo (`LUME_LEVEL`) e as Configurações
+mostram esse mesmo número. O `mixer` reaplica o nível no boot e não grava o arquivo. Os dois
+leem o controle no perfil do `lume-input` (`/usr/share/lume/input/<placa>.conf`):
+
+| Linha | Uso |
+|---|---|
+| `mixer <placa> <controle> 5` | o controle do volume e o passo, em % da escala |
+| `mixer_scale <lo> <hi> <ref> <mdB por passo>` | o controle na escala desta seção (sem ela, o `amixer` em % puro, como na `vm`) |
+| `mixer_switch` | 0% desliga a chave do controle (mudo; o DAPM desliga a saída); qualquer outro nível a liga |
+| `mixer_keep <controle> <valores>` | reaplicado a cada passo (GA36: `DAC 160 on`, o digital em 0 dB e ligado) |
+| `mixer_old <controle> <lo> <hi> <ref> <mdB por passo>` | o controle do volume antigo, para a conversão única (GA36: `DAC`) |
+
+No GA36 o controle é o `Headphone` (com a chave); no R36S, o `Master` (sem chave: 0% é o mínimo
+do controle).
 
 **Escala perceptiva.** O número é um ganho em dB abaixo do máximo limpo do controle, não uma
 fração da posição bruta dele (antes, cada toque tirava 4,5 dB e a barra só caía de 100% para
@@ -476,10 +495,19 @@ próxima da tabela (empate vai para a menor); bruto no mínimo é 0%. Ex.: `DAC`
 vira 85%; 160 e 166 viram 100%. Daí em diante o arquivo manda. Sem arquivo e sem leitura do
 mixer, o nível inicial é 70%.
 
+Na prática (7.2), sem `level-<saída>`: o `DAC` antigo só é convertido enquanto guarda um nível
+do sistema antigo, isto é, fora de 0 dB (por exemplo, um `lume push --hot` que reiniciou os
+serviços com o volume antigo aplicado). Com o `DAC` em 0 dB (boot novo), o `mixer` aplica 70%,
+e o `lume-input` e as Configurações leem a posição do próprio controle (que é a que o `mixer`
+aplicou). No R36S, sem arquivo, o `mixer` e o `jack` aplicam 70%. O primeiro toque grava o
+arquivo.
+
 **Onde vive.** A tabela e as funções puras estão em `aports/lume-input/volume.h` (C, usado
-pelo `lume-input`) e em `lume/lume-ui/src/volume.rs` (Rust, usado pelo launcher); o teste
-`tests/unit/test_volume_scale.py` confere que as duas tabelas e esta são iguais. Quem usa o
-formato são as tarefas 7.1, 7.2 e 7.4.
+pelo `lume-input`), em `lume/lume-ui/src/volume.rs` (Rust, usado pelo launcher) e em
+`aports/lume-audio/files/usr/libexec/lume/volume.sh` (shell, usado pelo `mixer` e pelo `jack`);
+o teste `tests/unit/test_volume_scale.py` confere que as três tabelas e esta são iguais, e que
+o shell dá as mesmas posições e a mesma conversão do C. Quem usa o formato são as tarefas 7.1,
+7.2 e 7.4.
 
 ## Arquivos do launcher no cartão
 

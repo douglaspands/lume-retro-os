@@ -118,6 +118,8 @@ ADDED_AFTER_MOVE = {
     "usr/bin/lume-clock",
     "etc/init.d/lume-clock",
     "etc/NetworkManager/dispatcher.d/90-lume-clock",
+    # device-fixes 7.2: the volume scale of the shell services (lume-audio: mixer, jack)
+    "usr/libexec/lume/volume.sh",
     # device-fixes 5.3: the card maintenance requests (lume-saves)
     "usr/libexec/lume/card",
     "usr/libexec/lume/card-event",

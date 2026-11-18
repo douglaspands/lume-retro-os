@@ -9,9 +9,24 @@
 # (hw_ptr stays at 32) and RetroArch blocks forever in snd_pcm_wait() as soon as a game
 # writes audio: that was the "game freezes" of task 9.8.
 #
-# Environment for the tests: BOARD_FILE (default /etc/lume/board), AMIXER (default amixer).
+# Volume (device-fixes D9, task 7.2): the user level of the output (level-<output>, see
+# volume.sh) is applied to the volume control of the board, the one lume-input moves:
+#  - GA36: the analog "Headphone" (0-63, 63 = 0 dB, it also feeds the speaker amplifier),
+#    with its switch off at 0% (mute) and on otherwise; the digital "DAC" stays at 0 dB
+#    (160) and on. One level, "speaker" (the jack switch is mechanical). Without a level
+#    file: the one-time conversion of the old volume, the DAC, while it holds a level of the
+#    old system (not at 0 dB, e.g. a restart by "lume push --hot"); else 70%.
+#  - R36S: the digital "Master" of the RK817 (0-255, 255 = 0 dB) until task 7.1, with the
+#    speaker level (the jack service applies the headphones one on insertion); 70% without
+#    a file, as the jack service.
+# The file is not written here (no card write on the boot path): lume-input and the
+# launcher write it on the first change.
+#
+# Environment for the tests: BOARD_FILE (default /etc/lume/board), AMIXER (default amixer),
+# LEVEL_DIR (default /storage/system/audio), AUDIO_LIBDIR (volume.sh, default this folder).
 BOARD_FILE=${BOARD_FILE:-/etc/lume/board}
 AMIXER=${AMIXER:-amixer}
+. "${AUDIO_LIBDIR:-${0%/*}}/volume.sh"
 board=$(cat "$BOARD_FILE" 2>/dev/null)
 rc=0
 
@@ -32,20 +47,34 @@ case "$board" in
 		set_ctl "$c" 'AIF1 Slot 0 Digital DAC' on
 		# digital volumes: -120 dB + 0.75 dB per step, so 160 = 0 dB
 		set_ctl "$c" 'AIF1 DA0' 160
+		pct=$(level_read speaker) from=level-speaker
+		if [ -z "$pct" ]; then
+			old=$(ctl_raw "$AMIXER" "$c" DAC)
+			if [ -n "$old" ] && [ "$old" != 160 ]; then
+				pct=$(vol_pct_from_raw 0 160 750 "$old") from="old DAC $old"
+			else
+				pct=$VOL_DEFAULT_PCT from=default
+			fi
+		fi
+		echo "mixer: speaker level $pct% ($from)"
 		set_ctl "$c" 'DAC' 160 on
 		set_ctl "$c" 'Headphone Source' DAC
-		set_ctl "$c" 'Headphone' on
+		if [ "$pct" -gt 0 ]; then sw=on; else sw=off; fi
+		set_ctl "$c" 'Headphone' "$(vol_raw 0 63 1500 "$pct")" "$sw"
 		set_ctl "$c" 'Speaker' on
 		;;
 	r36s)
 		# R36S (RK817 codec, simple-audio-card "rk817_int"): the speaker output and the
 		# left headphone pin are the same inside the codec, so "Playback Mux" picks one;
-		# the speaker by default (switching to HP on headphone insertion is task 6.6).
+		# the speaker at boot, the jack service switches it on headphone insertion (D10).
 		# Only "Internal Speakers" is a pin switch in the DTS; the headphone widget has
 		# no switch on the real card (first boot on the R36S, 2026-11-12).
 		c=rk817int
 		set_ctl "$c" 'Playback Mux' SPK
-		set_ctl "$c" 'Master' 100%
+		pct=$(level_read speaker) from=level-speaker
+		[ -z "$pct" ] && pct=$VOL_DEFAULT_PCT from=default
+		echo "mixer: speaker level $pct% ($from)"
+		set_ctl "$c" 'Master' "$(vol_raw 0 255 373 "$pct")"
 		set_ctl "$c" 'Internal Speakers' on
 		;;
 	*)
