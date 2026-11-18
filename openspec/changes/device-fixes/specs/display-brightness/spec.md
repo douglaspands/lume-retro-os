@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Brilho da tela sem trava fixa: um limite seguro aprendido por aparelho, mostrado ao usuário e
-registrado, para os painéis que falham com brilho alto.
+Brilho da tela sem trava fixa: um limite seguro aprendido por aparelho e registrado, para os
+painéis que falham com brilho alto (ou quentes, P-95). Sem marca na tela (decisão do usuário,
+2026-11-18).
 
 ## ADDED Requirements
 
@@ -15,18 +16,14 @@ consoles. Nenhum console MUST ter um teto fixo de brilho.
 - **WHEN** o usuário sobe o brilho do GA36 até o fim
 - **THEN** o brilho chega ao nível máximo do hardware
 
-### Requirement: Limite seguro visível
-Quando o aparelho tiver um limite seguro, a linha de brilho da borda da tela e a barra do
-Brilho nas Configurações MUST marcar esse nível com um pontinho vermelho. Sem limite, nenhuma
-marca aparece.
+### Requirement: Limite sem marca na tela
+O limite seguro MUST NOT ser desenhado na linha de brilho da borda da tela nem na barra do
+Brilho das Configurações: ele fica só no registro (`events.log` e o arquivo do aparelho no
+cartão) até a revisão do D12 depois do E4 decidir o que fazer com ele.
 
-#### Scenario: Pontinho no GA36
+#### Scenario: Linha de brilho sem marca
 - **WHEN** o usuário aperta Fn+Volume num GA36 com o limite no nível 7
-- **THEN** a linha de brilho mostra um pontinho vermelho no nível 7
-
-#### Scenario: Sem limite no R36S
-- **WHEN** o usuário aperta Fn+Volume no R36S
-- **THEN** a linha de brilho não mostra nenhum pontinho
+- **THEN** a linha de brilho mostra só o nível atual, sem nenhuma marca no 7
 
 ### Requirement: Limite por aparelho
 O limite MUST pertencer ao aparelho, não ao cartão: cada console identificado pelo número de
@@ -59,15 +56,15 @@ motivo.
 ### Requirement: Recomeçar o aprendizado
 O painel Brilho das Configurações MUST ter a ação "Recomeçar o aprendizado", com confirmação
 (Sim em cima, Cancelar com o foco). Confirmada, ela MUST apagar o limite aprendido deste
-aparelho e deixá-lo **sem limite**: o brilho vai até o máximo, sem pontinho, até o primeiro
-relato (Fn+Select), que cria o limite de novo. Esse estado MUST ser guardado como "sem
+aparelho e deixá-lo **sem limite** até o primeiro relato (Fn+Select), que cria o limite de
+novo. Esse estado MUST ser guardado como "sem
 limite", diferente de um aparelho sem arquivo (que usa o padrão do console). A mudança MUST
 ser registrada no `events.log`. Os outros aparelhos que usam o mesmo cartão não mudam.
 
 #### Scenario: Recomeçar no GA36
 - **WHEN** o limite do GA36 está em 7 e o usuário confirma "Recomeçar o aprendizado"
-- **THEN** o pontinho some, o brilho vai até 10, e o `events.log` registra `display OK limit 7 -> none (reset)`
+- **THEN** o arquivo do GA36 passa a dizer "sem limite" e o `events.log` registra `display OK limit 7 -> none (reset)`
 
 #### Scenario: Relato depois de recomeçar
 - **WHEN** o aprendizado foi recomeçado e a tela falha no nível 9 com o relato Fn+Select
-- **THEN** o limite passa a 8, o pontinho volta no 8 e o `events.log` registra o relato e `display OK limit none -> 8 (report)`
+- **THEN** o limite passa a 8 e o `events.log` registra o relato e `display OK limit none -> 8 (report)`

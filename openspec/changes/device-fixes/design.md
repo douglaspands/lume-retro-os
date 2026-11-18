@@ -313,8 +313,8 @@ clientes pelo socket, espera `suspend_ok <seq>` até 2 s e responde no arquivo `
 - O `backlight_max` sai dos perfis. O brilho vai até o máximo do hardware.
 - **Limite seguro** por aparelho, guardado em `ROMS/system/display/limit-<serial>` (formato
   congelado na 3.3). O padrão é 7 no GA36 e nenhum no R36S.
-- **Pontinho vermelho** no nível do limite, na linha da borda esquerda (Fn+Volume) e na
-  barra do Brilho das Configurações, com o visual definido no protótipo (4.1).
+- ~~Pontinho vermelho no nível do limite~~: **removido pelo usuário (2026-11-18)**; o limite
+  não aparece na tela, fica só no registro (D19).
 - **Relato pelo usuário:** Fn+Select ("a tela falhou agora", acorde livre desde a
   `lume-hud-actions`) grava no `events.log` o nível, a tensão e a corrente da bateria, a
   temperatura, o carregador ligado e o tempo de tela acesa, e baixa o limite para um nível
@@ -415,6 +415,37 @@ centro do DTS e registra o aviso.
 O `mark_flashed()` (`src/r36os/flash.py:285`, `src/lume_tool/flash.py` depois do D7)
 resolve o caminho (`build_dir.resolve().name`) antes de criar o link. O `flash` com `sudo`
 na frente passa a avisar.
+
+### D19. Menu do sistema pelo Fn no launcher (trazido da `launcher-adjustments`)
+
+Decisão do usuário (2026-11-18): o menu do sistema, a dica do Fn e o reiniciar saem da
+`launcher-adjustments` (D1 a D4 de lá) e entram aqui, junto com o Suspender. A
+`launcher-adjustments` fica só com as cores e os logos dos consoles.
+
+- **Camada própria no `lume-ui`:** um campo `system: Option<SystemMenu>`, separado do
+  `overlay`, desenhado por cima de qualquer tela ou folha e com a entrada antes do resto; ao
+  fechar, a tela de baixo continua como estava.
+- **Itens, nessa ordem:** Configurações, Suspender, Reiniciar, Desligar; foco inicial em
+  Configurações.
+  - Configurações abre as Configurações lembrando a tela de origem; B volta a ela.
+  - Suspender pede a suspensão sem confirmação (o mesmo pedido do botão, D11 e 3.2).
+  - Reiniciar e Desligar abrem a confirmação vertical (o item em cima, Cancelar embaixo com o
+    foco, só cima e baixo mudam a escolha, D8).
+- **Eventos:** `Ev::FnTap` abre e fecha; `Ev::FnHold(tabela)` mostra a dica dos atalhos (só
+  `Vol=brightness` no launcher, mais "Fn (toque): Menu do sistema"); `Ev::FnRelease` a
+  esconde. Os três vêm da thread do socket (`lume/lume-ui/src/input.rs`) pelo parser do
+  `lume-core`.
+- **Reiniciar pelo contrato de sessão:** o `lume-ui` sai com **66**; o `lume-run` repassa o 66
+  como repassa o 0; o `session` ganha o ramo `rc 66` (`closed by user: rebooting`,
+  `persist flush`, `sync`, `reboot`). Código documentado no `docs/FRONTEND.md`; um frontend que
+  nunca sai com 66 continua igual.
+- **Configurações:** sem Desligar, sem Suspender e **sem RetroArch** (o acesso ao menu completo
+  do RetroArch fora do jogo volta pela P-101). A lista fica Idioma, Tema, Tela, Volume,
+  Brilho, Sistema, Cartão, Games (mais Wi-Fi e Bluetooth com adaptador).
+- **Rodapé do Dock:** a dica do Fn (glifo + "Menu") ao lado das de A e do direcional.
+- **Brilho sem pontinho:** o usuário dispensou o pontinho vermelho (2026-11-18); o limite do
+  D12 fica só no registro até a revisão pós-E4.
+- Protótipo primeiro (4.1), régua a 640x480, três idiomas.
 
 ## Risks / Trade-offs
 

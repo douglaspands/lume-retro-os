@@ -46,6 +46,10 @@ Estado atual que o desenho reaproveita:
 
 ## Decisions
 
+> **2026-11-18 (decisão do usuário):** D1 a D4 passaram para a change `device-fixes` (D19 de
+> lá), com o Suspender no menu do sistema e o RetroArch fora das Configurações. Ficam aqui só
+> como histórico; esta change implementa D5 (só o Dock com as cores), D6, D7 e D8.
+
 ### D1. Menu do sistema como camada própria no `lume-ui`
 
 Um campo novo, `system: Option<SystemMenu>`, separado do `overlay`. Ele é desenhado depois de
