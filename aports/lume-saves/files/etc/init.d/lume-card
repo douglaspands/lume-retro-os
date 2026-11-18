@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Card maintenance requests of the launcher (device-fixes D4): TRIM and check at next boot.
+# Waits in inotifyd on /run/lume/card/: no loop, no CPU while idle. After the frontend
+# (build-speed D20): nothing here is needed to reach the launcher.
+
+description="Card maintenance requests (TRIM, check at next boot)"
+command=/usr/libexec/lume/card
+command_background=yes
+pidfile=/run/lume-card.pid
+
+depend() {
+	need localmount
+	after lume-persist frontend
+}
