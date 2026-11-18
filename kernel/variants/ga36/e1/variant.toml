@@ -1,0 +1,3 @@
+# Experiment kernel (device-fixes 6.3, D12, P-95 E1); never in the default image. Only the
+# device trees change (board.dtsi); the kernel image is the default one.
+description = "E1: DCDC1 (vcc-io, and the panel through dc1sw) at 3.3 V instead of the 3.0 V of the vendor U-Boot"

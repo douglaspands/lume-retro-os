@@ -1,0 +1,37 @@
+Subject: [PATCH] drm/panel: ga36mb-jd9366: experiment E4, slower DSI link
+
+Experiment kernel of device-fixes 6.3 (D12, P-95 E4), never in the default image.
+
+The default mode asks for 30 MHz; with pll-video locked at 297 MHz by the DSI
+block, pll-mipi can only give 297 x 6 / 5 = 356.4 MHz, so the pixel clock is
+29.7 MHz and each of the two lanes runs at 356.4 Mbit/s. This variant asks for
+27.5 MHz: pll-mipi 297 x 10 / 9 = 330 MHz exactly, lanes at 330 Mbit/s (-7.4%),
+same totals (1040 x 518), 51.05 Hz. If the hot fault is a timing margin of the
+link, it should start later or not at all.
+---
+diff --git a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+--- a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
++++ b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+@@ -194,8 +194,13 @@
+  * vsync 6. In the Allwinner counting hbp/vbp include the sync, so the back porch is
+  * hbp - hsync and the front porch is the rest.
+  */
++/*
++ * Experiment E4 slow link (device-fixes 6.3): 27.5 MHz is pll-mipi 297 MHz x 10 / 9
++ * = 330 MHz divided by 12 (24 bits over 2 lanes): lanes at 330 Mbit/s instead of
++ * 356.4, same totals, 27500000 / (1040 x 518) = 51.05 Hz.
++ */
+ static const struct drm_display_mode jd9366_mode = {
+-	.clock = 30000,
++	.clock = 27500,
+ 	.hdisplay = 640,
+ 	.hsync_start = 640 + 280,
+ 	.hsync_end = 640 + 280 + 40,
+@@ -450,6 +455,7 @@
+ 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
+ 			  MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
+ 	ctx->panel.prepare_prev_first = true;
++	dev_info(dev, "experiment kernel e4-slow: 27.5 MHz pixel clock, DSI lanes at 330 Mbit/s\n");
+ 
+ 	ret = jd9366_check_bus(ctx, dsi);
+ 	if (ret < 0) {

@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Experiment E1 (device-fixes 6.3, D12, P-95): DCDC1 at 3.3 V. Included at the end of every
+ * GA36 .dts by `lume build --console ga36 kernel --variant e1`; never in the default image.
+ *
+ * Today the DTS gives DCDC1 no voltage and the kernel keeps the 3.0 V the vendor U-Boot sets
+ * (script.bin dcdc1_vol = 3000; regulator_summary: vcc-io 3000 mV). With min = max the
+ * regulator core sets 3.3 V when the AXP223 registers. dc1sw (the panel supply, vcc-lcd) is
+ * a switch on DCDC1 and follows it.
+ *
+ * Limits: AXP22x DCDC1 1.6 to 3.4 V in 100 mV steps (drivers/regulator/axp20x-regulator.c);
+ * 3.3 V is the nominal I/O voltage of the A33 (the A33-OLinuXino runs DCDC1 at 3.3 V in
+ * mainline). NOT verified: the JD9366 and the gamepad MCU limits (no datasheet; JD9366
+ * parts usually take 3.3 V on IOVCC/VCI), and whether every chip on the PB/PF/PG/PH lines is
+ * itself powered from DCDC1.
+ */
+
+&reg_dcdc1 {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+};

@@ -43,6 +43,11 @@ def _parser() -> argparse.ArgumentParser:
                         "or for a fragment build the one of the latest console build)")
     b.add_argument("--clean", action="store_true",
                    help="run every stage, even those whose inputs did not change")
+    b.add_argument("--variant", metavar="NAME",
+                   help="with `kernel --console ga36`: an experiment kernel of "
+                        "kernel/variants/<console>/NAME, archived as a build that `latest` "
+                        "does not point to (send it with `lume push --build <id>`, undo it "
+                        "with `lume push`)")
 
     f = sub.add_parser("flash", help="write a built image to the card (run it in a terminal)")
     f.add_argument("target", help=f"image: {', '.join(IMAGES)}")
@@ -252,6 +257,18 @@ def _main(args: argparse.Namespace) -> int:
                 lang.retro_language(args.lang)  # validate before creating any file
             from lume_tool import fragment_build, stage_inputs
 
+            if args.variant is not None:
+                # device-fixes 6.3: an experiment kernel, never the default image
+                if args.target != ["kernel"] or not args.console or args.all or args.clean:
+                    print("error: --variant goes with `kernel --console <console>` only",
+                          file=sys.stderr)
+                    return 2
+                from lume_tool import kernel_variants
+
+                kernel_variants.load(args.console, args.variant)   # checked before building
+                _heat_guarded(lambda: kernel_variants.build_variant(args.console,
+                                                                    args.variant))
+                return 0
             fragments = not args.all and fragment_build.is_fragment_target(args.target)
             if fragments:
                 # validated before any file is created (an unknown name, an image name)

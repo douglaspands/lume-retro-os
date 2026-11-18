@@ -1,0 +1,2 @@
+# Experiment kernel (device-fixes 6.3, D12, P-95 E4); never in the default image.
+description = "E4: EoT packet after every HS transmission (vendor lcd_dsi_eotp = 1), same clock, totals and burst"
