@@ -1,7 +1,7 @@
 //! Writer of the power FIFO `/run/lume/power` (openspec game-governor, D1/D2).
 //!
-//! Protocol: one message per line, `menu`, `idle`, `game <system> <core> [<key>]`, `end` or
-//! `reload`. `<key>` is [`game_key`] of the ROM (D18): a per-game profile without the name.
+//! Protocol: one message per line, `menu`, `idle`, `game <system> <core> [<key>]`, `end`,
+//! `reload`, `suspend` or `resume` (the last two from `lume-sleep`). `<key>` is [`game_key`] of the ROM (D18): a per-game profile without the name.
 //! The writer opens the FIFO with `O_NONBLOCK` and never creates it: without the service (no
 //! reader, no FIFO, full pipe) the message is dropped and the caller goes on. A game or the
 //! launcher never waits for the power service. English only, and never a game name or path.
@@ -20,6 +20,11 @@ pub enum Message {
     End,
     /// Read the profile files again and reapply the profile of the current scenario.
     Reload,
+    /// The console is about to suspend (device-fixes D11, sent by `lume-sleep`): the lowest
+    /// profile until [`Message::Resume`].
+    Suspend,
+    /// The console woke up: back to the exact scenario of before the suspend.
+    Resume,
 }
 
 impl Message {
@@ -40,6 +45,8 @@ impl Message {
             Message::Game { system, core, .. } => format!("game {} {}\n", word(system), word(core)),
             Message::End => "end\n".to_string(),
             Message::Reload => "reload\n".to_string(),
+            Message::Suspend => "suspend\n".to_string(),
+            Message::Resume => "resume\n".to_string(),
         }
     }
 }
@@ -122,6 +129,8 @@ mod tests {
         assert_eq!(Message::Idle.line(), "idle\n");
         assert_eq!(Message::End.line(), "end\n");
         assert_eq!(Message::Reload.line(), "reload\n");
+        assert_eq!(Message::Suspend.line(), "suspend\n");
+        assert_eq!(Message::Resume.line(), "resume\n");
         assert_eq!(
             Message::Game { system: "snes".into(), core: "snes9x2005_plus".into(), key: String::new() }.line(),
             "game snes snes9x2005_plus\n"

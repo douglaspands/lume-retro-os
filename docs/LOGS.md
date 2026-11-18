@@ -173,6 +173,8 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 | `game <sistema> <core> [<chave>]` | `lume-run`, antes do `exec` | cenário jogo (perfil pela `<chave>` do jogo, depois pelo `core`, depois pela classe do sistema, depois `game`); a chave é `lume_core::power::game_key` da ROM (FNV-1a 64 do caminho relativo a `ROMS/roms/`, `<sistema>/<arquivo>`, 16 dígitos hex; `game_key_of(sistema, caminho do gamelist)` dá a mesma), nunca o nome; uma linha de 3 palavras continua valendo |
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
+| `suspend` | `lume-sleep` (8.3), depois do `sync` e antes de gravar em `/sys/power/state` | cenário `suspend` (device-fixes D11): guarda o cenário exato (sistema, core, chave), para o controlador e aplica o mais baixo do console: `scaling_min_freq` = `scaling_max_freq` = `cpuinfo_min_freq`, só o `cpu0`, GPU no menor degrau (`min_freq` = `max_freq`); o governor fica o do cenário anterior; sem piso de jogo. Já suspenso, é ignorada |
+| `resume` | `lume-sleep` (8.3), logo depois de acordar | volta ao cenário guardado (o perfil de antes, o controlador do jogo religado); sem `suspend` antes, é ignorada |
 | `controller <chave>` | o próprio serviço (o subshell do controlador) | o controlador saiu sozinho: o perfil do jogo de novo, sem ele (chave errada é ignorada) |
 | `manual` | `lume-power set`/`auto` (root, pelo cabo) | relê `/run/lume/power.manual` (só o root grava): com um nome, aplica esse perfil já e em todo cenário (medição, D5); sem o arquivo, volta ao perfil do cenário |
 
@@ -193,6 +195,14 @@ subindo, o máximo primeiro), governor, parâmetros do governor, núcleos a mais
 `max_freq` da GPU; só escreve o que muda. Cenário sem perfil, perfil recusado e `enabled 0`
 ficam no padrão do kernel; no jogo, sempre com `scaling_min_freq` no `game_min`. A bateria (a
 fonte `power_supply` do tipo `Battery`) é lida a cada mensagem e a cada 60 s, sem processo novo.
+**Suspensão (D11):** de `suspend` a `resume` as mensagens `menu`, `idle`, `game`, `end` e
+`controller` esperam (são descartadas); `reload` e `manual` valem, sobre o perfil `suspend`, que
+vence até o modo manual. Mensagem desconhecida é ignorada. Eventos: `power OK profile: <cenário
+anterior> -> suspend` ao entrar e `power OK profile: suspend -> <perfil>` ao voltar (o perfil
+restaurado, ex. `gba`, `menu`). Ao entrar e ao sair a bateria é lida na hora (duas leituras
+seguidas no crítico desligam, como sempre: `power OK shutdown: battery critical`). Com a
+suspensão em `freeze` o processo também congela, então a leitura a cada 60 s só ocorre se algo
+acordar o console; o que vale é a leitura da entrada e da saída (a conferir no aparelho, J2 e J3).
 Eventos gravados antes de o `lume-logd` numerar o boot esperam em `/run/lume/power.early` e
 entram no `events.log` com o número certo.
 
