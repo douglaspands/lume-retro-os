@@ -78,11 +78,11 @@ GPU devfreq      simple_ondemand                 simple_ondemand, userspace
 
 O serviço registra cada troca no `events.log`: `power OK profile: <cenário> -> <perfil>`.
 
-### D2. Serviço `r36os-power` sem laço caro
+### D2. Serviço `lume-power` sem laço caro
 
 Shell no pacote `lume-power`, como root (escreve no sysfs de cpufreq, de hotplug e do devfreq),
 no runlevel `boot`, logo cedo, aplicando o perfil `boot`. Lê as mensagens de um FIFO
-`/run/r36os/power` (grupo `game`, gravável pelo `lume-ui` e pelo `lume-run`) com `read -t 60`:
+`/run/lume/power` (grupo `game`, gravável pelo `lume-ui` e pelo `lume-run`) com `read -t 60`:
 dorme até chegar mensagem, e acorda no máximo a cada 60 s para a bateria (D7). Os escritores
 abrem o FIFO sem bloquear e ignoram a falha se o serviço não estiver rodando: o jogo e o
 launcher nunca esperam por ele.
@@ -219,13 +219,13 @@ Pré-requisito: o `logd` barato (D8), senão ele falseia a corrente e a ocupaç�
   carregador, bateria entre 40% e 90% (a rodada 1 do `snes9x2005_plus` foi descartada por
   bateria baixa), console já aquecido.
 - **Métricas:** corrente média (`bat_ma`), eventos `game FAIL slow`, temperatura máxima, clock
-  médio. O serviço tem um modo manual (`r36os-power set <perfil>` pelo cabo) para trocar de
+  médio. O serviço tem um modo manual (`lume-power set <perfil>` pelo cabo) para trocar de
   candidato sem rebuild.
 - **Regra:** por classe, o candidato de menor corrente média sem mais eventos `slow` que o `K`.
   Resultados só agregados por sistema e classe, nunca por jogo (regra das ROMs de teste).
 - **Linha de base dos cores:** toda sessão roda os cores no build padrão do upstream (P-10
   adiado). As tabelas de antes e depois, com a versão de cada core, ficam neste design e o CSV
-  do `r36os power report` em `docs/referencia/medicoes/game-governor/`, para a otimização dos
+  do `lume power report` em `docs/referencia/medicoes/game-governor/`, para a otimização dos
   cores (P-10, change de cores P-80) ser medida depois contra os mesmos números.
 
 ### D6. Boot
@@ -255,7 +255,7 @@ temperatura, frequência, bateria), o `trace_kernel` pelo `/dev/kmsg` sem bloque
 dois `dmesg`, o `pidof` uma vez por amostra, a data com o `printf '%(...)T'` do shell quando
 houver, senão uma vez por lote. Medir o `logd` e o `sugov:0` em 60 s, antes e depois, nos dois
 consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em C pequeno, como o
-`r36os-input`, mantendo o formato das métricas (`docs/LOGS.md`).
+`lume-input`, mantendo o formato das métricas (`docs/LOGS.md`).
 
 ### D9. Launcher
 
@@ -292,7 +292,7 @@ P-85); esta change não faz a tela, mas deixa tudo o que ela precisa:
 - **Recarregar sem reiniciar:** a mensagem `reload` no FIFO faz o serviço ler os arquivos de
   novo e reaplicar o perfil do cenário em curso (no jogo, só na próxima fronteira, como
   qualquer troca de perfil).
-- **Estado publicado:** o serviço grava `/run/r36os/power.state` (legível pelo grupo `game`, uma
+- **Estado publicado:** o serviço grava `/run/lume/power.state` (legível pelo grupo `game`, uma
   chave por linha) a cada carga e troca: console, `enabled`, clocks e governors disponíveis,
   número de núcleos, `game_min`, os perfis em vigor com a origem de cada um (`image` ou
   `card`), as classes e exceções, o cenário e o perfil atuais e os perfis recusados com o
@@ -303,14 +303,14 @@ fontes de verdade para o usuário, e uma mudança feita no PC sumiria sob a da t
 
 ### D11. DRAM do A33 (P-23, só medir)
 
-O `hwinfo` lê com o `r36os-devmem` os registradores do P-23 (`PLL_DDR1_CTRL_REG`,
+O `hwinfo` lê com o `lume-devmem` os registradores do P-23 (`PLL_DDR1_CTRL_REG`,
 `PLL_DDR1_PAT_CTRL_REG0/1`, `DRAM_CFG_REG`) e grava o clock efetivo no `hw/boot-<n>.txt` do
 GA36. Nada muda no clock.
 
 ### D12. Controlador pela carga (P-20, etapa 2)
 
-Um binário pequeno em C, `r36os-powerctl` (aport por arquitetura, como o `r36os-input`), que o
-`r36os-power` liga ao aplicar um perfil de jogo com `controller=load` e mata no `end`:
+Um binário pequeno em C, `lume-powerctl` (aport por arquitetura, como o `lume-input`), que o
+`lume-power` liga ao aplicar um perfil de jogo com `controller=load` e mata no `end`:
 - põe o governor em `userspace` e escolhe a frequência pelo `scaling_setspeed`, entre o `min` e o
   `max` do perfil e nunca acima do `scaling_max_freq` atual (que o resfriamento do kernel baixa);
 - a cada 250 ms lê o `utime` da thread mais ocupada do processo principal do cgroup do jogo
@@ -325,16 +325,16 @@ dois brigariam pela frequência).
 
 ### D13. Prioridade do jogo
 
-O `r36os-power` não recebe o pid pelo FIFO (a mensagem `game` sai antes do `exec`): 2 s depois
+O `lume-power` não recebe o pid pelo FIFO (a mensagem `game` sai antes do `exec`): 2 s depois
 do `game`, ele acha o cgroup mais novo em `/sys/fs/cgroup/lume/game-*` e aplica `nice -5` e
 `ioprio` best-effort 2 a todos os processos e threads dele, e repete 2 s depois para os que
-nasceram no meio; os filhos herdam. O `r36os-input` passa a rodar com `nice -10` (acima do
+nasceram no meio; os filhos herdam. O `lume-input` passa a rodar com `nice -10` (acima do
 jogo), para o Fn+Start encerrar um jogo travado. Nada em tempo real. *Alternativa descartada:*
 `cpu.weight` do cgroup (só compara irmãos do mesmo pai; os serviços do OpenRC não são irmãos).
 
 ### D14. Relatório de energia no PC
 
-`r36os power report [--since <boot>] [--console ga36|r36s]` (`src/r36os/power_report.py`) lê
+`lume power report [--since <boot>] [--console ga36|r36s]` (`src/lume_tool/power_report.py`) lê
 pelo cabo as métricas e o `events.log` da `ROMS/logs/` e resume por cenário e por sistema:
 corrente média (`bat_ma`), FPS contra o nominal, eventos `game FAIL slow`, CPU por núcleo,
 clock médio, temperatura máxima e o custo do `logd` e da `sugov`. Saída em tabela e em CSV em
@@ -408,7 +408,7 @@ para o P-93 (fora desta change): subir clock nesse caso só gastaria bateria.
 
 Um recurso só é controlado quando a faixa dele tem mais de um degrau: `min=max` trava a CPU e
 `gpu_min=gpu_max` trava a GPU (D18). O controlador grava a cada mudança o
-`/run/r36os/powerctl.state` (degrau atual de cada recurso, ocupação, quadros, alvo e o último
+`/run/lume/powerctl.state` (degrau atual de cada recurso, ocupação, quadros, alvo e o último
 gargalo: `cpu`, `gpu`, `pacing`, `thermal` ou `none`), para a barra de status e a tela futura, e
 ao parar a linha `power OK controller: ...` com o tempo por degrau de cada recurso e a contagem
 por gargalo. O modo `controller=load` (D12) continua aceito.
@@ -478,10 +478,10 @@ de memória de GPU para aumentar. O que existe:
   states] → A 4.2 abre um jogo de SNES nos dois consoles antes da medição (J1), e um save state
   antigo é aberto para conferir; se não abrir, o resultado fica anotado aqui e o usuário decide
   entre manter o commit novo ou voltar ao de 2022.
-- [O controlador cai com o governor em `userspace` e o clock baixo] → O `r36os-power` vigia o
+- [O controlador cai com o governor em `userspace` e o clock baixo] → O `lume-power` vigia o
   filho e, se ele sair antes do `end`, reaplica o perfil do jogo sem o controlador e registra
   o evento.
-- [O `nice -5` de um jogo travado rouba a CPU do daemon de entrada] → O `r36os-input` roda com
+- [O `nice -5` de um jogo travado rouba a CPU do daemon de entrada] → O `lume-input` roda com
   `nice -10`; prova de Fn+Start com um jogo travado na J3 e na J4.
 
 ## Migration Plan

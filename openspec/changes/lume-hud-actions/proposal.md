@@ -12,7 +12,7 @@ dela.
 
 ## What Changes
 
-- **O Fn como o botão Steam do SteamOS** (pedido do usuário, 2026-11-17): o `r36os-input`
+- **O Fn como o botão Steam do SteamOS** (pedido do usuário, 2026-11-17): o `lume-input`
   separa três gestos do Fn e manda cada um com nome ao supervisor do jogo:
   - **toque** (aperta e solta sozinho) → `fn_tap`: abre e fecha o menu do Lume sobre o jogo;
   - **segurar** sozinho (500 ms, ajustável no perfil) → `fn_hold`: mostra sobre o jogo a dica
@@ -84,8 +84,8 @@ governor.
 
 ## Impact
 
-- `aports/r36os-input/input.c` e os perfis `ga36.conf`, `r36s.conf` e `vm.conf` (tabela de
-  acordes, captura do controle); testes do `r36os-input`.
+- `aports/lume-input/input.c` e os perfis `ga36.conf`, `r36s.conf` e `vm.conf` (tabela de
+  acordes, captura do controle); testes do `lume-input`.
 - `lume/lume-menu` (novo, se a prova passar: desenha o menu do Lume pegando a tela da
   aplicação), `lume/lume-run` (ações do runner, pausa, menu do Lume, barra), `lume/lume-core` (protocolo,
   runner, textos do menu nos três idiomas), `lume/lume-ui` (o arquivo de lançamento leva as

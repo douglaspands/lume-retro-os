@@ -115,7 +115,7 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 
 - Sempre que um teste ou uma prova precisar de um console (GA36 ou R36S) e ele não estiver no
   cabo, **perguntar ao usuário se é para testar no emulador x86** (a imagem `vm`:
-  `r36os build vm`, `r36os vm`, `r36os test-vm`) antes de seguir ou de deixar a prova para
+  `lume build vm`, `lume vm`, `lume test-vm`) antes de seguir ou de deixar a prova para
   depois. Nunca decidir sozinho por um lado ou pelo outro.
 - Nesse cenário o teste fica **exclusivo no emulador**: o resultado vale só para a `vm` e diz
   isso no registro (tarefa, bring-up, relatório). A prova no aparelho continua pendente e a

@@ -4,11 +4,11 @@
 
 Ver `proposal.md` (Why). O que já existe e molda o caminho:
 
-- O `r36os-input` (`aports/r36os-input/input.c`) agarra os controles do kernel (`EVIOCGRAB`)
+- O `lume-input` (`aports/lume-input/input.c`) agarra os controles do kernel (`EVIOCGRAB`)
   e publica por `uinput` o controle virtual ("GA36-MB Gamepad" / "R36S Gamepad", barramento
   virtual) que o launcher e o RetroArch leem. Os atalhos do Fn (Fn+Start, Fn+Vol) ele monta só
   a partir dos controles do kernel.
-- O `r36os dev keys` (`src/r36os/dev.py`) aperta botões escrevendo `struct input_event` no nó
+- O `lume dev keys` (`src/lume_tool/dev.py`) aperta botões escrevendo `struct input_event` no nó
   `/dev/input/eventN` pelo `ssh`: botões simples no controle virtual, acordes com Fn no
   controle do kernel; os números dos nós vêm do `/proc/bus/input/devices`. Cada botão custa um
   `printf` e um `sleep` no shell do console: bom para navegar, impreciso para repetir uma
@@ -36,7 +36,7 @@ Ver `proposal.md` (Why). O que já existe e molda o caminho:
 - Analógicos: os dois consoles não têm sticks em uso pelo launcher; a gravação guarda eventos
   `EV_ABS` se aparecerem, mas os roteiros não os geram.
 - Controle pela rede sem fio ou por outro usuário que não o root pelo cabo.
-- Mudar o protocolo do `/run/r36os/input.sock` (é da change `lume-hud-actions`).
+- Mudar o protocolo do `/run/lume/input.sock` (é da change `lume-hud-actions`).
 - Imagem de debug (P-22).
 
 ## Decisions
@@ -44,48 +44,48 @@ Ver `proposal.md` (Why). O que já existe e molda o caminho:
 ### D1. Injeção pelos nós de evento, sem socket novo
 
 A injeção continua como o `dev keys` já faz: escrever eventos no nó do controle virtual (e no
-do kernel para os acordes com Fn). Isso já exige root, não muda o `r36os-input` e funciona nos
-dois consoles. *Alternativa descartada:* um socket de injeção no `r36os-input` (o pedido
+do kernel para os acordes com Fn). Isso já exige root, não muda o `lume-input` e funciona nos
+dois consoles. *Alternativa descartada:* um socket de injeção no `lume-input` (o pedido
 original): mais código no daemon de entrada, um protocolo a manter junto com o da
 `lume-hud-actions`, e nada que o nó de evento não dê.
 
 **Correção (prova na vm, 2026-11-17):** as permissões dos nós não bastam para "só root": o
 usuário dos jogos (`game`) está no grupo `input`, e os `/dev/input/event*` são graváveis pelo
 grupo (`crw-rw---- root input`), então ele conseguiu tocar uma gravação. Decisão do usuário: o
-`r36os-evrec` recusa quem não é root (sai com 3, `root only`); o nó gravável pelo grupo
+`lume-evrec` recusa quem não é root (sai com 3, `root only`); o nó gravável pelo grupo
 `input`, que já existia antes desta change, vira a P-87 (avaliar com rumble e LEDs de
 controles USB, que precisam de escrita).
 
-### D2. `r36os-evrec`: gravar e repetir no console, em C
+### D2. `lume-evrec`: gravar e repetir no console, em C
 
-Um binário pequeno no pacote `r36os-input` (mesma arquitetura, mesmo aport, sem dependência):
+Um binário pequeno no pacote `lume-input` (mesma arquitetura, mesmo aport, sem dependência):
 
-- `r36os-evrec record <saída>`: lê o controle virtual (sem `EVIOCGRAB`, então o launcher e o
+- `lume-evrec record <saída>`: lê o controle virtual (sem `EVIOCGRAB`, então o launcher e o
   jogo continuam recebendo tudo), ou seja, exatamente o que o launcher e os jogos recebem. Os
-  atalhos com Fn não entram: o `r36os-input` agarra o controle do kernel e os transforma em
+  atalhos com Fn não entram: o `lume-input` agarra o controle do kernel e os transforma em
   ações, então nenhum leitor de fora os vê; nos roteiros eles são passos `keys` (D4). Grava
   texto, uma linha por evento: `<ms desde o início> <tipo> <código> <valor>`, com cabeçalho
   `# r36os-evrec 1 <console>`. Termina no `SIGTERM`/`SIGINT` e grava o fim.
-- `r36os-evrec play <arquivo>`: abre os nós por nome (como o `dev keys`), toca cada linha no
+- `lume-evrec play <arquivo>`: abre os nós por nome (como o `dev keys`), toca cada linha no
   tempo com `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)` e `SYN_REPORT` por grupo; no fim,
   no `SIGTERM` ou num erro, solta todo botão ainda apertado. Recusa um arquivo de outro
   console. Mede e imprime o atraso máximo e médio de cada evento.
 
-*Por que C:* tempo preciso sem `fork` por evento no A33 e o mesmo jeito do `r36os-input`; um
+*Por que C:* tempo preciso sem `fork` por evento no A33 e o mesmo jeito do `lume-input`; um
 roteiro em shell não chega a 10 ms. *Alternativa descartada:* tocar pelo PC com `ssh` por
 evento (latência do cabo).
 
 ### D3. PC: `record`, `play`, `replay` e `run`
 
-- `r36os dev record` liga o `r36os-evrec record` no console (em segundo plano, arquivo
-  em `/run/r36os/evrec/`); `r36os dev record --stop` o para e traz a gravação para
+- `lume dev record` liga o `lume-evrec record` no console (em segundo plano, arquivo
+  em `/run/lume/evrec/`); `lume dev record --stop` o para e traz a gravação para
   `cache/recordings/<console>-<data>.evrec`. Uma gravação sem eventos é erro.
-- `r36os dev play <arquivo>` envia a gravação para `/run/r36os/evrec/` e roda o
-  `r36os-evrec play`, mostrando o atraso medido.
-- `r36os dev replay record|stop|play <slot>` manda `RECORD_REPLAY`, `HALT_REPLAY` e
+- `lume dev play <arquivo>` envia a gravação para `/run/lume/evrec/` e roda o
+  `lume-evrec play`, mostrando o atraso medido.
+- `lume dev replay record|stop|play <slot>` manda `RECORD_REPLAY`, `HALT_REPLAY` e
   `PLAY_REPLAY_SLOT <slot>` pelo `nc -u` do console e confere pelo `GET_STATUS` que há um jogo
   do RetroArch aberto antes; os arquivos de replay ficam onde o RetroArch os grava, no cartão.
-- `r36os dev run <roteiro>` executa um roteiro (D4) e devolve 0 só se todos os passos passarem.
+- `lume dev run <roteiro>` executa um roteiro (D4) e devolve 0 só se todos os passos passarem.
 
 ### D4. Roteiros em TOML, em `tests/device/scripts/`
 
@@ -95,7 +95,7 @@ nome e um tipo:
 | Tipo | Faz | Passa quando |
 |---|---|---|
 | `keys` | a sequência do `dev keys` | sempre (erro de ssh falha) |
-| `play` | uma gravação do `cache/` (nunca do repositório) | o `r36os-evrec` termina com 0 |
+| `play` | uma gravação do `cache/` (nunca do repositório) | o `lume-evrec` termina com 0 |
 | `wait_event` | espera um padrão no `events.log` novo desde o começo do roteiro | o padrão aparece no tempo |
 | `wait_process` | espera um processo existir ou sumir | idem |
 | `shot` | `dev shot --compare <tela>` | a diferença fica abaixo do limiar |
@@ -132,14 +132,14 @@ no repositório.
 
 ## Risks / Trade-offs
 
-- [O controle do kernel está agarrado pelo `r36os-input`, então a gravação não vê o Fn] → Os
+- [O controle do kernel está agarrado pelo `lume-input`, então a gravação não vê o Fn] → Os
   atalhos com Fn são passos de roteiro (`keys` com `fn+start`), mandados ao controle do kernel
   como o `dev keys`; a gravação serve aos botões de jogo e de navegação.
 - [Escrever no nó de um dispositivo `uinput` pode não chegar aos leitores em algum kernel] → O
   `dev keys` já funciona assim nos dois consoles (spec `device-testing`, "Botões no R36S"); a
   primeira prova no aparelho repete isso antes do resto.
-- [Um botão preso se o `r36os-evrec` morrer com `SIGKILL`] → O `dev play` manda `SIGTERM`
-  primeiro; o `r36os dev keys` com a lista de botões soltos (`release-all`) desfaz o resto.
+- [Um botão preso se o `lume-evrec` morrer com `SIGKILL`] → O `dev play` manda `SIGTERM`
+  primeiro; o `lume dev keys` com a lista de botões soltos (`release-all`) desfaz o resto.
 - [O jogo não é determinístico e a repetição de botões diverge] → Para medição, o replay do
   RetroArch (D3), que parte do estado salvo e repete quadro a quadro; a gravação de botões fica
   para o launcher e os jogos fora do RetroArch.
@@ -148,5 +148,5 @@ no repositório.
 
 ## Migration Plan
 
-Só acréscimos: o binário novo no `r36os-input`, subcomandos novos no `r36os dev`. Reverter é
+Só acréscimos: o binário novo no `lume-input`, subcomandos novos no `lume dev`. Reverter é
 remover o binário e os subcomandos; nada muda para o jogador.

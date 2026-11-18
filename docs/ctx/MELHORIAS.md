@@ -203,7 +203,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
   pequenas, e só a conferência depois de desmontar e montar só leitura é confiável.
 - **Mudança proposta:** opção `--remount-ro <dispositivo>` (desmontar, montar só leitura e conferir)
   ou ler com `O_DIRECT` / depois de `posix_fadvise(DONTNEED)`.
-- **Visto também no `r36os flash` (2026-11-13), e corrigido nele:** a leitura de volta pelo
+- **Visto também no `lume flash` (2026-11-13), e corrigido nele:** a leitura de volta pelo
   `/dev/sdX` vinha do cache de páginas, então o SHA256 não lia o cartão; e a gravação pelo cache
   enchia o limite global de páginas sujas (256 MiB no PC do usuário) e travava o desktop (o
   Chrome primeiro). O `flash` passou a usar `oflag=direct` e `iflag=direct`. A mesma ideia
@@ -213,7 +213,7 @@ Estado: **proposta** (só descrita), **protótipo** (aplicada no `.venv` deste p
 
 - **Problema:** a árvore do kernel deste projeto muda de nome a cada mudança nos patches
   (`linux-6.18.62-<hash>`). O `[index.reference]` resolve com curinga, mas os caminhos dos
-  resultados são absolutos e longos (`/home/…/data/r36os/src/linux-…/drivers/…`). O `[upstream]`
+  resultados são absolutos e longos (`/home/…/data/lume/src/linux-…/drivers/…`). O `[upstream]`
   supõe baixar arquivo por arquivo de uma URL, o que não serve para uma árvore gerada pelo build.
 - **Mudança proposta:** fonte de referência com nome (`[index.reference.kernel] root = "…"`,
   `globs = […]`), mostrada nos resultados como `kernel:drivers/…`.
@@ -331,7 +331,7 @@ O texto abaixo é a proposta original.
 ### M-18. Leitura liberada fora do workspace e no `~/data`, só para caminhos declarados — levada (0.5.0)
 
 - **Problema:** um bring-up lê o tempo todo coisas fora do workspace: os logs no cartão do
-  aparelho (`/run/media/...`) e a árvore do kernel que o build gera (`~/data/r36os/src/...`).
+  aparelho (`/run/media/...`) e a árvore do kernel que o build gera (`~/data/lume/src/...`).
   Cada `rg` nesses caminhos cai em `defer` (fora do workspace) ou em `ask` forte (qualquer
   menção ao `~/data`, o volume Btrfs No-COW), e o Claude Code pergunta ao usuário a cada busca.
   O `paths.readonly_system` já existia, mas não expandia `~` e era consultado **depois** da regra
@@ -344,7 +344,7 @@ O texto abaixo é a proposta original.
     dispara o `ask` do `~/data`.
   - Ferramenta de leitura de arquivo: dentro do `~/data`, a leitura de um caminho de
     `readonly_system` é `allow`; escrita e qualquer outro caminho do `~/data` seguem em `ask`.
-  - Neste projeto: `/run/media`, `~/data/r36os/src` e `~/data/r36os/kbuild` em `readonly_system`.
+  - Neste projeto: `/run/media`, `~/data/lume/src` e `~/data/lume/kbuild` em `readonly_system`.
   - Teste: `tests/unit/test_guardrail_readonly_paths.py` (leitura liberada; escrita, outro caminho
     do `~/data` e comando misturando um caminho liberado com outro não liberado seguem em `ask`).
 - **Para levar ao agent-harness-hub:** o gerador do `guardrail.py` e o modelo do `policy.toml`
@@ -448,7 +448,7 @@ O texto abaixo é a proposta original.
 - **Medido de novo (2026-11-14):** 11 bloqueios de `destructive:mkfs` e 6 de `destructive:rm` em 31
   sessões. Mesmo com a mudança levada na 0.5.0, os números continuam subindo (eram 9 de `mkfs`).
   Conferir nos `events.jsonl` se ainda são falsos positivos (`mkfs` como texto de busca ou como
-  argumento do `r36os` build) ou bloqueios de sessões antigas contadas na janela inteira.
+  argumento do `lume` build) ou bloqueios de sessões antigas contadas na janela inteira.
 
 ### M-25. Encadeamento dentro de texto citado para outro host ou container — levada (0.5.0, aspas simples)
 
@@ -464,10 +464,10 @@ O texto abaixo é a proposta original.
 
 ### M-26. `ctx search` não achou o módulo pelo nome do arquivo — levada (0.5.0)
 
-- **Problema:** `ctx search "r36os push" "push build over ssh"` não trouxe `src/r36os/push.py` em
+- **Problema:** `ctx search "lume push" "push build over ssh"` não trouxe `src/lume_tool/push.py` em
   nenhum dos 10 resultados (vieram serviços OpenRC e um hunk de patch do mesa). O módulo se
   chama `push.py`, tem `push` no título dos trechos e a docstring começa com "Update a console
-  over the USB cable: `r36os push`". O agente achou o arquivo com `rg` logo depois.
+  over the USB cable: `lume push`". O agente achou o arquivo com `rg` logo depois.
 - **Mudança proposta:** dar peso ao **nome do arquivo** (não só ao caminho inteiro) no BM25 e um
   bônus quando um termo da consulta é o radical do nome do arquivo; conferir com esta consulta
   como caso de teste.
@@ -507,15 +507,15 @@ O texto abaixo é a proposta original.
 
 ### M-29. Receitas do console e da vm no lugar de scripts soltos — feita (policy.toml)
 
-- **Problema (2026-11-17, J1 da `lume-hud-actions`):** cada `r36os dev shot/keys/run` e cada
+- **Problema (2026-11-17, J1 da `lume-hud-actions`):** cada `lume dev shot/keys/run` e cada
   script de apoio em `cache/tmp/` caía fora da lista (`defer`) e pedia permissão ao usuário,
   dezenas de vezes por janela de aparelho. Liberar `cache/tmp/*` liberaria qualquer código novo.
 - **Feito (escolha do usuário, opção 2):** os ajudantes que se repetem foram para
-  `scripts/dev/` (versionados): `put.py` copia pelo ssh do `r36os dev`, faz `sync` e confere o
+  `scripts/dev/` (versionados): `put.py` copia pelo ssh do `lume dev`, faz `sync` e confere o
   sha256; `vm_qmp.py` captura a tela e aperta teclas na vm pelo QMP. Receitas no
   `policy.toml`: `console-put`, `vm-put`, `console-shot`, `console-keys`, `console-run`,
   `vm-shot`, `vm-keys`, `vm-holdshot`. Só as etapas delas entraram em `commands.allow`
-  (`r36os dev shot`, `keys`, `run`, `wait`, `log`); o `r36os dev sh` (qualquer comando como root
+  (`lume dev shot`, `keys`, `run`, `wait`, `log`); o `lume dev sh` (qualquer comando como root
   no console) continua pedindo.
 - **Achado:** o guardrail toma qualquer argumento absoluto por caminho do PC; o destino no
   console vai como `console:/caminho` para não ser lido como leitura fora do workspace.

@@ -11,9 +11,9 @@ imagem `console`, o cartão único do GA36 e do R36S (change `r36s-single-card`)
 ## 1. Gerar e gravar
 
 ```sh
-uv run r36os build console                          # 1ª vez: R36OS_GA36_FACTORY e R36OS_R36S_FACTORY (README)
-uv run r36os flash console /dev/sdX --full --eject  # cartão novo: imagem + ROMS no resto do cartão
-uv run r36os flash console /dev/sdX --update --eject   # cartão já gravado com a console: a ROMS fica
+uv run lume build console                          # 1ª vez: LUME_GA36_FACTORY e LUME_R36S_FACTORY (README)
+uv run lume flash console /dev/sdX --full --eject  # cartão novo: imagem + ROMS no resto do cartão
+uv run lume flash console /dev/sdX --update --eject   # cartão já gravado com a console: a ROMS fica
 # cartão do GA36 gravado antes (BOOT de 1 GiB): o --update recusa; copiar a ROMS e usar --full
 ```
 
@@ -23,7 +23,7 @@ O mesmo cartão serve aos dois consoles: basta trocar de aparelho.
 
 O R36S sobe pela cadeia do próprio aparelho, a mesma do cartão que veio com ele (um ArkOS
 para o "R36S V5"). Ela é binário fechado, fica fora do git e o build a lê da cópia do
-cartão original (`R36OS_R36S_FACTORY`), conferida por SHA256 (`src/r36os/r36s_vendor.py`).
+cartão original (`LUME_R36S_FACTORY`), conferida por SHA256 (`src/lume_tool/r36s_vendor.py`).
 
 | Etapa | Onde está no cartão | O que faz |
 |---|---|---|
@@ -63,7 +63,7 @@ R36S para no logo, procure `BOOT/error.log` pelo PC.
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai
-sobre dados do GA36 (`src/r36os/bootarea.py`). O initramfs de cada console monta o próprio
+sobre dados do GA36 (`src/lume_tool/bootarea.py`). O initramfs de cada console monta o próprio
 sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 
 **A partição `BOOT`** (a mesma nos dois consoles; `docs/BRINGUP-GA36.md` tem a mesma tabela):
@@ -118,7 +118,7 @@ ao driver), a busca sozinha testa os outros DTBs da pasta, um por boot.
   "(converted)"; esquerda/L1 e direita/R1 pulam uma página.
 
 **DTB de fábrica convertido, provado (2026-11-16, build `20261115-232617`, boots 92 a 95):**
-`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `r36os dtb-import`) em
+`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `lume dtb-import`) em
 `BOOT/dtbs/force`. Boot 92: tela preta. O painel respondeu o ID (`fe5202`) ao driver
 `panel-generic-dsi`, mas o DTB convertido não levava a taxa da DSI, e a estimativa do
 mainline não dá imagem neste painel. Depois que o conversor passou a gravar a taxa do kernel
@@ -238,24 +238,24 @@ nitidez e cores e o histórico completo estão na tarefa 4.6 da change `r36s-sin
 
 Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 
-1. `uv run r36os build console` (com `podman ps` vazio antes).
+1. `uv run lume build console` (com `podman ps` vazio antes).
 2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e
    `out/r36s/kernel/modules` para `BOOT/r36s/modules` (os dois juntos: com módulos de outra
    versão o console sobe sem módulos e o log de boot tem uma linha `ERROR`) e, se o DTS
    mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`. Pelo cabo,
-   `uv run r36os push` faz isso sozinho.
+   `uv run lume push` faz isso sozinho.
 3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
    desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
    (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos
-   dois DTBs do RG351 contra o build, e ejetar com `uv run r36os eject /dev/sdX`.
-4. Mudanças no `SYSTEM` (userland, como o `mixer`) exigem `r36os flash console` (gravação
+   dois DTBs do RG351 contra o build, e ejetar com `uv run lume eject /dev/sdX`.
+4. Mudanças no `SYSTEM` (userland, como o `mixer`) exigem `lume flash console` (gravação
    completa ou `--update`).
 
 ## 7. Controle
 
 Os botões (`gpio-keys`) e os dois analógicos (`adc-joystick`, SARADC canal 1 atrás de um
-multiplexador) são unidos pelo daemon de entrada `r36os-input` (perfil
-`/usr/share/r36os/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
+multiplexador) são unidos pelo daemon de entrada `lume-input` (perfil
+`/usr/share/lume/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
 com os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
 índices (`/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg`). Os botões de volume são
 um dispositivo à parte (`volume-keys`), também capturado pelo daemon.
@@ -265,12 +265,12 @@ junção:
 
 - **Fn (F5, `BTN_MODE`) sozinho**: sai como apertar e soltar o Fn, quando ele é solto (o menu
   do RetroArch abre nessa hora).
-- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/r36os/input.sock`, e nenhuma das
+- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/lume/input.sock`, e nenhuma das
   duas teclas sai; o jogo aberto pelo launcher é encerrado. Fora de um jogo, nada acontece.
 - **Volume**: os botões mudam o controle `Master` do `rk817int` em passos de 5%, em qualquer
   programa, e não chegam aos programas.
 
-`r36os-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
+`lume-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
 `bus=0x6`).
 
 | Tecla no DTS | Função provisória | Confirmar |
@@ -320,18 +320,18 @@ aparece no PC como **"Lume R36S"** (fabricante "Lume Retro OS"), com duas funç�
 - **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
 - **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
   `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
-  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
+  senha, só por esse cabo) e `uv run lume push` (atualização sem tirar o cartão; ver o
   `README.md`).
 
-**Testes pelo cabo (`r36os dev`):** o cartão vai de um console ao outro e só um deles fica no
-PC; os dois respondem em `10.55.0.1`. Use `.venv/bin/r36os dev wait`, `dev sh <comando>`,
+**Testes pelo cabo (`lume dev`):** o cartão vai de um console ao outro e só um deles fica no
+PC; os dois respondem em `10.55.0.1`. Use `.venv/bin/lume dev wait`, `dev sh <comando>`,
 `dev shot <arquivo.png>`, `dev keys '<sequência>'`, `dev log` e
 `dev check --console r36s` (recusa o GA36 com "the console on the cable is the GA36, not the
 R36S"), além de `dev shot --compare <tela>` para as capturas de referência (ver
-[BUILD.md](BUILD.md)). O `r36os push` espera o console voltar e confere o boot novo
+[BUILD.md](BUILD.md)). O `lume push` espera o console voltar e confere o boot novo
 (`ok: boot N completed with build X (...)`); `--no-wait` só reinicia. Para mudar só um
-fragmento `lume-*`/`r36os-*` sem reboot (só na RAM): `r36os push --hot <fragmento>` ou
-`r36os dev watch <fragmento>` (ver "Testar no console pelo cabo" em [BUILD.md](BUILD.md)).
+fragmento `lume-*`/`lume-*` sem reboot (só na RAM): `lume push --hot <fragmento>` ou
+`lume dev watch <fragmento>` (ver "Testar no console pelo cabo" em [BUILD.md](BUILD.md)).
 
 **Espaço da `BOOT` no `push` (change `push-boot-swap`):** o `push` renomeia o
 `r36s/SYSTEM` e o `r36s/modules` em uso para `.old` (apagados no `push` seguinte), para não
@@ -339,13 +339,13 @@ perder clusters na FAT. Os `push` anteriores a essa change perdiam ~290 MB a cad
 `SYSTEM`; se o cartão do R36S tiver esse resto, o `push` avisa com
 `warning: BOOT has <N> MiB in lost clusters` e segue. Para recuperar, com o cartão no leitor
 do PC: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
-`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
+`lume flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
 com uma linha `ERROR ... using r36s/SYSTEM.old from the previous build` no log.
 *Primeiro `push` no R36S com a change: pendente (tarefa 6.1 da change `r36s-usb-proof`).*
 
 **Como funciona no R36S:** o `u2phy` vê o pino ID, mas não o VBUS da porta OTG (medição de
 2026-11-13, change `usb-device-access`). O controlador (dwc2) usa um *role switch* que começa
-como device e força a sessão por override. O serviço `r36os-usb` lê o `USB-HOST` do `extcon`
+como device e força a sessão por override. O serviço `lume-usb` lê o `USB-HOST` do `extcon`
 e troca para host quando um adaptador OTG puxa o ID para baixo, para o pendrive no adaptador
 continuar funcionando. Ele enumerou na medição, antes do role switch; com o role switch
 ainda não foi provado.
@@ -355,7 +355,7 @@ ainda não foi provado.
   switch (`role=`) e o estado do gadget (`udc=…:configured` com o PC ligado);
 - no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
   `ssh: login accepted`;
-- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` (inclusive `port role host|device`) e
+- no `boot/boot-<n>.log`, as mensagens `lume-usb:` (inclusive `port role host|device`) e
   `umtprd:` (a saída do servidor MTP).
 
 **Medido:** o modo device ainda não foi provado no R36S (a prova com o PC foi feita no GA36).

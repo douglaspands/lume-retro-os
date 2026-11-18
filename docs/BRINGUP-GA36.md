@@ -6,10 +6,10 @@ Validado no aparelho em 2026-11-11 (imagens `20261111-002830` a `20261111-134121
 ## 1. Gerar e gravar
 
 ```sh
-uv run r36os build console                         # 1ª vez: R36OS_GA36_FACTORY e R36OS_R36S_FACTORY com as cópias dos cartões originais (README)
-uv run r36os flash console /dev/sdX --full --eject # cartão novo: imagem + ROMS no resto do cartão
-uv run r36os flash console /dev/sdX --update --eject   # atualizar: preserva jogos, saves e ajustes
-uv run r36os eject /dev/sdX                     # ejetar depois de copiar jogos (sem senha)
+uv run lume build console                         # 1ª vez: LUME_GA36_FACTORY e LUME_R36S_FACTORY com as cópias dos cartões originais (README)
+uv run lume flash console /dev/sdX --full --eject # cartão novo: imagem + ROMS no resto do cartão
+uv run lume flash console /dev/sdX --update --eject   # atualizar: preserva jogos, saves e ajustes
+uv run lume eject /dev/sdX                     # ejetar depois de copiar jogos (sem senha)
 ```
 
 - O `--full` cria a `ROMS` (exFAT) já com as pastas e a configuração de fábrica: dá para
@@ -109,7 +109,7 @@ build do `ga36/SYSTEM`.
 ## 4. Controle
 
 O driver do kernel junta os botões e os dois analógicos num único "GA36-MB Gamepad". O
-daemon de entrada `r36os-input` (perfil `/usr/share/r36os/input/ga36.conf`, change
+daemon de entrada `lume-input` (perfil `/usr/share/lume/input/ga36.conf`, change
 `lume-launcher`, D8) captura esse dispositivo e os botões de volume (LRADC) com exclusividade e
 publica um controle virtual com o **mesmo nome**, então a autoconfiguração do RetroArch
 (`/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg`) não muda: A, B, X, Y, L1, R1, L2,
@@ -123,7 +123,7 @@ RetroArch só o dispositivo do kernel (`BUS_HOST`); o virtual é `BUS_VIRTUAL`.
   programa.
 - No menu, A confirma e B volta.
 
-`r36os-input --list` mostra os dispositivos de entrada e o barramento de cada um.
+`lume-input --list` mostra os dispositivos de entrada e o barramento de cada um.
 
 ## Pelo cabo USB
 
@@ -133,12 +133,12 @@ aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funç�
 - **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
 - **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
   `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
-  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
-  `README.md`). Para o dia a dia use o `r36os dev` (esperar, comando, tela, botões, log e
+  senha, só por esse cabo) e `uv run lume push` (atualização sem tirar o cartão; ver o
+  `README.md`). Para o dia a dia use o `lume dev` (esperar, comando, tela, botões, log e
   autoteste, em [BUILD.md](BUILD.md)); o ssh direto fica para o que ele não cobre. O cartão
   vai de um console ao outro e só um deles fica no PC; ambos respondem em `10.55.0.1`, e
-  `r36os dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `r36os push --hot
-  <fragmento>` e `r36os dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
+  `lume dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `lume push --hot
+  <fragmento>` e `lume dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
   em [BUILD.md](BUILD.md)).
 
 **Como funciona no GA36:** o papel da porta vem só do pino ID (PH8): sem adaptador, o MUSB
@@ -155,7 +155,7 @@ e se um carregador na DC também acende o `axp20x-usb` (as duas entradas podem s
   o estado do gadget (`udc=…:configured` com o PC ligado);
 - no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
   `ssh: login accepted`;
-- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` e `umtprd:` (a saída do servidor MTP).
+- no `boot/boot-<n>.log`, as mensagens `lume-usb:` e `umtprd:` (a saída do servidor MTP).
 
 ### Guia rápido pelo cabo (sem precisar de ajuda)
 
@@ -178,8 +178,8 @@ Se o `lsusb` não mostra nada: o console terminou de ligar? O cabo está na port
 transmite dados (muitos só carregam)? Teste outro cabo ou outra porta do PC.
 
 **2. Entrar no console:** `lume` (shell de root). Um comando só: `lume <comando>`. O
-equivalente do `r36os dev` (um comando por chamada, sem apelido): `.venv/bin/r36os dev sh
-<comando>`; `.venv/bin/r36os dev wait` espera o console responder; `.venv/bin/r36os dev
+equivalente do `lume dev` (um comando por chamada, sem apelido): `.venv/bin/lume dev sh
+<comando>`; `.venv/bin/lume dev wait` espera o console responder; `.venv/bin/lume dev
 check --console ga36` roda o autoteste.
 
 | Para quê | Comando |
@@ -188,10 +188,10 @@ check --console ga36` roda o autoteste.
 | Versão do build | `lume cat /boot/VERSION` |
 | Log do kernel | `lume dmesg` (ou `lume dmesg \| tail -n 30`) |
 | Eventos do sistema | `lume cat /storage/logs/events.log` |
-| Log do boot atual e seus eventos | `.venv/bin/r36os dev log` |
-| Saída do servidor MTP | `lume cat /run/r36os/usb/umtprd.log` |
+| Log do boot atual e seus eventos | `.venv/bin/lume dev log` |
+| Saída do servidor MTP | `lume cat /run/lume/usb/umtprd.log` |
 | Processos | `lume ps` |
-| Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- r36os-usb restart` |
+| Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- lume-usb restart` |
 | Reiniciar o console | `lume reboot` |
 
 - O restart do USB derruba a rede do cabo por uns 2 s, e o ssh volta sozinho. Ele precisa
@@ -219,7 +219,7 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
   information"): reinicie o USB do console (tabela acima) e monte de novo. O ssh continua
   sendo o caminho garantido para ler `logs/`, porque não depende do MTP.
 - Para copiar sem MTP, use o ssh. O console não tem `scp`, `sftp` nem `rsync`, então o
-  arquivo vai pela entrada do comando (é assim que o `r36os push` envia o build):
+  arquivo vai pela entrada do comando (é assim que o `lume push` envia o build):
 
   ```sh
   lume 'cat > /storage/roms/<sistema>/jogo.zip' < jogo.zip                  # PC -> console
@@ -227,7 +227,7 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
   sha256sum jogo.zip ; lume sha256sum /storage/roms/<sistema>/jogo.zip     # conferir
   ```
 
-**4. Atualizar o console:** `uv run r36os push --build <carimbo>` (ver o `README.md`). Depois
+**4. Atualizar o console:** `uv run lume push --build <carimbo>` (ver o `README.md`). Depois
 do reboot o `push` espera o console voltar e confere o boot novo (número do boot, build do
 `/boot/VERSION` e `boot OK completed` no `events.log`), terminando em `ok: boot N completed
 with build X (...)`; `--no-wait` só reinicia. Detalhes em [BUILD.md](BUILD.md).
@@ -239,8 +239,8 @@ endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build s
 **Módulos do kernel fora do `SYSTEM` (change `kernel-modules-image`, 2026-11-14):**
 - Primeiro `push` com o build `20261114-013857`, saindo do `20261114-002340`: mandou os dois
   `SYSTEM` (agora sem módulos), os kernels e `ga36/modules` e `r36s/modules`, ~650 MB em
-  376 s. No boot seguinte, `/lib/modules/6.18.62-r36os/modules.dep` existe, o log de boot tem
-  `lume: modules: ga36/modules (6.18.62-r36os)`, o `bluetooth` sobe no boot e o
+  376 s. No boot seguinte, `/lib/modules/6.18.62-lume/modules.dep` existe, o log de boot tem
+  `lume: modules: ga36/modules (6.18.62-lume)`, o `bluetooth` sobe no boot e o
   `modprobe uhid` carrega e descarrega. O `zram` é embutido no kernel (`CONFIG_ZRAM=y`) e não
   aparece no `lsmod`; o `zram0` fica ativo como swap.
 - Mudança só de kernel (build `20261114-022015`, `CONFIG_DUMMY=m` temporário no
@@ -264,7 +264,7 @@ perde o nome, a `BOOT` volta a somente leitura antes do reboot e nenhum cluster 
 espaço perdido (de `push` antigos ou de um corte de energia), o `push` avisa com
 `warning: BOOT has <N> MiB in lost clusters` e segue; a recuperação é pelo PC, com o cartão
 no leitor: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
-`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
+`lume flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
 o log tem `ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build`.
 
 
@@ -319,17 +319,17 @@ recebe o uid (os dois são 1000).
 
 ### Ver a tela e apertar botões pelo cabo
 
-- **Tela:** `r36os-shot /tmp/s.png` (pacote `r36os-input`) grava a imagem do que está na tela,
+- **Tela:** `lume-shot /tmp/s.png` (pacote `lume-input`) grava a imagem do que está na tela,
   lida do DRM; serve para o lume, o menu do RetroArch e os jogos. Do PC, um comando só faz o
   caminho todo (captura, `cat` pelo ssh e verificação do PNG):
-  `.venv/bin/r36os dev shot cache/tmp/tela.png`. Para comparar com a referência do GA36:
-  `.venv/bin/r36os dev shot --compare home` (ver [BUILD.md](BUILD.md)).
-- **Botões pelo cabo:** `.venv/bin/r36os dev keys 'a,down*3,wait:500,fn+start'` (o texto
+  `.venv/bin/lume dev shot cache/tmp/tela.png`. Para comparar com a referência do GA36:
+  `.venv/bin/lume dev shot --compare home` (ver [BUILD.md](BUILD.md)).
+- **Botões pelo cabo:** `.venv/bin/lume dev keys 'a,down*3,wait:500,fn+start'` (o texto
   abaixo explica o que ele faz por dentro).
 - **Botões:** escrever `struct input_event` de 32 bits (16 bytes: dois `long` de tempo, tipo,
   código e valor, seguidos de um `EV_SYN`) num nó de entrada. No `/dev/input/event3` (o
-  controle virtual do `r36os-input`) chegam ao lume e ao RetroArch. Combinações do
-  `r36os-input` (Fn+Start) vão no `/dev/input/event2` (o controle do kernel) e numa escrita só:
+  controle virtual do `lume-input`) chegam ao lume e ao RetroArch. Combinações do
+  `lume-input` (Fn+Start) vão no `/dev/input/event2` (o controle do kernel) e numa escrita só:
   o driver relê o estado real dos botões em poucos ms e solta o botão injetado.
 
 ### Medidas do lume-launcher (2026-11-14, build `20261114-143705`, boot 46)
@@ -341,7 +341,7 @@ recebe o uid (os dois são 1000).
   de antes. Do aperto de Fn+Start até a grade, 1,70–1,78 s, dos quais 0,85–0,90 s são o
   RetroArch fechando.
 - **Parado na grade:** `lume-ui` com 0,1% de um núcleo e 59 MB de RSS; o menu do RetroArch
-  parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `r36os-input` (500 KB) sem CPU.
+  parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `lume-input` (500 KB) sem CPU.
   Detalhes em [orcamento-de-performance.md](lume-launcher/orcamento-de-performance.md).
 
 ### Janela J1 da `lume-hud-actions` (2026-11-17, build atual, boot 168)
@@ -379,7 +379,7 @@ jogo acabar, e a CMA acabou na terceira rodada (`CREATE_DUMB: Out of memory`).
 ### Governor por gargalo da `game-governor` (2026-11-18, builds `20261118-005049` a `-011308`, boots 180 a 182)
 
 Medido pelo cabo, com o console no carregador (a corrente da bateria não vale nestas provas) e
-os jogos abertos pelo `r36os dev run` e deixados rodando (telas de título e demonstração; no GBA,
+os jogos abertos pelo `lume dev run` e deixados rodando (telas de título e demonstração; no GBA,
 uma corrida com os karts da IA). Só números por sistema; nenhum nome de jogo.
 
 **Sinais do controlador no kernel real:** o `fdinfo` dos arquivos do DRM do jogo traz
@@ -417,7 +417,7 @@ e a GPU ociosas (não sobe clock por ela) e desce o que sobra (linha
 num jogo de NES); com a primeira versão (queda abaixo de 95% numa janela só) ele oscilava no
 CPS-1 com o vídeo em thread (`up=14 down=14`), corrigido com 90% e duas janelas (`up=0` na
 prova seguinte). Perfil por jogo: uma linha `game <chave>` no `power.conf` com
-`gpu_min=gpu_max=384000000`, `r36os-power reload` e o jogo aberto de novo: `current gpulock`, GPU
+`gpu_min=gpu_max=384000000`, `lume-power reload` e o jogo aberto de novo: `current gpulock`, GPU
 travada em 384 MHz pela mão e a CPU no controlador (720 MHz), na velocidade cheia. Fn+Start
 encerra um jogo normal (`end=quit-combo`) e um congelado de propósito com `SIGSTOP`
 (`end=killed`, volta ao menu). O `snes9x2005_plus` novo abre e roda a 60,1.

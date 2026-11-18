@@ -7,15 +7,15 @@ deltas de `game-runners` e `frontend-session`.
 
 Estado atual que o desenho reaproveita:
 
-- **`r36os-input`** (`aports/r36os-input/input.c`) captura os controles (EVIOCGRAB), publica o
+- **`lume-input`** (`aports/lume-input/input.c`) captura os controles (EVIOCGRAB), publica o
   controle virtual por uinput e trata o Fn como acorde (`key_event`, linhas 743-792): o Fn
   sozinho vira um toque (o `input_menu_toggle_btn = "10"` dos autoconfigs abre o menu do
-  RetroArch); Fn+Start manda `quit` aos clientes de `/run/r36os/input.sock`; o Fn com outra
+  RetroArch); Fn+Start manda `quit` aos clientes de `/run/lume/input.sock`; o Fn com outra
   tecla sai junto com ela. Os perfis (`ga36.conf`, `r36s.conf`, `vm.conf`) têm `fn` e `quit`
   em códigos de saída (depois do mapa). Ele já fala com o RetroArch: `LUME_LEVEL` por UDP em
   `127.0.0.1:55355` (patch 0011), que desenha a linha de volume com um widget.
 - **`lume-run`** (`lume/lume-run/src/main.rs`) é o supervisor: abre o jogo no cgroup
-  `game-<n>`, escuta o socket do `r36os-input` no laço do jogo (hoje só `quit`) e executa o
+  `game-<n>`, escuta o socket do `lume-input` no laço do jogo (hoje só `quit`) e executa o
   `quit` pela política do runner (`polite_quit`: `QUIT` por UDP ou SIGTERM). A política vem do
   arquivo de lançamento (`launch.rs`), que a interface escreve a partir do runner
   (`lume-core/src/runner.rs`, `runners.d/*.toml`).
@@ -39,7 +39,7 @@ Estado atual que o desenho reaproveita:
 ## Goals / Non-Goals
 
 **Goals:**
-- Um único caminho para os atalhos do jogo: o `r36os-input` só reconhece acordes e dá nome à
+- Um único caminho para os atalhos do jogo: o `lume-input` só reconhece acordes e dá nome à
   ação; quem sabe o que a ação significa para o programa aberto é o `lume-run`, pelo runner.
 - A barra sem processo novo; a barra e o menu do Lume sem custo quando escondidos.
 - O menu do Lume como camada do sistema: aparece sobre qualquer aplicação, mesmo travada, e
@@ -55,7 +55,7 @@ Estado atual que o desenho reaproveita:
 
 ## Decisions
 
-### D1. Acordes no `r36os-input`, ações com nome no socket
+### D1. Acordes no `lume-input`, ações com nome no socket
 
 O perfil do console ganha uma tabela de acordes, em códigos de saída:
 
@@ -81,7 +81,7 @@ A linha antiga `quit <código>` continua aceita (vira `chord <código> quit`), p
 cartão de versões anteriores. O `vm.conf` usa as teclas do teclado da VM (`fn KEY_F1`, com
 `chord KEY_ENTER quit` e as outras ações em teclas livres).
 
-*Alternativa descartada:* o `r36os-input` conhecer os runners e mandar comandos direto ao
+*Alternativa descartada:* o `lume-input` conhecer os runners e mandar comandos direto ao
 RetroArch. Juntaria entrada e política do jogo num daemon em C que roda como root; o
 `lume-run` já tem o runner, o pid e o fim do jogo.
 
@@ -122,7 +122,7 @@ screenshot = "retroarch-cmd:SCREENSHOT"
 ```
 
 Formas aceitas: `retroarch-cmd:<COMANDO>` (UDP em `127.0.0.1:55355`), `key:<KEY_*>` (o
-`lume-run` pede `tap` ao `r36os-input`) e `signal:<NOME>` (ao grupo do jogo). A ação `pause`
+`lume-run` pede `tap` ao `lume-input`) e `signal:<NOME>` (ao grupo do jogo). A ação `pause`
 aceita também `retroarch-pause` (pausa pelo próprio RetroArch, D10); sem `pause` declarada, o
 sistema pausa congelando o grupo do jogo (`SIGSTOP`/`SIGCONT`). `quit` continua
 no campo `quit` (política de encerramento com prazo, que já é spec). `overlay` aceita só
@@ -157,7 +157,7 @@ script do frontend aplica antes de cada execução), além da configuração de 
 O `lume-run` recebe `hud` no laço do jogo (o mesmo `poll`). Com a barra ligada, o `poll` ganha
 prazo de 1 s; a cada volta ele lê os números, monta o texto e manda `LUME_HUD <texto>` ao
 RetroArch. Desligada, manda `LUME_HUD` vazio e o `poll` volta a esperar sem prazo. O estado
-(ligada ou não) fica em `/run/r36os/hud`, lido no início de cada jogo; o boot começa sem o
+(ligada ou não) fica em `/run/lume/hud`, lido no início de cada jogo; o boot começa sem o
 arquivo, ou seja, escondida.
 
 Fontes, só leitura de arquivos pequenos:
@@ -271,7 +271,7 @@ isso pegando a tela emprestada, sem fechar o jogo).
 
 ### D11. Captura do controle
 
-`capture on` faz o `r36os-input` soltar no controle virtual toda tecla que esteja apertada
+`capture on` faz o `lume-input` soltar no controle virtual toda tecla que esteja apertada
 (para nada ficar preso no jogo), parar de encaminhar os eventos ao uinput e mandar `nav ...`
 ao cliente que pediu. `capture off`, ou o fim da conexão desse cliente, ou 2 s sem nenhuma
 mensagem dele, encerra a captura e volta a encaminhar. O `lume-run` manda `capture on` de novo
@@ -288,7 +288,7 @@ captura do sistema para qualquer programa (ler o framebuffer do DRM) continua no
 
 Pedido do usuário (2026-11-17): o Fn se comporta como o botão Steam do SteamOS (e o Xbox/PS
 nos controles): toque abre o menu, segurar mostra os atalhos, segurar + botão é atalho. O
-`r36os-input` decide o gesto; os clientes só reagem.
+`lume-input` decide o gesto; os clientes só reagem.
 
 ```
   Fn down --+-- outra tecla antes de soltar ----> acorde (ação da tabela ou reservado);
@@ -334,7 +334,7 @@ emprestada só com o menu aberto:
  abrir:  pausa (D10) --> SIGSTOP no grupo do jogo (o RetroArch pausado ainda apresenta
          quadros e cobriria o menu) --> pidfd_getfd do fd do DRM da aplicação (o mesmo
          arquivo aberto, portanto master) --> GETFB2 do plano primário (o último quadro,
-         fundo do menu, técnica do r36os-shot) --> buffer próprio com o quadro + o menu
+         fundo do menu, técnica do lume-shot) --> buffer próprio com o quadro + o menu
          desenhado em software --> commit atômico no plano primário
  fechar: commit devolvendo o framebuffer e o estado originais do plano --> fecha o fd
          duplicado --> SIGCONT --> despausa (D10)
@@ -417,8 +417,8 @@ largar, e uma aplicação travada não larga); lease do DRM (exige a aplicação
 
 ## Notas da implementação (2026-11-17)
 
-- **Estado da barra:** `$XDG_RUNTIME_DIR/lume/hud` no lugar de `/run/r36os/hud`. O
-  `/run/r36os` é do root e o `lume-run` roda como `game`; a pasta de runtime também é apagada no
+- **Estado da barra:** `$XDG_RUNTIME_DIR/lume/hud` no lugar de `/run/lume/hud`. O
+  `/run/lume` é do root e o `lume-run` roda como `game`; a pasta de runtime também é apagada no
   boot, então o efeito do D6 é o mesmo (começa escondida, vale entre jogos).
 - **Ordem da 4.5:** o widget `LUME_MENU` (caminho de reserva) entrou já no patch 0012, antes da
   prova da 4.6, para o menu poder ser visto e avaliado na vm. Se a 4.6 passar, o `lume-menu`

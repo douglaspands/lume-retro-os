@@ -36,7 +36,7 @@ Nenhuma.
 ## Impact
 
 - `rootfs/overlay/usr/share/libretro/shaders/lume-shaders/` (seis arquivos),
-  `rootfs/overlay/usr/share/r36os/retroarch-lume.cfg` (`video_shader_dir`).
+  `rootfs/overlay/usr/share/lume/retroarch-lume.cfg` (`video_shader_dir`).
 - Testes: `tests/unit/test_retroarch_cfg.py` (chave fixa nova) e um teste novo dos
   shaders (cada preset aponta para um `.glsl` que existe, nenhum preset ligado nas
   configurações de fábrica).

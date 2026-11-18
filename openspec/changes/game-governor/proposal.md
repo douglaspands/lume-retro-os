@@ -40,7 +40,7 @@ pendências (P-20, P-83, P-23), com o P-60, o P-78 e o item 3 do P-64.
   um jogo travado.
 - **Ajustes pelo cartão** no `ROMS/system/lume/power.conf`: além de sobrescrever perfis, o tempo
   do launcher parado e `enabled = 0`, que desliga os perfis e devolve o padrão do kernel.
-- **Relatório de energia no PC** (`r36os power report`): resume as métricas e os eventos do
+- **Relatório de energia no PC** (`lume power report`): resume as métricas e os eventos do
   cartão por cenário e por sistema (corrente média, FPS contra o nominal, eventos `slow`, CPU
   por núcleo, clock médio, temperatura máxima, custo do `logd` e da `sugov`), sem nome de jogo,
   para comparar antes e depois.
@@ -95,9 +95,9 @@ RetroArch (D17).
 - `lume/lume-run` (avisos de início e fim de jogo com sistema e core) e `lume/lume-ui` (menu,
   ocioso, escurecer a tela, indicador de carga; telas no protótipo com a régua).
 - `aports/lume-core/.../logd` (P-60) e `aports/lume-diag/.../hwinfo` (DRAM do A33, P-23).
-- Binário pequeno em C do controlador pela carga e por gargalo (`r36os-powerctl`, um aport por
-  arquitetura, como o `r36os-input`; lê o `fdinfo` dos patches 0035 e 0036 do kernel) e o init do `r36os-input` (prioridade acima do jogo).
-- `src/r36os/power_report.py` e o comando `r36os power report` no PC.
+- Binário pequeno em C do controlador pela carga e por gargalo (`lume-powerctl`, um aport por
+  arquitetura, como o `lume-input`; lê o `fdinfo` dos patches 0035 e 0036 do kernel) e o init do `lume-input` (prioridade acima do jogo).
+- `src/lume_tool/power_report.py` e o comando `lume power report` no PC.
 - `aports/libretro-snes9x2005-plus` (commit novo do upstream, build padrão) e a remoção de
   `aports/libretro-snes9x`, com as referências a ele em `lume/`, `docs/` e nos testes.
 - `board/ga36/kernel.config` (governors) e o build do kernel do GA36.

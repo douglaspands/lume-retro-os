@@ -16,7 +16,7 @@ context: |
   - A documentação do cofre assume dArkOS/ArkOS com EmulationStation e o launcher como item do
     menu Ports. Este repositório é o Lume Retro OS (Alpine, sem EmulationStation, sem X11). Aqui o
     launcher entra como frontend pelo contrato de sessão em docs/FRONTEND.md
-    (/usr/libexec/r36os/frontends/<nome> e FRONTEND em /etc/conf.d/frontend), ver a spec
+    (/usr/libexec/lume/frontends/<nome> e FRONTEND em /etc/conf.d/frontend), ver a spec
     frontend-session. O change deve decidir de onde vêm os gamelist.xml e as capas nesta imagem
     (hoje o RetroArch usa playlists, ver a spec game-library) e como o launcher abre o jogo com
     core, aspecto, shader e save state pelo RetroArch.

@@ -59,12 +59,12 @@ para `BOOT/logs/frontend-error.log`.
 
 ## Como é gravado
 
-- Os coletores escrevem na RAM (`/run/r36os/logs/`). O serviço `r36os-logd` grava no
+- Os coletores escrevem na RAM (`/run/lume/logs/`). O serviço `lume-logd` grava no
   cartão a cada 60 s e no desligamento, em lote, para poupar o cartão e a CPU. Um corte
   de energia perde no máximo o último intervalo.
 - O desligamento limpo grava o marcador `.clean`. Se o boot seguinte não o encontra,
   registra em `events.log` que o desligamento anterior foi abrupto.
-- No console serial de debug: `/usr/libexec/r36os/logd flush` grava na hora.
+- No console serial de debug: `/usr/libexec/lume/logd flush` grava na hora.
 
 ## Configuração: `ROMS/system/etc/logs.conf`
 
@@ -118,33 +118,33 @@ Uma linha por evento:
 | `battery` | abaixo de 10% (`FAIL`) |
 | `shutdown` | limpo; anterior limpo ou abrupto (detectado no boot seguinte) |
 | `logs` | logs só na RAM, sem a partição de jogos |
-| `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
+| `push` | `lume push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
-| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> sync=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
+| `power` | `lume-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> sync=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
 
 ```
 2026-11-17T10:22:41 47 push OK hot lume-audio 0.3.1-r4
-2026-11-17T10:22:44 47 push FAIL hot lume-audio 0.3.1-r4 restart r36os-mixer
+2026-11-17T10:22:44 47 push FAIL hot lume-audio 0.3.1-r4 restart lume-mixer
 ```
 
 O `dev watch` grava uma linha dessas a cada ciclo bem-sucedido; o build dele fica no PC, em
-`out/dev-watch/<fragmento>.log`, não nos logs do console. O `r36os dev log` mostra essas linhas
+`out/dev-watch/<fragmento>.log`, não nos logs do console. O `lume dev log` mostra essas linhas
 junto com as do boot atual.
 
-### O que o `r36os push` e o `r36os dev` leem
+### O que o `lume push` e o `lume dev` leem
 
 Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.
 
-- `/run/r36os/logs/boot-n` (RAM): o número do boot atual. O `push` o lê antes do reboot e
+- `/run/lume/logs/boot-n` (RAM): o número do boot atual. O `push` o lê antes do reboot e
   depois dele; o boot novo precisa ter outro número (o relógio do console não é confiável).
 - `events.log`, a linha `<time> <n> boot OK completed: ...` do boot `<n>` (o segundo campo
   é o número do boot): o `push` espera por ela até 120 s e mostra o detalhe
   (`frontend in <s>s from kernel`) no `ok: boot N completed with build X (...)`. O autoteste
-  (`boot-completed`) e o `r36os dev log` leem a mesma linha; o `dev log` imprime todas as
+  (`boot-completed`) e o `lume dev log` leem a mesma linha; o `dev log` imprime todas as
   linhas do boot atual do `events.log` depois do `boot-<n>.log`.
 - `/boot/VERSION` (linha `build: <carimbo>`): comparada com o build enviado.
 - `boot/boot-<n>.log` (RAM, senão `ROMS/logs/boot/`): o que o `dev log` imprime primeiro; o
@@ -156,10 +156,10 @@ Estas linhas e arquivos são contrato: mudar o formato quebra a verificação.
 
 Protocolo congelado na change `game-governor` (nó 1.1). Código: `lume/lume-core/src/power.rs`
 (escritor), `powerstate.rs` (leitor), `powerconf.rs` (editor) e
-`aports/lume-power/files/usr/libexec/r36os/power-profiles.sh` (validador em shell, `source` pelo
-`r36os-power`).
+`aports/lume-power/files/usr/libexec/lume/power-profiles.sh` (validador em shell, `source` pelo
+`lume-power`).
 
-### FIFO `/run/r36os/power`
+### FIFO `/run/lume/power`
 
 Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 
@@ -171,16 +171,16 @@ Uma mensagem por linha, escrita pelo `lume-ui` e pelo `lume-run` (grupo `game`):
 | `end` | `lume-run`, depois de o cgroup esvaziar | volta ao menu |
 | `reload` | quem mudou o `power.conf` | relê os arquivos e reaplica o perfil do cenário (no jogo, só na próxima fronteira) |
 | `controller <chave>` | o próprio serviço (o subshell do controlador) | o controlador saiu sozinho: o perfil do jogo de novo, sem ele (chave errada é ignorada) |
-| `manual` | `r36os-power set`/`auto` (root, pelo cabo) | relê `/run/r36os/power.manual` (só o root grava): com um nome, aplica esse perfil já e em todo cenário (medição, D5); sem o arquivo, volta ao perfil do cenário |
+| `manual` | `lume-power set`/`auto` (root, pelo cabo) | relê `/run/lume/power.manual` (só o root grava): com um nome, aplica esse perfil já e em todo cenário (medição, D5); sem o arquivo, volta ao perfil do cenário |
 
 O escritor abre o FIFO com `O_NONBLOCK`, sem criá-lo: sem o serviço (sem FIFO, sem leitor, pipe
 cheio) a mensagem é descartada e o chamador segue. Espaço ou caractere de controle em
 `<sistema>` e `<core>` vira `_`, vazio vira `-`. API: `lume_core::power::notify(&Message)`.
 
-### Serviço `r36os-power`
+### Serviço `lume-power`
 
-`/usr/bin/r36os-power` (pacote `lume-power`), serviço do OpenRC no runlevel `boot` sob o
-`supervise-daemon`. Ao subir guarda o padrão do kernel em `/run/r36os/power.default`
+`/usr/bin/lume-power` (pacote `lume-power`), serviço do OpenRC no runlevel `boot` sob o
+`supervise-daemon`. Ao subir guarda o padrão do kernel em `/run/lume/power.default`
 (governor, `cpuinfo_min_freq`, `cpuinfo_max_freq`, `max_freq` do devfreq; um respawn o reusa),
 cria o FIFO (grupo `game`, `0620`), mantém o FIFO aberto para leitura e escrita (o `read -t 60`
 dorme até chegar mensagem e nunca vê fim de arquivo) e aplica o perfil `boot`. Cada perfil é
@@ -190,11 +190,11 @@ subindo, o máximo primeiro), governor, parâmetros do governor, núcleos a mais
 `max_freq` da GPU; só escreve o que muda. Cenário sem perfil, perfil recusado e `enabled 0`
 ficam no padrão do kernel; no jogo, sempre com `scaling_min_freq` no `game_min`. A bateria (a
 fonte `power_supply` do tipo `Battery`) é lida a cada mensagem e a cada 60 s, sem processo novo.
-Eventos gravados antes de o `r36os-logd` numerar o boot esperam em `/run/r36os/power.early` e
+Eventos gravados antes de o `lume-logd` numerar o boot esperam em `/run/lume/power.early` e
 entram no `events.log` com o número certo.
 
 **Controlador pela carga (D12):** num perfil de jogo com `controller=load`, o serviço aplica o
-perfil e liga o `/usr/bin/r36os-powerctl` (pacote `r36os-powerctl`, C, por arquitetura) num
+perfil e liga o `/usr/bin/lume-powerctl` (pacote `lume-powerctl`, C, por arquitetura) num
 subshell que espera por ele. O controlador põe o governor em `userspace`, começa no maior
 degrau permitido e, a cada 250 ms, lê `utime`+`stime` de todas as threads dos processos do
 cgroup de jogo mais novo (`/sys/fs/cgroup/lume/game-*`, pelo `mtime`) e toma a thread mais
@@ -210,11 +210,11 @@ perfil seguinte), quando o cgroup do jogo esvazia ou some (`end=game`), sem jogo
 `power OK controller: ...` (ou `FAIL controller: exit <código>: ...`); se ele saiu sozinho, o
 subshell manda `controller <chave>` ao FIFO do próprio serviço, que reaplica o mesmo perfil sem
 o controlador (`profile: game -> <perfil> (without controller)`), sem laço de espera. A saída do
-controlador fica em `/run/r36os/powerctl.out`.
+controlador fica em `/run/lume/powerctl.out`.
 
 **Controlador por gargalo (D17):** com `controller=auto`, o mesmo binário roda com `--mode auto`,
 a faixa da GPU do perfil (`--gpu-min`, `--gpu-max`, o diretório do devfreq em `--gpu`) e
-`--state /run/r36os/powerctl.state`; no R36S o serviço liga antes o `profiling` do `panfrost`.
+`--state /run/lume/powerctl.state`; no R36S o serviço liga antes o `profiling` do `panfrost`.
 Uma decisão por segundo, com três sinais de fora do jogo: a thread mais ocupada da CPU (como
 acima), a ocupação da GPU (o maior `drm-engine-*` do `fdinfo` dos arquivos do DRM que o jogo
 tem abertos, `/proc/<pid>/fd` -> `/dev/dri/*`, achados a cada 2 s, um cliente por
@@ -232,7 +232,7 @@ recursos. A linha ao parar:
 power OK controller: cpu: 1008000=12.0s 912000=3.0s gpu: 384000000=4.0s 240000000=11.0s up=2 down=3 bottleneck cpu=1 gpu=2 pacing=0 thermal=0 memory=0 sync=0 mem_min=412000k end=stop
 ```
 
-`/run/r36os/powerctl.state` (reescrito a cada segundo enquanto o controlador vive, apagado ao
+`/run/lume/powerctl.state` (reescrito a cada segundo enquanto o controlador vive, apagado ao
 parar; para a barra de status e a tela futura):
 
 ```
@@ -247,9 +247,9 @@ bottleneck gpu          # none, cpu, gpu, pacing, thermal, memory ou sync
 mem_avail_kb 412000     # MemAvailable; memory = abaixo de 32 MiB (só diagnóstico, D19)
 ```
 
-Linha de comando (root, pelo cabo): `r36os-power set <perfil|default>` (modo manual da
-medição: aplica já e mantém até `auto` ou reboot), `r36os-power auto`, `r36os-power reload`,
-`r36os-power status` (imprime o `power.state`).
+Linha de comando (root, pelo cabo): `lume-power set <perfil|default>` (modo manual da
+medição: aplica já e mantém até `auto` ou reboot), `lume-power auto`, `lume-power reload`,
+`lume-power status` (imprime o `power.state`).
 
 ### Arquivo de perfis
 
@@ -294,7 +294,7 @@ inteira); `pp_floor <imagem>` imprime o piso efetivo em kHz; `pp_state <console>
 [cartão]` imprime o `power.state`. Cada recusa vai também para `pp_log FAIL`, que o serviço liga
 ao `event power`. `PP_SYS` troca a raiz do sysfs nos testes (`tests/unit/test_power_profiles.py`).
 
-### `/run/r36os/power.state`
+### `/run/lume/power.state`
 
 Gravado pelo serviço a cada carga e troca de perfil (legível pelo grupo `game`), uma chave por
 linha, `<chave> <valor...>`; leitores ignoram chaves desconhecidas:
@@ -316,7 +316,7 @@ battery <origem> warn=5 critical=3     # battery default ... sem linha battery
 idle default after=120                  # idle <origem> after=<s>
 scenario game                           # boot, menu, idle ou game
 current heavy                           # perfil em vigor, - se nenhum
-manual heavy                            # só no modo manual (r36os-power set)
+manual heavy                            # só no modo manual (lume-power set)
 refused <origem> <tipo> <nome|-> <motivo...>
 ```
 
@@ -326,9 +326,9 @@ Leitor: `lume_core::powerstate::PowerState::read`. Editor do `power.conf`
 comentários, ordem e linhas desconhecidas byte a byte e grava de forma atômica (temporário na
 mesma pasta, `fsync`, `rename`); depois a interface manda `reload`.
 
-## Coletor: `r36os-logd` e `lume-logd`
+## Coletor: `lume-logd` e `lume-logd`
 
-O serviço `r36os-logd` (shell, `lume-core`) abre o boot, grava o retrato do hardware, confirma o
+O serviço `lume-logd` (shell, `lume-core`) abre o boot, grava o retrato do hardware, confirma o
 device tree e então passa o laço de amostras ao `lume-logd` (C, APK `lume-logd`,
 `/usr/bin/lume-logd run`), que a cada `interval` grava a linha de métricas, as linhas `fe=` e
 `usb:` do rastreio e os eventos da amostra, e rastreia as mensagens do kernel (`k [...]`) direto
@@ -367,8 +367,8 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 | `lume_ui_cpu_pct` | CPU do `lume-ui` em % de um núcleo desde a amostra anterior; vazio na primeira amostra |
 | `lume_run_rss_kb` | memória residente do supervisor (`lume-run`) em KiB |
 | `lume_run_cpu_pct` | CPU do `lume-run` em % de um núcleo |
-| `input_rss_kb` | memória residente do daemon de entrada (`r36os-input`) em KiB |
-| `input_cpu_pct` | CPU do `r36os-input` em % de um núcleo |
+| `input_rss_kb` | memória residente do daemon de entrada (`lume-input`) em KiB |
+| `input_cpu_pct` | CPU do `lume-input` em % de um núcleo |
 
 Na VM não há cpufreq, zonas térmicas nem bateria, e essas colunas não aparecem.
 
@@ -447,7 +447,7 @@ frontend mudou e a descarga em lote (`flush`).
   param o reinício.
 - **Reabilitar o vblank antes de matar (só no GA36).** No primeiro sinal de bloqueio (5 a 8 s),
   se o console tem controlador de vídeo, o `logd` grava o instantâneo e lê o registrador
-  `TCON_GINT0` (base do `lcd-controller` + 4) com o `r36os-devmem`. Um console saudável tem
+  `TCON_GINT0` (base do `lcd-controller` + 4) com o `lume-devmem`. Um console saudável tem
   `0xc8000200` ali. Nos congelamentos vistos, o valor era `0x00000a00`: as três habilitações
   de interrupção (bits 31, 30 e 27) zeradas, com a flag `TRI_FINISH` pendente, então o page
   flip que o RetroArch espera nunca é entregue. Se as habilitações estiverem zeradas, o `logd`
@@ -472,15 +472,15 @@ bloqueado (esperando o kernel). `st=R` com `utime` subindo é um processo em la�
 Junto com o `frontend/boot-<n>.log` (que mostra até onde o RetroArch chegou), isso separa
 um travamento de vídeo/GPU de um de áudio, de memória ou do disco.
 
-## Entrada (`r36os-input`) no `boot/boot-<n>.log`
+## Entrada (`lume-input`) no `boot/boot-<n>.log`
 
 O daemon de entrada grava no log do kernel (e por isso no `boot/boot-<n>.log` e nas linhas
 `k` do `trace/`) uma linha ao subir e uma por problema:
 
 ```
-r36os-input: "GA36-MB Gamepad" from 2 of 2 source(s), socket /run/r36os/input.sock, volume DAC
-r36os-input: no input device named "1c21800.lradc" (optional)
-r36os-input: source device "gpio-keys" gone
+lume-input: "GA36-MB Gamepad" from 2 of 2 source(s), socket /run/lume/input.sock, volume DAC
+lume-input: no input device named "1c21800.lradc" (optional)
+lume-input: source device "gpio-keys" gone
 ```
 
 `from 1 of 2` com uma origem `(optional)` faltando quer dizer que aquele dispositivo (os
@@ -531,7 +531,7 @@ com o prefixo `lume-bootsel:`:
 | `question shown: keep <id>? (15 s)` | pergunta na tela do primeiro boot com um DTB novo |
 | `confirmed on screen: <id> kept` | o usuário apertou A: o DTB fica confirmado neste aparelho |
 | `not confirmed within 15 s: <id> discarded on this device, going back to <id>` | sem resposta: o DTB vai para `bad` e o kernel volta (`reverted`) |
-| `no question on the screen (...): <id> stays pending until the frontend starts` | sem tecla de confirmar: o `r36os-logd` confirma quando o frontend sobe |
+| `no question on the screen (...): <id> stays pending until the frontend starts` | sem tecla de confirmar: o `lume-logd` confirma quando o frontend sobe |
 | `back from a device tree that was not confirmed: no question, no switch` | terceiro início, depois da volta |
 | `kexec -e failed: <id> is no longer pending` | o `kexec -e` falhou e o boot segue com o DTB em uso |
 | `no device tree` | sem device tree (a VM): nada a escolher |
@@ -541,7 +541,7 @@ O estado fica em `ROMS/system/etc/dtb-<soc>-<serial>.conf` (`manual=`, `good=`,
 (`/sys/devices/soc0/serial_number`) ou, sem ele, pelo `/serial-number` que o bootloader grava
 no DTB (levado adiante no kexec); sem nenhum dos dois, `dtb-<soc>.conf`, um por SoC. Um DTB que não
 é o padrão e ainda não foi confirmado no aparelho fica `pending` e é confirmado na tela; se
-a pergunta não pôde aparecer, o `r36os-logd` o confirma quando o frontend sobe (`good=` e
+a pergunta não pôde aparecer, o `lume-logd` o confirma quando o frontend sobe (`good=` e
 sem `pending=`). Um DTB que continua `pending` no boot seguinte não foi confirmado e é
 descartado (`fallback`). No `events.log`, a escolha vira `boot OK device tree selected …`,
 a confirmação na tela `boot OK device tree confirmed on screen: …`, a do frontend
@@ -642,10 +642,10 @@ sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Se
   (`dt in use: <id> (<motivo>)`, com `after kexec` quando houve troca), número de série,
   SoC, kernel e linha de comando.
 - `== fragments`: a versão de cada fragmento do projeto instalado no console (pacotes
-  `lume-*` e `r36os-*` do banco do apk, lidos de `/lib/apk/db/installed`), uma linha
+  `lume-*` e `lume-*` do banco do apk, lidos de `/lib/apk/db/installed`), uma linha
   `   <pacote>:   <versão>` por fragmento, em ordem alfabética (por exemplo
   `   lume-core:   1.0-r5`). Mostra qual versão de cada fragmento rodou naquele boot; o
-  `r36os push` confere essas mesmas versões depois do reboot e falha quando diferem das
+  `lume push` confere essas mesmas versões depois do reboot e falha quando diferem das
   que enviou (`the console runs lume-core 1.0-r4, the push sent 1.0-r5`).
 - `== component check`: para cada componente esperado (LEDs, USB OTG, USB host, PHY,
   entrada de energia USB/DC, bateria e carregador, PMIC, vídeo, painel, backlight, GPU,
@@ -654,7 +654,7 @@ sobe (por isso inclui o tempo até ele). Só lê `/proc`, `/sys` e o debugfs. Se
   kernel criou o dispositivo e **qual driver o ativa** (`NO DRIVER` quando não há),
   ou se o nó existe mas está desativado (`disabled in DT`). Traz também o modo do USB OTG,
   o estado da entrada de energia e os LEDs com driver, brilho e gatilho.
-- `== memory` traz, só no GA36 (com o `r36os-devmem` instalado), o bloco
+- `== memory` traz, só no GA36 (com o `lume-devmem` instalado), o bloco
   `-- DRAM clock (A33 registers, read only)`: os registradores crus `PLL_DDR1_CTRL_REG`
   (0x01c2004c), `PLL_DDR1_PAT_CTRL_REG0/1` (0x01c202ac/b0), `DRAM_CFG_REG` (0x01c200f4) e
   `PLL_DDR_CFG_REG` (0x01c200f8) e a linha `dram effective: memory <MHz> MHz, controller

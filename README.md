@@ -15,8 +15,8 @@ gera duas imagens:
 | `vm` | `vm` | VM de teste (QEMU/KVM) | x86_64 | testada automaticamente a cada build |
 
 O sistema sobe direto no menu do RetroArch (Ozone), sem login, com a raiz somente leitura
-(`SYSTEM` em squashfs) e uma partição de jogos `ROMS` em exFAT, criada pelo `r36os flash` (ou
-no primeiro boot, se faltar) e legível em qualquer PC. `r36os` é o nome interno do orquestrador, dos pacotes e dos serviços.
+(`SYSTEM` em squashfs) e uma partição de jogos `ROMS` em exFAT, criada pelo `lume flash` (ou
+no primeiro boot, se faltar) e legível em qualquer PC. `lume` é o nome interno do orquestrador, dos pacotes e dos serviços.
 
 ## Requisitos
 
@@ -32,8 +32,8 @@ Tudo roda em containers: kernel e U-Boot em cross (Debian), pacotes e rootfs em 
 criado e mantido pelo `uv` a partir do `pyproject.toml` (fora do git pelo `.gitignore`):
 
 ```sh
-uv sync                 # cria o .venv (Python 3.14) e instala o r36os e o pytest
-uv run r36os --help     # ou .venv/bin/r36os
+uv sync                 # cria o .venv (Python 3.14) e instala o lume e o pytest
+uv run lume --help     # ou .venv/bin/lume
 uv run pytest           # testes unitários (tests/unit)
 ```
 
@@ -44,17 +44,17 @@ o build baixa e compila entre uma execução e outra: fontes e árvores de build
 U-Boot (`src/`, `kbuild/`, `ubuild/`), `ccache/`, `distfiles/`, as chaves de assinatura do
 abuild (`abuild/`), as áreas de boot de fábrica (`vendor/`), a imagem descomprimida do
 `flash` (`flash/`) e o disco da VM (`vm/`). Cerca de 17 GB com as camadas compiladas;
-`uv run r36os clean` remove o que um build refaz sozinho.
+`uv run lume clean` remove o que um build refaz sozinho.
 
 - No Btrfs, o build cria o `.cache/` como No-COW (`chattr +C`), o que evita a fragmentação
   das árvores de build e do disco da VM. Em ext4, xfs e outros, ele avisa numa linha e segue.
-- Para guardar o cache em outro lugar, exporte `R36OS_CACHE=/outro/lugar`.
+- Para guardar o cache em outro lugar, exporte `LUME_CACHE=/outro/lugar`.
 - Uma git worktree (por exemplo, `out/worktrees/<nome>`) usa o `.cache/` do repositório
   principal, sem recompilar o kernel.
 - Exclua o `.cache/` (e o `out/`) do file watcher da IDE: são milhões de arquivos.
 - **`git clean -fdx` apaga o `.cache/` inteiro**, incluindo as chaves do abuild. Tudo volta
   com um build, mas as chaves novas exigem recompilar os pacotes de `out/repo`. Prefira
-  `git clean -fd` (sem `-x`) ou `uv run r36os clean`.
+  `git clean -fd` (sem `-x`) ou `uv run lume clean`.
 
 **Bootloaders dos aparelhos.** Cada console sobe pelo bootloader do próprio fabricante, que
 é binário fechado e não está no repositório:
@@ -71,7 +71,7 @@ imagem inteira do cartão, crua ou comprimida (`.img.zst`):
 ```sh
 sudo dd if=/dev/sdX of=ga36-boot-area.img bs=1M count=128   # cartão original do GA36
 sudo dd if=/dev/sdY of=r36s-card.img bs=1M count=16          # cartão original do R36S
-R36OS_GA36_FACTORY=ga36-boot-area.img R36OS_R36S_FACTORY=r36s-card.img uv run r36os build console
+LUME_GA36_FACTORY=ga36-boot-area.img LUME_R36S_FACTORY=r36s-card.img uv run lume build console
 ```
 
 Só os cartões de fábrica medidos são aceitos (o SHA256 de outro cartão é recusado com uma
@@ -79,51 +79,51 @@ mensagem que explica o motivo).
 
 ### Cache de versões anteriores
 
-Até esta versão, o cache ficava em `~/.cache/r36os` (ou `$XDG_CACHE_HOME/r36os`), que o
+Até esta versão, o cache ficava em `~/.cache/lume` (ou `$XDG_CACHE_HOME/lume`), que o
 build não usa mais. Para aproveitá-lo sem recompilar tudo, mova-o uma vez, com nenhum build
 rodando (`podman ps` vazio), a partir da raiz do projeto:
 
 ```sh
-uv run r36os clean                  # confira a lista
-uv run r36os clean --yes            # remove as árvores kbuild/ de conjuntos de patches antigos
-stat -c %d ~/.cache/r36os/ .        # o mesmo número: o mv só troca nomes, sem copiar dados
+uv run lume clean                  # confira a lista
+uv run lume clean --yes            # remove as árvores kbuild/ de conjuntos de patches antigos
+stat -c %d ~/.cache/lume/ .        # o mesmo número: o mv só troca nomes, sem copiar dados
 mkdir .cache
 chattr +C .cache                    # só no Btrfs
-mv ~/.cache/r36os/src .cache/       # repita para cada pasta de primeiro nível do cache antigo
-rmdir ~/.cache/r36os                # falha se sobrar algo
-uv run r36os build vm               # reaproveita fontes e ccache, sem baixar o kernel de novo
+mv ~/.cache/lume/src .cache/       # repita para cada pasta de primeiro nível do cache antigo
+rmdir ~/.cache/lume                # falha se sobrar algo
+uv run lume build vm               # reaproveita fontes e ccache, sem baixar o kernel de novo
 lsattr -d .cache                    # mostra o atributo C (No-COW)
 ```
 
 Se o `stat` mostrar números diferentes, o `mv` vira uma cópia completa: confira o espaço
-livre antes. Se o `~/.cache/r36os` for um symlink, use o caminho real dele no `stat` e no
-`mv`, e no fim remova o symlink (`rm ~/.cache/r36os`) e a pasta vazia de destino (`rmdir`).
-Para voltar atrás, mova as pastas de volta ou exporte `R36OS_CACHE` com o caminho antigo.
+livre antes. Se o `~/.cache/lume` for um symlink, use o caminho real dele no `stat` e no
+`mv`, e no fim remova o symlink (`rm ~/.cache/lume`) e a pasta vazia de destino (`rmdir`).
+Para voltar atrás, mova as pastas de volta ou exporte `LUME_CACHE` com o caminho antigo.
 
 ## Uso rápido
 
 ```sh
-uv run r36os build vm              # gera a imagem da VM
-uv run r36os vm                    # roda a VM em janela (--headless: serial no terminal)
-uv run r36os test-vm               # teste de aceitação completo da VM
+uv run lume build vm              # gera a imagem da VM
+uv run lume vm                    # roda a VM em janela (--headless: serial no terminal)
+uv run lume test-vm               # teste de aceitação completo da VM
 
-uv run r36os build console         # gera o cartão único do GA36 e do R36S (as duas camadas, uma depois da outra)
-uv run r36os build console --lang pt_BR   # idioma de fábrica do menu (padrão: en)
-uv run r36os build --all           # vm, test-vm e depois console (só liberada se a vm passar)
+uv run lume build console         # gera o cartão único do GA36 e do R36S (as duas camadas, uma depois da outra)
+uv run lume build console --lang pt_BR   # idioma de fábrica do menu (padrão: en)
+uv run lume build --all           # vm, test-vm e depois console (só liberada se a vm passar)
 
-uv run r36os pkg r36s retroarch    # recompila um pacote de aports/ para uma camada (ga36, r36s, vm)
+uv run lume pkg r36s retroarch    # recompila um pacote de aports/ para uma camada (ga36, r36s, vm)
 ```
 
 **Velocidade do build.** O build usa metade dos núcleos por padrão, sob `nice 19` e
 `ionice` ocioso, e diz isso na primeira linha (`jobs: N (M cores), priority: ...`). Mude com
-`--jobs N` ou `R36OS_JOBS=N` (a opção vence a variável). Um build sem mudança leva ~1 min 25 s
+`--jobs N` ou `LUME_JOBS=N` (a opção vence a variável). Um build sem mudança leva ~1 min 25 s
 (eram 12 min 04 s), porque as etapas cujas entradas não mudaram (DTBs, initramfs, módulos,
 rootfs, SYSTEM) são puladas; `--clean` força todas. No fim, o `build summary:` mostra o tempo
 de cada etapa, o total e as temperaturas. Detalhes em `docs/BUILD.md`.
 
 ```sh
-uv run r36os build console --jobs 4   # menos tarefas, PC mais frio
-uv run r36os build console --clean    # roda todas as etapas
+uv run lume build console --jobs 4   # menos tarefas, PC mais frio
+uv run lume build console --clean    # roda todas as etapas
 ```
 
 Idiomas aceitos em `--lang`: `en` (padrão), `pt_BR`, `pt_PT`, `es`, `fr`, `de`, `it`.
@@ -153,11 +153,11 @@ sistemas.
 Rode num terminal (a escrita usa `sudo`, que pede a senha):
 
 ```sh
-uv run r36os flash console /dev/sdX --full     # cartão todo (o padrão): imagem + ROMS no resto
-uv run r36os flash console /dev/sdX            # o mesmo que --full
-uv run r36os flash console /dev/sdX --update   # atualização: preserva jogos, saves e configurações
-uv run r36os flash console /dev/sdX --build 20261109-214233   # um build específico
-uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, desmonta e desliga)
+uv run lume flash console /dev/sdX --full     # cartão todo (o padrão): imagem + ROMS no resto
+uv run lume flash console /dev/sdX            # o mesmo que --full
+uv run lume flash console /dev/sdX --update   # atualização: preserva jogos, saves e configurações
+uv run lume flash console /dev/sdX --build 20261109-214233   # um build específico
+uv run lume eject /dev/sdX                    # ejetar com segurança (sync, desmonta e desliga)
 ```
 
 - O comando só aceita discos removíveis, desmonta as partições, pede para digitar o nome
@@ -177,7 +177,7 @@ uv run r36os eject /dev/sdX                    # ejetar com segurança (sync, de
   `--update`.
 - O cartão precisa ter pelo menos 4 GB (a `BOOT` ocupa 2 GiB depois dos 128 MiB iniciais).
 - Para descobrir o dispositivo: `lsblk -o NAME,SIZE,TRAN,RM,MODEL,LABEL`.
-- Rode o `r36os flash` como seu usuário, **sem** `sudo` na frente: ele chama o `sudo` só
+- Rode o `lume flash` como seu usuário, **sem** `sudo` na frente: ele chama o `sudo` só
   para gravar e ler o cartão. Com `sudo` na frente, os arquivos de cache ficam com o root.
 
 ## Pelo cabo USB
@@ -200,13 +200,13 @@ como "Lume GA36" ou "Lume R36S" e oferece duas coisas:
   `docs/BRINGUP-GA36.md`. O SSH só escuta na rede do cabo: só quem tem o console e um cabo chega
   a ele, e essa pessoa já pode tirar o cartão.
 
-### Atualizar pelo cabo USB (`r36os push`)
+### Atualizar pelo cabo USB (`lume push`)
 
 Com o console ligado no PC pela porta OTG:
 
 ```sh
-uv run r36os push                          # o build mais recente (out/images/console/latest)
-uv run r36os push --build 20261114-100000  # um build específico
+uv run lume push                          # o build mais recente (out/images/console/latest)
+uv run lume push --build 20261114-100000  # um build específico
 ```
 
 1. Lê o console: build atual, placa, bateria, espaço livre e espaço perdido na `BOOT`.
@@ -230,13 +230,13 @@ uv run r36os push --build 20261114-100000  # um build específico
 - Um `push` interrompido deixa o `VERSION` antigo, e o próximo `push` reenvia tudo. Se a
   energia cair bem no meio da troca do `SYSTEM` (ou do `modules`), o console sobe com o
   `<arquivo>.old`, o build anterior, e registra uma linha `ERROR` no log de boot. Se o
-  console não iniciar, `r36os flash --update` pelo leitor continua sendo a recuperação.
+  console não iniciar, `lume flash --update` pelo leitor continua sendo a recuperação.
 - **Clusters perdidos:** quando o espaço usado da `BOOT` passa em mais de 32 MB o que os
   arquivos ocupam, o `push` avisa (`warning: BOOT has <N> MiB in lost clusters`) e segue.
   Isso sobra de cartões atualizados por versões antigas do `push`, que vazavam ~290 MB por
   troca do `SYSTEM`, ou de um corte de energia. Para recuperar, com o cartão no leitor do
   PC: `sudo fsck.vfat -a /dev/sdX1` (a `BOOT` é a partição 1) e apague os `FSCK*.REC` que
-  ele cria na raiz da `BOOT`; ou regrave com `r36os flash --update`.
+  ele cria na raiz da `BOOT`; ou regrave com `lume flash --update`.
 - Os arquivos do MTP e o `push` usam o mesmo cabo: dá para ler `logs/` pelo gerenciador de
   arquivos do PC antes e depois.
 
@@ -261,7 +261,7 @@ uv run r36os push --build 20261114-100000  # um build específico
   R36S é aarch64.
 - **Leitor de cartão:** o leitor USB `14cd:125d` ("Mass Storage Device") corrompe o cartão em
   gravações pequenas: grava o próprio comando USB (assinatura `USBC`) no lugar dos dados,
-  como no primeiro setor da `ROMS` ou no FSINFO da `BOOT`. O `r36os flash` avisa quando
+  como no primeiro setor da `ROMS` ou no FSINFO da `BOOT`. O `lume flash` avisa quando
   identifica esse leitor, e o boot registra a causa quando acha a `ROMS` com essa
   assinatura. Use outro leitor; um cartão afetado se recupera com `fsck.exfat` ou
   gravando de novo com `--full`.
@@ -323,7 +323,7 @@ com o `force`, tire o nome dele da linha `bad=` do arquivo do aparelho.
 
 Além do R36S V5, a `BOOT` traz em `dtbs/rk3326/vendor/` cerca de 170 device trees de
 clones e parentes do R36S (RK3326), convertidos dos DTBs do dArkOSRE e do arkos4clone para
-o nosso kernel (`board/r36s/dts-vendor/`, gerados por `r36os dtb-import`; a origem de cada
+o nosso kernel (`board/r36s/dts-vendor/`, gerados por `lume dtb-import`; a origem de cada
 um e os recusados, com o motivo, ficam no `SOURCES.tsv`). Num boot normal eles não são
 lidos, e a busca sozinha (tela preta) não os testa: seriam um reinício por placa. Para usar
 um:
@@ -353,7 +353,7 @@ PMIC RK809 e outras, P-75).
 
 ### Converter os DTBs (o do seu aparelho ou as coleções)
 
-A conversão é automática e roda no PC: `r36os dtb-import` lê os DTBs (do kernel 4.4 ou
+A conversão é automática e roda no PC: `lume dtb-import` lê os DTBs (do kernel 4.4 ou
 5.10 da Rockchip, como os do ArkOS, dArkOS e dos cartões de fábrica), gera um device tree
 nosso por placa em `board/r36s/dts-vendor/` e anota cada arquivo lido no
 `board/r36s/dts-vendor/SOURCES.tsv`: `converted` (com o nome da placa), `refused` (com o
@@ -380,8 +380,8 @@ sozinha quando existe.
 **3. Converter:**
 
 ```sh
-uv run r36os dtb-import                      # as coleções (e out/r36s-factory, se houver)
-uv run r36os dtb-import meu=~/meu-console    # as coleções mais a pasta do seu aparelho
+uv run lume dtb-import                      # as coleções (e out/r36s-factory, se houver)
+uv run lume dtb-import meu=~/meu-console    # as coleções mais a pasta do seu aparelho
 ```
 
 Cada execução refaz a pasta inteira a partir das fontes que recebeu, então o DTB do seu
@@ -390,15 +390,15 @@ comando mostra quantos foram `converted`, `refused` e `same`. Procure o seu arqu
 `SOURCES.tsv`: a segunda coluna é o nome da placa convertida (por exemplo `meu-r35s`); se
 foi recusado, a última coluna diz o motivo.
 
-**4. Gerar e gravar o cartão** com os DTBs novos: `uv run r36os build console` (o build
+**4. Gerar e gravar o cartão** com os DTBs novos: `uv run lume build console` (o build
 compila cada DTS e o confere no `dt-validate`; um erro para o build) e depois
-`uv run r36os flash console <dispositivo> --update` ou `uv run r36os push`.
+`uv run lume flash console <dispositivo> --update` ou `uv run lume push`.
 
 **5. No console:** escreva o nome da placa em `BOOT/dtbs/force` (ou escolha-a na lista com
 Vol- segurado ao ligar) e confirme com A quando a tela perguntar. Sem resposta em 15 s, o
 console volta sozinho ao DTB anterior.
 
-Ao mudar o conversor (`src/r36os/vendor_dtb.py`), rode `uv run r36os dtb-import` de novo e
+Ao mudar o conversor (`src/lume_tool/vendor_dtb.py`), rode `uv run lume dtb-import` de novo e
 inclua no commit a pasta `board/r36s/dts-vendor/` regenerada; o teste
 `tests/unit/test_vendor_dtb.py` acusa quando ela ficou desatualizada.
 
@@ -434,7 +434,7 @@ kernel/patches/   patches do kernel (bindings e os drivers do painel e do contro
 aports/           pacotes Alpine locais (RetroArch, cores, Mesa da VM); mudanças em *.patch
 rootfs/           lista de pacotes, overlay e configuração do sistema
 initramfs/        init próprio (partição de jogos, SYSTEM, overlay)
-src/r36os/        orquestrador (build, imagem, versão, gravação, VM, testes)
+src/lume_tool/    orquestrador (build, imagem, versão, gravação, VM, testes)
 tests/            testes unitários, de integração e suítes em shell
 openspec/         planejamento (proposta, design, specs e tarefas)
 out/              artefatos do build: imagens, repositório de pacotes local (fora do git)
@@ -472,13 +472,13 @@ repositório, com o crédito no lugar:
   de hardware (pinos, timings, sequência do painel), e cada DTS cita a origem e o SHA-256.
 - **[ROCKNIX](https://github.com/ROCKNIX/distribution)**: o driver `panel-generic-dsi`
   (GPL-2.0, Danil Zagoskin; port em `kernel/patches/0033`), a lógica de conversão do
-  `rocknix_dtbo.py` (`stolen/overlay_server`, MIT) portada para `src/r36os/vendor_dtb.py`, e
+  `rocknix_dtbo.py` (`stolen/overlay_server`, MIT) portada para `src/lume_tool/vendor_dtb.py`, e
   o mapeamento dos analógicos do `rocknix-singleadc-joypad` (GPL-2.0).
 - **Cartão de fábrica do R36S** (um ArkOS para o "R36S V5"): a cadeia de boot do aparelho
   (`idbloader` e `trust.img` da Rockchip e o U-Boot da linha Hardkernel, que lê o
   `boot.ini`) e o device tree de fábrica, de onde vieram a sequência do painel e os valores
   do PMIC. A cadeia é binário fechado e **não é distribuída**: o build a extrai da cópia do
-  cartão do próprio aparelho (`R36OS_R36S_FACTORY`).
+  cartão do próprio aparelho (`LUME_R36S_FACTORY`).
 - **Device trees mainline do Odroid Go2/Go3 (Hardkernel) e do GameForce Chi** (Chris
   Morgan): a estrutura do `board/r36s/dts/rk3326-r36s-v5.dts` (mesmo RK3326, analógicos
   sobre `io-channel-mux` e painel ST7703) segue a deles.
@@ -506,6 +506,6 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
 - Os bootloaders dos fabricantes (boot0 e U-Boot da Allwinner no GA36; `idbloader`,
   `uboot.img` e `trust.img` da Rockchip no R36S) são binários fechados e **não são
   distribuídos**: cada um os extrai do cartão original do próprio aparelho
-  (`R36OS_GA36_FACTORY` e `R36OS_R36S_FACTORY`).
+  (`LUME_GA36_FACTORY` e `LUME_R36S_FACTORY`).
 - Nenhuma ROM, BIOS ou jogo comercial faz parte do repositório; as ROMs de teste da VM
   são geradas pelo build.

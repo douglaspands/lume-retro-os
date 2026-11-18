@@ -22,6 +22,17 @@ Antes de montar a partição `ROMS`, o boot MUST ler as marcas de volume sujo e 
 - **WHEN** o volume está limpo e existe o pedido "Verificar no próximo boot"
 - **THEN** a verificação roda, o pedido é apagado e o resultado aparece na tela e no log
 
+### Requirement: Sistema do próprio console no cartão único
+No cartão da imagem `console`, o boot MUST montar como raiz o `SYSTEM` do console em que o cartão está (`BOOT/ga36/SYSTEM` no GA36, `BOOT/r36s/SYSTEM` no R36S). Se esse arquivo faltar, o boot MUST parar com uma mensagem na tela que nomeia o console e o arquivo esperado, sem tentar o `SYSTEM` do outro console.
+
+#### Scenario: Mesmo cartão, sistemas diferentes
+- **WHEN** o mesmo cartão inicia no GA36 e depois no R36S
+- **THEN** no GA36 a raiz é o `SYSTEM` armv7 de `BOOT/ga36/` e no R36S é o `SYSTEM` aarch64 de `BOOT/r36s/`, e o `/etc/lume/board` de cada um nomeia o próprio console
+
+#### Scenario: SYSTEM do console ausente
+- **WHEN** o R36S inicia um cartão cuja `BOOT` não tem `r36s/SYSTEM`
+- **THEN** o boot para na tela de recuperação com uma mensagem que cita o R36S e `r36s/SYSTEM`
+
 ## ADDED Requirements
 
 ### Requirement: Hora que só anda para a frente

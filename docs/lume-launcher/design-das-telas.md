@@ -60,7 +60,7 @@ Regras desenhadas e conferidas:
 
 Protótipo: `prototipo/jogo.html` (telas do sistema sobre um jogo de exemplo desenhado com blocos, sem arte de terceiros). Parâmetros: `?tema=lume|material-escuro|material-claro&idioma=pt|en|es&tela=menu|confirm|confirm-reset|silent|native|hint|hud|hud-charging|game&barra&foco=N&limpo` (`limpo` deixa só a tela de 640x480, para a captura). No navegador: F1 tocado abre e fecha o menu, F1 segurado 500 ms mostra a dica, setas, Enter = A, Esc = B, como a máquina de estados do `lume-run` (`menu.rs`). O tema `lume` é o da imagem (`themes/base.toml`, os `DEFAULTS` de `src/themes.js`).
 
-Medido nas capturas de 640x480 (Chromium headless, `?limpo`), em 2026-11-17, origem no canto superior esquerdo; 1em = 16 px. O widget do RetroArch (patch 0012) usa as cores dos tokens e estas proporções; os tamanhos de fonte dele vêm das fontes de widget do RetroArch e são comparados com esta tabela pela captura (`r36os dev shot`), na VM e depois no aparelho.
+Medido nas capturas de 640x480 (Chromium headless, `?limpo`), em 2026-11-17, origem no canto superior esquerdo; 1em = 16 px. O widget do RetroArch (patch 0012) usa as cores dos tokens e estas proporções; os tamanhos de fonte dele vêm das fontes de widget do RetroArch e são comparados com esta tabela pela captura (`lume dev shot`), na VM e depois no aparelho.
 
 | Elemento | x | y | largura | altura | Fonte / cor |
 | :--- | ---: | ---: | ---: | ---: | :--- |
