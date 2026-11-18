@@ -212,6 +212,78 @@ rm -f "$W/conf/ga36.conf"
 fifo_lines >/dev/null
 sleep 0.8
 
+### 5b. wakeup sources (task 8.1): the listed ones off around the suspension, the rest untouched
+nowake_sys() {  # fake devices with a power/wakeup switch
+	for d in class/power_supply/usb class/power_supply/bat bus/platform/devices/rtc.1.auto \
+		bus/platform/devices/rtc.2.auto bus/platform/devices/pek bus/platform/devices/idle; do
+		mkdir -p "$SYS/$d/power"
+		echo enabled >"$SYS/$d/power/wakeup"
+	done
+	echo disabled >"$SYS/bus/platform/devices/idle/power/wakeup"
+}
+fresh
+nowake_sys
+cat >"$W/conf/ga36.conf" <<'EOF'
+mode freeze
+nowake class/power_supply/usb   # the charger
+nowake class/power_supply/bat
+nowake bus/platform/devices/rtc.*
+nowake bus/platform/devices/idle
+nowake bus/platform/devices/missing
+nowake /sys/bus/platform/devices/pek
+nowake bus/platform/devices/../devices/pek
+nowake two words here
+EOF
+# what each switch reads while the console sleeps: /sys/power/state is a FIFO, so the write of
+# the mode blocks until this reader opens it, after copying the switches (the trace line of a
+# write comes before the write itself)
+rm -f "$SYS/power/state"
+mkfifo "$W/state.fifo"
+ln -s "$W/state.fifo" "$SYS/power/state"
+(
+	n=0
+	while [ $n -lt 200 ] && ! grep -q "^write power/state" "$T"; do sleep 0.05; n=$((n + 1)); done
+	for d in class/power_supply/usb class/power_supply/bat bus/platform/devices/rtc.1.auto \
+		bus/platform/devices/rtc.2.auto bus/platform/devices/pek bus/platform/devices/idle; do
+		printf '%s=%s|' "${d##*/}" "$(cat "$SYS/$d/power/wakeup")"
+	done >"$W/asleep"
+	read -r _ <"$W/state.fifo"
+) &
+RD=$!
+fake_input ok
+request suspend
+stop_input
+wait "$RD"
+check "wakeup: the listed sources are disabled while asleep, the power key and the rest untouched" \
+	'[ "$(cat "$W/asleep")" = "usb=disabled|bat=disabled|rtc.1.auto=disabled|rtc.2.auto=disabled|pek=enabled|idle=disabled|" ]'
+check "wakeup: enabled again after the wake, the one already disabled stays so" \
+	'[ "$(for d in class/power_supply/usb class/power_supply/bat bus/platform/devices/rtc.1.auto bus/platform/devices/rtc.2.auto bus/platform/devices/pek bus/platform/devices/idle; do cat "$SYS/$d/power/wakeup"; done | tr "\n" " ")" = "enabled enabled enabled enabled enabled disabled " ]'
+check "wakeup: disabled after the gadget unbind, before the kernel; enabled first on the way back" \
+	'[ "$(grep -n "^write kernel/config/usb_gadget/lume/UDC" "$T" | cut -d: -f1)" -lt "$(grep -n "^write class/power_supply/usb/power/wakeup disabled" "$T" | cut -d: -f1)" ] && [ "$(grep -n "^write bus/platform/devices/rtc.2.auto/power/wakeup disabled" "$T" | cut -d: -f1)" -lt "$(grep -n "^write power/state" "$T" | cut -d: -f1)" ] && [ "$(grep -n "^write power/state" "$T" | cut -d: -f1)" -lt "$(grep -n "^write class/power_supply/usb/power/wakeup enabled" "$T" | cut -d: -f1)" ] && [ "$(grep -n "^write bus/platform/devices/rtc.2.auto/power/wakeup enabled" "$T" | cut -d: -f1)" -lt "$(grep -n "^power resume" "$T" | cut -d: -f1)" ]'
+check "wakeup: absolute and parent paths are refused and logged, nothing written outside" \
+	'has_event "FAIL wakeup: refused path /sys/bus/platform/devices/pek" && has_event "FAIL wakeup: refused path bus/platform/devices/../devices/pek" && ! grep -q "devices/pek" "$T" && ! grep -q "devices/idle" "$T"'
+check "wakeup: a missing folder and a bad line are skipped, the suspension runs" \
+	'has_event "OK suspend freeze" && events | grep -q " sleep OK resume after" && [ "$(events | grep -c " sleep FAIL")" = 2 ]'
+rm -f "$SYS/power/state" "$W/state.fifo" "$W/asleep"
+fifo_lines >/dev/null
+sleep 0.8
+# a refusal of the kernel gives the switches back too
+fresh
+nowake_sys
+rm -f "$SYS/power/state"
+mkdir "$SYS/power/state"
+fake_input ok
+request suspend
+stop_input
+check "wakeup: the kernel refusal enables the sources again" \
+	'grep -q "^write class/power_supply/usb/power/wakeup disabled" "$T" && [ "$(cat "$SYS/class/power_supply/usb/power/wakeup")" = enabled ] && [ "$(cat "$SYS/bus/platform/devices/rtc.1.auto/power/wakeup")" = enabled ] && has_event "FAIL suspend freeze: write /sys/power/state failed (Is a directory)"'
+rm -f "$W/conf/ga36.conf"
+fifo_lines >/dev/null
+sleep 0.8
+# the files of the image: the power key and the R36S PMIC are never listed
+check "wakeup: the image files list the charger, the battery and the RTC, never the power key" \
+	'grep -qx "nowake class/power_supply/axp20x-usb" aports/lume-power/files/usr/share/lume/sleep/ga36.conf && grep -qx "nowake class/power_supply/rk817-charger" aports/lume-power/files/usr/share/lume/sleep/r36s.conf && ! grep -E "^nowake .*(pek|pwrkey|0020|i2c)" aports/lume-power/files/usr/share/lume/sleep/*.conf'
+
 ### 6. what is missing is skipped: no clock hook, no Wi-Fi, no gadget, no backlight, no lume-power
 fresh
 rm -rf "$SYS/class/backlight" "$SYS/kernel"

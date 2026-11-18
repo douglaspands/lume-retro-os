@@ -325,7 +325,16 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   `/sys/power/mem_sleep`, suspender, acordar e medir a corrente da bateria em cada modo. O
   `mem` só vale se acordar 10 vezes em 10 sem falha.
 - Só o botão de energia acorda o console: `wakeup-source` no nó do `axp20x-pek` e do
-  `rk805-pwrkey` no DTS (8.1), e o resto não acorda.
+  `rk805-pwrkey` no DTS (8.1), e o resto não acorda. **Como ficou (8.1):** nenhuma das duas
+  teclas tem nó no DTS (são células MFD). No GA36 o driver `axp20x-pek` se faz fonte de
+  despertar sozinho (a J1 acordou 10 de 10 sem overlay); no R36S o `wakeup-source` que já
+  estava no nó do RK817 é o que arma a interrupção do PMIC como despertar (núcleo I2C). O
+  resto sai em tempo de execução: linhas `nowake` no `/usr/share/lume/sleep/<placa>.conf`,
+  que o `lume-sleep` desliga no `power/wakeup` antes de suspender e religa depois (carregador,
+  bateria, RTC); os drivers dessas fontes as ligam sem ler o DTS. Restam duas que o sysfs não
+  desliga: o `musb` do GA36 (arma a interrupção no probe) e o plugue do carregador no R36S
+  (divide a linha do PMIC com o botão), a conferir na J2 e na J1/J3 do R36S. Tabela em
+  `docs/LAUNCHER.md`. Sem opção nova de kernel nos dois.
 - Eventos `sleep OK suspend <modo>`, `sleep OK resume after <s>` e `sleep FAIL ...`.
 - Uma falha na suspensão volta ao estado de antes e registra o motivo, sem deixar a tela
   apagada.

@@ -151,6 +151,20 @@ def test_boot_screen_is_the_same_on_both_consoles():
     assert "CONFIG_LOGO" in _off(FRAGMENT) and "CONFIG_LOGO" in _off(r36s)
 
 
+SLEEP_OPTIONS = ("CONFIG_SUSPEND", "CONFIG_PM_SLEEP", "CONFIG_PM", "CONFIG_PM_SLEEP_SMP")
+
+
+def test_suspension_needs_no_option_of_its_own():
+    # device-fixes D11, task 8.1: the J1 (2.3) suspended the GA36 in s2idle with the
+    # sunxi_defconfig as it is and woke it 10 of 10 times by the power key (INPUT_AXP20X_PEK,
+    # built in there). The fragment neither turns those off nor picks a sleep mode, and
+    # autosleep stays off (lume-sleep alone decides when the console sleeps).
+    for opt in SLEEP_OPTIONS + ("CONFIG_INPUT_AXP20X_PEK", "CONFIG_AXP20X_POWER",
+                                "CONFIG_BATTERY_AXP20X", "CONFIG_RTC_DRV_SUN6I"):
+        assert opt not in _off(FRAGMENT) and opt not in _options(FRAGMENT), opt
+    assert not re.search(r"PM_AUTOSLEEP|PM_WAKELOCKS|SUSPEND_SKIP_SYNC|MEM_SLEEP", FRAGMENT)
+
+
 def test_build_checks_the_options_that_stay_off():
     from lume_tool.kernel import _KERNEL_SCRIPT
     assert "must stay off" in _KERNEL_SCRIPT

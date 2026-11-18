@@ -282,6 +282,16 @@
 		 * propriedade. O goodluckOS precisava da antiga
 		 * x-powers,system-power-controller num kernel anterior.
 		 */
+		/*
+		 * Wake from suspension (device-fixes D11, task 8.1): no wakeup-source here or on
+		 * any other node. The power key (axp221-pek, an MFD cell without a DT node) makes
+		 * itself a wakeup source in its driver (axp20x-pek.c, device_init_wakeup), and its
+		 * enable_irq_wake reaches this PMIC interrupt through the regmap IRQ chip: the J1
+		 * woke the GA36 10 of 10 times by it without an overlay. The other AXP sources (the
+		 * charger input, the battery) and the RTC are switched off by lume-sleep through
+		 * power/wakeup (their drivers enable them without reading the DT), and the volume
+		 * keys (LRADC) and the gamepad have no wakeup-source, so they never wake.
+		 */
 	};
 };
 
