@@ -83,6 +83,56 @@ Regras desenhadas:
 | Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-17 (capturas do protótipo e da vm; ordem do menu: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch) |
 | :--- | :--- |
 
+## Cartão, menu do sistema pelo Fn, brilho e relato da falha (change `device-fixes`, tarefa 4.1; D5, D8, D11, D12, D19)
+
+Protótipo: `prototipo/index.html`. Parâmetros da URL (somados aos de cima): `&tela=sys|sys-grid|sys-sheet|sys-reboot|sys-power|hold|set|set-games|card|card-act|card-running|card-ok|card-fail|card-check|bri|bri-act|reset|edge|report` e `&cartao=idle|running|ok|fail`. Na barra de ferramentas: "Cartão" (estado do Otimizar), Fn toque, Fn segurar (segure o botão do mouse), Fn+Vol ▲▼ e Fn+Select. Teclas: F1 (toque curto = menu do sistema; segurar 500 ms = dica), F2/F3 = Fn+Volume, F4 = Fn+Select.
+- **Menu do sistema (D19):** um toque no Fn abre, por cima de qualquer tela ou folha (Dock, grade, Configurações, folha de jogo aberta); outro toque no Fn ou B fecha e volta exatamente onde estava. Itens: Configurações, Suspender, Reiniciar, Desligar, foco inicial em Configurações. Configurações abre as Configurações e B volta à tela de origem (com a folha, se havia uma); Suspender suspende sem confirmação (qualquer tecla acorda no mesmo lugar); Reiniciar e Desligar abrem a confirmação vertical (a ação em cima, Cancelar embaixo com o foco; só ▲▼ mudam a escolha, ◀▶ não fazem nada, D8).
+- **Configurações (D19):** Wi-Fi e Bluetooth (com adaptador), Idioma, Tema, Tela (no protótipo ainda "Modo lite"), Volume, Brilho, Sistema, Cartão e Games ("Atualizar listas"), dando a volta em Games; sem Desligar, Suspender e RetroArch. Cartão: A (ou ▶) entra nas duas ações, ▲▼ movem, A executa, B volta; "Verificar no próximo boot" é um pedido, e A de novo o cancela. Brilho: A entra na linha "Recomeçar o aprendizado" e A abre a confirmação (Sim em cima, Cancelar com o foco).
+- **Brilho (D12, usuário 2026-11-18):** sem pontinho vermelho; o limite aprendido não aparece na tela, só no registro. Brilho acima do antigo limite continua permitido.
+
+Medido no protótipo a 640x480, escala 1:1, em 2026-11-18, pelos retângulos do DOM (origem no canto superior esquerdo da tela; 1em = 16 px). Quando não diz o idioma, vale para os três.
+
+| Elemento | x | y | largura | altura | Fonte / cor |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Item da lista das Configurações em foco (Cartão y 270,6; Brilho y 214; Games y 299) | 16 | 270,6 | 255,4 | 26,7 | 16,8 px (`1.05em`), `sel-bg` / `sel-fg`; a lista tem 10 itens com Wi-Fi e Bluetooth, passo de 28,5 px |
+| Ação "Atualizar listas" (painel Games) | 298,5 | 81,6 | 311,1 | 23,8 | 16 px |
+| Menu do sistema: folha (4 itens, pt) | 190,2 | 129,7 | 259,6 | 220,5 | `panel-bg`, raio `radius-panel`, largura mínima 16em, máxima 20em; fundo `overlay` |
+| Menu do sistema: título "Menu do sistema" | 204,6 | 144,1 | 230,8 | 32,2 | 22,4 px peso 600 |
+| Menu do sistema: item em foco (Configurações) | 204,6 | 179,1 | 230,8 | 39,2 | 20 px, `sel-bg` / `sel-fg`; os demais (Suspender, Reiniciar, Desligar) em y 218,3, 257,5 e 296,7 (passo 39,2) |
+| Confirmação de Reiniciar ou Desligar (folha) | 32 | 151,2 | 576 | 177,7 | como a de Desligar de antes: título 22,4 px, pergunta 19,2 px |
+| Confirmação: título | 46,4 | 165,6 | 547,2 | 32,2 | "Reiniciar o aparelho" / "Desligar o aparelho" |
+| Confirmação: pergunta | 46,4 | 200,5 | 547,2 | 24 | `muted`, 19,2 px |
+| Confirmação: a ação ("Reiniciar" ou "Desligar") em cima | 46,4 | 236,1 | 547,2 | 39,2 | 20 px, `fg` |
+| Confirmação: "Cancelar" embaixo, com o foco | 46,4 | 275,3 | 547,2 | 39,2 | 20 px, `sel-bg` |
+| Rodapé do Dock: dica "Fn Menu" (pt; es "Fn Menú", mesma largura) | 424,2 | 448,5 | 84,5 | 24,8 | 19,2 px `muted`; glifo "Fn" no círculo `hint-bg` / `hint-fg` como o A; terceira dica, depois de ◀▶ e A (rodapé 0 / 441,7, 640 x 38,3) |
+| Dica ao segurar o Fn: painel (pt) | 143,8 | 193,4 | 352,5 | 93,2 | `panel-bg-opaque`, centrado na tela, 22,4 px; es 140,9 / 358,3 |
+| Dica: linha "Fn (toque): Menu do sistema" | 168,4 | 209,1 | 303,2 | 27 | "Fn" em `accent` negrito |
+| Dica: linha "Fn+Vol: Brilho" | 168,4 | 243,9 | 303,2 | 27 | "Fn+Vol" em `accent` negrito |
+| Painel Cartão | 284,2 | 44,1 | 339,8 | 391,2 | `panel-bg`, padding 9,6 / 14,4 px |
+| Título "Cartão" | 298,5 | 53,7 | 311,1 | 22,1 | 19,2 px peso 600 |
+| Linha "Espaço livre" (idem "Última otimização" +23,8, "Última verificação" +47,6) | 298,5 | 81,6 | 311,1 | 23,8 | 16 px; rótulo `muted`, valor `fg`; "boot N" ou "nunca" (en "boot N"/"never", es "arranque N"/"nunca") |
+| Ação "Otimizar agora" | 298,5 | 155,4 | 311,1 | 23,8 | 16 px, em foco `sel-bg`; estado à direita: vazio (ocioso), "Otimizando…", "✓ 1,2 GB liberados", "Cartão sem suporte" (falha, `#ff8a80` fora do foco) |
+| Ação "Verificar no próximo boot" (es "Verificar al arrancar") | 298,5 | 181,6 | 311,1 | 23,8 | 16 px; "✓ Agendada" (en "✓ Scheduled", es "✓ Pedida") depois de A; uma linha nos três idiomas |
+| Painel Brilho: valor "80%" | 298,5 | 81,6 | 311,1 | 28,1 | 25,6 px negrito |
+| Barra do Brilho | 298,5 | 112,1 | 311,1 | 8,8 | 8,8 px de altura, trilho `muted` a 30%, preenchimento `accent` |
+| Linha "Recomeçar o aprendizado" (a barra não tem marca) | 298,5 | 126,5 | 311,1 | 23,8 | 16 px, em foco `sel-bg` |
+| Confirmação de recomeçar (folha) | 32 | 151,2 | 576 | 177,7 | título 22,4 px, pergunta 19,2 px |
+| "Sim" (em cima) | 46,4 | 236,1 | 547,2 | 39,2 | 20 px, `fg` |
+| "Cancelar" (embaixo, com o foco) | 46,4 | 275,3 | 547,2 | 39,2 | 20 px, `sel-bg` |
+| Linha de brilho da borda (Fn+Volume), nível 8: caixa | 11,2 | 120,8 | 31,6 | 238,4 | `panel-bg-opaque`, some depois de 1,6 s |
+| Número do nível | 20,8 | 128,8 | 12,4 | 24 | 19,2 px negrito |
+| Trilho da linha | 21,4 | 159,2 | 11,2 | 192 | `muted` a 30%; preenchimento `accent` de baixo para cima (nível 8 = 153,6 px) |
+| Linha curta do relato (Fn+Select), pt "Falha registrada" | 212,5 | 365,7 | 215 | 47,2 | toast do tema (22,4 px, `toast-bg` / `toast-fg`), como o aviso de bateria fraca |
+| Relato, es "Fallo registrado" | 215,3 | 365,7 | 209,3 | 47,2 | idem |
+
+Regras desenhadas:
+- **Menu do sistema:** a camada fica acima de tudo (menos do aviso curto), com a entrada antes do resto; ao fechar, a tela de baixo está como estava (a grade com o mesmo jogo, a folha do jogo aberta). A dica de segurar o Fn é ignorada com o menu aberto, some ao soltar o Fn e quando chega um evento de brilho.
+- **Recomeçar:** confirmada, aparece o aviso "Aprendizado recomeçado"; o limite só mexe no registro (D12 sem pontinho). Se a revisão pós-E4 tirar o limite, a linha "Recomeçar o aprendizado" sai junto (`resetLearn`, `resetAsk`, `yesNo`, `resetDone` no `i18n.js` e `briPanel`/`askReset` no `engine.js`).
+- **Suspender:** só no menu do sistema, sem confirmação.
+
+| Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-18 (menu do sistema pelo Fn, dicas do Fn, Configurações sem Desligar, Suspender e RetroArch, Brilho sem pontinho, Cartão, relato) |
+| :--- | :--- |
+
 ## Pontos técnicos a verificar
 - **Save states**: dependem do emulador. No RetroArch os estados ficam em slots; é preciso confirmar como iniciar já carregando um slot (opção de linha de comando ou configuração) e como o dArkOS organiza os arquivos. Emuladores standalone podem não ter isso.
 - **Capas**: vêm do `gamelist.xml` do ES (`<image>`), não do formato do RetroArch. Detalhes em [Gamelist e capas](gamelist-e-capas.md).
