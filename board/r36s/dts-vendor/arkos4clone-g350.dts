@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * BatleXP G350, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/g350/rk3326-g350-linux.dtb
  * SHA-256: 64db9c2eb4930beea792696c55c61d4c485f548962a8bc6194d605882a58edb2
  * Note: power: LDO_REG9 not declared by the source: no voltage set, left on

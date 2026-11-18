@@ -9,7 +9,7 @@
 [runner]
 id = "retroarch"
 kind = "libretro"
-exec = ["/usr/libexec/r36os/frontends/retroarch", "-L", "{core_path}", "{rom}"]
+exec = ["/usr/libexec/lume/frontends/retroarch", "-L", "{core_path}", "{rom}"]
 quit = "retroarch-cmd"
 timeout = 3
 overlay = "retroarch"

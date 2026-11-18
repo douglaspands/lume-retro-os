@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# Persistência seletiva da configuração do RetroArch em ROMS/system (D7).
+
+description="Configuration persistence in ROMS/system"
+command=/usr/libexec/lume/persist
+command_args="watch"
+command_background=yes
+pidfile=/run/lume-persist.pid
+
+depend() {
+	need localmount
+	after bootmisc
+	before frontend lume-playlists
+}
+
+start_pre() {
+	/usr/libexec/lume/persist restore
+}
+
+stop_post() {
+	/usr/libexec/lume/persist flush
+}

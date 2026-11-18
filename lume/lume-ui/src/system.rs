@@ -1,7 +1,7 @@
 //! The device behind the Settings (lume-launcher D10), kept apart from the screens so tests
 //! use a fake one. Nothing here runs unless the user is on that item: Wi-Fi with nmcli,
 //! Bluetooth with bluetoothctl, the mixer with amixer (the control of the board's
-//! r36os-input profile), the backlight in /sys/class/backlight (writable by the video group,
+//! lume-input profile), the backlight in /sys/class/backlight (writable by the video group,
 //! udev rule 90-lume-backlight.rules), and /proc and /sys for the System panel.
 
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ pub trait SystemAdapter {
 }
 
 /// The Wi-Fi interface: one with `wireless/` or `phy80211`, not a Wi-Fi Direct group
-/// (`p2p-*`), the same choice as r36os-ssh-wifi.
+/// (`p2p-*`), the same choice as lume-ssh-wifi.
 pub fn wifi_interface(sys: &Path) -> Option<String> {
     let mut names: Vec<String> = std::fs::read_dir(sys.join("class/net"))
         .ok()?
@@ -105,11 +105,11 @@ pub struct RealSystem {
     pub sys: PathBuf,
     pub proc_: PathBuf,
     pub mixer: Option<Mixer>,
-    /// the backlight's raw ceiling from the board's r36os-input profile (100% of the launcher)
+    /// the backlight's raw ceiling from the board's lume-input profile (100% of the launcher)
     pub backlight_max: Option<u64>,
 }
 
-/// The `backlight_max` line of an r36os-input profile (GA36: 8 of 10, the panel flickers
+/// The `backlight_max` line of a lume-input profile (GA36: 8 of 10, the panel flickers
 /// above it).
 pub fn board_backlight_max(profile: &Path) -> Option<u64> {
     let text = std::fs::read_to_string(profile).ok()?;
@@ -139,7 +139,7 @@ pub struct Mixer {
     pub max: Option<u32>,
 }
 
-/// The mixer line of the r36os-input profile of this board
+/// The mixer line of the lume-input profile of this board
 /// ("mixer <card> <control, may have spaces> <step> [<raw ceiling>]").
 pub fn board_mixer(profile: &Path) -> Option<Mixer> {
     let text = std::fs::read_to_string(profile).ok()?;
@@ -161,15 +161,15 @@ pub fn parse_raw(out: &str) -> Option<u32> {
         .find_map(|l| l.split_once("Playback ").and_then(|(_, r)| r.split_whitespace().next()?.parse().ok()))
 }
 
-/// The mixer of the board this runs on (/etc/r36os/board names the profile).
+/// The mixer of the board this runs on (/etc/lume/board names the profile).
 pub fn this_board_mixer() -> Option<Mixer> {
-    let board = std::fs::read_to_string("/etc/r36os/board").unwrap_or_default();
-    board_mixer(Path::new(&format!("/usr/share/r36os/input/{}.conf", board.trim())))
+    let board = std::fs::read_to_string("/etc/lume/board").unwrap_or_default();
+    board_mixer(Path::new(&format!("/usr/share/lume/input/{}.conf", board.trim())))
 }
 
 impl Mixer {
     /// The level in percent. With a ceiling, 100% is the ceiling (0 dB), as the volume
-    /// buttons of r36os-input.
+    /// buttons of lume-input.
     pub fn level(&self) -> Option<u8> {
         let out = output("amixer", &["-c", &self.card, "sget", &self.ctl])?;
         self.level_of(&out)
@@ -186,8 +186,8 @@ impl Mixer {
 
 impl RealSystem {
     pub fn new() -> RealSystem {
-        let board = std::fs::read_to_string("/etc/r36os/board").unwrap_or_default();
-        let profile = PathBuf::from(format!("/usr/share/r36os/input/{}.conf", board.trim()));
+        let board = std::fs::read_to_string("/etc/lume/board").unwrap_or_default();
+        let profile = PathBuf::from(format!("/usr/share/lume/input/{}.conf", board.trim()));
         RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile) }
     }
 
@@ -256,7 +256,7 @@ impl SystemAdapter for RealSystem {
     fn brightness(&self) -> Option<u8> {
         let b = self.backlight()?;
         let (cur, max) = (read_num(&b.join("brightness"))?, read_num(&b.join("max_brightness"))?);
-        // rounded, as r36os-input steps it (Fn + volume keys), the ceiling as 100%
+        // rounded, as lume-input steps it (Fn + volume keys), the ceiling as 100%
         backlight_percent(cur, max, self.backlight_max)
     }
 
@@ -274,7 +274,7 @@ impl SystemAdapter for RealSystem {
         let mut out = Vec::new();
         let model = std::fs::read_to_string(self.proc_.join("device-tree/model"))
             .map(|s| s.trim_end_matches('\0').trim().to_string())
-            .unwrap_or_else(|_| std::fs::read_to_string("/etc/r36os/board").unwrap_or_default().trim().to_string());
+            .unwrap_or_else(|_| std::fs::read_to_string("/etc/lume/board").unwrap_or_default().trim().to_string());
         out.push(("model", model));
         let cores = std::fs::read_to_string(self.proc_.join("cpuinfo")).map(|t| t.matches("processor").count()).unwrap_or(0);
         let mhz = read_num(&self.sys.join("devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")).map(|k| format!(" · {} MHz", k / 1000)).unwrap_or_default();
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn mixer_from_the_input_profile() {
-        let prof = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/r36os-input");
+        let prof = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/lume-input");
         let m = |card: &str, ctl: &str, max: Option<u32>| Some(Mixer { card: card.into(), ctl: ctl.into(), max });
         assert_eq!(board_mixer(&prof.join("r36s.conf")), m("rk817int", "Master", None));
         // GA36: ceiling 160 = 0 dB of the DAC

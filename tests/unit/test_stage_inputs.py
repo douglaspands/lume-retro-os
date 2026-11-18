@@ -228,7 +228,7 @@ def test_modules_image_stage_runs_on_the_modules_tar_and_the_script(repo, tmp_pa
 
     def write_tar(content: bytes, mtime: int) -> None:
         with tarfile.open(tar, "w") as t:
-            info = tarfile.TarInfo("lib/modules/6.18.62-r36os/kernel/x.ko")
+            info = tarfile.TarInfo("lib/modules/6.18.62-lume/kernel/x.ko")
             info.size, info.mtime = len(content), mtime
             t.addfile(info, io.BytesIO(content))
 

@@ -106,7 +106,7 @@ _RETROPAD = {"a": "BTN_A", "b": "BTN_B", "x": "BTN_X", "y": "BTN_Y", "l": "BTN_T
              "r": "BTN_TR", "l2": "BTN_TL2", "r2": "BTN_TR2", "select": "BTN_SELECT",
              "start": "BTN_START", "l3": "BTN_THUMBL", "r3": "BTN_THUMBR",
              "up": "BTN_DPAD_UP", "down": "BTN_DPAD_DOWN", "left": "BTN_DPAD_LEFT",
-             "right": "BTN_DPAD_RIGHT"}   # BTN_MODE is the Fn, kept by r36os-input (lume-hud-actions D9)
+             "right": "BTN_DPAD_RIGHT"}   # BTN_MODE is the Fn, kept by lume-input (lume-hud-actions D9)
 
 
 def test_gamepad_autoconfig_matches_driver():

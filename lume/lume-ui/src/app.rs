@@ -1204,7 +1204,7 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    /// The theme's level line colors for r36os-input, which draws the same lines over a game
+    /// The theme's level line colors for lume-input, which draws the same lines over a game
     /// through RetroArch (LUME_LEVEL): `level-colors` on the card, written only when they
     /// change.
     fn write_level_colors(&self) {
@@ -1315,7 +1315,7 @@ impl<S: SystemAdapter> App<S> {
                 self.save_settings();
             }
             SetRow::Wifi => {
-                // r36os-ssh-wifi (root) sees the file change within a few seconds
+                // lume-ssh-wifi (root) sees the file change within a few seconds
                 self.settings.ssh_wifi = !self.settings.ssh_wifi;
                 self.save_settings();
                 // turned off: the focus goes back to the switch (the action line goes away)
@@ -1353,7 +1353,7 @@ impl<S: SystemAdapter> App<S> {
         })
     }
 
-    /// The SSH code (the password of "console") on the card; r36os-ssh-wifi makes one when the
+    /// The SSH code (the password of "console") on the card; lume-ssh-wifi makes one when the
     /// option is turned on, and it stays until the user asks for a new one.
     pub fn ssh_code(&self) -> Option<String> {
         let text = std::fs::read_to_string(self.ssh_code_path()).ok()?;
@@ -2652,7 +2652,7 @@ impl<S: SystemAdapter> App<S> {
     }
 }
 
-/// The SSH code's alphabet: no 0/O, 1/I/L (the same as r36os-ssh-wifi).
+/// The SSH code's alphabet: no 0/O, 1/I/L (the same as lume-ssh-wifi).
 pub const SSH_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 /// A code as "XXXX-XXXX" from the alphabet.

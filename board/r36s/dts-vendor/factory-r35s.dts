@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Rockchip RK3326, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: factory/rk3326-r35s-linux.dtb
  * SHA-256: 205c7ef6ea86f81f0e3bb7f1bc042b966b3c51c68cfee44ce17b51966fba43ab
  * Note: speaker gain: source spk-volume 1 ignored, the native safe value is used

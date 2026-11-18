@@ -67,7 +67,7 @@ impl Env {
             .env("XDG_RUNTIME_DIR", self.dir.join("xdg"))
             .env("LUME_UI", self.dir.join("ui"))
             .env("LUME_INDEX", "/bin/true")
-            .env("R36OS_RUN", self.dir.join("run"))
+            .env("LUME_RUN", self.dir.join("run"))
             .env("LUME_INPUT_SOCK", self.dir.join("input.sock"))
             .env("LUME_CGROUP", self.cgroup.clone().unwrap_or_else(|| self.dir.join("no-cgroup")))
             .stdin(Stdio::null());
@@ -144,7 +144,7 @@ fn read_pid(path: &Path, limit: Duration) -> i32 {
     }
 }
 
-/// A SOCK_SEQPACKET listener standing in for r36os-input.
+/// A SOCK_SEQPACKET listener standing in for lume-input.
 fn listen(path: &Path) -> OwnedFd {
     unsafe {
         let fd = libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0);
@@ -317,7 +317,7 @@ fn retroarch_quit_arrives_before_any_signal() {
     assert!(e.events().contains("game OK snes fake fakecore exit=0 end=quit-combo"), "{}", e.events());
 }
 
-/// The power FIFO `$R36OS_RUN/power`, read without blocking (the test is the power service).
+/// The power FIFO `$LUME_RUN/power`, read without blocking (the test is the power service).
 fn power_fifo(e: &Env) -> (PathBuf, fs::File) {
     use std::os::unix::fs::OpenOptionsExt;
     let p = e.dir.join("run/power");
@@ -518,7 +518,7 @@ fn spawn_logged(e: &Env, port: u16) -> Child {
         .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
         .env("LUME_UI", e.dir.join("ui"))
         .env("LUME_INDEX", "/bin/true")
-        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_RUN", e.dir.join("run"))
         .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
         .env("LUME_CGROUP", e.dir.join("no-cgroup"))
         .env("LUME_STORAGE", e.dir.join("storage"))
@@ -780,7 +780,7 @@ fn system_drawn_menu_on_a_runner_without_overlay() {
         .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
         .env("LUME_UI", e.dir.join("ui"))
         .env("LUME_INDEX", "/bin/true")
-        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_RUN", e.dir.join("run"))
         .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
         .env("LUME_CGROUP", e.dir.join("no-cgroup"))
         .env("LUME_STORAGE", e.dir.join("storage"))
@@ -820,7 +820,7 @@ fn failing_lume_menu_falls_back_to_the_widget() {
         .env("XDG_RUNTIME_DIR", e.dir.join("xdg"))
         .env("LUME_UI", e.dir.join("ui"))
         .env("LUME_INDEX", "/bin/true")
-        .env("R36OS_RUN", e.dir.join("run"))
+        .env("LUME_RUN", e.dir.join("run"))
         .env("LUME_INPUT_SOCK", e.dir.join("input.sock"))
         .env("LUME_CGROUP", e.dir.join("no-cgroup"))
         .env("LUME_STORAGE", e.dir.join("storage"))

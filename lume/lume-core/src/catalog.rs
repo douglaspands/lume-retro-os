@@ -14,7 +14,7 @@
 //! emulators = [{ runner = "pico8" }]
 //! ```
 //!
-//! The emulator list of a system follows `r36os.catalog.emulators()`: the libretro cores
+//! The emulator list of a system follows `lume_tool.catalog.emulators()`: the libretro cores
 //! (default core of the architecture, then `core` and `alt_cores`), then `emulators` of the
 //! image, then the ones of the card. A card file that breaks a rule is refused whole, with one
 //! log line, and the image catalog keeps working.
@@ -337,7 +337,7 @@ mod tests {
 
     fn image_catalog() -> Catalog {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../aports/lume-games/files/usr/share/r36os/systems.json");
+            .join("../../aports/lume-games/files/usr/share/lume/systems.json");
         Catalog::load(&path).unwrap()
     }
 

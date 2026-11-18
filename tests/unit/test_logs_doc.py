@@ -1,12 +1,12 @@
-"""docs/LOGS.md describes what r36os-logd writes (task 5.8), and the logs are in English."""
+"""docs/LOGS.md describes what lume-logd writes (task 5.8), and the logs are in English."""
 
 import re
 
 from r36os.paths import REPO_ROOT
 
-LIBEXEC = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os"  # lume-core fragment
-SAVES_LIBEXEC = REPO_ROOT / "aports/lume-saves/files/usr/libexec/r36os"  # lume-saves fragment
-DIAG_LIBEXEC = REPO_ROOT / "aports/lume-diag/files/usr/libexec/r36os"  # lume-diag fragment
+LIBEXEC = REPO_ROOT / "aports/lume-core/files/usr/libexec/lume"  # lume-core fragment
+SAVES_LIBEXEC = REPO_ROOT / "aports/lume-saves/files/usr/libexec/lume"  # lume-saves fragment
+DIAG_LIBEXEC = REPO_ROOT / "aports/lume-diag/files/usr/libexec/lume"  # lume-diag fragment
 LOGD = (LIBEXEC / "logd").read_text()
 LOGS_SH = (LIBEXEC / "logs.sh").read_text()
 DOC = (REPO_ROOT / "docs/LOGS.md").read_text()

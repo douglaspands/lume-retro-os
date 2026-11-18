@@ -20,7 +20,7 @@ pub fn share() -> PathBuf {
 
 /// System catalog.
 pub fn catalog() -> PathBuf {
-    env_or("LUME_CATALOG", "/usr/share/r36os/systems.json")
+    env_or("LUME_CATALOG", "/usr/share/lume/systems.json")
 }
 
 /// Folder of the libretro cores.

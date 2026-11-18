@@ -2,7 +2,7 @@
 # Kernel and DTB come from stage 1 (cross-compile) and are not apk packages: the kernel
 # image goes to BOOT and the modules go straight into SYSTEM.
 
-# The gamepad out of the buttons and sticks is r36os-input, common to every target
+# The gamepad out of the buttons and sticks is lume-input, common to every target
 # (rootfs/packages.txt, lume-launcher D8), with the r36s profile.
 
 # Firmware of the USB Wi-Fi and Bluetooth dongles (usb-device-access D9, D10): Realtek rtw88

@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+# SSH over Wi-Fi, key only, when the user turns it on in the launcher (lume-launcher D18).
+# The script does the work; see /usr/libexec/lume/ssh-wifi.
+
+description="SSH over Wi-Fi (key only, off unless turned on in the launcher)"
+supervisor=supervise-daemon
+command=/usr/libexec/lume/ssh-wifi
+command_args=watch
+
+depend() {
+	need localmount
+	after lume-persist networkmanager
+}

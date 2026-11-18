@@ -96,11 +96,11 @@ def stage_modules(rootfs_tar: Path, wanted: list[str], dest: Path) -> list[str]:
 
 _PACK = """
 cp /keys/r36os.rsa.pub /etc/apk/keys/
-apk add -q -X /repo r36os-initramfs-static lume-bootsel
+apk add -q -X /repo lume-initramfs-static lume-bootsel
 S=/stage
 mkdir -p $S/bin $S/sbin $S/proc $S/sys $S/dev $S/tmp $S/boot $S/lower $S/rw $S/newroot
 cp /bin/busybox.static $S/bin/busybox
-cp /usr/lib/r36os/initramfs/bin/* $S/bin/
+cp /usr/lib/lume/initramfs/bin/* $S/bin/
 cd $S
 # fixed mtimes and inode numbers (--reproducible): the stage is made again on every build,
 # and the cpio goes into the kernel image, which must not change when nothing in it did

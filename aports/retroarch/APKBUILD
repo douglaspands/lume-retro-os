@@ -31,10 +31,10 @@ subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
 options="!check" # No tests
 
-# 0001: sair do RetroArch desliga o console (r36os-session), então o item "Sair" vira
-# "Desligar" em inglês (us), português do Brasil (pt_br) e espanhol (es, o único espanhol
-# do RetroArch; "Apagar" vale para a América Latina e a Espanha). Se o upstream mudar
-# esse texto, o patch deixa de aplicar e o build para.
+# 0001: quitting RetroArch powers the console off (lume-session), so the "Quit" item becomes
+# "Shut Down" in English (us), Brazilian Portuguese (pt_br) and Spanish (es, the only Spanish
+# of RetroArch; "Apagar" works for Latin America and Spain). If upstream changes that text,
+# the patch no longer applies and the build stops.
 # 0002: o item "Desligar" do menu pede confirmação (selecionar duas vezes em até 3 s),
 # seguindo o quit_press_twice, e a mensagem "Pressione novamente..." passa a dizer desligar.
 # Só o item do menu muda: o atalho e o comando de rede QUIT (self-test) não mudam.
@@ -43,7 +43,7 @@ options="!check" # No tests
 # frontend on the first audio write of a game (GA36, task 9.8); now the game keeps
 # running without sound and the log says "[ALSA] Playback stalled".
 # 0004: the GET_STATUS network command also returns the video frame counter
-# (",frames=<n>" at the end), so r36os-logd records the game FPS (task 9.13).
+# (",frames=<n>" at the end), so lume-logd records the game FPS (task 9.13).
 # 0005: the volume keys move a 0-100% level in 5% steps (perceptual curve), capped at
 # 0 dB; the volume widget shows only the percent, and the menu volume stops at 0 dB.
 # 0006: "Reset to Default Config" also loads $LUME_RETROARCH_DEFAULTS (factory config +
@@ -55,7 +55,7 @@ options="!check" # No tests
 # loudness belongs to the analog volume on the mixer (docs/PENDENCIAS.md, P-29). The
 # number stays unused; the patch is in the git history.
 # 0009: the UDP network commands (55355) listen on 127.0.0.1 only: with Wi-Fi, nobody on
-# the network can send commands; r36os-logd asks through 127.0.0.1 (usb-device-access D11).
+# the network can send commands; lume-logd asks through 127.0.0.1 (usb-device-access D11).
 # 0010: opened by the lume-launcher (LUME_RETROARCH_QUIT=launcher, set by the frontend
 # script), quitting goes back to the game list: the item keeps the upstream wording and
 # quits without the confirmation of 0002. As the fallback frontend, 0001 and 0002 hold.
@@ -105,15 +105,15 @@ package() {
 sha512sums="
 59057d3fff3bec3bcb01143a270c3b9e74d148a2f1caa413d52f3533af94564576d2fce6f6273b5c79d11904ef670a6bf7c2c328fe3534a05d160e8a49b9daa1  retroarch-1.22.2.tar.gz
 723e64620e5239b09aff0725a4c25655b4c3b8b3f0fe130998099d84373c3e6a20766cfe8052c4cdeebb7969007c8a9c970982522be11dd12f525ad7df236f3e  config.patch
-28ca3218b39d03bc82fc7d31ef354a9f3087c7466a136b217797d5a5e2390e4ec96dcc1ec62ccf0e0d5e8e5e5ceb479b5541d05172a0840dc65f2b91767ab708  0001-quit-shuts-down.patch
+3b5cb02671c744700b22407062bc097a07382d16dc72caab19ffaef2cac9d6afecebd069f69621b48c21571f2eb9cc7afcd7f09963b2d49880c4b0057d5ab139  0001-quit-shuts-down.patch
 e58fe7de31cac03f049ae95b3f8792d2b1d94c87d44f170955e0e2708a7e159b535b7534d62ec95ad30fcb3561501bdd030c8f9e30a6330e5f152873c9f7b7c2  0002-shut-down-asks-confirmation.patch
 b420163e9b26435ff2b65d2fac6203610f12c28e81b4acb7cac502a316f24dd22b1ea6ac6659e691e9f16c335633c5242b959b4c7701c0923747192155ee1683  0003-alsa-bounded-write-wait.patch
-87be0110f889b6885d38d1291902305c4713ddd3d8fe51a7172689bf1990566a9a5272e5dc7063861151322001844483619075b363f6e7d1fdd5c9f16a86965b  0004-status-frame-count.patch
+2161cf0d29f8cdfbc995b6e8542f507d0bf1881a3f82b09b2bbb9b39a4ffd3c42c1606f10f701477b0313d50fb0682005dc3986e49194ec672530f0403f2b37d  0004-status-frame-count.patch
 30670d702c566a0a57da3cb13350c9f8239df859c7b15ffa285afd6b35726ab18a621ded94844777087de196d3733d1f3982b3e59d88e55ec85f509dc58cfaf8  0005-volume-percent-steps.patch
 b92e1dd16ce86c30b1ce3f31adbfa810cec10275410a6290bebcb1ac076586c64bc056a067093af2b7d1c5650d364cd42e1379a522e8f44033e27627282851f5  0006-reset-to-distro-defaults.patch
 898468d28e727b30b3f41824a04304b425c46a9c8447e6eb4eb3f9c36959489ab11ca52507c82e7b8831a0ec55b41af732fc54dd68d42cf730e1282be45c8e6e  0007-config-autosave.patch
-97f113ef47b44011260a094a56dc2d82042441294bae32aa4caa6a603d16ffe3470c8b26f24126fd3d1612d4126b1c6bdc7886253cdd486e8bd649f51f879551  0009-network-commands-on-localhost.patch
+dc91434f4555c7c244e4c45877291d591679674776172256c65efafe8831c7287608c3a5e34e196cf8a204b244128e444c4b9e91127ddf6706ca590724dd7141  0009-network-commands-on-localhost.patch
 46fc6f310072556940c3fefb43923d350904d76a90253538c1f5eecad2ec5cb0b453e98a45a5ef8c33ed889ab1bd04326d042520220a1d5e23e548d5e8f3dc3c  0010-quit-label-follows-the-frontend.patch
-a8af2aa6cb5b03e4ce2b79a7c79a163dfde2435b314b474e8f4bdca26f3011a206090c88d00865b10de2f2fcebac005b94c3361d16cc04d50f896dabe3596dfd  0011-lume-level-line.patch
+49e2003e2ad732207966f9e61595071694925b9650683296ba7fa5968b4662ee5937aa13ee5cf7de63b2b807b9984815003116152ec2178229f6186062ecdfa1  0011-lume-level-line.patch
 41d6e38440e31df5b51576911ac88bed988448cd2ca5dc5d028f6b0082ed01fbf9aa11baac024314bf9f29048de906b869b9301dacaed1c4ca2d21bb6552dbbd  0012-lume-hud-hint-menu.patch
 "

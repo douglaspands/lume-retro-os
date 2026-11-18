@@ -14,7 +14,7 @@
 //! overlay=retroarch    the runner draws the bar and the hint (lume-hud-actions D3), optional
 //! action=pause retroarch-pause                 one line per declared action, optional
 //! action=save_state retroarch-cmd:SAVE_STATE
-//! arg=/usr/libexec/r36os/frontends/retroarch
+//! arg=/usr/libexec/lume/frontends/retroarch
 //! arg=-L
 //! ...
 //! ```

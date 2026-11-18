@@ -151,17 +151,17 @@ mount_root "$BOARD" /boot /slots /lower /rw /newroot /modules
 
 if [ -n "$ROMS_MOUNTED" ]; then
 	if mount --move /roms /newroot/storage; then
-		CATALOG=/newroot/usr/share/r36os/systems.json
+		CATALOG=/newroot/usr/share/lume/systems.json
 		if [ -f "$CATALOG" ]; then
 			# absolute path: the initramfs PATH has no /usr/bin
-			IDS=$(chroot /newroot /usr/bin/jq -r '.systems[].id' /usr/share/r36os/systems.json) \
+			IDS=$(chroot /newroot /usr/bin/jq -r '.systems[].id' /usr/share/lume/systems.json) \
 				|| log "ERROR: failed to read catalog"
 			make_folders /newroot/storage $IDS
 		else
 			log "ERROR: catalog $CATALOG missing"
 			make_folders /newroot/storage
 		fi
-		README=/newroot/usr/share/r36os/LEIA-ME.txt
+		README=/newroot/usr/share/lume/LEIA-ME.txt
 		if [ -f "$README" ] && ! cmp -s "$README" /newroot/storage/LEIA-ME.txt; then
 			cp "$README" /newroot/storage/LEIA-ME.txt
 		fi

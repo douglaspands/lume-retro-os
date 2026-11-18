@@ -1,0 +1,157 @@
+#!/bin/sh
+# lume-session (D10): runs the configured frontend on tty1 as the game user.
+#
+#   exit 0            -> writes what is pending (persist flush) and powers off
+#   exit != 0         -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
+#   SIGTERM (service) -> ends the frontend without powering off
+. /usr/libexec/lume/lib.sh
+. /usr/libexec/lume/logs.sh
+[ -f /etc/conf.d/frontend ] && . /etc/conf.d/frontend
+FRONTEND=${FRONTEND:-retroarch}
+EXE=/usr/libexec/lume/frontends/$FRONTEND
+TTY=/dev/tty1
+LOG=/var/log/frontend.log
+WINDOW=60
+MAX_FAILS=3
+
+# dmesg (log de boot) + serial de debug + syslog
+SERIAL=/dev/$(cat /etc/lume/serial-tty 2>/dev/null)
+kmsg() {
+	echo "<5>lume: $*" > /dev/kmsg
+	[ -c "$SERIAL" ] && echo "lume: $*" > "$SERIAL"
+	logger -t lume "$*" 2>/dev/null
+	return 0
+}
+
+stopping=""
+child=""
+trap 'stopping=1; [ -n "$child" ] && kill "$child" 2>/dev/null' TERM INT
+
+# Cópia do log do frontend, legível no PC: ROMS/logs/frontend/boot-<n>.log (descarga
+# imediata dos logs); só sem ROMS vai para BOOT/logs/frontend-error.log.
+# Define LOG_PC com o caminho mostrado na tela.
+keep_log() {
+	if logs_on_disk; then
+		logs_conf
+		logs_flush
+		LOG_PC="ROMS/logs/frontend/boot-$(boot_n).log"
+		return 0
+	fi
+	LOG_PC="BOOT/logs/frontend-error.log"
+	mount -o remount,rw /boot 2>/dev/null || return 0
+	mkdir -p /boot/logs
+	cp "$LOG" /boot/logs/frontend-error.log 2>/dev/null
+	sync
+	mount -o remount,ro /boot
+}
+
+# Tela de erro no idioma da interface (ui_lang). $1: missing (frontend não instalado)
+# ou o último código de saída.
+fail_screen() {
+	local why="$1"
+	case "$(ui_lang)" in
+	pt)
+		echo "O frontend '$FRONTEND' falhou $MAX_FAILS vezes em $WINDOW segundos e não"
+		echo "será reiniciado."
+		[ "$why" = missing ] && echo "Frontend não instalado: $EXE" || echo "Último código de saída: $why."
+		echo
+		echo "Log: $LOG_PC (no cartão, pelo PC)"
+		echo "     $LOG (no console serial)"
+		echo
+		echo "Desligue o aparelho pelo botão de energia."
+		;;
+	es)
+		echo "El frontend '$FRONTEND' falló $MAX_FAILS veces en $WINDOW segundos y no"
+		echo "se reiniciará."
+		[ "$why" = missing ] && echo "Frontend no instalado: $EXE" || echo "Último código de salida: $why."
+		echo
+		echo "Log: $LOG_PC (en la tarjeta, desde el PC)"
+		echo "     $LOG (en la consola serie)"
+		echo
+		echo "Apague el equipo con el botón de encendido."
+		;;
+	*)
+		echo "The frontend '$FRONTEND' failed $MAX_FAILS times in $WINDOW seconds and will"
+		echo "not be restarted."
+		[ "$why" = missing ] && echo "Frontend not installed: $EXE" || echo "Last exit code: $why."
+		echo
+		echo "Log: $LOG_PC (on the card, from a PC)"
+		echo "     $LOG (on the serial console)"
+		echo
+		echo "Turn the device off with the power button."
+		;;
+	esac
+}
+
+give_up() {  # missing | <último código de saída>
+	local detail="last exit code: $1"
+	[ "$1" = missing ] && detail="not installed: $EXE"
+	event frontend FAIL "$FRONTEND stopped after $MAX_FAILS failures in ${WINDOW}s; $detail"
+	keep_log
+	chvt 1
+	{
+		printf '\033[2J\033[H'
+		echo "Lume Retro OS"
+		echo
+		fail_screen "$1"
+	} > "$TTY"
+	kmsg "frontend stopped after $MAX_FAILS failures in ${WINDOW}s ($detail); log at $LOG_PC"
+	exit 1
+}
+
+mkdir -p /run/user/1000
+chown game:game /run/user/1000
+chmod 700 /run/user/1000
+chown game:game "$TTY"
+chvt 1
+: > "$LOG"
+chown game:game "$LOG"
+# each game in its own cgroup, under a subtree handed to the game user (lume-launcher D9)
+CG_PROCS=$(lume_cgroup game 2>"$LUME_RUN/cgroup.err") || {
+	CG_PROCS=""
+	kmsg "no cgroup v2 for the games ($(cat "$LUME_RUN/cgroup.err" 2>/dev/null)): they end by process group"
+}
+rm -f "$LUME_RUN/cgroup.err"
+# lume-run (game) appends its game lines to the events buffer (lume-launcher D10)
+events_shared game || kmsg "events buffer not shared with the game user"
+
+fail_times=""
+while :; do
+	[ -x "$EXE" ] || give_up missing
+	kmsg "frontend started: $FRONTEND"
+	event frontend OK "started: $FRONTEND"
+	# the subshell moves itself into the session leaf ("0" is the writer) before it
+	# becomes the frontend, so everything the frontend starts is inside lume/
+	(
+		[ -n "$CG_PROCS" ] && { echo 0 > "$CG_PROCS" || kmsg "frontend not moved to the games cgroup"; }
+		XDG_RUNTIME_DIR=/run/user/1000 exec su -s /bin/sh -c "exec $EXE" game
+	) < "$TTY" >> "$LOG" 2>&1 &
+	child=$!
+	wait "$child"
+	rc=$?
+	child=""
+	if [ -n "$stopping" ]; then
+		kmsg "session terminated by service"
+		event frontend OK "$FRONTEND closed by service (code $rc)"
+		exit 0
+	fi
+	if [ "$rc" -eq 0 ]; then
+		kmsg "frontend closed by user: saving and powering off"
+		event frontend OK "$FRONTEND closed by user: shutting down"
+		/usr/libexec/lume/persist flush
+		sync
+		poweroff
+		exit 0
+	fi
+	now=$(date +%s)
+	recent=""
+	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
+	fail_times="$recent $now"
+	n=$(echo $fail_times | wc -w)
+	kmsg "frontend terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	event frontend FAIL "$FRONTEND terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	# também no log do frontend: um frontend que falha calado deixa o log vazio
+	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
+	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
+	sleep 1
+done

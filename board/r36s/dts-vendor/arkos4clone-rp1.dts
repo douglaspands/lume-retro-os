@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * RetroBox P1, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rp1/rk3326-rp1-linux.dtb
  * SHA-256: 11b172cb9005c497c172022127cd9759ebf294348a6ce1681fdbdf727c43affb
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

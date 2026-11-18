@@ -3,7 +3,7 @@ Subject: [PATCH] command: GET_STATUS reports the video frame counter
 
 The network command GET_STATUS tells the system, core and content of the
 running game. The reply now also carries the video frame counter as a last
-field, ",frames=<n>". r36os-logd asks for the status on every metrics sample
+field, ",frames=<n>". lume-logd asks for the status on every metrics sample
 and computes the game FPS as the counter difference over the time difference,
 so the metrics show whether each core keeps full speed on the console.
 

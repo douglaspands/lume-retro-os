@@ -1,14 +1,14 @@
 /*
- * lume-logd: the sampling loop of r36os-logd in C (openspec game-governor 1.2, D8, P-60).
+ * lume-logd: the sampling loop of lume-logd in C (openspec game-governor 1.2, D8, P-60).
  *
  *   lume-logd run    every `interval` s (ROMS/system/etc/logs.conf): one metrics line, the
  *                    frontend trace line, the usb trace line and the events of the sample;
  *                    the kernel messages are traced as they arrive, during the wait; every
  *                    `flush` s the batch goes to the card through `logd flush`.
  *
- * It replaces the shell loop of /usr/libexec/r36os/logd (`logd run` execs it after the
+ * It replaces the shell loop of /usr/libexec/lume/logd (`logd run` execs it after the
  * hardware snapshot) and writes exactly the same files and lines (docs/LOGS.md), so the
- * card format, `r36os power report` and the tests do not change. The rare and heavy work
+ * card format, `lume power report` and the tests do not change. The rare and heavy work
  * stays in the shell, run as a child only when it happens: the batch flush
  * (`logd flush`), the detailed snapshot of a frozen RetroArch (`logd snapshot <pid> <state>`)
  * and the re-enabling of a masked display interrupt (`logd kick`).
@@ -18,11 +18,11 @@
  * 2026-11-18). The budget is 1%.
  *
  * Environment (the tests set them; defaults are the console paths): PROC_ROOT (/proc, for
- * uptime, stat and meminfo), SYS_ROOT (/sys), LOGS_RAM (/run/r36os/logs), LOGS_CONF,
+ * uptime, stat and meminfo), SYS_ROOT (/sys), LOGS_RAM (/run/lume/logs), LOGS_CONF,
  * LUME_STATUS, FRONTEND_LOG, INTERRUPTS_FILE, IRQ_SYS, DRI_DIR, ASOUND_DIR, GPU_DEVFREQ_DIR,
  * KMSG_DEV, RA_PORT (55355), LOGD_CMD (the shell logd), LOGD_SAMPLES (stop after N samples,
  * tests), LOGD_NOWAIT (no wait between samples, tests), RECOVER_MAX (3), KICK_MAX (5),
- * HANG_LIMIT (2), LUME_FRONTENDS (/usr/libexec/r36os/frontends/).
+ * HANG_LIMIT (2), LUME_FRONTENDS (/usr/libexec/lume/frontends/).
  * Processes (retroarch, lume-run...) are always looked up in the real /proc.
  */
 #define _GNU_SOURCE
@@ -487,7 +487,7 @@ static void proc_usage(struct watched *w, char *out, size_t n)
 }
 
 static struct watched w_ra = { "retroarch", 0, 0, 0, 0 }, w_ui = { "lume-ui", 0, 0, 0, 0 },
-	w_run = { "lume-run", 0, 0, 0, 0 }, w_in = { "r36os-input", 0, 0, 0, 0 };
+	w_run = { "lume-run", 0, 0, 0, 0 }, w_in = { "lume-input", 0, 0, 0, 0 };
 
 /* retroarch: looked up again once per sample (only while no launcher is on screen). The
  * frontend script that starts it has the same name and lives as long as the game: a pid kept
@@ -1656,7 +1656,7 @@ int main(int argc, char **argv)
 {
 	proc_root = env("PROC_ROOT", "/proc");
 	sys_root = env("SYS_ROOT", "/sys");
-	logs_ram = env("LOGS_RAM", "/run/r36os/logs");
+	logs_ram = env("LOGS_RAM", "/run/lume/logs");
 	logs_conf_path = env("LOGS_CONF", "/storage/system/etc/logs.conf");
 	lume_status = env("LUME_STATUS", "/run/user/1000/lume/status");
 	frontend_log = env("FRONTEND_LOG", "/var/log/frontend.log");
@@ -1666,8 +1666,8 @@ int main(int argc, char **argv)
 	asound_dir = env("ASOUND_DIR", "/proc/asound");
 	devfreq_dir = env("GPU_DEVFREQ_DIR", "/sys/class/devfreq");
 	kmsg_dev = env("KMSG_DEV", "/dev/kmsg");
-	logd_cmd = env("LOGD_CMD", "/usr/libexec/r36os/logd");
-	frontends_dir = env("LUME_FRONTENDS", "/usr/libexec/r36os/frontends/");
+	logd_cmd = env("LOGD_CMD", "/usr/libexec/lume/logd");
+	frontends_dir = env("LUME_FRONTENDS", "/usr/libexec/lume/frontends/");
 	ra_port = envi("RA_PORT", 55355);
 	recover_max = envi("RECOVER_MAX", 3);
 	kick_max = envi("KICK_MAX", 5);

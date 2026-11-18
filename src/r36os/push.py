@@ -40,7 +40,7 @@ root@10.55.0.1 (root has no password on the USB cable, D4):
    read-only ("Resource busy"), something holds a deleted file open: warn that this boot
    may leave lost clusters, for the next push to check (D5).
 6. unless `--no-wait` (build-speed D12): wait for the console to go away and come back over
-   the cable, then check that a new boot started (boot number of /run/r36os/logs/boot-n,
+   the cable, then check that a new boot started (boot number of /run/lume/logs/boot-n,
    not the clock: the console clock is not reliable), that /boot/VERSION carries the pushed
    build and that events.log has `boot OK completed` for that boot, and that it mounted
    <board>/SLOTS (check_slots_mounted); print `ok` with the send and boot times, or the
@@ -87,7 +87,7 @@ GONE_TIMEOUT = 60                # seconds for the console to stop answering aft
 BACK_TIMEOUT = 180               # seconds for it to answer again over the cable
 BOOT_OK_TIMEOUT = 120            # seconds, once back, for `boot OK completed` in events.log
 POLL_INTERVAL = 2.0
-BOOT_N = "/run/r36os/logs/boot-n"
+BOOT_N = "/run/lume/logs/boot-n"
 EVENTS_LOG = "/storage/logs/events.log"
 BOOT_OK = "boot OK completed"
 READ_BOOT_N = f"cat {BOOT_N} 2>/dev/null || true"
@@ -101,11 +101,11 @@ BOOT_STATUS = (f"n=$(cat {BOOT_N} 2>/dev/null); echo \"${{n:--}}\"; "
 # the R36S and both answer at CONSOLE_ADDR, so `push`, `push --hot` and `dev` ask the console.
 CONSOLES = ("ga36", "r36s")
 MACHINE_CONSOLE = {"armv7l": "ga36", "aarch64": "r36s"}    # `uname -m` when there is no board
-IDENTIFY = 'b=$(cat /etc/r36os/board 2>/dev/null); echo "${b:--}"; uname -m'
+IDENTIFY = 'b=$(cat /etc/lume/board 2>/dev/null); echo "${b:--}"; uname -m'
 
 
 def console_name(board: str, machine: str = "") -> str:
-    """ga36 or r36s from /etc/r36os/board, else from `uname -m`; "" when neither says."""
+    """ga36 or r36s from /etc/lume/board, else from `uname -m`; "" when neither says."""
     board, machine = board.strip(), machine.strip()
     if board in CONSOLES:
         return board
@@ -220,7 +220,7 @@ class Console:
 
 _PROBE = r"""
 sed -n 's/^build: //p' /boot/VERSION
-cat /etc/r36os/board
+cat /etc/lume/board
 b=""; for p in /sys/class/power_supply/*; do [ "$(cat $p/type 2>/dev/null)" = Battery ] && b=$(cat $p/capacity); done; echo "${b:--}"
 df -Pk /storage | awk 'NR==2{print $4}'
 df -Pk /boot | awk 'NR==2{print $4}'
@@ -584,7 +584,7 @@ def _q(s: str) -> str:
 @dataclass
 class BootState:
     """What the console says about its current boot."""
-    boot_n: str | None      # /run/r36os/logs/boot-n
+    boot_n: str | None      # /run/lume/logs/boot-n
     build: str              # build of /boot/VERSION
     boot_ok: str | None     # its `boot OK completed: ...` line of events.log, if any
 
@@ -605,10 +605,10 @@ AfterBootCheck = Callable[[object, BootState], "str | None"]
 # and `lume: root:` lines the initramfs logged in this boot (initramfs/lib/slots.sh), from the
 # boot log in RAM, else the one on ROMS, else the kernel buffer
 SLOTS_MOUNTED = (
-    'n=$(cat /run/r36os/logs/boot-n 2>/dev/null); b=$(cat /etc/r36os/board 2>/dev/null); '
+    'n=$(cat /run/lume/logs/boot-n 2>/dev/null); b=$(cat /etc/lume/board 2>/dev/null); '
     'echo "${b:--}"; s=$(sed -n "s/^build //p" "/boot/$b/SLOTS" 2>/dev/null); '
     'echo "${s:--}"; shown=; '
-    'for f in "/run/r36os/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
+    'for f in "/run/lume/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
     'if [ -n "$n" ] && [ -f "$f" ]; then grep -E "lume: (slots|root): " "$f"; shown=1; break; '
     'fi; done; [ -n "$shown" ] || dmesg | grep -E "lume: (slots|root): "; true')
 
@@ -650,14 +650,14 @@ def check_slots_mounted(remote, state: BootState) -> str | None:
 AFTER_BOOT_CHECKS: list[AfterBootCheck] = [check_slots_mounted]
 
 # "name version" of each installed project fragment, from the apk database (one ssh call)
-FRAGMENT_PREFIXES = ("lume-", "r36os-")
+FRAGMENT_PREFIXES = ("lume-",)
 FRAGMENT_VERSIONS = (
     "awk '/^P:/ { p = substr($0, 3) } "
-    "/^V:/ { if (p ~ /^(lume|r36os)-/) print p, substr($0, 3) }' /lib/apk/db/installed")
+    "/^V:/ { if (p ~ /^lume-/) print p, substr($0, 3) }' /lib/apk/db/installed")
 
 
 def read_fragment_versions(remote) -> dict[str, str]:
-    """The lume-* and r36os-* packages installed on the console and their versions."""
+    """The lume-* packages installed on the console and their versions."""
     found = {}
     for line in remote.run(FRAGMENT_VERSIONS).splitlines():
         name, _, version = line.strip().partition(" ")

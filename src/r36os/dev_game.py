@@ -25,7 +25,7 @@ import re
 
 from r36os.dev import DevError
 
-CATALOG = "/usr/share/r36os/systems.json"
+CATALOG = "/usr/share/lume/systems.json"
 INDEX_DIR = "/storage/system/lume/cache/index"
 GRID_COLS = 4
 BACK_PRESSES = 4            # B from the deepest screen: submenu, menu, filter, grid -> Dock

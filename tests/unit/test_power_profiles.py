@@ -8,7 +8,7 @@ from pathlib import Path
 
 from r36os.paths import REPO_ROOT
 
-LIB = REPO_ROOT / "aports/lume-power/files/usr/libexec/r36os/power-profiles.sh"
+LIB = REPO_ROOT / "aports/lume-power/files/usr/libexec/lume/power-profiles.sh"
 
 GA36_FREQS = "120000 240000 408000 600000 816000 1008000"
 

@@ -30,12 +30,12 @@ build() {
 }
 
 package() {
-	local d="$pkgdir"/usr/lib/r36os/initramfs/bin
+	local d="$pkgdir"/usr/lib/lume/initramfs/bin
 	install -Dm755 "$srcdir"/lume-bootsel "$d"/lume-bootsel
 	install -Dm755 "$srcdir"/kexec-tools-$_kexecver/build/sbin/kexec "$d"/kexec
 }
 sha512sums="
-1f83f76bba8aad2c7f8ae071f7cfea0f4ac919f5e29229a79fee3614eb07f0188521e17e6b160b99c3522a3e9919bb7cb0bab5fe8f89836c0f1f46e392c9ab05  lume-bootsel.c
+243fd6e731c050aa7ff3cd1c5bcb48b469af5b6c3757ec86efd947fd3608e92a513c807555984a968c123e4f0cb0ee97c6ad8bdcc4bf14544b9c6762cabcfd0e  lume-bootsel.c
 30f3611175a5c29556282f3f2894701a5837eb869608d89d78c280af448bbc3a5b6c83f51c28f991847c0eb7c42aa57599bbc31433f1b3b2c8d162cb2169b91f  dtc-1.7.2.tar.xz
 60f120f8e46b9fb5dcf5a5b344ee8b303878ba9f71d58a3eefa1c9f044a6a2192b285154b738970263384c6e7281a854cd48a185334c08141aa4e6cf08230654  kexec-tools-2.0.32.tar.xz
 "

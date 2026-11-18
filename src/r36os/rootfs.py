@@ -61,12 +61,12 @@ cp -a /overlay/. $R/
 # System version (D15); the build id stays in BOOT/VERSION, so SYSTEM does not change
 if [ -f /work/os-release ]; then cp /work/os-release $R/etc/os-release; fi
 # Factory menu language, chosen at build time (r36os build --lang)
-cfg=$R/usr/share/r36os/factory/retroarch/retroarch.cfg
+cfg=$R/usr/share/lume/factory/retroarch/retroarch.cfg
 sed -i 's/^user_language = .*/user_language = "{retro_lang}"/' $cfg
 grep -qx 'user_language = "{retro_lang}"' $cfg
-mkdir -p $R/etc/r36os
-echo {lang} > $R/etc/r36os/language
-cp /work/LEIA-ME.txt $R/usr/share/r36os/LEIA-ME.txt
+mkdir -p $R/etc/lume
+echo {lang} > $R/etc/lume/language
+cp /work/LEIA-ME.txt $R/usr/share/lume/LEIA-ME.txt
 cp /configure.sh $R/tmp/configure.sh
 chroot $R /bin/sh /tmp/configure.sh {tty} {baud} {board}
 rm -f $R/tmp/configure.sh

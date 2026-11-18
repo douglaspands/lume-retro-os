@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * R36S Clone Type1, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/clone type1 panel1 invert/5.10/rk3326-r36s-type1-panel1-invert-linux.dtb
  * SHA-256: 25d0447a5fcec8ed2bc60a6417d89700c17654418fa3b5d3064076b994df2580
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

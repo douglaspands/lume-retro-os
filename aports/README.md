@@ -5,8 +5,8 @@ Pacotes Alpine construídos com `abuild` no container do arch alvo e publicados 
 do projeto).
 
 ```
-uv run r36os pkg <alvo> <pacote>...            # constrói
-uv run r36os pkg <alvo> --checksum <pacote>... # atualiza sha512sums
+uv run lume pkg <alvo> <pacote>...            # constrói
+uv run lume pkg <alvo> --checksum <pacote>... # atualiza sha512sums
 ```
 
 ## retroarch (tarefa 2.1)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Lenovo GO2, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/go2/rk3326-go2-linux.dtb
  * SHA-256: 7a7ab638a575801120546e5053cc20e143fceac00252a17651853627f45fcc57
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

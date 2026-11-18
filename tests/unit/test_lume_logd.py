@@ -293,7 +293,7 @@ def test_launcher_states_and_no_names_under_the_launcher(exe, world):
     status = world.tmp / "lume-status"
     world.spawn("lume-run")
     world.spawn("lume-ui")
-    world.spawn("r36os-input")
+    world.spawn("lume-input")
     status.write_text("ui\n")
     world.run(exe, 2)
     m = world.metrics()
@@ -476,6 +476,6 @@ def test_aport_and_image():
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', apkbuild, re.M)
     assert f"{hashlib.sha512(SOURCE.read_bytes()).hexdigest()}  logd.c" in apkbuild
     assert "lume-logd" in (REPO_ROOT / "rootfs/packages.txt").read_text().split()
-    logd = (REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/logd").read_text()
+    logd = (REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/logd").read_text()
     assert 'exec "$LUME_LOGD" run' in logd and "snapshot) cmd_snapshot" in logd and "kick) cmd_kick" in logd
     assert not any(ord(c) > 127 for c in (APORT / "APKBUILD").read_text())

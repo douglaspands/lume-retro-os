@@ -22,7 +22,7 @@ pub struct Settings {
     /// Display: the battery's percent next to its icon in the status bar
     pub battery_percent: bool,
     /// Wi-Fi: SSH over the Wi-Fi network, key only (lume-launcher D18); off from the factory.
-    /// The root service r36os-ssh-wifi reads it from this file.
+    /// The root service lume-ssh-wifi reads it from this file.
     pub ssh_wifi: bool,
 }
 
@@ -52,7 +52,7 @@ impl Settings {
 }
 
 /// RetroArch `user_language` value of a launcher language (RETRO_LANGUAGE_*: 0 English,
-/// 3 Spanish, 7 Portuguese of Brazil), the same mapping as `r36os.lang`.
+/// 3 Spanish, 7 Portuguese of Brazil), the same mapping as `lume_tool.lang`.
 pub fn retroarch_language(lang: &str) -> u32 {
     match lang {
         "es" => 3,

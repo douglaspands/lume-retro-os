@@ -1,5 +1,5 @@
 # Pendrive on the OTG port, host role (usb-device-access D8): each filesystem of a USB disk
 # is mounted under /storage/usb/ and unmounted when the pendrive leaves. The SD card is not
 # on the USB bus, so these rules never touch BOOT or ROMS.
-ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/libexec/r36os/usb-storage add %k"
-ACTION=="remove", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", RUN+="/usr/libexec/r36os/usb-storage remove %k"
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/libexec/lume/usb-storage add %k"
+ACTION=="remove", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", RUN+="/usr/libexec/lume/usb-storage remove %k"

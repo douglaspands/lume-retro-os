@@ -1,4 +1,4 @@
-"""r36os-devmem: read or write one 32-bit register (tested on a regular file, not /dev/mem)."""
+"""lume-devmem: read or write one 32-bit register (tested on a regular file, not /dev/mem)."""
 
 import re
 import shutil
@@ -10,7 +10,7 @@ import pytest
 
 from r36os.paths import REPO_ROOT
 
-APORT = REPO_ROOT / "aports/r36os-devmem"
+APORT = REPO_ROOT / "aports/lume-devmem"
 CC = shutil.which("cc") or shutil.which("gcc")
 
 
@@ -21,15 +21,15 @@ def test_aport_is_armv7_only_listed_for_the_ga36_and_checksummed():
     digest = hashlib.sha512((APORT / "devmem.c").read_bytes()).hexdigest()
     assert f"{digest}  devmem.c" in apkbuild
     ga36 = (REPO_ROOT / "board/ga36/hw-packages.txt").read_text().split()
-    assert "r36os-devmem" in ga36
-    assert "r36os-devmem" not in (REPO_ROOT / "rootfs/packages.txt").read_text().split()
+    assert "lume-devmem" in ga36
+    assert "lume-devmem" not in (REPO_ROOT / "rootfs/packages.txt").read_text().split()
 
 
 @pytest.fixture(scope="module")
 def devmem(tmp_path_factory) -> Path:
     if CC is None:
         pytest.skip("no C compiler")
-    out = tmp_path_factory.mktemp("devmem") / "r36os-devmem"
+    out = tmp_path_factory.mktemp("devmem") / "lume-devmem"
     r = subprocess.run([CC, "-Wall", "-Wextra", "-Werror", "-o", str(out), str(APORT / "devmem.c")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr

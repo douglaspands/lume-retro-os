@@ -1,16 +1,16 @@
 #!/sbin/openrc-run
 # Frontend session (D10): starts straight on tty1, with no login. The frontend is chosen in
-# /etc/conf.d/frontend. The restart loop lives in r36os-session (no supervise-daemon).
+# /etc/conf.d/frontend. The restart loop lives in lume-session (no supervise-daemon).
 # Nothing a game does not use is waited for: playlists, lume-index, NetworkManager and
 # Bluetooth start after this service (build-speed D20).
 
 description="Frontend session (${FRONTEND:-retroarch})"
-command=/usr/libexec/r36os/session
+command=/usr/libexec/lume/session
 command_background=yes
 pidfile=/run/frontend.pid
 
 depend() {
-	need localmount r36os-persist
+	need localmount lume-persist
 	use seatd alsa udev
-	after udev-settle r36os-hwsummary r36os-savesync
+	after udev-settle lume-hwsummary lume-savesync
 }

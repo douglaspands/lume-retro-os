@@ -44,7 +44,7 @@ games = {"nes": "Aventura.nes", "snes": "Corrida.sfc", "megadrive": "Plataforma.
          "gba": "Puzzle.gba", "psx": "Disco.cue", "arcade": "gridlee.zip"}
 for sysid, name in games.items():
     serial(f"touch '/storage/roms/{sysid}/{name}'", 0.2)
-serial("r36os-playlists >/dev/null; chown -R game:game /home/game/.config/retroarch")
+serial("lume-playlists >/dev/null; chown -R game:game /home/game/.config/retroarch")
 serial("rc-service frontend restart", 12)
 
 shots = []

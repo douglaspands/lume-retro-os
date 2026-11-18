@@ -8,7 +8,7 @@ refuses before running anything when the cable has the other one (build-speed 3.
 
 - `wait`: wait until the console answers over the cable (`--timeout` seconds).
 - `sh <cmd...>`: run a command as root, stream its output, pass its exit code through.
-- `shot <file.png>`: screen capture of the console with the on-device `r36os-shot`.
+- `shot <file.png>`: screen capture of the console with the on-device `lume-shot`.
   `shot --compare <screen>` / `--update <screen>`: reference captures (r36os.shots).
 - `keys <sequence>`: press buttons through input_event writes (syntax below).
 - `log`: the boot log of the current boot.
@@ -19,10 +19,10 @@ refuses before running anything when the cable has the other one (build-speed 3.
   PLAY_REPLAY_SLOT <slot>. A GET_STATUS before (no game = error) and after (still PLAYING);
   UDP gives no ack, so the sent command itself is unconfirmed. Only the core is printed
   (the reply is cut before the game name on the console).
-- `record` / `record --stop`: start / stop the on-device `r36os-evrec record` (detached, to
-  /run/r36os/evrec/current.evrec). `--stop` brings the recording to cache/recordings/
+- `record` / `record --stop`: start / stop the on-device `lume-evrec record` (detached, to
+  /run/lume/evrec/current.evrec). `--stop` brings the recording to cache/recordings/
   `<console>-<YYYYmmdd-HHMMSS>.evrec`, deletes the remote copy; an empty recording is an error.
-- `play <file.evrec>`: send the recording and run `r36os-evrec play`, which prints
+- `play <file.evrec>`: send the recording and run `lume-evrec play`, which prints
   `delay max=<ms> mean=<ms> events=<n>`; a recording of the other console is refused before
   anything is sent.
 
@@ -40,7 +40,7 @@ Key sequence syntax (tokens separated by commas, spaces ignored):
 - `name*N` repeats the press N times;
 - `a+b` is a chord: all buttons go down together, then up together;
 - `wait:MS` (or `w:MS`) pauses MS milliseconds;
-- plain buttons go to the virtual pad published by r36os-input ("GA36-MB Gamepad" or "R36S
+- plain buttons go to the virtual pad published by lume-input ("GA36-MB Gamepad" or "R36S
   Gamepad", what the launcher and RetroArch read). A chord with `fn` goes to the kernel
   pad (GA36: "GA36-MB Gamepad" on the host bus, R36S: "gpio-keys"), because the daemon
   builds the hotkeys (Fn+Start...) from the physical buttons and never from its own pad.
@@ -77,14 +77,14 @@ VIRTUAL_CODES = {
     "l2": 0x138, "r2": 0x139, "select": 0x13A, "start": 0x13B, "fn": 0x13C,
     "l3": 0x13D, "r3": 0x13E, "up": 0x220, "down": 0x221, "left": 0x222, "right": 0x223,
 }
-# R36S gpio-keys (aports/r36os-input/r36s.conf): face buttons are BTN_EAST/SOUTH/NORTH/WEST
+# R36S gpio-keys (aports/lume-input/r36s.conf): face buttons are BTN_EAST/SOUTH/NORTH/WEST
 # and select/start/l3/r3/fn are BTN_TRIGGER_HAPPY1..5.
 R36S_KERNEL_CODES = {
     **VIRTUAL_CODES,
     "a": 0x131, "b": 0x130, "x": 0x133, "y": 0x134,
     "select": 0x2C0, "start": 0x2C1, "l3": 0x2C2, "r3": 0x2C3, "fn": 0x2C4,
 }
-# vm (aports/r36os-input/vm.conf, `passthrough`): the daemon publishes the QEMU keyboard keys
+# vm (aports/lume-input/vm.conf, `passthrough`): the daemon publishes the QEMU keyboard keys
 # unchanged as "Lume VM Keyboard", so the buttons are keyboard keys: Fn = F1 and Start = Enter
 # come from vm.conf (`fn`, `quit`), Select = right Shift and the face/shoulder keys are the
 # RetroArch defaults the vm keeps (retroarch-lume.cfg: hotkey rshift). No l2/r2/l3/r3 key.
@@ -150,8 +150,8 @@ def boot_log_command() -> str:
     """Remote command that prints the log of the current boot: the RAM copy, else the one
     on the card (ROMS/logs/boot/boot-<n>.log, docs/LOGS.md), else the kernel buffer; then
     the events of that boot from events.log (`boot OK completed: ...` is only there)."""
-    return ("n=$(cat /run/r36os/logs/boot-n 2>/dev/null); shown=; "
-            'for f in "/run/r36os/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
+    return ("n=$(cat /run/lume/logs/boot-n 2>/dev/null); shown=; "
+            'for f in "/run/lume/logs/boot/boot-$n.log" "/storage/logs/boot/boot-$n.log"; do '
             'if [ -n "$n" ] && [ -f "$f" ]; then cat "$f"; shown=1; break; fi; done; '
             '[ -n "$shown" ] || dmesg; '
             'echo; echo "== events (boot $n)"; '
@@ -183,7 +183,7 @@ def parse_input_devices(text: str) -> list[InputDevice]:
 @dataclass
 class Pads:
     board: str          # "ga36", "r36s" or "vm"
-    virtual: int        # event number of the pad published by r36os-input
+    virtual: int        # event number of the pad published by lume-input
     kernel: int | None  # event number of the kernel pad (None when absent)
 
 
@@ -196,7 +196,7 @@ def find_pads(devices: list[InputDevice]) -> Pads:
                            if k.name == KERNEL_NAME[board] and k.bus != BUS_VIRTUAL
                            and k.event is not None), None)
             return Pads(board, d.event, kernel)
-    raise DevError("no virtual gamepad on the console (is r36os-input running?)")
+    raise DevError("no virtual gamepad on the console (is lume-input running?)")
 
 
 # --- key sequences ---------------------------------------------------------------------
@@ -309,8 +309,8 @@ def cmd_sh(host: str, command: list[str]) -> int:
 
 
 def cmd_shot(host: str, out: Path) -> int:
-    remote = "/tmp/r36os-shot.png"
-    run_capture(host, f"r36os-shot {remote}")
+    remote = "/tmp/lume-shot.png"
+    run_capture(host, f"lume-shot {remote}")
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as f:
         r = subprocess.run(ssh_argv(host, f"cat {remote}; rm -f {remote}"),
@@ -378,7 +378,7 @@ def cmd_log(host: str) -> int:
     return 0
 
 
-SELFTEST_COMMAND = "/usr/libexec/r36os/selftest device"
+SELFTEST_COMMAND = "/usr/libexec/lume/selftest device"
 CONSOLES = ("ga36", "r36s", "vm")
 
 
@@ -502,7 +502,7 @@ def cmd_replay(host: str, action: str, slot: int | None = None, run=None,
 
 # --- record / play (virtual-gamepad D3) ----------------------------------------------------
 
-EVREC_DIR = "/run/r36os/evrec"
+EVREC_DIR = "/run/lume/evrec"
 EVREC_CURRENT = f"{EVREC_DIR}/current.evrec"
 EVREC_PID = f"{EVREC_DIR}/record.pid"
 EVREC_PLAY = f"{EVREC_DIR}/play.evrec"
@@ -510,12 +510,12 @@ RECORDINGS_DIR = REPO_ROOT / "cache" / "recordings"
 
 
 def record_start_command() -> str:
-    """Remote script: start `r36os-evrec record` detached; print `recording` or `busy`."""
+    """Remote script: start `lume-evrec record` detached; print `recording` or `busy`."""
     return (f"mkdir -p {EVREC_DIR}; "
             f"if [ -s {EVREC_PID} ] && kill -0 $(cat {EVREC_PID}) 2>/dev/null; "
             "then echo busy; exit 0; fi; "
             f"rm -f {EVREC_CURRENT}; "
-            f"nohup r36os-evrec record {EVREC_CURRENT} >/dev/null 2>&1 </dev/null & "
+            f"nohup lume-evrec record {EVREC_CURRENT} >/dev/null 2>&1 </dev/null & "
             f"echo $! > {EVREC_PID}; sleep 0.3; "
             f"if kill -0 $(cat {EVREC_PID}) 2>/dev/null; then echo recording; "
             "else echo failed; fi")
@@ -545,7 +545,7 @@ def play_upload_command() -> str:
 
 
 def play_command() -> str:
-    return f"r36os-evrec play {EVREC_PLAY}"
+    return f"lume-evrec play {EVREC_PLAY}"
 
 
 def play_clean_command() -> str:
@@ -566,7 +566,7 @@ def cmd_record(host: str, console: str, stop: bool, run=None,
             raise DevError("a recording is already running on the console "
                            "(`r36os dev record --stop` ends it)")
         if answer != "recording":
-            raise DevError("the recorder did not start (is r36os-evrec installed and "
+            raise DevError("the recorder did not start (is lume-evrec installed and "
                            "is this the right image?)")
         print(f"recording on the {console.upper()}: press buttons, then "
               "`r36os dev record --stop`")
@@ -605,7 +605,7 @@ def _ssh_send(host: str):
 
 
 def cmd_play(host: str, console: str, file: Path, send=None) -> int:
-    """`play <file>`: send a recording to the console and play it with `r36os-evrec play`,
+    """`play <file>`: send a recording to the console and play it with `lume-evrec play`,
     printing the measured delay line. A recording of the other console is refused before
     anything is sent; a failing player (refusal, no permission) fails the command."""
     from r36os import evrec
@@ -628,7 +628,7 @@ def cmd_play(host: str, console: str, file: Path, send=None) -> int:
     if out:
         print(out)
     if rc != 0:
-        raise DevError(f"r36os-evrec play failed ({rc})")
+        raise DevError(f"lume-evrec play failed ({rc})")
     return 0
 
 

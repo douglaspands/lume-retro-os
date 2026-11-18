@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole R33S, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/r33s/rk3326-r33s-linux.dtb
  * SHA-256: c3ffd29be9d15f1024e4e77b30fe5cf872afc0630c18030adca775674bd356f1
  * Note: power: LDO_REG9 not declared by the source: no voltage set, left on

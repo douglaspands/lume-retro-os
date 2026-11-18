@@ -41,14 +41,14 @@ def _install_in_root(arch: str, name: str) -> str:
 
 def test_noarch_fragment_is_the_same_file_in_every_arch(tmp_path, monkeypatch):
     monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))  # keep the real out/repo clean
-    apks = packages.build_noarch(["r36os-hello"], aports=REPO_ROOT / "tests/fixtures/aports")
-    assert [a.name for a in apks] == ["r36os-hello-1.0-r0.apk"]
+    apks = packages.build_noarch(["lume-hello"], aports=REPO_ROOT / "tests/fixtures/aports")
+    assert [a.name for a in apks] == ["lume-hello-1.0-r0.apk"]
     assert dict(packages.read_apk_pkginfo(apks[0]))["arch"] == "noarch"
 
     published = packages.publish_noarch(apks)
     assert {sha256_file(p) for p in published} == {sha256_file(apks[0])}
 
     for arch in packages.REPO_ARCHES:
-        db = _install_in_root(arch, "r36os-hello")
+        db = _install_in_root(arch, "lume-hello")
         assert "V:1.0-r0" in db
         assert f"A:{arch}" in db  # the index arch, as on the consoles

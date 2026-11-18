@@ -8,8 +8,8 @@ W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 
-LIBDIR=$PWD/aports/lume-diag/files/usr/libexec/r36os
-export R36OS_LIBDIR=$PWD/aports/lume-core/files/usr/libexec/r36os SELFTEST_DEVICE_SOURCE=1
+LIBDIR=$PWD/aports/lume-diag/files/usr/libexec/lume
+export LUME_LIBDIR=$PWD/aports/lume-core/files/usr/libexec/lume SELFTEST_DEVICE_SOURCE=1
 
 # One healthy console in $W; a scenario function may then break it
 fake_console() {  # board
@@ -40,10 +40,10 @@ run_device() {
 		. "$LIBDIR/selftest-device"
 		BOARD_FILE=$W/c/board PROC_MOUNTS=$W/c/mounts PROC_SWAPS=$W/c/swaps
 		INPUT_DEVICES=$W/c/input HWSUMMARY=$W/c/hwsummary LOGS=$W/c/logs CGROUP_ROOT=$W/c/cg
-		R36OS_RUN=$W/c/run SYSLOG=$W/c/messages
+		LUME_RUN=$W/c/run SYSLOG=$W/c/messages
 		svc_up() { ! echo " $STOPPED " | grep -q " $1 "; }
 		svc_state() { if svc_up "$1"; then echo started; else echo stopped; fi; }
-		pidof() { case "$1" in lume-run) echo 100 ;; lume-ui) echo 101 ;; r36os-input) echo 50 ;; *) return 1 ;; esac; }
+		pidof() { case "$1" in lume-run) echo 100 ;; lume-ui) echo 101 ;; lume-input) echo 50 ;; *) return 1 ;; esac; }
 		uid_of() { echo 1000; }
 		stat() { echo game; }
 		dmesg() { echo "lume: frontend started: lume"; }
@@ -59,7 +59,7 @@ for b in ga36 r36s; do
 	check "$b healthy: summary line names the board and no failure" 'grep -qE "^SELFTEST-DONE board=$b pass=[0-9]+ fail=0$" "$W/out"'
 	check "$b healthy: no failed line" '! grep -q "^SELFTEST .* FAIL" "$W/out"'
 done
-check "r36s checks the jack service, ga36 does not" 'grep -q "service-r36os-jack PASS" "$W/out" && fake_console ga36 && run_device && ! grep -q "service-r36os-jack" "$W/out"'
+check "r36s checks the jack service, ga36 does not" 'grep -q "service-lume-jack PASS" "$W/out" && fake_console ga36 && run_device && ! grep -q "service-lume-jack" "$W/out"'
 
 ### a stopped service fails its own check and nothing else
 fake_console r36s; STOPPED="networkmanager"; run_device
@@ -92,10 +92,10 @@ fake_console ga36
 (
 	. "$LIBDIR/selftest-device"
 	BOARD_FILE=$W/c/board PROC_MOUNTS=$W/c/mounts PROC_SWAPS=$W/c/swaps INPUT_DEVICES=$W/c/input
-	HWSUMMARY=$W/c/hwsummary LOGS=$W/c/logs CGROUP_ROOT=$W/c/cg R36OS_RUN=$W/c/run
+	HWSUMMARY=$W/c/hwsummary LOGS=$W/c/logs CGROUP_ROOT=$W/c/cg LUME_RUN=$W/c/run
 	svc_up() { return 0; }; svc_state() { echo started; }; uid_of() { echo 1000; }
 	stat() { echo game; }; dmesg() { :; }
-	pidof() { case "$1" in r36os-input) echo 50 ;; *) return 1 ;; esac; }
+	pidof() { case "$1" in lume-input) echo 50 ;; *) return 1 ;; esac; }
 	device_run
 ) > "$W/out" 2>&1
 RC=$?
@@ -106,8 +106,8 @@ fake_console vm; echo vm > "$W/c/board"; run_device
 check "vm: refused with exit 2" '[ $RC = 2 ] && grep -q "^SELFTEST-ERROR" "$W/out" && ! grep -q "^SELFTEST-DONE" "$W/out"'
 
 ### the dispatcher: `selftest device` hands over to selftest-device, other modes are unchanged
-check "selftest dispatches device mode first" 'sed -n "/^\[ \"\$1\" = device \]/=" aports/lume-diag/files/usr/libexec/r36os/selftest | grep -q . && [ "$(grep -n "exec /usr/libexec/r36os/selftest-device" aports/lume-diag/files/usr/libexec/r36os/selftest | cut -d: -f1)" -lt "$(grep -n "^T=" aports/lume-diag/files/usr/libexec/r36os/selftest | cut -d: -f1)" ]'
-check "selftest still runs the phases" 'grep -q "^run)" aports/lume-diag/files/usr/libexec/r36os/selftest'
+check "selftest dispatches device mode first" 'sed -n "/^\[ \"\$1\" = device \]/=" aports/lume-diag/files/usr/libexec/lume/selftest | grep -q . && [ "$(grep -n "exec /usr/libexec/lume/selftest-device" aports/lume-diag/files/usr/libexec/lume/selftest | cut -d: -f1)" -lt "$(grep -n "^T=" aports/lume-diag/files/usr/libexec/lume/selftest | cut -d: -f1)" ]'
+check "selftest still runs the phases" 'grep -q "^run)" aports/lume-diag/files/usr/libexec/lume/selftest'
 
 rm -rf "$W"
 [ "$FAILS" -eq 0 ]

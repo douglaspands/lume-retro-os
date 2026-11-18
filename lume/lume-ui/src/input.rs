@@ -1,5 +1,5 @@
 //! Gamepad input by Linux codes (lume-launcher task 7.1): the interface reads the evdev
-//! devices itself (the virtual gamepad of r36os-input, a USB pad, the VM keyboard), so both
+//! devices itself (the virtual gamepad of lume-input, a USB pad, the VM keyboard), so both
 //! consoles and the VM map the same way. A thread waits on the devices and hands actions to
 //! the main loop, with key repeat while a direction or L1/R1 is held.
 
@@ -194,7 +194,7 @@ fn watch_input_dir() -> Option<OwnedFd> {
 
 /// Runs forever on its own thread: reads the devices and calls `send` for each action
 /// (`true` for a repeat). A device that goes away is dropped, and a new one is opened: the
-/// virtual gamepad comes back under a new node when r36os-input restarts (respawned by its
+/// virtual gamepad comes back under a new node when lume-input restarts (respawned by its
 /// service), while the kernel gamepad it grabs stays open here and silent (seen on the GA36,
 /// 2026-11-14: the launcher stopped answering).
 pub fn run(mut send: impl FnMut(Action, bool)) {
@@ -290,9 +290,9 @@ pub fn run(mut send: impl FnMut(Action, bool)) {
     }
 }
 
-/// The input daemon's socket (r36os-input, design D8): "volume" after each volume key it
+/// The input daemon's socket (lume-input, design D8): "volume" after each volume key it
 /// applied, "quit" for Fn+Start (not for the launcher: ignored).
-pub const INPUT_SOCK: &str = "/run/r36os/input.sock";
+pub const INPUT_SOCK: &str = "/run/lume/input.sock";
 
 fn connect_seqpacket(path: &std::path::Path) -> Option<OwnedFd> {
     let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(map_key(0x130), Some(Action::A));
         assert_eq!(map_key(45), Some(Action::A)); // KEY_X
         assert_eq!(map_key(0x13B), Some(Action::Start));
-        assert_eq!(map_key(0x13C), None); // Fn belongs to r36os-input and RetroArch
+        assert_eq!(map_key(0x13C), None); // Fn belongs to lume-input and RetroArch
         assert_eq!(map_key(0x223), map_key(106));
     }
 

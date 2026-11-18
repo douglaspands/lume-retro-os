@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole XGB36, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/xgb36/rk3326-xgb36-linux.dtb
  * SHA-256: 77d400b4216f52a58a706630bf4ceade56255a4a89eb6b97a146f6e0ac4ae712
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

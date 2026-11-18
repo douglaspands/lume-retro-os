@@ -17,11 +17,11 @@ OVERLAY = REPO_ROOT / "rootfs/overlay"
 # What the fragment ships (design D2, mapped to the real paths of the overlay)
 CORE = {
     "etc/conf.d/dmesg", "etc/conf.d/frontend", "etc/hostname", "etc/init.d/frontend",
-    "etc/init.d/r36os-logd", "etc/issue", "etc/motd",
-    "usr/libexec/r36os/bootlog", "usr/libexec/r36os/frontends/lume",
-    "usr/libexec/r36os/frontends/retroarch", "usr/libexec/r36os/lib.sh",
-    "usr/libexec/r36os/logd", "usr/libexec/r36os/logs.sh", "usr/libexec/r36os/rc-tee",
-    "usr/libexec/r36os/session",
+    "etc/init.d/lume-logd", "etc/issue", "etc/motd",
+    "usr/libexec/lume/bootlog", "usr/libexec/lume/frontends/lume",
+    "usr/libexec/lume/frontends/retroarch", "usr/libexec/lume/lib.sh",
+    "usr/libexec/lume/logd", "usr/libexec/lume/logs.sh", "usr/libexec/lume/rc-tee",
+    "usr/libexec/lume/session",
 }
 
 
@@ -50,6 +50,34 @@ def _base_overlay() -> dict[str, tuple[str, str]]:
     return files
 
 
+# device-fixes 1.2 renamed the console paths after the base commit: the libexec and share
+# folders of the old prefix became .../lume, and the <old>-<x> services and tools lume-<x>.
+# The old prefix is spelled in two parts so the name guard (test_lume_names) skips it.
+OLD = "r36" "os"
+_RENAMED_DIRS = ("usr/libexec/", "usr/share/", "etc/")
+
+
+def _base_name(rel: str, base: dict) -> str:
+    """The name `rel` had at the base commit (itself when it was not renamed)."""
+    if rel in base:
+        return rel
+    old = rel
+    for d in _RENAMED_DIRS:
+        if old.startswith(d + "lume/"):
+            old = f"{d}{OLD}/{old[len(d + 'lume/'):]}"
+    head, _, name = old.rpartition("/")
+    if name.startswith("lume-"):
+        old = f"{head}/{OLD}-{name[len('lume-'):]}"
+    return old
+
+
+def _base_has_old_names(sha: str) -> bool:
+    """Whether the base blob holds the old prefix: its content changed with the 1.2 rename."""
+    blob = subprocess.run(["git", "-C", str(REPO_ROOT), "cat-file", "blob", sha], check=True,
+                          capture_output=True).stdout
+    return OLD.encode() in blob.lower()
+
+
 def _git_mode(path) -> str:
     return "100755" if path.stat().st_mode & 0o111 else "100644"
 
@@ -70,15 +98,15 @@ def _roots():
 
 # files created in a fragment after the move (they have no base commit entry)
 ADDED_AFTER_MOVE = {
-    "usr/libexec/r36os/power-profiles.sh",  # game-governor 1.1: profile validator (lume-power)
-    "usr/bin/r36os-power",                  # game-governor 2.2: the power service (lume-power)
-    "etc/init.d/r36os-power",
+    "usr/libexec/lume/power-profiles.sh",  # game-governor 1.1: profile validator (lume-power)
+    "usr/bin/lume-power",                  # game-governor 2.2: the power service (lume-power)
+    "etc/init.d/lume-power",
     "usr/share/lume/power/ga36.conf",
     "usr/share/lume/power/r36s.conf",
-    "usr/libexec/r36os/vm-net",             # virtual-gamepad 3.3: the vm's ssh network (lume-net)
-    "etc/init.d/r36os-vmnet",
+    "usr/libexec/lume/vm-net",             # virtual-gamepad 3.3: the vm's ssh network (lume-net)
+    "etc/init.d/lume-vmnet",
     # game-governor: RetroArch keys per core (the PlayStation keeps the main-thread video)
-    "usr/share/r36os/retroarch-core.keys",
+    "usr/share/lume/retroarch-core.keys",
 }
 
 
@@ -89,29 +117,29 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
         for rel in _tree(root):
             assert rel not in seen, f"{rel} is in {seen[rel]} and in {root}"
             seen[rel] = str(root)
-    assert set(seen) - ADDED_AFTER_MOVE == set(base)
+    assert {_base_name(r, base) for r in set(seen) - ADDED_AFTER_MOVE} == set(base)
 
 
 # files edited on purpose after the move (only their mode is still held to the base commit)
 EDITED_AFTER_MOVE = {
-    "usr/libexec/r36os/hwinfo",     # 8.2: the fragments section
-    "usr/libexec/r36os/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
+    "usr/libexec/lume/hwinfo",     # 8.2: the fragments section
+    "usr/libexec/lume/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
     "usr/share/lume/i18n/en.toml",  # game-governor 3.2: the low-battery text
     "usr/share/lume/i18n/pt.toml",
     "usr/share/lume/i18n/es.toml",
-    "usr/libexec/r36os/logd",       # game-governor 1.2: the sample without external processes
-    "usr/libexec/r36os/logs.sh",
-    "usr/libexec/r36os/selftest",   # lume-hud-actions D9: Start + Select stays in the game
-    "usr/libexec/r36os/frontends/retroarch",  # lume-hud-actions D9: Start + Select as reserve
+    "usr/libexec/lume/logd",       # game-governor 1.2: the sample without external processes
+    "usr/libexec/lume/logs.sh",
+    "usr/libexec/lume/selftest",   # lume-hud-actions D9: Start + Select stays in the game
+    "usr/libexec/lume/frontends/retroarch",  # lume-hud-actions D9: Start + Select as reserve
     "usr/share/lume/runners.d/retroarch.toml",  # lume-hud-actions D3: actions and overlay
     # lume-hud-actions D5, D9: the pictures and the menu keys of RetroArch
-    "usr/share/r36os/retroarch-lume.cfg",
-    "usr/share/r36os/factory/retroarch/retroarch.cfg",
+    "usr/share/lume/retroarch-lume.cfg",
+    "usr/share/lume/factory/retroarch/retroarch.cfg",
     "usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg",
     "usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg",
     # game-governor P-93: threaded video on both consoles
-    "usr/share/r36os/retroarch-ga36.cfg",
-    "usr/share/r36os/retroarch-r36s.cfg",
+    "usr/share/lume/retroarch-ga36.cfg",
+    "usr/share/lume/retroarch-r36s.cfg",
 }
 
 
@@ -119,8 +147,8 @@ def test_every_file_keeps_its_content_and_mode():
     base = _base_overlay()
     for root in _roots():
         for rel in _tree(root) - ADDED_AFTER_MOVE:
-            mode, sha = base[rel]
-            if rel in EDITED_AFTER_MOVE:
+            mode, sha = base[_base_name(rel, base)]
+            if rel in EDITED_AFTER_MOVE or _base_has_old_names(sha):
                 assert _git_mode(root / rel) == mode, rel
                 continue
             assert (_git_mode(root / rel), _blob_sha(root / rel)) == (mode, sha), rel

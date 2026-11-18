@@ -41,7 +41,10 @@ def parse_map(text=None):
         text = MAP_FILE.read_text(encoding="utf-8")
     rename, keep = [], []
     header = None
+    section = ""
     for line in text.splitlines():
+        if line.startswith("## "):
+            section = line[3:].strip()
         if not line.startswith("|"):
             header = None
             continue
@@ -53,7 +56,7 @@ def parse_map(text=None):
             continue
         if header[0] == "Antes" and len(cells) >= 3:
             rename.append({"Antes": _strip_ticks(cells[0]), "Depois": _strip_ticks(cells[1]),
-                           "Tipo": cells[2].strip()})
+                           "Tipo": cells[2].strip(), "Secao": section})
         elif header[0] == "Item" and len(cells) >= 2:
             keep.append((cells[0], cells[1]))
     return rename, keep
@@ -168,8 +171,83 @@ def test_pending_names_report():
         assert not pending, text + "\n" + "\n".join(f"{p}:{n}: {t}" for p, n, t in pending[:50])
 
 
+# Console mode (task 1.2): the trees that become the console image, its build inputs and the
+# tests. Here the only `r36os` left may be a name of the PC tool, which task 1.3 renames.
+CONSOLE_SCOPE = ("aports/", "rootfs/", "initramfs/", "board/", "kernel/", "lume/", "tests/")
+# rows of the map that name the PC tool (sections 9 and 9.1 and these types elsewhere)
+PC_TYPES = {"git-pc", "pasta-build", "var-pc", "identificador", "pacote-pc", "import",
+            "pyproject", "modulo-pc", "comando", "rotulo-container", "container", "imagem",
+            "containerfile", "identidade", "arquivo-pc", "cache-pc", "script-pc", "policy",
+            "receita-ctx", "chave"}
+PC_FORMS = re.compile(r"\bfrom r36os\b|\bimport r36os\b|\br36os\.[a-z_]+|\bsrc/r36os\b"
+                      r"|\"src\" / \"r36os\""
+                      r"|\br36os (build|push|dev|vm|flash|pkg|dtb-import|dtb|test-vm|power)\b")
+
+
+def pc_literals(rename_rows):
+    """The old PC names, longest first (the bare command `r36os` is left out: it would hide
+    every console name too)."""
+    lits = {r["Antes"] for r in rename_rows
+            if r["Antes"] != "r36os"
+            and (r["Tipo"] in PC_TYPES or r["Secao"].startswith("9")
+                 or r["Antes"].startswith(("src/r36os", "r36os/")))}
+    return sorted(lits, key=len, reverse=True)
+
+
+def find_console_pending(files=None, rename_rows=None, keep_rows=None):
+    """Like find_pending, limited to CONSOLE_SCOPE and without the names of the PC tool."""
+    if files is None:
+        files = tracked_files()
+    if rename_rows is None or keep_rows is None:
+        rename_rows, keep_rows = parse_map()
+    files = [f for f in files if f.startswith(CONSOLE_SCOPE)]
+    pc = pc_patterns(rename_rows)
+    out = []
+    for path, n, text in find_pending(files, rename_rows, keep_rows):
+        if n == 0:
+            out.append((path, n, text))
+            continue
+        line = (REPO_ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()[n - 1]
+        if console_rest(line, pc):
+            out.append((path, n, text))
+    return out
+
+
+def pc_patterns(rename_rows):
+    """One regex per PC literal; a literal that ends in a letter or digit must end there, so
+    the PC folder `r36os-initramfs` does not hide the console package `r36os-initramfs-static`."""
+    return [re.compile(re.escape(lit) + (r"(?![A-Za-z0-9_-])" if lit[-1].isalnum() else ""))
+            for lit in pc_literals(rename_rows)]
+
+
+def console_rest(line, pc):
+    """Whether `line` still has r36os once the PC names are taken out."""
+    for rx in pc:
+        line = rx.sub("", line)
+    return bool(NEEDLE.search(PC_FORMS.sub("", line)))
+
+
+def test_console_check_only_forgives_pc_names():
+    rename, _keep = parse_map()
+    pc = pc_patterns(rename)
+    assert not console_rest('from r36os.paths import REPO_ROOT; os.environ["R36OS_OUT"]', pc)
+    assert not console_rest("cp /keys/r36os.rsa.pub x; uv run r36os build vm", pc)
+    assert not console_rest('build / "r36os-initramfs"', pc)
+    for console in ("apk add r36os-initramfs-static", "/usr/libexec/r36os/lib.sh",
+                    "R36OS_RUN=/run/r36os", "rc-update add r36os-logd", "/etc/r36os/board"):
+        assert console_rest(console, pc), console
+
+
+def test_console_names_have_no_r36os():
+    """Task 1.2 closed the console side: this check is enforced (ENFORCE is for 1.4)."""
+    pending = find_console_pending()
+    assert not pending, "\n".join(f"{p}:{n}: {t}" for p, n, t in pending[:50])
+
+
 if __name__ == "__main__":
     result = find_pending()
+    if "--console" in sys.argv:
+        result = find_console_pending()
     if "--list" in sys.argv:
         for path, num, text in result:
             print(f"{path}:{num}: {text}")

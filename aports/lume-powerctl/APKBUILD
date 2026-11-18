@@ -1,0 +1,28 @@
+# Lume Retro OS: the game controller of the power service (openspec game-governor D12, D17). In
+# a game profile with controller=load, lume-power starts it: the userspace governor, one step
+# of the frequency table up or down by the load of the busiest thread of the game, inside the
+# profile limits and under the thermal cap. With controller=auto it finds the bottleneck (CPU,
+# GPU, frame pacing, thermal) from /proc and the DRM fdinfo and raises only that resource: the
+# CPU clock or the GPU devfreq floor. Stopped at the end of the game.
+pkgname=lume-powerctl
+pkgver=1.1
+pkgrel=0
+pkgdesc="CPU and GPU clocks by the load and bottleneck of the game (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+options="!check" # tested on the host (tests/unit/test_lume_powerctl.py)
+source="powerctl.c"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-powerctl powerctl.c
+}
+
+package() {
+	install -Dm755 lume-powerctl "$pkgdir"/usr/bin/lume-powerctl
+}
+
+sha512sums="
+3970b0bfcabfc64336d7f151bdaf97e28339696c72acf5a632ac8532625be39182dabe195e0fc70ba0f6e1355223080d2f5862312ae8811617be044c40799bc3  powerctl.c
+"

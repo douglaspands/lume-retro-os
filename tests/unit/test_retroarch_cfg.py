@@ -5,10 +5,10 @@ import subprocess
 
 from r36os.paths import REPO_ROOT
 
-CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/retroarch-lume.cfg").read_text()
+CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-lume.cfg").read_text()
 
 
-FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/factory/retroarch/retroarch.cfg").read_text()
 
 
 def _keys(text):
@@ -58,10 +58,10 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
 def test_only_the_installed_cores_info_files_are_read():
     # 15.1: RetroArch reads every info file on each start; the image keeps only the ones of
     # the installed cores and points RetroArch there
-    assert 'libretro_info_path = "/usr/share/r36os/libretro-info"' in CFG
+    assert 'libretro_info_path = "/usr/share/lume/libretro-info"' in CFG
     configure = (REPO_ROOT / "rootfs/configure.sh").read_text()
     assert "for so in /usr/lib/libretro/*_libretro.so; do" in configure
-    assert "cp \"$info\" /usr/share/r36os/libretro-info/" in configure
+    assert "cp \"$info\" /usr/share/lume/libretro-info/" in configure
 
 
 def test_user_tunable_defaults_are_in_the_factory_config():
@@ -138,20 +138,20 @@ def test_no_quit_combo_and_menu_pauses():
     # shutting down asks for confirmation by default (patch 0002: the menu item has to be
     # selected twice); the self-test turns it off for itself because it quits with QUIT
     assert 'quit_press_twice = "true"' in CFG
-    selftest_init = (REPO_ROOT / "aports/lume-diag/files/etc/init.d/r36os-selftest").read_text()
+    selftest_init = (REPO_ROOT / "aports/lume-diag/files/etc/init.d/lume-selftest").read_text()
     assert 'quit_press_twice = \\"false\\"' in selftest_init or 'quit_press_twice = "false"' in selftest_init
 
 
-SHARE = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os"
-FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch"
+SHARE = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume"
+FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/frontends/retroarch"
 
 
 def test_volume_buttons_belong_to_the_input_daemon():
-    # lume-launcher D8: r36os-input grabs KEY_VOLUMEUP/DOWN and changes the system mixer in
+    # lume-launcher D8: lume-input grabs KEY_VOLUMEUP/DOWN and changes the system mixer in
     # any program, so RetroArch has no volume binding of the distro (fixed or factory)
     assert "input_volume" not in _keys(FACTORY)
     assert "input_volume" not in CFG
-    # lume-hud-actions D9: the Fn never reaches RetroArch (r36os-input keeps it as the system
+    # lume-hud-actions D9: the Fn never reaches RetroArch (lume-input keeps it as the system
     # button), so no autoconfig binds the menu to it; Start + Select is the game's
     for pad in ("R36S Gamepad.cfg", "GA36-MB Gamepad.cfg"):
         auto = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev" / pad).read_text()
@@ -261,8 +261,8 @@ def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: s
     if extra is not None:
         extra_file.write_text(extra)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
-           "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE),
-           "R36OS_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
+           "BOARD_FILE": str(board_file), "LUME_SHARE": str(SHARE),
+           "LUME_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
            **(env_extra or {})}
     r = subprocess.run(["sh", str(FRONTEND), *args], env=env, capture_output=True, text=True,
                        check=check)

@@ -19,7 +19,7 @@ while [ "$(cut -d. -f1 /proc/uptime)" -lt "$end" ]; do
 	ui=$(pidof lume-ui)
 	f=$(fb)
 	v=$(vb)
-	g=$(r36os-devmem 0x1c0c004 2>/dev/null)
+	g=$(lume-devmem 0x1c0c004 2>/dev/null)
 	m=stalled
 	[ "$v" != "$last_vb" ] && m=moving
 	last_vb=$v

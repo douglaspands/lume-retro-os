@@ -198,7 +198,7 @@ mod tests {
 
     fn setup() -> (Dirs, Catalog, Runner) {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let cat = Catalog::load(&repo.join("aports/lume-games/files/usr/share/r36os/systems.json")).unwrap();
+        let cat = Catalog::load(&repo.join("aports/lume-games/files/usr/share/lume/systems.json")).unwrap();
         let (runners, _) = lume_core::runner::load(&[repo.join("aports/lume-games/files/usr/share/lume/runners.d")], false);
         (Dirs { storage: "/storage".into(), cores: "/usr/lib/libretro".into() }, cat, runners["retroarch"].clone())
     }
@@ -228,7 +228,7 @@ mod tests {
         // even with nothing chosen, the run says the core's aspect and ignores what was saved
         // in RetroArch (overrides, automatic shader presets)
         assert_eq!(r.argv, [
-            "/usr/libexec/r36os/frontends/retroarch",
+            "/usr/libexec/lume/frontends/retroarch",
             "--lume-set", "aspect_ratio_index=22", "--lume-set", "auto_overrides_enable=false",
             "--lume-set", "auto_shaders_enable=false", "--lume-set", "state_slot=0", "-L",
             "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/Alpha (USA).sfc"]);
@@ -240,7 +240,7 @@ mod tests {
         let (d, cat, ra) = setup();
         let r = game(&d, &cat, &ra, "gba", "sub/G.gba", &eff("gpsp", Some("4:3"), Some("/usr/share/libretro/shaders/lume-shaders/gba/x.glslp")), Some(Slot::N(3)));
         assert_eq!(r.argv, [
-            "/usr/libexec/r36os/frontends/retroarch",
+            "/usr/libexec/lume/frontends/retroarch",
             "--lume-set", "aspect_ratio_index=0", "--lume-set", "auto_overrides_enable=false",
             "--lume-set", "auto_shaders_enable=false", "--lume-set", "video_shader_enable=true",
             "--lume-keep", "state_slot", "--set-shader", "/usr/share/libretro/shaders/lume-shaders/gba/x.glslp", "-e", "3",
@@ -280,7 +280,7 @@ mod tests {
         assert!(text.ends_with("arg=/storage/roms/nes/a.nes\n"));
         let m = retroarch_menu(&ra);
         assert!(m.file(true).starts_with("kind=menu\nsystem=-\n"));
-        assert_eq!(m.argv, ["/usr/libexec/r36os/frontends/retroarch"]);
+        assert_eq!(m.argv, ["/usr/libexec/lume/frontends/retroarch"]);
         let bad = game(&d, &cat, &ra, "nes", "a\nb.nes", &eff("fceumm", None, None), None);
         assert!(bad.write(&std::env::temp_dir(), false).is_err());
     }

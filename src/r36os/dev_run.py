@@ -47,7 +47,7 @@ EVENTS_LOG = "/storage/logs/events.log"
 POLL_S = 1.0
 COUNT_MARK = "@@count "
 GAME_CATEGORY = "game"
-EVENTS_PENDING = "/run/r36os/logs/events.pending"
+EVENTS_PENDING = "/run/lume/logs/events.pending"
 
 
 # lume-run lines (lume/lume-run/src/events.rs), after the PC-side cut at ` content=`:

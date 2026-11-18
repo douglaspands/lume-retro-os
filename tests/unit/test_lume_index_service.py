@@ -8,7 +8,7 @@ from r36os.paths import REPO_ROOT
 INIT_PATH = REPO_ROOT / "aports/lume-games/files/etc/init.d/lume-index"
 INIT = INIT_PATH.read_text()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
-GADGET = (REPO_ROOT / "aports/lume-usb/files/usr/libexec/r36os/usb-gadget").read_text()
+GADGET = (REPO_ROOT / "aports/lume-usb/files/usr/libexec/lume/usb-gadget").read_text()
 
 
 def test_runs_in_the_background_as_the_game_user():
@@ -23,7 +23,7 @@ def test_order_after_the_card_and_the_frontend():
     # build-speed D20: the scan does not hold the frontend (tests/unit/test_boot_order.py)
     deps = re.search(r"depend\(\) \{(.*?)\n\}", INIT, re.S).group(1)
     assert "need localmount" in deps
-    assert "after r36os-persist frontend" in deps
+    assert "after lume-persist frontend" in deps
     assert "before frontend" not in deps
 
 
@@ -34,9 +34,9 @@ def test_without_roms_it_starts_nothing():
 
 
 def test_enabled_in_the_default_runlevel():
-    line = re.search(r"^for s in r36os-playlists .*?; do", CONFIGURE, re.S | re.M).group(0)
+    line = re.search(r"^for s in lume-playlists .*?; do", CONFIGURE, re.S | re.M).group(0)
     assert re.search(r"\blume-index\b", line)
-    assert re.search(r'^for s in r36os-playlists .*?; do\n\tadd "\$s" default$', CONFIGURE,
+    assert re.search(r'^for s in lume-playlists .*?; do\n\tadd "\$s" default$', CONFIGURE,
                      re.S | re.M)
 
 

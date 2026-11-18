@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Diium Dr28s, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/dr28s/5.10/rk3326-dr28s-linux.dtb
  * SHA-256: 54467fee6eda5bee80d4a2093ea99e693a54b10a48db1d05179d3bc3d11b90cb
  * Note: power: source regulator DCDC_REG5 is not an RK817 one, ignored

@@ -6,11 +6,11 @@ from pathlib import Path
 from r36os.paths import REPO_ROOT
 from r36os.selftest import expected_checks
 
-ZRAM_SCRIPT = REPO_ROOT / "aports/lume-power/files/usr/libexec/r36os/zram"
-ZRAM_INIT = REPO_ROOT / "aports/lume-power/files/etc/init.d/r36os-zram"
-SYSCTL_CONF = REPO_ROOT / "aports/lume-power/files/etc/sysctl.d/r36os-zram.conf"
+ZRAM_SCRIPT = REPO_ROOT / "aports/lume-power/files/usr/libexec/lume/zram"
+ZRAM_INIT = REPO_ROOT / "aports/lume-power/files/etc/init.d/lume-zram"
+SYSCTL_CONF = REPO_ROOT / "aports/lume-power/files/etc/sysctl.d/lume-zram.conf"
 CONFIGURE_SH = REPO_ROOT / "rootfs/configure.sh"
-SELFTEST_SH = REPO_ROOT / "aports/lume-diag/files/usr/libexec/r36os/selftest"
+SELFTEST_SH = REPO_ROOT / "aports/lume-diag/files/usr/libexec/lume/selftest"
 
 
 def test_selftest_checks_zram_swap():
@@ -25,9 +25,9 @@ def test_selftest_checks_zram_swap():
 
 def test_configure_enables_zram_and_sysctl_in_boot_runlevel():
     text = CONFIGURE_SH.read_text()
-    assert "r36os-zram" in text
+    assert "lume-zram" in text
     assert "sysctl" in text
-    assert 'for s in modules sysctl hostname bootmisc syslog loopback r36os-zram; do add "$s" boot; done' in text
+    assert 'for s in modules sysctl hostname bootmisc syslog loopback lume-zram; do add "$s" boot; done' in text
 
 
 def test_sysctl_zram_parameters():
@@ -41,7 +41,7 @@ def test_sysctl_zram_parameters():
 def test_zram_init_script():
     text = ZRAM_INIT.read_text()
     assert "#!/sbin/openrc-run" in text
-    assert "/usr/libexec/r36os/zram" in text
+    assert "/usr/libexec/lume/zram" in text
     assert "after modules" in text
 
 

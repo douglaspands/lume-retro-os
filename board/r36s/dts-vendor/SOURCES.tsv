@@ -1,4 +1,4 @@
-# DTBs read by `r36os dtb-import` (boot-dtb-select D12): status, lume,id, collection, path, sha256, reason or notes
+# DTBs read by `lume dtb-import` (boot-dtb-select D12): status, lume,id, collection, path, sha256, reason or notes
 status	id	collection	path	sha256	reason
 converted	darkosre-r36s	darkosre	files/BOOT/rk3326-r36s-linux.dtb	76c54ef929a94ae02eaff5c2d9b69775a9ad2ee5d75553a213a4431a31782e4e	sticks: axes from the ROCKNIX joypad mapping, not measured; speaker gain: source spk-volume 3 ignored, the native safe value is used
 converted	darkosre-clone-g80c-mb-v1.1-20250319-panel-8	darkosre	files/BOOT/dtb/clone/G80C-MB V1.1-20250319 Panel 8/rk3326-r36s-linux.dtb	a6fb2b2f066519c4f3645228a0efaaa3c38073c058462b7b6ea9d2860f7adcbe	sticks: axes from the ROCKNIX joypad mapping, not measured; speaker gain: source spk-volume 3 ignored, the native safe value is used

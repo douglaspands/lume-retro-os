@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * UDT R36UltraX, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/r36ultrax/5.10/rk3326-r36ultrax-linux.dtb
  * SHA-256: 1c15038300db7afcf3ec6b1f15fa9dec2593de37323370e938b6d901ee034a27
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

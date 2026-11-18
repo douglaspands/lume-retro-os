@@ -1,0 +1,87 @@
+#!/bin/sh
+# lume-persist (D7): selective persistence of the RetroArch configuration.
+#
+#   persist restore   at boot: factory seed, card -> RAM, time zone and hostname
+#   persist watch     daemon: inotifyd + 2 s debounce, RAM -> card (atomic)
+#   persist flush     syncs everything now (before powering off)
+#
+# RetroArch writes to ~game/.config/retroarch, in the RAM layer. Only this folder,
+# system/etc/timezone and system/etc/hostname persist in ROMS/system/.
+. "${PERSIST_LIBSH:-/usr/libexec/lume/lib.sh}"
+
+# The PERSIST_* variables only change for the tests.
+RAM=${PERSIST_RAM:-/home/game/.config/retroarch}
+SYS=${PERSIST_SYS:-/storage/system}
+CARD=$SYS/retroarch
+FACTORY=${PERSIST_FACTORY:-/usr/share/lume/factory/retroarch}
+DIRTY=$LUME_RUN/persist.dirty
+DEBOUNCE=2
+
+storage_ok() { mountpoint -q "${PERSIST_MOUNT:-/storage}"; }
+
+# The build language (lume build --lang) is only the factory default: it reaches a card
+# through the factory config seeded below, on a card with no configuration yet. The menu
+# language the user picks is never overwritten by a later build.
+restore() {
+	mkdir -p "$RAM"
+	if storage_ok; then
+		if [ ! -d "$CARD" ]; then
+			log "factory RetroArch configuration (ROMS/system/ missing)"
+			mirror "$FACTORY" "$CARD"
+			mkdir -p "$SYS/etc"
+			sync
+		fi
+		cp -a "$CARD/." "$RAM/"
+	else
+		log "no ROMS: factory configuration in RAM only"
+		cp -a "$FACTORY/." "$RAM/"
+	fi
+	chown -R game:game /home/game/.config
+
+	local tz host
+	tz=$(head -n1 "$SYS/etc/timezone" 2>/dev/null | tr -cd 'A-Za-z0-9/_+-')
+	if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then
+		ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+		echo "$tz" > /etc/timezone
+		log "timezone: $tz"
+	elif [ -n "$tz" ]; then
+		log "unknown timezone in system/etc/timezone: $tz"
+	fi
+	host=$(head -n1 "$SYS/etc/hostname" 2>/dev/null | tr -cd 'A-Za-z0-9-')
+	if [ -n "$host" ]; then
+		hostname "$host"
+		echo "$host" > /etc/hostname
+		log "hostname: $host"
+	fi
+}
+
+flush() {
+	storage_ok || return 0
+	rm -f "$DIRTY"
+	mirror "$RAM" "$CARD"
+	sync
+}
+
+# Chamado a cada segundo pelo watch_tree: sincroniza 2 s depois da última mudança.
+tick() {
+	[ -e "$DIRTY" ] || return 0
+	local now last
+	now=$(date +%s)
+	last=$(stat -c %Y "$DIRTY" 2>/dev/null) || return 0
+	[ $((now - last)) -ge $DEBOUNCE ] && flush
+	return 0
+}
+
+[ -n "${PERSIST_LIB:-}" ] && return 0   # testes: só as funções
+
+case "$1" in
+restore) restore ;;
+flush) flush ;;
+watch)
+	storage_ok || exit 0
+	WATCH_TICK=tick
+	WATCH_NAME=persist
+	watch_tree /usr/libexec/lume/persist-event wymnd "$RAM"
+	;;
+*) echo "usage: $0 restore|watch|flush" >&2; exit 2 ;;
+esac

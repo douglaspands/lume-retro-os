@@ -50,13 +50,13 @@ def test_archive_image(tmp_path, monkeypatch):
     (work / "manifest.txt").write_text("# arch: x86_64\nretroarch 1.22.2-r102\n")
     v = version.current(NOW)
 
-    dest = archive.archive_image(target, img, v, {"kernel": "6.18.62-r36os"})
+    dest = archive.archive_image(target, img, v, {"kernel": "6.18.62-lume"})
 
     assert dest == tmp_path / "images/vm/20261109-214233"
     zst = dest / "vm-20261109-214233.img.zst"
     assert zstd.decompress(zst.read_bytes()) == img.read_bytes()
     build = json.loads((dest / "build.json").read_text())
-    assert build["build_id"] == "20261109-214233" and build["kernel"] == "6.18.62-r36os"
+    assert build["build_id"] == "20261109-214233" and build["kernel"] == "6.18.62-lume"
     assert build["image_sha256"] == hashlib.sha256(img.read_bytes()).hexdigest()
     sums = (dest / "SHA256SUMS").read_text()
     assert f"{build['image_sha256']}  vm-20261109-214233.img\n" in sums

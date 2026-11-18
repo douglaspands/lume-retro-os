@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * XiFan R36Pro, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/r36pro/5.10/rk3326-r36pro-linux.dtb
  * SHA-256: 6716ffa4ad6509e525c378b7ba7adf91fcdc1d7982fec6f1d96f4b21646d145a
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

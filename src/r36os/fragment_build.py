@@ -40,10 +40,10 @@ CONSOLES = IMAGES["console"].layers        # ("ga36", "r36s")
 TOP_SLOT = "lume"                          # the apk database: changes with any package
 
 # Fragments of stage 1: the initramfs installs them (initramfs.py, `apk add ...
-# r36os-initramfs-static lume-bootsel`) and is built into the console kernel, so a change
+# lume-initramfs-static lume-bootsel`) and is built into the console kernel, so a change
 # needs the initramfs and the kernel again. Extension point of task 7.3: the kernel,
 # modules and DTB fragments (lume-kernel...) join this set.
-STAGE1_FRAGMENTS = frozenset({"r36os-initramfs-static", "lume-bootsel"})
+STAGE1_FRAGMENTS = frozenset({"lume-initramfs-static", "lume-bootsel"})
 # The kernel of a console as a fragment (task 7.3; the user, 2026-11-17: a driver or a kernel
 # patch without the whole image): not an aport. It redoes stage 1 of the consoles asked (the
 # kernel builds only what changed in its tree), publishes lume-kernel, lume-modules and

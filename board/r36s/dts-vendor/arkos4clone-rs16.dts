@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * CoolBoy RS-16, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rs16/rk3326-rs16-linux.dtb
  * SHA-256: 46e1e43bfe03cac41842eb1544bd17bd54fa825432a0c2e1d1ad4b469dd21eef
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

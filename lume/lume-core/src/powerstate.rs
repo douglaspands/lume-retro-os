@@ -1,4 +1,4 @@
-//! Reader of `/run/r36os/power.state`, the state the `r36os-power` service publishes
+//! Reader of `/run/lume/power.state`, the state the `lume-power` service publishes
 //! (openspec game-governor, D16; format in docs/LOGS.md, "power.state").
 //!
 //! One `key value...` per line; unknown keys are ignored so the service may add keys. The
@@ -190,9 +190,9 @@ impl PowerState {
     }
 }
 
-/// `$R36OS_RUN/power.state` (default `/run/r36os/power.state`).
+/// `$LUME_RUN/power.state` (default `/run/lume/power.state`).
 pub fn state_path() -> PathBuf {
-    std::env::var_os("R36OS_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/r36os")).join("power.state")
+    std::env::var_os("LUME_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/lume")).join("power.state")
 }
 
 #[cfg(test)]

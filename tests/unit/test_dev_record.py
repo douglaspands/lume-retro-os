@@ -5,8 +5,8 @@ import pytest
 
 from r36os import dev, evrec
 
-GOOD = "# r36os-evrec 1 ga36\n10 1 304 1\n90 1 304 0\n# end 100\n"
-EMPTY = "# r36os-evrec 1 ga36\n# end 100\n"
+GOOD = "# lume-evrec 1 ga36\n10 1 304 1\n90 1 304 0\n# end 100\n"
+EMPTY = "# lume-evrec 1 ga36\n# end 100\n"
 
 
 class FakeRun:
@@ -28,7 +28,7 @@ def test_record_start_sends_the_script(capsys):
     run = FakeRun({dev.record_start_command(): "recording\n"})
     assert dev.cmd_record("h", "ga36", False, run=run) == 0
     assert run.cmds == [dev.record_start_command()]
-    assert "r36os-evrec record /run/r36os/evrec/current.evrec" in run.cmds[0]
+    assert "lume-evrec record /run/lume/evrec/current.evrec" in run.cmds[0]
     assert "recording on the GA36" in capsys.readouterr().out
 
 

@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+# RetroArch game playlists, generated from roms/ and the catalog on every boot.
+# After the frontend (build-speed D20): the lume-launcher does not read them; RetroArch, the
+# reserve frontend, reads a playlist file when its menu opens it.
+
+description="Game playlists"
+
+depend() {
+	need localmount
+	after lume-persist frontend
+}
+
+start() {
+	ebegin "Generating game playlists"
+	if mountpoint -q /storage; then
+		/usr/bin/lume-playlists
+		chown -R game:game /home/game/.config/retroarch/playlists
+	fi
+	eend 0
+}

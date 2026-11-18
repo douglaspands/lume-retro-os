@@ -5,13 +5,13 @@
 set -u
 cd "$(dirname "$0")/../.."
 W=$(mktemp -d)
-chmod 755 "$W"   # like /run/r36os: the game user walks through it
+chmod 755 "$W"   # like /run/lume: the game user walks through it
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 
 export CGROUP_ROOT="$W/cg" LOGS_RAM="$W/logs"
-. aports/lume-core/files/usr/libexec/r36os/lib.sh
-. aports/lume-core/files/usr/libexec/r36os/logs.sh
+. aports/lume-core/files/usr/libexec/lume/lib.sh
+. aports/lume-core/files/usr/libexec/lume/logs.sh
 owner() { stat -c %U "$1"; }
 
 ### no cgroup v2 mounted: nothing is created and the session falls back
@@ -51,11 +51,11 @@ check "events: the game user creates the buffer again after a flush" 'grep -q "e
 rm -f "$LOGS_RAM/events.pending"
 events_file
 check "events: the flush leaves an empty buffer with mode 666" '[ "$(stat -c %a $LOGS_RAM/events.pending)" = 666 ] && [ ! -s $LOGS_RAM/events.pending ]'
-check "logs_flush: recreates the buffer after the drain" 'grep -A1 "_drain \"\$LOGS_RAM/events.pending\"" aports/lume-core/files/usr/libexec/r36os/logs.sh | grep -q events_file'
-check "session: shares the events buffer with the game user" 'grep -q "events_shared game" aports/lume-core/files/usr/libexec/r36os/session'
+check "logs_flush: recreates the buffer after the drain" 'grep -A1 "_drain \"\$LOGS_RAM/events.pending\"" aports/lume-core/files/usr/libexec/lume/logs.sh | grep -q events_file'
+check "session: shares the events buffer with the game user" 'grep -q "events_shared game" aports/lume-core/files/usr/libexec/lume/session'
 
 ### the session uses both
-S=aports/lume-core/files/usr/libexec/r36os/session
+S=aports/lume-core/files/usr/libexec/lume/session
 check "session: delegates before the loop and moves the frontend subshell" 'grep -q "CG_PROCS=\$(lume_cgroup game 2>" $S && grep -q "echo 0 > \"\$CG_PROCS\"" $S'
 check "session: the reason of a missing cgroup goes to the log" 'grep -q "no cgroup v2 for the games (\$(cat" $S'
 check "rc.conf: cgroup v2 only" 'grep -q "rc_cgroup_mode=\"unified\"" rootfs/configure.sh'

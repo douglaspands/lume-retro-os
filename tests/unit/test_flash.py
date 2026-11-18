@@ -182,7 +182,7 @@ def test_populate_roms_has_the_default_folders_and_factory_config(tmp_path):
     cfg = (tmp_path / "system/retroarch/retroarch.cfg").read_text()
     factory = (flash.FACTORY / "retroarch/retroarch.cfg").read_text()
     assert f'user_language = "{lang.retro_language("pt_BR")}"' in cfg
-    # the rest is the factory file as is (what r36os-persist would seed)
+    # the rest is the factory file as is (what lume-persist would seed)
     strip = lambda t: [l for l in t.splitlines() if not l.startswith("user_language")]  # noqa: E731
     assert strip(cfg) == strip(factory)
     flash.populate_roms(tmp_path, "en")                         # idempotent

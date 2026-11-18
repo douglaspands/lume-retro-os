@@ -1,7 +1,0 @@
-# The built-in controls are grabbed by r36os-input and published again as one virtual
-# gamepad (lume-launcher D8): the source devices are not gamepads of their own (RetroArch
-# lists ID_INPUT_JOYSTICK only), or a dead source would take player 1.
-# R36S: buttons and sticks
-SUBSYSTEM=="input", ATTRS{name}=="gpio-keys|adc-joystick", ENV{ID_INPUT_JOYSTICK}=""
-# GA36: the kernel gamepad (BUS_HOST); the virtual one has the same name on BUS_VIRTUAL
-SUBSYSTEM=="input", ATTRS{name}=="GA36-MB Gamepad", ATTRS{id/bustype}=="0019", ENV{ID_INPUT_JOYSTICK}=""
