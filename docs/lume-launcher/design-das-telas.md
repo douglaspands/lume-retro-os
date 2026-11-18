@@ -83,6 +83,46 @@ Regras desenhadas:
 | Aprovação do usuário no navegador a 640x480 | aprovado em 2026-11-17 (capturas do protótipo e da vm; ordem do menu: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch) |
 | :--- | :--- |
 
+## Cartão, Suspender, brilho com limite e relato da falha (change `device-fixes`, tarefa 4.1; D5, D8, D11, D12)
+
+Protótipo: `prototipo/index.html`. Parâmetros da URL (somados aos de cima): `&tela=card|card-act|card-running|card-ok|card-fail|card-check|sleep|bri|bri-act|reset|edge|edge-nolimit|report`, `&limite=off|none|1-10` e `&cartao=idle|running|ok|fail`. Na barra de ferramentas: "Cartão" (estado do Otimizar), "Limite de brilho (D12)" (liga e desliga o pontinho, a linha Recomeçar e o limite no relato) e os botões Fn+Vol ▲▼ e Fn+Select (teclas F2, F3 e F4). Na lista das Configurações a ordem é Sistema, Cartão, Suspender, Desligar (no `lume-ui` o Cartão fica entre Sistema e Games). Cartão: A (ou ▶) entra nas duas ações, ▲▼ movem, A executa, B volta. Suspender: A suspende na hora, sem confirmação (qualquer tecla "acorda" no protótipo). Brilho: A entra na linha "Recomeçar o aprendizado", A abre a confirmação (Sim em cima, Cancelar com o foco, só ▲▼ movem: D8).
+
+Medido no protótipo a 640x480, escala 1:1, em 2026-11-18, pelos retângulos do DOM (origem no canto superior esquerdo da tela; 1em = 16 px). Quando não diz o idioma, vale para os três.
+
+| Elemento | x | y | largura | altura | Fonte / cor |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Item da lista (Cartão ou Suspender), em foco | 16 | 270,6 | 255,4 | 26,7 | 16,8 px (`1.05em`), `sel-bg` / `sel-fg` |
+| Painel Cartão | 284,2 | 44,1 | 339,8 | 391,2 | `panel-bg`, padding 9,6 / 14,4 px |
+| Título "Cartão" | 298,5 | 53,7 | 311,1 | 22,1 | 19,2 px peso 600 |
+| Linha "Espaço livre" (idem "Última otimização" +23,8, "Última verificação" +47,6) | 298,5 | 81,6 | 311,1 | 23,8 | 16 px; rótulo `muted`, valor `fg`; "boot N" ou "nunca" (en "boot N"/"never", es "arranque N"/"nunca") |
+| Ação "Otimizar agora" | 298,5 | 155,4 | 311,1 | 23,8 | 16 px, em foco `sel-bg`; estado à direita: vazio (ocioso), "Otimizando…", "✓ 1,2 GB liberados", "Cartão sem suporte" (falha, `#ff8a80` fora do foco) |
+| Ação "Verificar no próximo boot" (es "Verificar al arrancar") | 298,5 | 181,6 | 311,1 | 23,8 | 16 px; "✓ Agendada" (en "✓ Scheduled", es "✓ Pedida") depois de A; uma linha nos três idiomas |
+| Painel Brilho: valor "80%" | 298,5 | 81,6 | 311,1 | 28,1 | 25,6 px negrito |
+| Barra do Brilho | 298,5 | 112,1 | 311,1 | 8,8 | 8,8 px de altura, trilho `muted` a 30%, preenchimento `accent` |
+| Pontinho vermelho na barra (nível 7 = 70%) | 509,1 | 109,3 | 14,4 | 14,4 | `#ff3b30` (`--limit-dot`), anel de 1,9 px na cor `bg`; centro em 70% da largura da barra |
+| Linha "Limite seguro / Nível 7" (sem limite: "Sem limite") | 298,5 | 126,5 | 311,1 | 23,8 | 16 px |
+| Linha "Recomeçar o aprendizado" | 298,5 | 152,7 | 311,1 | 23,8 | 16 px, em foco `sel-bg` |
+| Confirmação de recomeçar (folha) | 32 | 151,2 | 576 | 177,7 | como a de Desligar: título 22,4 px, pergunta 19,2 px |
+| "Sim" (em cima) | 46,4 | 236,1 | 547,2 | 39,2 | 20 px, `fg` |
+| "Cancelar" (embaixo, com o foco) | 46,4 | 275,3 | 547,2 | 39,2 | 20 px, `sel-bg` |
+| Linha de brilho da borda (Fn+Volume), nível 8: caixa | 11,2 | 120,8 | 31,6 | 238,4 | `panel-bg-opaque`, some depois de 1,6 s |
+| Número do nível | 20,8 | 128,8 | 12,4 | 24 | 19,2 px negrito |
+| Trilho da linha | 21,4 | 159,2 | 11,2 | 192 | `muted` a 30%; preenchimento `accent` de baixo para cima (nível 8 = 153,6 px) |
+| Pontinho vermelho na linha (nível 7) | 19,8 | 209,6 | 14,4 | 14,4 | centro no topo do 7º nível (70% da altura do trilho) |
+| Linha curta do relato (Fn+Select), pt "Falha registrada · limite 7" | 165,1 | 365,7 | 309,8 | 47,2 | toast do tema (22,4 px, `toast-bg` / `toast-fg`), como o aviso de bateria fraca |
+| Relato, es "Fallo registrado · límite 7" | 167,9 | 365,7 | 304,1 | 47,2 | idem |
+| Relato sem o limite (D12 desligado), en "Failure logged" | 222,1 | 365,7 | 195,8 | 47,2 | idem |
+
+Regras desenhadas:
+- **Pontinho:** só aparece com limite; sem limite (R36S, ou depois de "Recomeçar o aprendizado") não há marca. Está no nível do limite nas duas barras, e o brilho segue acima dele (o pontinho avisa, não trava).
+- **Recomeçar:** a linha só existe com o limite do D12 ligado; confirmada, o pontinho some e aparece o toast "Aprendizado recomeçado".
+- **Suspender:** sem confirmação, acima de Desligar; o texto do painel diz isso.
+
+**Dependência do D12 (revisão depois do E4):** os itens do pontinho vermelho, da linha "Recomeçar o aprendizado" e do limite no texto do relato podem sair se uma correção de temporização resolver o P-95. No protótipo ficam num interruptor só (`&limite=off`, caixa "Limite de brilho (D12)"): `BL` e `limDot()` no `engine.js`, o bloco "4.1" do `base.css` (`.ldot`, `.bar.lim`, `#o-edge`) e as chaves `briLimit`, `noLimit`, `level`, `limitLvl`, `resetLearn`, `resetAsk`, `yesNo`, `resetDone` no `i18n.js`. Cartão, Suspender e o relato (só "Falha registrada") não dependem dele.
+
+| Aprovação do usuário no navegador a 640x480 | pendente |
+| :--- | :--- |
+
 ## Pontos técnicos a verificar
 - **Save states**: dependem do emulador. No RetroArch os estados ficam em slots; é preciso confirmar como iniciar já carregando um slot (opção de linha de comando ou configuração) e como o dArkOS organiza os arquivos. Emuladores standalone podem não ter isso.
 - **Capas**: vêm do `gamelist.xml` do ES (`<image>`), não do formato do RetroArch. Detalhes em [Gamelist e capas](gamelist-e-capas.md).
