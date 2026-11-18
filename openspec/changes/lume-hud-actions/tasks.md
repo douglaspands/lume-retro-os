@@ -151,7 +151,34 @@ RetroArch: limite do caminho de reserva, o D14 resolve). Capturas em `cache/tmp/
 6.1 a 6.3 (build do console e janelas J2/J3). As tarefas 2.1, 2.2, 3.1, 3.2, 3.3, 4.2, 4.3,
 4.5 e 5.1 só são marcadas depois da J2/J3.
 
+## Encerrada no GA36 (2026-11-18, decisão do usuário); R36S em aberto
+
+O usuário encerrou a change no GA36 para seguir com o governor do GA36; as provas no R36S (J1 da
+4.1/4.6 no `panfrost`/`rockchip`, 4.4, J3 da 6.3) ficam para quando todo o trabalho do GA36
+terminar. As caixas continuam abertas até a J3 do R36S, como a regra do `tasks.md` pede.
+
+**Provado no GA36** (boots 170 a 178, builds até `20261118-000301`):
+- D14 (4.6): o `lume-menu` desenha o menu sobre o RetroArch (também travado de propósito) e o
+  LÖVE, volta sem tela preta; menu com fade e buffer duplo (sem piscar).
+- Acordes (2.1, 2.2): Fn+X, Fn+Y, Fn+B, Fn+Start, Fn+R1/L1 e o toque; segurar o Fn mostra a dica
+  (o usuário, com o dedo: a injeção pelo cabo não segura o Fn no GA36, o driver relê o botão).
+- **Mudança de escopo pedida pelo usuário (2026-11-17/18): tudo sobre o jogo vem do sistema, nada
+  do emulador, e só roda quando pedido.** A barra (`lume-menu --hud`, plano de sobreposição com
+  alfa, preto a 92%), a dica (`lume-menu --hint`) e a foto do Fn+Y (`lume-menu --shot`, PNG do
+  plano primário em `ROMS/screenshots/`) valem em qualquer runner (RetroArch e LÖVE provados). O
+  FPS vem do kernel (patch 0036, `drm-page-flips` no `fdinfo`), o uso e a memória da GPU também
+  (patch 0035, `lima`). Os comandos `LUME_HUD` e `LUME_HINT` do patch 0012 ficaram sem uso (sair
+  no próximo build do RetroArch); o `LUME_MENU` continua como reserva do menu.
+- Barra: liga e desliga em sequência, desligada não deixa processo; sair do jogo com a barra
+  ligada volta ao launcher sem tela preta (a barra é fechada antes, ela segura uma cópia do
+  arquivo DRM do jogo).
+- Fora da change, achado e corrigido na J2: o launcher voltava preto do jogo (primeiro quadro
+  desenhado duas vezes); confirmações com Sim em cima e foco no Não (regra do sistema).
+
+**Falta no GA36 (não bloqueia o encerramento):** conferir o FPS da barra num jogo do RetroArch
+contra os 55,69 Hz da tela.
+
 ## Workflow follow-up
 
-- Arquivar a change depois das provas da J2 e da J3.
+- Arquivar a change depois das provas da J3 no R36S.
 - Abrir a exploração da change do governor (tema 6, P-60, P-78), usando a barra para medir os perfis.
