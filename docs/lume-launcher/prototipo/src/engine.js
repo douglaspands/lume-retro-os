@@ -33,12 +33,9 @@
   if (['pt-BR', 'en', 'es'].includes(QS.get('idioma'))) P.lang = QS.get('idioma');   // review override, not saved
   if (/^\d+x\d+$/.test(QS.get('res') || '')) env.res = QS.get('res');
   const t = k => i18n.t(P.lang, k);
-  /* device-fixes 4.1 · D12 review toggle: ?limite=off drops the red dot, the "restart learning" row and the limit in the failure
-     line (the whole brightness-limit feature in one flag, easy to remove if the E4 timing fix makes it unnecessary);
-     ?limite=none shows a device without a limit; ?limite=<1-10> sets the limit level. Default: limit 7 (GA36). */
-  const BL = { on: QS.get('limite') !== 'off', limit: 7, stick: false };
-  if (QS.get('limite') === 'none') BL.limit = null;
-  else if (/^([1-9]|10)$/.test(QS.get('limite') || '')) BL.limit = +QS.get('limite');
+  /* device-fixes 4.1 · D12: the learned limit is NOT drawn (the red dot was dropped by the user, 2026-11-18); it only lives in the log.
+     BL.stick keeps the edge line up for the ruler (?tela=edge). */
+  const BL = { stick: false };
   /* device-fixes 4.1 · D5 card panel (simulated; on the device it reads statvfs, last-trim and last-check, keyed by boot number) */
   const CARD = { boot: 152, free: '58,4 GB', trim: 150, check: 140, run: 'idle', out: 'ok', bytes: '1,2 GB', pending: false };
   if (['idle', 'running', 'ok', 'fail'].includes(QS.get('cartao'))) { CARD.run = QS.get('cartao'); if (CARD.run === 'fail') CARD.out = 'fail'; }
@@ -79,8 +76,7 @@
       <label><input type="checkbox" id="dbt"> Dongle Bluetooth</label>
       <label title="Battery review: level, state, and the low-battery warning (also ?bat=5&carga=charging&idioma=en)">Bateria <input type="number" id="batp" min="0" max="100"> <select id="bats"><option value="discharging">descarregando</option><option value="charging">carregando</option><option value="full">cheia</option></select> <button id="batw" type="button">Aviso 5%</button></label>
       <label title="Cartão (4.1): estado do 'Otimizar agora'. Também ?cartao=idle|running|ok|fail">Cartão <select id="cardst"><option value="idle">ocioso</option><option value="running">otimizando</option><option value="ok">ok (bytes)</option><option value="fail">falha</option></select></label>
-      <label title="Brilho (D12, depende da revisão pós-E4): liga/desliga o pontinho vermelho, o limite e a linha Recomeçar. Também ?limite=off|none|1-10"><input type="checkbox" id="d12"> Limite de brilho (D12)</label>
-      <label title="Atalhos F2/F3 (Fn+Volume) e F4 (Fn+Select)"><button id="fnup" type="button">Fn+Vol ▲</button> <button id="fndn" type="button">Fn+Vol ▼</button> <button id="fnrep" type="button">Fn+Select</button></label>
+      <label title="Atalhos: F1 (toque = menu do sistema, segurar = dica), F2/F3 (Fn+Volume), F4 (Fn+Select)"><button id="fntap" type="button">Fn toque</button> <button id="fnhold" type="button" title="Segure o botão do mouse para ver a dica">Fn segurar</button> <button id="fnup" type="button">Fn+Vol ▲</button> <button id="fndn" type="button">Fn+Vol ▼</button> <button id="fnrep" type="button">Fn+Select</button></label>
       <label title="Inventa save states (com miniatura) em alguns jogos que não têm, para avaliar a tela"><input type="checkbox" id="demo"> Save states de demonstração</label>
       <label title="Mostra a tela no tamanho físico aproximado de 3,5 polegadas, para avaliar legibilidade"><input type="checkbox" id="real"> Tamanho real 3,5″</label>
       <label title="Densidade de pixels do seu monitor (ex.: 24″ Full HD ≈ 92, 27″ QHD ≈ 109)">ppi do monitor <input type="number" id="ppi" min="50" max="400"></label>
@@ -101,10 +97,12 @@
         <div id="o-kb"></div>
         <div class="overlay" id="o-menu"><div class="sheet"></div></div>
         <div id="o-edge"></div>
+        <div id="o-hint"></div>
+        <div class="overlay" id="o-sys"><div class="sheet"></div></div>
         <div id="toast"></div><div id="launch"></div><div id="dim"></div>
       </div>
     </div></div>
-    <div id="help">Teclado: ←→↑↓ navegam · Enter/Z = A · Esc/Backspace/X = B · PgUp/PgDn (ou L1/R1) = página · Y = opções do console · / = buscar (lista de jogos) · T = próximo tema · F2/F3 = Fn+Volume ▲▼ · F4 = Fn+Select (relato da falha de tela) · ?tela=card|card-act|card-running|card-ok|card-fail|card-check|sleep|edge|edge-nolimit|report|bri|bri-act|reset</div>`;
+    <div id="help">Teclado: ←→↑↓ navegam · Enter/Z = A · Esc/Backspace/X = B · PgUp/PgDn (ou L1/R1) = página · Y = opções do console · / = buscar (lista de jogos) · T = próximo tema · F1 = Fn (toque: menu do sistema; segurar: dica) · F2/F3 = Fn+Volume ▲▼ · F4 = Fn+Select (relato da falha de tela) · ?tela=sys|sys-grid|sys-sheet|sys-reboot|sys-power|hold|set|set-games|card|card-act|card-running|card-ok|card-fail|card-check|bri|bri-act|reset|edge|report</div>`;
   const $ = (s, r) => (r || document).querySelector(s);
   const stage = $('#stage'), box = $('#box');
   const cssv = n => getComputedStyle(stage).getPropertyValue(n).trim();
@@ -221,7 +219,7 @@
     else if (it.kind === 'files') { name = t('files'); sub = '/' + files.rootName; }
     else { name = it.c.sub; sub = gamesOf(it.id).length + ' ' + t('games'); }
     $('#dock-label h1').textContent = name; $('#dock-label p').textContent = sub;
-    hints($('#s-dock .hints'), [['◀▶', t('move')], ['A', t('sel')]]);
+    hints($('#s-dock .hints'), [['◀▶', t('move')], ['A', t('sel')], ['Fn', t('menuHint')]]);   // D19: the Fn hint in the Dock footer
     status();
   }
 
@@ -489,11 +487,10 @@
 
   /* ------------------------------------------------------------ Desligar o aparelho */
   function askReset() { S.menu = { kind: 'reset', i: 1 }; renderMenu(); $('#o-menu').classList.add('on'); }   // Sim on top, Cancelar focused
-  function askPower() { S.menu = { kind: 'power', i: 1 }; renderMenu(); $('#o-menu').classList.add('on'); }
-  function shutdown() {                              // simulado; no aparelho chama o desligamento do sistema
+  function shutdown(kind) {                          // simulado; no aparelho: o launcher sai com 0 (desligar) ou 66 (reiniciar), D19
     S.off = true;
     const el = $('#launch');
-    el.innerHTML = `${t('off1')}<small>${t('off2')}</small>`; el.classList.add('on');
+    el.innerHTML = `${t(kind === 'reboot' ? 'reboot1' : 'off1')}<small>${t('off2')}</small>`; el.classList.add('on');
     setTimeout(() => { if (S.off) el.innerHTML = ''; }, 1500);   // some o texto e fica só a tela preta
   }
 
@@ -506,28 +503,86 @@
 
   /* ------------------------------------------------------------ Brilho: linha da borda, limite e relato (4.1, D12; separado de propósito) */
   const lvl = () => Math.max(1, Math.min(10, Math.round(P.bri / 10)));          // 10 levels over the 0-100% scale
-  const limDot = () => (BL.on && BL.limit ? BL.limit : null);
   let edgeT;
   function renderEdge() {
-    const l = lvl(), lim = limDot();
-    $('#o-edge').innerHTML = `<span class="en">${l}</span><div class="etrack"><i style="height:${l * 10}%"></i>${lim ? `<b class="ldot" style="bottom:${lim * 10}%"></b>` : ''}</div>`;
+    const l = lvl();
+    $('#o-edge').innerHTML = `<span class="en">${l}</span><div class="etrack"><i style="height:${l * 10}%"></i></div>`;
   }
   function showEdge() {                              // the line on the left edge (Fn+Volume); stays up with ?tela=edge for the ruler
     renderEdge(); $('#o-edge').classList.add('on'); clearTimeout(edgeT);
     if (!BL.stick) edgeT = setTimeout(() => $('#o-edge').classList.remove('on'), 1600);
   }
   function fnVolume(dir) {
+    if (S.fnm) return;                               // brightness is ignored under the system menu
+    hideHint();                                      // a brightness event hides the Fn hold hint
     P.bri = Math.max(10, Math.min(100, lvl() * 10 + dir * 10)); save('bri', P.bri); applyBri(); showEdge();
     if (S.screen === 'set') renderSettings();
   }
-  function reportFailure(ms) {                       // Fn+Select: "the screen failed now"; the limit drops one level below the current
-    const l = lvl();
-    if (BL.on) { BL.limit = Math.max(1, l - 1); toast(t('reported') + ' · ' + t('limitLvl') + ' ' + BL.limit, ms); }
-    else toast(t('reported'), ms);
-    if ($('#o-edge').classList.contains('on')) renderEdge();
-    if (S.screen === 'set') renderSettings();
+  function reportFailure(ms) {                       // Fn+Select: "the screen failed now"; the limit (log only) drops one level below the current
+    hideHint(); toast(t('reported'), ms);
   }
-  function resetLearning() { BL.limit = null; toast(t('resetDone')); if ($('#o-edge').classList.contains('on')) renderEdge(); renderSettings(); }
+  function resetLearning() { toast(t('resetDone')); renderSettings(); }
+
+  /* ------------------------------------------------------------ Menu do sistema pelo Fn (4.1, D19) */
+  /* own layer (S.fnm), drawn above any screen or sheet; closing it leaves everything below as it was. D8: only up/down move the focus. */
+  const SYS_ITEMS = ['set', 'sleep', 'reboot', 'power'];
+  const sysLabel = k => (k === 'set' ? t('set') : k === 'sleep' ? t('sleep') : k === 'reboot' ? t('reboot') : t('yes'));
+  const OVL = [['kb', '#o-kb'], ['text', '#o-text'], ['view', '#o-view'], ['menu', '#o-menu']];
+  function renderSys() {
+    const m = S.fnm, sh = $('#o-sys .sheet'), c = m.confirm;
+    sh.classList.toggle('nar', !c);
+    const row = (l, i, cur) => `<div class="opt${i === cur ? ' sel' : ''}"><span class="l">${l}</span></div>`;
+    if (c) {                                         // vertical confirmation: the action on top, Cancelar below and focused
+      const rb = c.kind === 'reboot';
+      sh.innerHTML = `<div class="sbody"><h2>${t(rb ? 'rebootTitle' : 'power')}</h2><div class="sub">${t(rb ? 'rebootAsk' : 'powerAsk')}</div>` + row(t(rb ? 'reboot' : 'yes'), 0, c.i) + row(t('no'), 1, c.i) + '</div>';
+    } else sh.innerHTML = `<div class="sbody"><h2>${t('sysMenu')}</h2>` + SYS_ITEMS.map((k, i) => row(sysLabel(k), i, m.i)).join('') + '</div>';
+  }
+  function openSys() { hideHint(); S.fnm = { i: 0, confirm: null }; renderSys(); $('#o-sys').classList.add('on'); }
+  function closeSys() { S.fnm = null; $('#o-sys').classList.remove('on'); }
+  function fnTap() { if (S.off || S.launching) return; if (S.fnm) closeSys(); else openSys(); }
+  function sysKey(k) {
+    const m = S.fnm;
+    if (m.confirm) {
+      const c = m.confirm;
+      if (k === 'U' || k === 'D') c.i = 1 - c.i;     // two options: up and down swap; left/right do nothing
+      else if (k === 'B') m.confirm = null;
+      else if (k === 'A') { if (c.i === 1) m.confirm = null; else { closeSys(); shutdown(c.kind); return; } }
+      renderSys(); return;
+    }
+    if (k === 'U') m.i = (m.i + SYS_ITEMS.length - 1) % SYS_ITEMS.length;
+    else if (k === 'D') m.i = (m.i + 1) % SYS_ITEMS.length;
+    else if (k === 'B') { closeSys(); return; }
+    else if (k === 'A') {
+      const it = SYS_ITEMS[m.i];
+      if (it === 'set') {                            // Settings from anywhere; B there returns to the origin screen, sheets included
+        closeSys();
+        if (S.screen !== 'set') { S.setFrom = { screen: S.screen, ovl: stashOverlays() }; openSettings(); }
+        return;
+      }
+      if (it === 'sleep') { closeSys(); suspend(); return; }
+      m.confirm = { kind: it, i: 1 };
+    }
+    renderSys();
+  }
+  function stashOverlays() {
+    const st = {};
+    OVL.forEach(([k, id]) => { if (S[k]) { st[k] = S[k]; S[k] = (k === 'kb' || k === 'menu') ? null : false; $(id).classList.remove('on'); } });
+    return st;
+  }
+  function restoreOverlays(st) {
+    OVL.forEach(([k, id]) => { if (k in st) { S[k] = st[k]; $(id).classList.add('on'); } });
+    if (S.menu) renderMenu(); if (S.kb) renderKb();
+  }
+  function backFromSettings() {
+    const f = S.setFrom; S.setFrom = null; S.sub = null; stopSys();
+    show(f.screen); restoreOverlays(f.ovl); renderAll();
+  }
+  /* hint shown while Fn is held: the system-menu tap and the brightness chord (the launcher's own table) */
+  function showHint() {
+    if (S.fnm || S.off || S.launching) return;       // ignored with the system menu open
+    $('#o-hint').innerHTML = `<div><b>Fn</b> ${t('hintTap')}</div><div><b>Fn+Vol</b>${t('hintBri')}</div>`; $('#o-hint').classList.add('on');
+  }
+  function hideHint() { $('#o-hint').classList.remove('on'); }
 
   /* ------------------------------------------------------------ Cartão (4.1, D5) */
   function trimNow() {                               // a second request while one runs is ignored
@@ -546,10 +601,8 @@
       <div class="row act${i === 1 ? ' sel' : ''}"><span>${t('checkNext')}</span><span class="st">${CARD.pending ? t('checkSet') : ''}</span></div>`;
   }
   function briPanel(i) {
-    const lim = limDot();
-    return `<h3>${t('bri')}</h3><div class="big">${P.bri}%</div>${bar(P.bri, lim)}` +
-      (BL.on ? `<div class="row"><span class="muted">${t('briLimit')}</span><span>${lim ? t('level') + ' ' + lim : t('noLimit')}</span></div>
-      <div class="row act${i === 0 ? ' sel' : ''}"><span>${t('resetLearn')}</span></div>` : '') + `<p class="note">${t('adj')}</p>`;
+    return `<h3>${t('bri')}</h3><div class="big">${P.bri}%</div>${bar(P.bri)}` +
+      `<div class="row act${i === 0 ? ' sel' : ''}"><span>${t('resetLearn')}</span></div><p class="note">${t('adj')}</p>`;
   }
 
   /* ------------------------------------------------------------ Capturas (imagens salvas pelo RetroArch) */
@@ -599,9 +652,9 @@
   }
 
   /* ------------------------------------------------------------ Configurações */
-  const setKeys = () => { const a = []; if (env.wifi) a.push('wifi'); if (env.bt) a.push('bt'); a.push('lang', 'theme', 'lite', 'vol', 'bri', 'system', 'card', 'sleep', 'power'); return a; };
+  const setKeys = () => { const a = []; if (env.wifi) a.push('wifi'); if (env.bt) a.push('bt'); a.push('lang', 'theme', 'lite', 'vol', 'bri', 'system', 'card', 'gamesRow'); return a; };   // D19: no Desligar, Suspender or RetroArch here (they live in the Fn system menu)
   const tn = id => { const k = 'th_' + id, v = t(k); return v === k ? ((themes.list().find(x => x.id === id) || {}).name || id) : v; };   // nome do tema no idioma atual
-  const bar = (v, lim) => `<div class="bar${lim ? ' lim' : ''}"><i style="width:${v}%"></i>${lim ? `<b class="ldot" style="left:${lim * 10}%"></b>` : ''}</div>`;   // lim: red dot at the safe-limit level (4.1)
+  const bar = v => `<div class="bar"><i style="width:${v}%"></i></div>`;
   function openSettings() { S.si = 0; S.sub = null; show('set'); renderSettings(); }
 
   function renderSettings() {
@@ -612,7 +665,7 @@
     $('#s-set .ghead').innerHTML = `<span>${t('set')}</span><span class="r"><span class="batt"></span></span>`;
     $('#s-set .slist').innerHTML = keys.map((k, i) => `<div class="sitem${i === S.si ? ' sel' : ''}">${t(k)}</div>`).join('');
     $('#s-set .spanel').innerHTML = S.sub ? subPanel() : panel(keys[S.si]);
-    const cur = keys[S.si], adj = ['lang', 'theme', 'lite', 'vol', 'bri'].includes(cur), act = ['wifi', 'bt', 'power', 'card', 'sleep'].includes(cur) || (cur === 'bri' && BL.on);
+    const cur = keys[S.si], adj = ['lang', 'theme', 'lite', 'vol', 'bri'].includes(cur), act = ['wifi', 'bt', 'card', 'gamesRow', 'bri'].includes(cur);
     hints($('#s-set .hints'), S.sub ? [['▲▼', t('move')], ['A', t('sel')], ['B', t('back')]]
       : [['▲▼', t('move')], ...(adj ? [['◀▶', t('adj').replace('◀ ▶ ', '')]] : []), ...(act ? [['A', t('openf')]] : []), ['B', t('back')]]);
     status();
@@ -627,8 +680,7 @@
     if (k === 'vol') return `<h3>${t('vol')}</h3><div class="big">${P.vol}%</div>${bar(P.vol)}<p class="note">${t('adj')}</p>`;
     if (k === 'bri') return briPanel(-1);
     if (k === 'card') return cardPanel(-1);
-    if (k === 'sleep') return `<h3>${t('sleep')}</h3><p class="note">${t('sleepNote')}</p><p class="note">${t('open')}</p>`;
-    if (k === 'power') return `<h3>${t('power')}</h3><p class="note">${t('open')}</p>`;
+    if (k === 'gamesRow') return `<h3>${t('gamesRow')}</h3><div class="row act"><span>${t('refresh')}</span></div><p class="note">${t('open')}</p>`;
     if (k === 'system') return sysPanel();
     return '';
   }
@@ -678,7 +730,7 @@
       else if (k === 'A' && S.sub.k === 'bt') { const i = S.sub.i, p = S.btConn.indexOf(i); if (p >= 0) { S.btConn.splice(p, 1); toast(t('disc') + ' ' + DEVS[i].n); } else { S.btConn.push(i); toast(t('conn') + ' ' + DEVS[i].n); } }
       renderSettings(); return;
     }
-    if (k === 'B') { show('dock'); renderDock(); return; }
+    if (k === 'B') { if (S.setFrom) { backFromSettings(); return; } show('dock'); renderDock(); return; }   // from the Fn system menu, B returns to the origin screen
     if (k === 'U') S.si = (S.si + keys.length - 1) % keys.length;
     else if (k === 'D') S.si = (S.si + 1) % keys.length;
     else if (k === 'L') { adjust(keys[S.si], -1); return; }
@@ -686,10 +738,9 @@
     else if (k === 'R') { adjust(keys[S.si], 1); return; }
     else if (k === 'A') {
       const key = keys[S.si];
-      if (key === 'wifi' || key === 'bt' || key === 'card' || (key === 'bri' && BL.on)) S.sub = { k: key, i: 0 };
-      else if (key === 'sleep') { suspend(); return; }                 // no confirmation (D11)
+      if (key === 'wifi' || key === 'bt' || key === 'card' || key === 'bri') S.sub = { k: key, i: 0 };
+      else if (key === 'gamesRow') { toast(t('refreshed')); return; }   // "Atualizar listas": a panel action that A runs
       else if (key === 'system') return;                  // sem submenu: as estatísticas já estão no painel
-      else if (key === 'power') { askPower(); return; }
       else { adjust(key, 1); return; }
     }
     renderSettings();
@@ -699,6 +750,7 @@
   function press(k) {
     if (S.off) { const sl = S.off === 'sleep'; S.off = false; $('#launch').classList.remove('on'); if (!sl) { show('dock'); renderDock(); } return; }   // wake from sleep keeps the screen   // qualquer tecla "liga" de novo
     if (S.launching) return;
+    if (S.fnm) return sysKey(k);                       // the system menu takes the input before everything else
     if (S.kb) return kbKey(k);
     if (S.text) return textKey(k);
     if (S.view) return viewKey(k);
@@ -739,11 +791,17 @@
       if (e.key.length === 1 && /[A-Za-z0-9 ]/.test(e.key)) { e.preventDefault(); kbType(e.key.toUpperCase()); renderKb(); return; }
       if (e.key === 'Backspace') { e.preventDefault(); S.kb.text = S.kb.text.slice(0, -1); renderKb(); return; }
     }
+    if (e.key === 'F1') { e.preventDefault(); if (!e.repeat) fnDown(); return; }                                // Fn: tap = system menu, hold 500 ms = hint
     if (e.key === 'F2' || e.key === 'F3') { e.preventDefault(); fnVolume(e.key === 'F2' ? 1 : -1); return; }   // Fn+Volume (simulated)
     if (e.key === 'F4') { e.preventDefault(); reportFailure(); return; }                                       // Fn+Select (simulated)
     if (e.key === 't' || e.key === 'T') { e.preventDefault(); cycleTheme(); return; }
     const k = KEYS[e.key]; if (k) { e.preventDefault(); press(k); }
   });
+
+  let fnT = null, fnShown = false;                     // Fn press: released before 500 ms = tap; held = the shortcut hint
+  function fnDown() { clearTimeout(fnT); fnShown = false; fnT = setTimeout(() => { fnT = null; if (!S.fnm) { showHint(); fnShown = $('#o-hint').classList.contains('on'); } }, 500); }
+  function fnUp() { const tap = fnT !== null; clearTimeout(fnT); fnT = null; if (fnShown) { hideHint(); fnShown = false; } else if (tap) fnTap(); }
+  addEventListener('keyup', e => { if (e.key === 'F1') { e.preventDefault(); fnUp(); } });
 
   /* gamepad: só consulta enquanto houver um conectado */
   let padT = null, last = {};
@@ -777,9 +835,11 @@
     bp.onchange = bset; bs.onchange = bset;
     $('#batw').onclick = () => { BAT.p = Math.min(BAT.p, WARN_AT); BAT.st = 'discharging'; bp.value = BAT.p; bs.value = BAT.st; status(); checkBattery(true); };
     /* 4.1 review controls: card state, brightness-limit feature (D12), Fn shortcuts */
-    const cs = $('#cardst'), d12 = $('#d12');
+    const cs = $('#cardst');
     cs.value = CARD.run; cs.onchange = () => { CARD.run = cs.value; if (CARD.run === 'ok' || CARD.run === 'fail') CARD.out = CARD.run; renderSettings(); };
-    d12.checked = BL.on; d12.onchange = () => { BL.on = d12.checked; renderAll(); if ($('#o-edge').classList.contains('on')) renderEdge(); };
+    $('#fntap').onclick = () => fnTap();
+    $('#fnhold').onmousedown = () => { fnShown = false; showHint(); fnShown = $('#o-hint').classList.contains('on'); };
+    $('#fnhold').onmouseup = $('#fnhold').onmouseleave = () => { if (fnShown) { hideHint(); fnShown = false; } };
     $('#fnup').onclick = () => fnVolume(1); $('#fndn').onclick = () => fnVolume(-1); $('#fnrep').onclick = () => reportFailure();
     addEventListener('resize', applyRes);
   }
@@ -792,11 +852,16 @@
     else if (n === 'card-ok') { CARD.run = 'ok'; CARD.trim = CARD.boot; go('card', { i: 0 }); }
     else if (n === 'card-fail') { CARD.run = 'fail'; CARD.out = 'fail'; go('card', { i: 0 }); }
     else if (n === 'card-check') { CARD.pending = true; go('card', { i: 1 }); }
-    else if (n === 'sleep') go('sleep');
+    else if (n === 'set') go('lang');
+    else if (n === 'set-games') go('gamesRow');
     else if (n === 'bri') go('bri');
     else if (n === 'bri-act') go('bri', { i: 0 });
     else if (n === 'reset') { go('bri', { i: 0 }); askReset(); }
-    else if (n === 'edge' || n === 'edge-nolimit') { if (n === 'edge-nolimit') BL.limit = null; BL.stick = true; P.bri = 80; applyBri(); showEdge(); }
+    else if (n === 'sys') openSys();                                       // over the Dock
+    else if (n === 'sys-reboot' || n === 'sys-power') { openSys(); S.fnm.confirm = { kind: n === 'sys-reboot' ? 'reboot' : 'power', i: 1 }; renderSys(); }
+    else if (n === 'sys-grid' || n === 'sys-sheet') { S.dock = 1; openGames(); if (n === 'sys-sheet') openMenu(); openSys(); }   // over the game grid / over an open game sheet
+    else if (n === 'hold') showHint();
+    else if (n === 'edge') { BL.stick = true; P.bri = 80; applyBri(); showEdge(); }
     else if (n === 'report') { P.bri = 80; applyBri(); reportFailure(3600000); }
     const cs = $('#cardst'); if (cs) cs.value = CARD.run;
   }

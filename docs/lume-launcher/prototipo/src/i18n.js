@@ -25,10 +25,10 @@
       connected: 'Conectado', disconnected: 'Desconectado', adapter: 'Adaptador USB', conn: 'Conectado a', disc: 'Desconectado de', netq: 'Redes próximas', devq: 'Dispositivos',
       model: 'Modelo', cpu: 'CPU', mem: 'Memória', lmem: 'Launcher (RSS)', storage: 'Cartão SD', simNote: 'Valores simulados.',
       powerAsk: 'O aparelho será desligado.', yes: 'Desligar', no: 'Cancelar', off1: 'Desligando…', off2: '(simulado) pressione qualquer tecla para ligar',
-      card: 'Cartão', sleep: 'Suspender', sleepNote: 'Suspende na hora, sem confirmação. O botão de energia acorda.', sleep1: 'Suspenso', sleep2: '(simulado) pressione qualquer tecla para acordar',
+      card: 'Cartão', sleep: 'Suspender', sysMenu: 'Menu do sistema', reboot: 'Reiniciar', rebootTitle: 'Reiniciar o aparelho', rebootAsk: 'O aparelho será reiniciado.', reboot1: 'Reiniciando…', menuHint: 'Menu', hintTap: '(toque): Menu do sistema', hintBri: ': Brilho', gamesRow: 'Games', refresh: 'Atualizar listas', refreshed: 'Listas atualizadas', sleep1: 'Suspenso', sleep2: '(simulado) pressione qualquer tecla para acordar',
       free: 'Espaço livre', lastTrim: 'Última otimização', lastCheck: 'Última verificação', bootN: 'boot', never: 'nunca',
       trimNow: 'Otimizar agora', checkNext: 'Verificar no próximo boot', trimming: 'Otimizando…', freed: 'liberados', trimFail: 'Cartão sem suporte', checkSet: '✓ Agendada',
-      briLimit: 'Limite seguro', noLimit: 'Sem limite', level: 'Nível', limitLvl: 'limite', reported: 'Falha registrada',
+      reported: 'Falha registrada',
       resetLearn: 'Recomeçar o aprendizado', resetAsk: 'O limite deste aparelho será apagado.', yesNo: 'Sim', resetDone: 'Aprendizado recomeçado'
     },
     'en': {
@@ -50,10 +50,10 @@
       connected: 'Connected', disconnected: 'Disconnected', adapter: 'USB adapter', conn: 'Connected to', disc: 'Disconnected from', netq: 'Nearby networks', devq: 'Devices',
       model: 'Model', cpu: 'CPU', mem: 'Memory', lmem: 'Launcher (RSS)', storage: 'SD card', simNote: 'Simulated values.',
       powerAsk: 'The device will be turned off.', yes: 'Power off', no: 'Cancel', off1: 'Shutting down…', off2: '(simulated) press any key to power on',
-      card: 'Card', sleep: 'Suspend', sleepNote: 'Suspends at once, no confirmation. The power button wakes it.', sleep1: 'Suspended', sleep2: '(simulated) press any key to wake',
+      card: 'Card', sleep: 'Suspend', sysMenu: 'System menu', reboot: 'Restart', rebootTitle: 'Restart the device', rebootAsk: 'The device will restart.', reboot1: 'Restarting…', menuHint: 'Menu', hintTap: '(tap): System menu', hintBri: ': Brightness', gamesRow: 'Games', refresh: 'Refresh lists', refreshed: 'Lists refreshed', sleep1: 'Suspended', sleep2: '(simulated) press any key to wake',
       free: 'Free space', lastTrim: 'Last optimization', lastCheck: 'Last check', bootN: 'boot', never: 'never',
       trimNow: 'Optimize now', checkNext: 'Check on next boot', trimming: 'Optimizing…', freed: 'freed', trimFail: 'Card not supported', checkSet: '✓ Scheduled',
-      briLimit: 'Safe limit', noLimit: 'No limit', level: 'Level', limitLvl: 'limit', reported: 'Failure logged',
+      reported: 'Failure logged',
       resetLearn: 'Restart learning', resetAsk: 'This device’s limit will be erased.', yesNo: 'Yes', resetDone: 'Learning restarted'
     },
     'es': {
@@ -75,10 +75,10 @@
       connected: 'Conectado', disconnected: 'Desconectado', adapter: 'Adaptador USB', conn: 'Conectado a', disc: 'Desconectado de', netq: 'Redes cercanas', devq: 'Dispositivos',
       model: 'Modelo', cpu: 'CPU', mem: 'Memoria', lmem: 'Launcher (RSS)', storage: 'Tarjeta SD', simNote: 'Valores simulados.',
       powerAsk: 'El equipo se apagará.', yes: 'Apagar', no: 'Cancelar', off1: 'Apagando…', off2: '(simulado) pulsa cualquier tecla para encender',
-      card: 'Tarjeta', sleep: 'Suspender', sleepNote: 'Suspende al instante, sin confirmación. El botón de encendido despierta.', sleep1: 'Suspendido', sleep2: '(simulado) pulsa cualquier tecla para despertar',
+      card: 'Tarjeta', sleep: 'Suspender', sysMenu: 'Menú del sistema', reboot: 'Reiniciar', rebootTitle: 'Reiniciar el equipo', rebootAsk: 'El equipo se reiniciará.', reboot1: 'Reiniciando…', menuHint: 'Menú', hintTap: '(toque): Menú del sistema', hintBri: ': Brillo', gamesRow: 'Games', refresh: 'Actualizar listas', refreshed: 'Listas actualizadas', sleep1: 'Suspendido', sleep2: '(simulado) pulsa cualquier tecla para despertar',
       free: 'Espacio libre', lastTrim: 'Última optimización', lastCheck: 'Última verificación', bootN: 'arranque', never: 'nunca',
       trimNow: 'Optimizar ahora', checkNext: 'Verificar al arrancar', trimming: 'Optimizando…', freed: 'liberados', trimFail: 'Tarjeta no compatible', checkSet: '✓ Pedida',
-      briLimit: 'Límite seguro', noLimit: 'Sin límite', level: 'Nivel', limitLvl: 'límite', reported: 'Fallo registrado',
+      reported: 'Fallo registrado',
       resetLearn: 'Reiniciar el aprendizaje', resetAsk: 'Se borrará el límite de este equipo.', yesNo: 'Sí', resetDone: 'Aprendizaje reiniciado'
     }
   };
