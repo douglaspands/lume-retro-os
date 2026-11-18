@@ -533,6 +533,19 @@ O texto abaixo é a proposta original.
   continuam perguntando. Testes em `tests/unit/test_guardrail_rm_scratch.py`.
 - **Para o hub:** a mesma ideia como chave genérica (pastas de rascunho por projeto).
 
+### M-31. `timeout <duração>` transparente — feita (guardrail do projeto)
+
+- **Problema (2026-11-18, `device-fixes`):** `timeout` está na lista de wrappers, então todo
+  `timeout 70 .venv/bin/lume dev wait` (esperar o console sem travar a sessão) pedia confirmação,
+  embora o comando de dentro fosse liberado sozinho.
+- **Feito (pedido do usuário):** `strip_timeout` e `strip_timeout_text` no `scripts/guardrail.py`
+  tiram só o prefixo `timeout [opções] <duração>` (do texto e de cada segmento do pipe) antes das
+  regras; o comando de dentro recebe a decisão que teria sozinho. `sudo`, `env` ou um shell
+  depois do `timeout` continuam caindo nas próprias regras, e um `timeout` sem duração ou sem
+  comando continua perguntando. Testes em `tests/unit/test_guardrail_timeout.py`.
+- **Para o hub:** tratar prefixos que só limitam a execução (`timeout`, `nice`, `ionice`) como
+  transparentes, sem nunca estender isso a quem troca de usuário ou de shell.
+
 ## Avaliação de 2026-11-14
 
 `ctx evaluate` (31 sessões, sem a marca de provisório): **não compensa**. Saldo ≈ −46.486
