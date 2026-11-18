@@ -105,9 +105,9 @@ Medido no protótipo a 640x480, escala 1:1, em 2026-11-18, pelos retângulos do 
 | Confirmação: a ação ("Reiniciar" ou "Desligar") em cima | 46,4 | 236,1 | 547,2 | 39,2 | 20 px, `fg` |
 | Confirmação: "Cancelar" embaixo, com o foco | 46,4 | 275,3 | 547,2 | 39,2 | 20 px, `sel-bg` |
 | Rodapé do Dock: dica "Fn Menu" (pt; es "Fn Menú", mesma largura) | 424,2 | 448,5 | 84,5 | 24,8 | 19,2 px `muted`; glifo "Fn" no círculo `hint-bg` / `hint-fg` como o A; terceira dica, depois de ◀▶ e A (rodapé 0 / 441,7, 640 x 38,3) |
-| Dica ao segurar o Fn: painel (pt) | 143,8 | 193,4 | 352,5 | 93,2 | `panel-bg-opaque`, centrado na tela, 22,4 px; es 140,9 / 358,3 |
-| Dica: linha "Fn (toque): Menu do sistema" | 168,4 | 209,1 | 303,2 | 27 | "Fn" em `accent` negrito |
-| Dica: linha "Fn+Vol: Brilho" | 168,4 | 243,9 | 303,2 | 27 | "Fn+Vol" em `accent` negrito |
+| Dica ao segurar o Fn: painel (pt) | 130 | 193,4 | 380 | 93,2 | `panel-bg-opaque`, centrado na tela, 22,4 px; **largura pelo texto** com a fonte do launcher: a linha mais larga mais 2 × 1,1 em (49,28 px); es pela mesma regra (decisão do usuário, 2026-11-18; o navegador media 352,5 em pt e 358,3 em es com a fonte dele) |
+| Dica: linha "Fn (toque): Menu do sistema" | 154,6 | 209,1 | 330,7 | 27 | "Fn" em `accent` negrito; x = painel + 1,1 em |
+| Dica: linha "Fn+Vol: Brilho" | 154,6 | 243,9 | 330,7 | 27 | "Fn+Vol" em `accent` negrito |
 | Painel Cartão | 284,2 | 44,1 | 339,8 | 391,2 | `panel-bg`, padding 9,6 / 14,4 px |
 | Título "Cartão" | 298,5 | 53,7 | 311,1 | 22,1 | 19,2 px peso 600 |
 | Linha "Espaço livre" (idem "Última otimização" +23,8, "Última verificação" +47,6) | 298,5 | 81,6 | 311,1 | 23,8 | 16 px; rótulo `muted`, valor `fg`; "boot N" ou "nunca" (en "boot N"/"never", es "arranque N"/"nunca") |
