@@ -4,8 +4,11 @@
 #   exit 0            -> writes what is pending (persist flush) and powers off
 #   exit != 0         -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
 #   SIGTERM (service) -> ends the frontend without powering off
-. /usr/libexec/lume/lib.sh
-. /usr/libexec/lume/logs.sh
+# SESSION_LIBDIR and STORAGE only change for the tests; SESSION_LIB=1 loads only the functions.
+LIBEXEC=${SESSION_LIBDIR:-/usr/libexec/lume}
+STORAGE=${STORAGE:-/storage}
+. "$LIBEXEC/lib.sh"
+. "$LIBEXEC/logs.sh"
 [ -f /etc/conf.d/frontend ] && . /etc/conf.d/frontend
 FRONTEND=${FRONTEND:-retroarch}
 EXE=/usr/libexec/lume/frontends/$FRONTEND
@@ -99,6 +102,47 @@ give_up() {  # missing | <último código de saída>
 	exit 1
 }
 
+# The card left clean by a power off of the session (device-fixes D2). The kernel sets the
+# exFAT VolumeDirty flag of ROMS on mount and clears it only on an unmount or a remount, never
+# on a sync: without this, a later failure of the shutdown runlevel's own remount (a file
+# still open for writing) leaves it set, and the next boot checks the card for nothing.
+# lume-logd is the last writer of the card at power off (final events and the clean shutdown
+# mark), so it is stopped first; OpenRC then skips it in the shutdown runlevel. Then /storage
+# is remounted read-only, or unmounted when that fails. A failure of both is logged and never
+# stops the power off. Shared by every path of the session that ends the console (power off
+# now, restart later).
+release_storage() {
+	mountpoint -q "$STORAGE" || return 0
+	rc-service lume-logd stop >/dev/null 2>&1
+	sync
+	if mount -o remount,ro "$STORAGE" 2>/dev/null; then
+		kmsg "storage: remounted read-only"
+		return 0
+	fi
+	if umount "$STORAGE" 2>/dev/null; then
+		kmsg "storage: unmounted (remount read-only failed)"
+		return 0
+	fi
+	# still writable: the failure reaches the card, then the power off goes on
+	kmsg "ERROR: storage: remount read-only and unmount failed; ROMS stays marked dirty"
+	event shutdown FAIL "storage: remount read-only and unmount failed; ROMS stays marked dirty and is checked at the next boot"
+	logs_flush
+	sync
+	return 0
+}
+
+# Exit 0 of the frontend: what is pending goes to the card, the card is left clean, power off.
+power_off() {
+	kmsg "frontend closed by user: saving and powering off"
+	event frontend OK "$FRONTEND closed by user: shutting down"
+	"$LIBEXEC/persist" flush
+	sync
+	release_storage
+	poweroff
+}
+
+[ -n "${SESSION_LIB:-}" ] && return 0   # tests: only the functions
+
 mkdir -p /run/user/1000
 chown game:game /run/user/1000
 chmod 700 /run/user/1000
@@ -136,11 +180,7 @@ while :; do
 		exit 0
 	fi
 	if [ "$rc" -eq 0 ]; then
-		kmsg "frontend closed by user: saving and powering off"
-		event frontend OK "$FRONTEND closed by user: shutting down"
-		/usr/libexec/lume/persist flush
-		sync
-		poweroff
+		power_off
 		exit 0
 	fi
 	now=$(date +%s)

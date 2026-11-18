@@ -22,8 +22,9 @@ uv run lume eject /dev/sdX                     # ejetar depois de copiar jogos (
 
 - O kernel sobe pelo bootloader do fabricante (área de 128 MiB) e mostra as mensagens na
   tela; o menu do RetroArch aparece em cerca de 20 s.
-- O primeiro boot só verifica a `ROMS` (`roms OK checked: clean` no `events.log`). Se ela
-  não existir, é criada com o resto do cartão.
+- O primeiro boot só lê as marcas da `ROMS` (`roms OK clean: check skipped (flags 0x0000)` no
+  `events.log`; com o volume sujo, `roms OK dirty: checked: ...`). Se ela não existir, é criada
+  com o resto do cartão.
 - **Serial (opcional):** `ttyS1`, 115200 baud, a mesma velocidade do bootloader ao kernel.
 
 ## 3. A partição `BOOT`
