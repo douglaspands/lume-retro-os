@@ -59,7 +59,7 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 3.4 | 1.4, 2.5 | — | AG | sonnet | 4 | |
 | 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
 | 9.5 | 1.4 | — | AG | sonnet | 4 | |
-| 9.6 | 1.4 | — | AG | sonnet (a aprovar) | 4 | J2 |
+| 9.6 | 1.4 | — | AG | sonnet | 4 | J2 |
 | 5.1 | 3.1 | — | AG | opus | 5 | J2, J3 |
 | 5.2 | 1.4 | — | AG | opus | 5 | J2, J3 |
 | 5.3 | 3.1 | — | AG | sonnet | 5 | J2, J3 |
@@ -91,7 +91,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 - **opus:** 1.2, 1.3, 3.2, 5.1, 5.2, 6.3, 6.4, 7.1, 7.2, 7.3, 8.1, 8.2, 8.3.
 - **sonnet:** 1.1, 1.4, 3.1, 3.3, 3.4, 4.1, 5.3, 5.4, 5.5, 6.1, 6.2, 7.4, 8.4, 8.5, 8.6,
-  9.1 a 9.5.
+  9.1 a 9.6 (9.6 aprovada em 2026-11-18, na J1).
 
 **Trilhas e caminho crítico:**
 
@@ -146,7 +146,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 ## 1. Nomes `lume` (TREE)
 
-- [ ] 1.1 Mapa de nomes (D7): `docs/NOMES.md` com cada nome e caminho `r36os` do console e da ferramenta do PC, o nome novo, o que fica como está (com o motivo), as colisões em `/usr/share/lume`, as variáveis `R36OS_*`, e a lista dos caminhos persistidos no cartão que contêm `r36os`. Verificação: `tests/unit/test_lume_names.py` lê o mapa e lista as ocorrências pendentes (ainda sem falhar), e o usuário revisa a tabela antes da 1.2.
+- [x] 1.1 Mapa de nomes (D7): `docs/NOMES.md` com cada nome e caminho `r36os` do console e da ferramenta do PC, o nome novo, o que fica como está (com o motivo), as colisões em `/usr/share/lume`, as variáveis `R36OS_*`, e a lista dos caminhos persistidos no cartão que contêm `r36os`. Verificação: `tests/unit/test_lume_names.py` lê o mapa e lista as ocorrências pendentes (ainda sem falhar), e o usuário revisa a tabela antes da 1.2. **Feito (2026-11-18):** tabela aprovada pelo usuário com as decisões da seção 13 (trocar tudo: versão do kernel, chave, DTS de clones, texto dos patches, variáveis sem alias); 2591 ocorrências pendentes em 535 arquivos.
 - [ ] 1.2 `TREE` do console: renomear os aports (`r36os-input`, `r36os-powerctl`, `r36os-devmem`, `r36os-initramfs-static`), os serviços, as ferramentas, as pastas (`/usr/libexec`, `/usr/share`, `/etc`, `/run`), as regras do udev, o `initramfs`, o `rootfs` (`packages.txt`, `configure.sh`, `slots.toml`), os apps do `lume/` e os testes; a migração única dos caminhos persistidos (`persist OK migrated ...`, depois do frontend). Verificação: `pytest tests/unit`, `cargo test` do `lume/`, as suítes de shell e a `test_boot_order` verdes; nenhuma ocorrência de `r36os` nos nomes do console pelo teste da 1.1 (modo do console).
 - [ ] 1.3 `TREE` da ferramenta do PC: `src/r36os` vira o pacote `src/lume_tool` com o comando `lume`, a entrada no `pyproject.toml`, o `uv.lock`, os `scripts/dev/`, os `containers/`, o `policy.toml` do `ctx` e as receitas. Verificação: `uv run lume --help` lista os mesmos subcomandos de antes; `pytest tests/unit` verde; o guardrail aceita `lume build`/`lume push` como aceitava os antigos.
 - [ ] 1.4 `TREE` da documentação e do plano: `README.md`, `docs/`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `openspec/config.yaml`; os deltas só de nome das specs `system-image`, `system-update`, `device-testing`, `build-performance`, `build-cache`, `build-packages`, `boot-runtime`, `vendor-dtb-compat` e `vm-validation` (em `specs/` desta change); as tarefas abertas da `game-governor`, da `lume-hud-actions`, da `virtual-gamepad`, da `launcher-adjustments`, da `r36s-usb-proof`, da `hide-clock` e da `lume-shaders`, sem mudar o que pedem; o `PENDENCIAS.md` (o P-94 e os outros itens deste pacote apontando para `device-fixes`). Verificação: `test_lume_names.py` passa a falhar com qualquer `r36os` fora da lista do que fica como está; `openspec validate device-fixes` sem erro.
