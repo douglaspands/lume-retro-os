@@ -5,6 +5,7 @@
 //! share.
 
 pub mod atomic;
+pub mod cardreq;
 pub mod catalog;
 pub mod events;
 pub mod gametext;
