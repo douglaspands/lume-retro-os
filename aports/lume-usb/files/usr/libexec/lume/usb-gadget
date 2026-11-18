@@ -29,7 +29,7 @@
 # MOUNT, UMOUNT, MOUNTPOINT, RMDIR, KMSG, READY_TRIES (tenths of a second waiting for
 # umtprd), ROLE_CLASS (default /sys/class/usb_role), EXTCON_CLASS (default
 # /sys/class/extcon), POLL (seconds between two looks at the port), USB_LIBDIR (lib.sh and
-# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), IP, UDHCPD, DROPBEAR, RC_SERVICE.
+# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), POWER_CLASS (default /sys/class/power_supply), IP, UDHCPD, DROPBEAR, RC_SERVICE.
 BOARD_FILE=${BOARD_FILE:-/etc/lume/board}
 CONFIGFS=${CONFIGFS:-/sys/kernel/config}
 UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
@@ -50,6 +50,7 @@ ROLE_CLASS=${ROLE_CLASS:-/sys/class/usb_role}
 EXTCON_CLASS=${EXTCON_CLASS:-/sys/class/extcon}
 POLL=${POLL:-1}
 NET_CLASS=${NET_CLASS:-/sys/class/net}
+POWER_CLASS=${POWER_CLASS:-/sys/class/power_supply}
 IP=${IP:-ip}
 UDHCPD=${UDHCPD:-udhcpd}
 DROPBEAR=${DROPBEAR:-dropbear}
@@ -245,10 +246,59 @@ net_down() {  # interface
 	event usb OK "network: down on $1"
 }
 
-# The PC brings the link up when it configures the gadget (carrier 1)
+# state of the UDC ("configured" while a PC has the gadget configured); fails without one
+udc_state() {
+	local udc
+	udc=$(udc_name) || return 1
+	cat "$UDC_CLASS/$udc/state" 2>/dev/null
+}
+
+# VBUS as the PMIC reports it (online of the USB power supplies): 1, 0, or nothing when
+# there is none. Not reliable alone (GA36 J1: 0 for ~5 s with the cable in and the UDC
+# configured, 1 for 76 s without a cable), so it only gets logged, never decides.
+vbus_online() {
+	local d v out=""
+	for d in "$POWER_CLASS"/*; do
+		[ "$(cat "$d/type" 2>/dev/null)" = USB ] || continue
+		v=$(cat "$d/online" 2>/dev/null)
+		[ -n "$v" ] || continue
+		out="$out${out:+ }${d##*/}:$v"
+		[ "$v" = 1 ] && { echo "$out"; return 0; }
+	done
+	[ -n "$out" ] && echo "$out"
+	return 0
+}
+
+# The network follows the UDC state, not VBUS: up while the UDC is "configured", down when
+# it leaves that state. Every return to "configured" after leaving it brings the network up
+# again from scratch (address, udhcpd, dropbear), since the PC may have re-enumerated while
+# the old state was kept. Without a UDC state file (the tests of the carrier) the carrier
+# of the NCM interface decides, as before.
+NET_UDC_LAST=""
+VBUS_GLITCH=0
 net_watch() {
-	local n carrier
+	local n carrier st v
 	n=$(ncm_ifname)
+	if st=$(udc_state) && [ -n "$st" ]; then
+		if [ "$st" = configured ]; then
+			[ -e "$NET_CLASS/$n" ] || return 0
+			if [ "$NET_UP" = 0 ]; then
+				$IP link set "$n" up 2>/dev/null
+				net_up "$n"
+			fi
+			# VBUS 0 with the UDC configured: a glitch of the PMIC reading, not a cable out
+			v=$(vbus_online)
+			case "$v" in
+			*:1*|"") [ "$VBUS_GLITCH" = 1 ] && { VBUS_GLITCH=0; event usb OK "vbus glitch over: $v, the UDC stayed configured"; } ;;
+			*) [ "$VBUS_GLITCH" = 0 ] && { VBUS_GLITCH=1; event usb OK "vbus glitch: $v while the UDC is configured, network kept"; } ;;
+			esac
+		else
+			VBUS_GLITCH=0
+			[ "$NET_UP" = 1 ] && net_down "$n"
+		fi
+		NET_UDC_LAST=$st
+		return 0
+	fi
 	[ -e "$NET_CLASS/$n" ] || return 0
 	carrier=$(cat "$NET_CLASS/$n/carrier" 2>/dev/null)
 	if [ "$carrier" = 1 ] && [ "$NET_UP" = 0 ]; then
