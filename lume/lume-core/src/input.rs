@@ -7,8 +7,14 @@
 //!                    fn_tap | fn_hold <button>=<action>... | fn_release
 //!                    volume | brightness
 //!                    nav up|down|left|right|a|b          (only to the capturing client)
-//! client -> daemon   tap KEY_<name> | capture on | capture off
+//!                    power_tap | power_hold | suspend <seq> | resume <seq>   (sleep, D11)
+//! client -> daemon   tap KEY_<name> | capture on | capture off | suspend_ok <seq>
 //! ```
+//!
+//! The sleep messages (device-fixes D11) are frozen in [`crate::sleep`]: `power_tap` and
+//! `power_hold` are informational (lume-input already made the request), `suspend <seq>` is
+//! answered with `suspend_ok <seq>` once the client paused and stopped drawing (deadline
+//! [`crate::sleep::CLIENT_REPLY`]), `resume <seq>` has no answer.
 //!
 //! Unknown messages come from a newer daemon and are ignored by the reader (`parse` gives
 //! None).
@@ -72,10 +78,15 @@ pub enum Message {
     Volume,
     Brightness,
     Nav(Nav),
+    /// `power_tap`, `power_hold`, `suspend <seq>`, `resume <seq>` (device-fixes D11).
+    Sleep(crate::sleep::Notice),
 }
 
 /// A message of the daemon; None for an unknown one (ignored).
 pub fn parse(msg: &str) -> Option<Message> {
+    if let Some(n) = crate::sleep::Notice::parse(msg) {
+        return Some(Message::Sleep(n));
+    }
     let msg = msg.trim();
     let (word, rest) = match msg.split_once(' ') {
         Some((w, r)) => (w, r.trim()),
@@ -160,8 +171,18 @@ mod tests {
     }
 
     #[test]
+    fn sleep_messages() {
+        use crate::sleep::Notice;
+        assert_eq!(parse("power_tap"), Some(Message::Sleep(Notice::PowerTap)));
+        assert_eq!(parse("power_hold"), Some(Message::Sleep(Notice::PowerHold)));
+        assert_eq!(parse("suspend 3"), Some(Message::Sleep(Notice::Suspend(3))));
+        assert_eq!(parse("resume 3\n"), Some(Message::Sleep(Notice::Resume(3))));
+        assert_eq!(crate::sleep::suspend_ok(3), "suspend_ok 3");
+    }
+
+    #[test]
     fn unknown_messages_are_ignored() {
-        for m in ["", "reboot", "nav sideways", "quit now", "fn_tap 2", "QUIT"] {
+        for m in ["", "reboot", "nav sideways", "quit now", "fn_tap 2", "QUIT", "suspend", "resume 0", "power_tap x"] {
             assert_eq!(parse(m), None, "{m:?}");
         }
     }

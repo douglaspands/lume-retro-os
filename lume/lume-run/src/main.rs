@@ -627,6 +627,8 @@ impl Run {
                 }
             }
             Message::Volume | Message::Brightness => {}
+            // the sleep protocol (device-fixes D11): suspend/resume of the game come with 8.4
+            Message::Sleep(_) => {}
         }
         self.pending_end.take()
     }

@@ -18,5 +18,6 @@ pub mod powerconf;
 pub mod powerstate;
 pub mod runner;
 pub mod settings;
+pub mod sleep;
 pub mod states;
 pub mod text;
