@@ -33,7 +33,8 @@ menu do sistema da `device-fixes` já mesclado.
 | 1.3 | 1.4 | USUARIO | AG+PR | sonnet | 1 | |
 | 2.2 | 1.1 | — | AG | sonnet | 1 | J1, J2 |
 | 2.1 | 1.1, 1.3, 1.4 | — | AG | sonnet | 2 | J1, J2 |
-| 3.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
+| 3.1 | — | USUARIO | AG+PR | sonnet | 0 | |
+| 2.3 | 3.1 (protótipo) | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
 | 3.2 | `device-fixes` 9.1 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
 | 3.3 | 3.1, 3.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
 | 4.1 | 2.1, 2.2, 3.3 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
@@ -77,6 +78,8 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 - [ ] 2.1 `lume-ui`, cores por console (D6): o tile, a máscara do logo e a sigla usam os tokens resolvidos do sistema, normal e em foco; temas sem `[systems.*]` desenham como hoje. Verificação: testes de tela em `lume/lume-ui/tests/ui.rs` com o tema Lume (cor do SNES e do Mega Drive no tile e no foco, conferidas contra a tabela da 1.3) e com o Material escuro (cor geral em todos); no aparelho, captura do Dock comparada com o protótipo (J1, J2).
 - [ ] 2.2 `lume-ui`, logo colorido do cartão (D7): `icons/<sistema>.color.png` desenhado como imagem RGBA, reduzido ao tamanho do tile na decodificação, com prioridade sobre a máscara e a mesma busca na cadeia `extends`; o teto do cache de ícones vale para os dois tipos; teste do pacote que recusa qualquer PNG em `themes/` da imagem. Verificação: testes de unidade (um tema de teste com `snes.color.png` e `nes.png`: SNES colorido, NES em máscara; cache dentro do teto com logos grandes) e o teste do pacote; no aparelho, um tema do cartão com um logo colorido (J1).
+
+- [ ] 2.3 Contador de jogos na lista (pedido do usuário, 2026-11-18): o contador sai do meio do rodapé e vai para o canto inferior direito, logo acima das dicas dos botões, sem cobrir as dicas nem o nome do jogo em foco; primeiro no protótipo (com a 3.1), depois no `lume-ui`. Verificação: o usuário aprova no navegador; teste de tela e de régua da grade (o `footer_centered_and_counter_in_the_middle` muda para a posição nova); no aparelho, J1 e J2.
 
 ## 3. Relógio na tela e acerto da hora (P-102, incluído pelo usuário em 2026-11-18)
 
