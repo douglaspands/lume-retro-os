@@ -337,6 +337,17 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   testados **no quente** (com a mesma carga forçada), e o limite aprendido registra a
   temperatura no relato (Fn+Select), para a regra do limite poder passar a usar a temperatura
   junto com o nível se os relatos mostrarem isso.
+- **Revisão do D12 condicionada ao E4 (usuário, 2026-11-18).** Como a falha continua no
+  brilho 6 com o console quente, limitar o brilho pode não ser a mitigação. Depois da J2
+  (6.3, no quente), o D12 é revisto conforme o resultado:
+  - **o E4 ou o modo de ~60 Hz fazem a falha sumir no quente:** a correção de temporização
+    entra na imagem padrão; o pontinho vermelho e o limite de brilho saem (6.1, 6.2, 3.3 e
+    a spec `display-brightness` ajustadas), e fica só o relato Fn+Select como registro;
+  - **nenhum resolve:** o aprendizado passa a aprender uma **temperatura limite** por aparelho
+    (no lugar, ou além, do nível), e o sistema reage a ela antes da falha (aviso na tela e o
+    governor segurando o clock), com a proposta levada ao usuário antes do código.
+  As tarefas 3.3, 6.1 e 6.2 só começam depois dessa revisão (6.3 e a J2 vêm antes delas no
+  grafo).
 
 ### D13. Painel do GA36 a ~60 Hz
 

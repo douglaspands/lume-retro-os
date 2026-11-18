@@ -55,7 +55,7 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 1.5 | 1.4 | CPU, ARCH:armv7, GA36, USUARIO | PR | — | 4 | J0 |
 | 3.1 | 1.4 | — | AG | sonnet | 4 | |
 | 3.2 | 1.4, 2.3 | — | AG | opus | 4 | |
-| 3.3 | 1.4 | — | AG | sonnet | 4 | |
+| 3.3 | 1.4, 6.5 | — | AG | sonnet | 7 | |
 | 3.4 | 1.4, 2.5 | — | AG | sonnet | 4 | |
 | 4.1 | 1.4 | USUARIO | AG+PR | sonnet | 4 | |
 | 9.5 | 1.4 | — | AG | sonnet | 4 | |
@@ -81,14 +81,15 @@ passa a ser medida na J2 e na J3 pelos eventos da 5.1).
 | 9.3 | 1.4 | — | AG | sonnet | 5 | J2, J3 |
 | 5.4 | 3.1, 4.1, 9.2 | — | AG | sonnet | 6 | J2, J3 |
 | 8.1 | 2.3, 6.3, 7.1 | — | AG | opus | 6 | J2, J3 |
+| 6.5 | 6.3 | CPU, GA36, USUARIO | PR | — | 6 | J2a |
 | 9.4 | 8.2 | — | AG | sonnet | 6 | J2, J3 |
-| 6.1 | 3.3, 4.1, 9.4 | — | AG | sonnet | 7 | J2, J3 |
+| 6.1 | 3.3, 4.1, 9.4 | — | AG | sonnet | 8 | J2, J3 |
 | 8.5 | 3.2, 4.1, 5.4 | — | AG | sonnet | 7 | J2, J3 |
 | 6.2 | 3.3, 8.5 | — | AG | sonnet | 8 | J2, J3 |
-| 7.2 | 3.4, 6.1, 7.1, 7.3, 7.4 | — | AG | opus | 8 | J2, J3 |
-| 10.1 | todos os nós de código (3 a 9) | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 9 | |
-| 10.2 | 10.1 | GA36, USUARIO | PR | — | 10 | J2 |
-| 10.3 | 10.2 | R36S, USUARIO | PR | — | 11 | J3 |
+| 7.2 | 3.4, 6.1, 7.1, 7.3, 7.4 | — | AG | opus | 9 | J2, J3 |
+| 10.1 | todos os nós de código (3 a 9) | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 10 | |
+| 10.2 | 10.1 | GA36, USUARIO | PR | — | 11 | J2 |
+| 10.3 | 10.2 | R36S, USUARIO | PR | — | 12 | J3 |
 
 Modelos aprovados pelo usuário em 2026-11-18.
 
@@ -123,12 +124,14 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - **Onda 0:** 1.1 (AG); J1 com 2.1 a 2.7 (PR, build atual, sem código novo).
 - **Ondas 1, 2 e 3:** 1.2, 1.3 e 1.4, uma por onda e sozinhas (`TREE`). Antes da 1.2, nenhuma
   worktree aberta em `out/worktrees/`, de nenhuma change.
-- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.3, 3.4, 4.1, 9.5, 9.6, 9.7 e 9.9 (AG). A 4.1 termina com a aprovação
+- **Onda 4:** 1.5 (PR, J0); 3.1, 3.2, 3.4, 4.1, 9.5, 9.6, 9.7 e 9.9 (AG). A 4.1 termina com a aprovação
   do usuário.
 - **Onda 5:** 5.1, 5.2, 5.3, 5.5, 6.3, 6.4, 7.1, 7.3, 7.4, 8.2, 8.3, 8.4, 8.6, 9.1, 9.2 e 9.3.
   A 8.4 só começa com a 3.1 da `lume-hud-actions` mesclada.
-- **Onda 6:** 5.4, 8.1 e 9.4. **Onda 7:** 6.1 e 8.5. **Onda 8:** 6.2 e 7.2.
-- **Onda 9:** 10.1. **Onda 10:** 10.2 (J2). **Onda 11:** 10.3 (J3).
+- **Onda 6:** 5.4, 8.1 e 9.4; 6.5 (PR, janela J2a: E4 e ~60 Hz no quente, revisão do D12).
+- **Onda 7:** 3.3 (formato conforme a revisão do D12) e 8.5. **Onda 8:** 6.1 e 6.2.
+  **Onda 9:** 7.2.
+- **Onda 10:** 10.1. **Onda 11:** 10.2 (J2). **Onda 12:** 10.3 (J3).
 
 **Janelas de aparelho:**
 - **J1** (build atual, nomes antigos; primeiro o GA36, depois o R36S com o mesmo cartão):
@@ -189,6 +192,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 - [ ] 6.1 `lume-input`, brilho (D12): `backlight_max` removido dos perfis e do código; o limite lido pelo formato da 3.3; o pontinho vermelho na linha da borda esquerda; Fn+Select grava o relato e baixa o limite, com a linha curta na tela pelo `ui_lang`; uma hora acumulada acima do limite sem relato o sobe; o pedido de recomeçar grava `none` (sem limite, sem pontinho, até o próximo relato); eventos no `events.log`. Verificação: `tests/unit/test_lume_input.py` com sysfs e relógio falsos (brilho até o máximo, relato no nível 8 vira limite 7, uma hora acima sobe o limite, outro serial no mesmo cartão não muda, R36S sem limite não desenha o ponto); no aparelho, J2 e J3.
 - [ ] 6.2 `lume-ui`, barra do Brilho com o pontinho vermelho no nível do limite (D12), e a linha "Recomeçar o aprendizado" com confirmação (Sim em cima, Cancelar em foco) que grava o pedido; textos en/pt/es. Verificação: teste de tela com e sem limite, a confirmação (cima e baixo só, A em Sim grava o pedido, Cancelar não grava) e o teste de régua da barra; no aparelho, J2 e J3 (recomeçar no GA36 tira o pontinho e libera o 10).
 - [ ] 6.3 Kernel do GA36 (D12, D13): kernels de experimento E1 (DCDC1 a 3,3 V) e E4 (link do DSI mais lento ou outro modo de rajada) como variantes que não entram na imagem padrão, e o modo de ~60 Hz do JD9366 no patch 0005 com o `video_refresh_rate` do `retroarch-ga36.cfg`. Verificação: `test_ga36_refresh_rate_matches_panel_mode` e os testes do DTS; na J2, cada variante gravada pelo `push` só do kernel e desfeita pelo `SLOTS.old`, com o resultado (nível em que o defeito começa, imagem estável a ~60 Hz nos dois painéis) no P-95, no P-25 e no `docs/BRINGUP-GA36.md`. O modo de ~60 Hz só entra na imagem padrão se ficar estável nos dois painéis.
+- [ ] 6.5 Janela J2a no GA36 (revisão do D12 condicionada ao E4, usuário, 2026-11-18): build só do kernel com as variantes da 6.3 e `push` só do kernel (desfeito pelo `SLOTS.old`), cada uma testada **no quente** com a carga forçada do E3 (CPU a 1008 MHz nos 4 núcleos até ~66 °C, depois o brilho 8 por 10 min e o 6 por 5 min), com o usuário olhando a tela; o kernel padrão de hoje como controle no mesmo protocolo. Verificação: tabela no P-95 e no `docs/BRINGUP-GA36.md` (variante, temperatura em que a falha aparece ou "nenhuma até 70 °C"), e a revisão do D12 escrita no `design.md` (correção de temporização na imagem padrão e o limite de brilho retirado, ou a temperatura limite aprendida), com as tarefas 3.3, 6.1 e 6.2 e a spec `display-brightness` ajustadas antes de começarem.
 - [ ] 6.4 Mega Drive no GA36 (D14), pelo caminho da 2.6: o formato de pixel corrigido no driver de vídeo ou o core do armv7 trocado no catálogo. Verificação: teste do catálogo ou do patch; na J2, o jogo aparece na tela em velocidade cheia pelas métricas (sem nome de jogo no registro).
 
 ## 7. Som
