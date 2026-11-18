@@ -29,6 +29,6 @@ Nenhuma.
 
 ## Impact
 
-- `rootfs/overlay/usr/share/r36os/factory/retroarch/retroarch.cfg` (uma chave).
+- `rootfs/overlay/usr/share/lume/factory/retroarch/retroarch.cfg` (uma chave).
 - `tests/unit/test_retroarch_cfg.py` (padrão de fábrica, nunca chave fixa).
 - `docs/PENDENCIAS.md`: o P-31 aponta para esta change.

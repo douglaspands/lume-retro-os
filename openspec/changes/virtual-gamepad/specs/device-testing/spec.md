@@ -3,10 +3,10 @@
 ## ADDED Requirements
 
 ### Requirement: Gravar os botões de uma sessão
-O `r36os dev record` MUST gravar no console os botões que o launcher e os jogos recebem, com o tempo de cada evento, até o comando de parar, e MUST trazer a gravação para a pasta de rascunho do PC, nunca para um arquivo do repositório.
+O `lume dev record` MUST gravar no console os botões que o launcher e os jogos recebem, com o tempo de cada evento, até o comando de parar, e MUST trazer a gravação para a pasta de rascunho do PC, nunca para um arquivo do repositório.
 
 #### Scenario: Sessão gravada
-- **WHEN** o usuário roda `r36os dev record`, joga 60 s e roda o comando de parar
+- **WHEN** o usuário roda `lume dev record`, joga 60 s e roda o comando de parar
 - **THEN** a gravação tem os botões apertados com os tempos e fica em `cache/` no PC
 
 #### Scenario: Gravação sem botões
@@ -14,7 +14,7 @@ O `r36os dev record` MUST gravar no console os botões que o launcher e os jogos
 - **THEN** o comando avisa que a gravação está vazia e termina com erro
 
 ### Requirement: Repetir uma gravação com o tempo do console
-O `r36os dev play` MUST repetir uma gravação no controle que o launcher e os jogos leem, com os intervalos medidos no próprio console, e MUST soltar todos os botões no fim ou quando for interrompido.
+O `lume dev play` MUST repetir uma gravação no controle que o launcher e os jogos leem, com os intervalos medidos no próprio console, e MUST soltar todos os botões no fim ou quando for interrompido.
 
 #### Scenario: Repetição fiel
 - **WHEN** uma gravação de 60 s é repetida no console
@@ -29,7 +29,7 @@ O `r36os dev play` MUST repetir uma gravação no controle que o launcher e os j
 - **THEN** o jogo é encerrado como pelo controle físico e o roteiro vê o evento de jogo fechado
 
 ### Requirement: Roteiros de prova com resultado
-O `r36os dev run <roteiro>` MUST executar os passos de um roteiro do repositório (botões, esperas por evento ou processo, captura comparada com a referência, comando como root) e MUST terminar com sucesso só se todos os passos passarem, dizendo qual passo falhou.
+O `lume dev run <roteiro>` MUST executar os passos de um roteiro do repositório (botões, esperas por evento ou processo, captura comparada com a referência, comando como root) e MUST terminar com sucesso só se todos os passos passarem, dizendo qual passo falhou.
 
 #### Scenario: Passo que falha
 - **WHEN** um roteiro espera um evento que não aparece no tempo limite
@@ -51,7 +51,7 @@ Um roteiro MUST poder abrir pelo launcher um jogo de um sistema escolhido pelo s
 - **THEN** o passo falha dizendo que o sistema não tem jogos, sem apertar botões
 
 ### Requirement: Replay exato do RetroArch
-O `r36os dev replay` MUST gravar a entrada de um jogo do RetroArch desde um ponto salvo e MUST repeti-la quadro a quadro a partir do mesmo ponto, para que duas sessões com o mesmo replay tenham a mesma carga.
+O `lume dev replay` MUST gravar a entrada de um jogo do RetroArch desde um ponto salvo e MUST repeti-la quadro a quadro a partir do mesmo ponto, para que duas sessões com o mesmo replay tenham a mesma carga.
 
 #### Scenario: Gravar e repetir
 - **WHEN** o usuário grava um replay de um trecho e depois o repete duas vezes

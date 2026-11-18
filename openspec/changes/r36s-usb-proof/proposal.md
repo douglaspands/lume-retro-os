@@ -3,7 +3,7 @@
 ## Why
 
 A change `usb-device-access` entregou o acesso pelo cabo USB (MTP, rede USB com SSH,
-`r36os push`), o papel host (pendrive, controles, teclado) e o Wi-Fi e o Bluetooth por dongle
+`lume push`), o papel host (pendrive, controles, teclado) e o Wi-Fi e o Bluetooth por dongle
 nos dois consoles. As provas no aparelho foram feitas só no GA36, porque o R36S não estava
 disponível em 2026-11-14. Para não segurar o archive dela, as provas do R36S, a do dongle e a
 troca de papel com o carregador na DC vêm para esta change.
@@ -13,7 +13,7 @@ troca de papel com o carregador na DC vêm para esta change.
 - Provas no R36S, com o mesmo roteiro usado no GA36:
   - papel pelo DTS nas quatro situações (nada, carregador na DC, PC na OTG, adaptador OTG);
   - MTP com o RetroArch no menu, SSH só pela rede USB, memória e tempo de boot;
-  - `r36os push` de um build novo e o ciclo completo sem tirar o cartão;
+  - `lume push` de um build novo e o ciclo completo sem tirar o cartão;
   - papel host com o adaptador OTG: pendrive, controle USB como jogador 2, teclado e mouse.
 - Módulos do kernel fora do `SYSTEM` no R36S (tarefa 3.3 da change `kernel-modules-image`,
   provada só no GA36): o `push` de uma mudança só de kernel sem nenhum `SYSTEM`, e os

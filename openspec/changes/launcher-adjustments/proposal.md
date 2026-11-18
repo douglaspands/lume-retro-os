@@ -9,7 +9,7 @@ dos consoles (P-84). A `lume-hud-actions` transforma o Fn no botão do sistema, 
 botão Steam (toque abre menu, segurar mostra os atalhos), mas só durante o jogo. Esta change
 leva o mesmo gesto ao launcher e fecha a conferência no aparelho, para o launcher ficar
 coerente dentro e fora do jogo. Ela vem **depois** da `lume-hud-actions`, que entrega os
-eventos `fn_tap`, `fn_hold` e `fn_release` do `r36os-input`.
+eventos `fn_tap`, `fn_hold` e `fn_release` do `lume-input`.
 
 ## What Changes
 
@@ -18,7 +18,7 @@ eventos `fn_tap`, `fn_hold` e `fn_release` do `r36os-input`.
   Reiniciar e Configurações; outro toque ou B fecha. Desligar e Reiniciar pedem confirmação,
   com Cancelar em foco. O rodapé do Dock ganha a dica do Fn (glifo + "Menu").
 - **Dica dos atalhos ao segurar o Fn no launcher**: o mesmo gesto do jogo, com os acordes que
-  valem no launcher (no mínimo Fn+Vol, o brilho), lidos da tabela que o `r36os-input` manda
+  valem no launcher (no mínimo Fn+Vol, o brilho), lidos da tabela que o `lume-input` manda
   no `fn_hold`.
 - **Reiniciar (P-72)**: o `lume-ui` diz ao `session` se o fim é desligar ou reiniciar; os dois
   gravam os dados (`persist flush`, `sync`) antes. Um código de erro continua reabrindo o
@@ -62,5 +62,5 @@ Fora do escopo: Wi-Fi completo (P-66) e Bluetooth (P-67) nas Configurações, te
 - Documentação: `docs/LAUNCHER.md`, `docs/lume-launcher/formato-de-tema.md`,
   `docs/lume-launcher/design-das-telas.md`, guias de bring-up; pendências P-70, P-71, P-72,
   P-74 e P-84 atualizadas no `docs/PENDENCIAS.md`.
-- Depende da `lume-hud-actions` (eventos do Fn no `r36os-input`).
+- Depende da `lume-hud-actions` (eventos do Fn no `lume-input`).
 - Provas no GA36 e no R36S (o mesmo cartão, um console de cada vez).
