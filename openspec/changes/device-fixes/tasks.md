@@ -7,7 +7,12 @@ Verificação desta change:
 - o aparelho: GA36 e R36S, com um único cartão passado de um console ao outro, nunca os dois
   ligados ao mesmo tempo.
 
-A imagem `vm` segue fora do ciclo (P-81). Padrão proposto (design, Open Questions): os nós
+A imagem `vm` segue fora do ciclo (P-81).
+
+**Provas no aparelho adiadas (decisão do usuário, 2026-11-18):** a J2 no GA36, a J1 e a J3 do
+R36S e o build final (10.1 a 10.3) viraram a pendência de teste **P-103**. As tarefas com
+"Código mesclado ... falta a J2/J3" e as medidas do R36S (2.1 a 2.6, 5.5 e 7.1 do R36S)
+continuam abertas aqui até essa prova. Padrão proposto (design, Open Questions): os nós
 `TREE` são provados pelas suítes mais o boot no GA36 da J0.
 
 ## Grafo de execução
