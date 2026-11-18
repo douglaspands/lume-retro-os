@@ -282,7 +282,8 @@ impl Run {
             if let Some(i) = &input {
                 fds.push(i.as_raw_fd());
             }
-            let ticking = ov.hud.is_some() || ov.menu.is_open() || ov.hint.is_some();
+            // a picture of Fn+Y still running needs the tick that reaps it
+            let ticking = ov.hud.is_some() || ov.menu.is_open() || ov.hint.is_some() || !ov.shots.is_empty();
             let wake = match (deadline, ticking) {
                 (Some(d), true) => Some(d.min(next_tick)),
                 (Some(d), false) => Some(d),

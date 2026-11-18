@@ -5,7 +5,7 @@
 //! whole width with a thin muted divider in the middle of each space; a black strip at 60%.
 //!
 //! The pixels are premultiplied ARGB (the default blend of a DRM plane): the strip itself is
-//! (0, 0, 0, 153), and a glyph over it keeps its color at full opacity.
+//! (0, 0, 0, 235), and a glyph over it keeps its color at full opacity.
 
 use crate::draw::{text_width, Fonts, ACCENT, FG, MUTED, PANEL};
 
@@ -19,8 +19,9 @@ pub mod px {
     pub const DIVIDER_INSET: f32 = 6.0;
 }
 
-/// Opacity of the strip (RetroArch's widget: black at 0.6)
-const STRIP_ALPHA: u32 = 153;
+/// Opacity of the strip: black at 92% (the user, 2026-11-18: at 60%, as RetroArch's widget, the
+/// small text over a bright game was hard to read)
+const STRIP_ALPHA: u32 = 235;
 
 /// The bar's height in pixels for a screen `h` high.
 pub fn height(h: u32) -> u32 {
@@ -238,8 +239,8 @@ mod tests {
         let mut buf = vec![0u8; w * h * 4];
         let mut s = Strip { px: &mut buf, w, h, pitch: w * 4 };
         draw(&mut s, &f, "FPS 59.7|CPU 9% 1008|GPU 11% 51M|MEM 146/492|BAT 100% +", 480.0);
-        // a corner of the strip: black at 60%
-        assert_eq!(pixel(&buf, w * 4, 0, 0), [0, 0, 0, 153]);
+        // a corner of the strip: black at 92%
+        assert_eq!(pixel(&buf, w * 4, 0, 0), [0, 0, 0, 235]);
         // some pixel of the first label is the accent at full opacity
         let accent = [(ACCENT & 0xff) as u8, ((ACCENT >> 8) & 0xff) as u8, (ACCENT >> 16) as u8, 255];
         let found = (0..60).any(|x| (0..h).any(|y| pixel(&buf, w * 4, x, y) == accent));
@@ -273,6 +274,6 @@ mod tests {
         let mut buf = vec![0u8; w * h * 4];
         let mut s = Strip { px: &mut buf, w, h, pitch: w * 4 };
         draw(&mut s, &f, "", 480.0);
-        assert!(buf.chunks_exact(4).all(|p| p == [0, 0, 0, 153]));
+        assert!(buf.chunks_exact(4).all(|p| p == [0, 0, 0, 235]));
     }
 }
