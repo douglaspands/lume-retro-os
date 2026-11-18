@@ -263,9 +263,9 @@ def test_cpu0_is_never_taken_offline(tmp_path, services):
     assert s.sysfs("devices/system/cpu/cpu0/online") == "1"
 
 
-def test_no_class_uses_game_with_the_floor_and_menu_without_profile_is_the_kernel_default(
-        tmp_path, services):
+def test_ga36_conf_boot_default_game_floor_and_slow_launcher_rate(tmp_path, services):
     s = services(tmp_path, conf=GA36_CONF.read_text())
+    (s.sys / "devices/system/cpu/cpufreq/schedutil").mkdir(parents=True, exist_ok=True)
     fake_controller(s)                       # the GA36 game profiles run controller=auto
     s.start()
     s.wait_event("profile: boot -> default")
@@ -273,11 +273,16 @@ def test_no_class_uses_game_with_the_floor_and_menu_without_profile_is_the_kerne
     assert "current -" in s.state()
     s.send("game nes fceumm")
     s.wait_event("profile: game -> game")
-    assert s.writes() == [f"{CF}/scaling_min_freq 600000"]
+    assert s.writes() == [f"{CF}/scaling_min_freq 600000",
+                          "devices/system/cpu/cpufreq/schedutil/rate_limit_us 2000"]
     assert s.sysfs(f"{CF}/scaling_governor") == "schedutil"
     s.send("end")
-    s.wait_event("profile: menu -> default")
+    s.wait_event("profile: menu -> menu")
     assert s.sysfs(f"{CF}/scaling_min_freq") == "120000"
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "100000"
+    s.send("idle")
+    s.wait_event("profile: idle -> idle")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "200000"
 
 
 def test_refused_game_profile_keeps_the_floor(tmp_path, services):
@@ -861,14 +866,17 @@ def test_ga36_conf_initial_values():
     entries = [line.split("#")[0].split() for line in text.splitlines()]
     entries = [e for e in entries if e]
     assert ["limit", "game_min=600000"] in entries
-    assert ["profile", "gba", "min=1008000", "controller=auto"] in entries
-    assert ["profile", "heavy", "min=1008000", "controller=auto"] in entries
-    assert ["profile", "game", "controller=auto"] in entries
+    assert ["profile", "gba", "min=1008000", "controller=auto", "rate_limit_us=2000"] in entries
+    assert ["profile", "heavy", "min=1008000", "controller=auto", "rate_limit_us=2000"] in entries
+    assert ["profile", "game", "controller=auto", "rate_limit_us=2000"] in entries
+    # P-60: the launcher with a slow schedutil rate limit (sugov:0 at 30% of a core with 0.37 ms)
+    assert ["profile", "menu", "governor=schedutil", "rate_limit_us=100000"] in entries
+    assert ["profile", "idle", "governor=schedutil", "rate_limit_us=200000"] in entries
     for sysid in ("n64", "psp", "nds"):
         assert ["class", sysid, "heavy"] in entries
     assert ["class", "gba", "gba"] in entries
-    # no boot, menu or idle profile: the kernel default
-    assert not any(e[0] == "profile" and e[1] in ("boot", "menu", "idle") for e in entries)
+    # no boot profile: the kernel default
+    assert not any(e[0] == "profile" and e[1] == "boot" for e in entries)
     for khz in ("600000", "1008000"):
         assert khz in A33_FREQS.split()
     r36s = [line.split("#")[0].split() for line in R36S_CONF.read_text().splitlines()]
