@@ -24,12 +24,15 @@
 #      older lume-power ignores the message)
 #   8. USB gadget unbound from the UDC, the name remembered (J1 on the GA36: without it the
 #      musb never comes back after freeze and the PC loses the console)
+#   8b. wakeup sources (task 8.1): each `nowake <device folder under /sys>` line of the console
+#      file whose power/wakeup is `enabled` is set to `disabled`, so only the power button
+#      wakes the console (the charger plug, the battery and the RTC alarm do not)
 #   9. the mode of the console (/usr/share/lume/sleep/<board>.conf: freeze, or mem = `deep`
 #      to mem_sleep first); `sleep OK suspend <mode>`, status `suspended <seq> <mode>`, and the
 #      write to /sys/power/state, where the console sleeps until the power button
 # Back (or after a refusal of the kernel: `sleep FAIL suspend <mode>: <reason>`, with the same
-# steps undone, so the screen is on again), backwards: the gadget bound again in the background
-# ~1 s later, governor `resume`, Wi-Fi on, backlight level back; then status `resuming`, phase
+# steps undone, so the screen is on again), backwards: the wakeup sources enabled again, the
+# gadget bound again in the background ~1 s later, governor `resume`, Wi-Fi on, backlight level back; then status `resuming`, phase
 # `resume <seq>` (lume-input drops the queued input and relays it), status `awake` and
 # `sleep OK resume after <s>`. A `suspend` within 1 s of the wake is the press that woke the
 # console: dropped. A request made during a sequence is dropped too (kernel log only).
@@ -288,6 +291,58 @@ sl_steps_down() {
 			fi
 		fi
 	fi
+	sl_nowake_down
+}
+
+# 8b. the wakeup sources that must not wake the console (task 8.1, D11). The console file
+# names them as `nowake <device folder>`, relative to /sys, shell patterns allowed (the R36S
+# RTC is rk808-rtc.<n>.auto). Only the sysfs switch is used: the drivers of these devices
+# arm their interrupt as a wakeup only when power/wakeup is enabled (axp20x_usb_power,
+# rtc-sun6i, rtc-rk808), and a power supply with it disabled has no wakeup source left for
+# power_supply_changed() to hold. A folder that is missing is skipped; one already disabled
+# is left alone (and not enabled on the way back). The power key is never listed: on the GA36
+# the axp20x-pek driver makes itself a wakeup source, on the R36S the RK817 interrupt line
+# wakes through `wakeup-source` on the PMIC node (the DTS).
+sl_nowake_down() {
+	local l v f b
+	SL_NOWAKE=
+	b=$(board)
+	[ -r "$SL_CONF/${b:-none}.conf" ] || return 0
+	while IFS= read -r l; do
+		l=${l%%#*}
+		set -f
+		# shellcheck disable=SC2086
+		set -- $l
+		set +f
+		[ "$#" = 2 ] && [ "$1" = nowake ] || continue
+		case $2 in
+		/* | *..*)
+			sl_event FAIL "wakeup: refused path $2"
+			continue
+			;;
+		esac
+		# shellcheck disable=SC2086
+		for f in "$SL_SYS"/$2/power/wakeup; do
+			[ -f "$f" ] || continue
+			v=
+			read -r v <"$f" 2>/dev/null
+			[ "$v" = enabled ] || continue
+			if sl_write "$f" disabled; then
+				SL_NOWAKE="$SL_NOWAKE $f"
+			else
+				sl_event FAIL "wakeup: ${f#"$SL_SYS"/} not disabled ($SL_ERR)"
+			fi
+		done
+	done <"$SL_CONF/$b.conf"
+}
+
+sl_nowake_up() {
+	local f
+	set -f
+	for f in $SL_NOWAKE; do
+		sl_write "$f" enabled || sl_event FAIL "wakeup: ${f#"$SL_SYS"/} not enabled again ($SL_ERR)"
+	done
+	set +f
 }
 
 # the gadget bound again, in the background ~1 s after the wake (it never delays the screen)
@@ -307,6 +362,7 @@ sl_usb_rebind() {
 }
 
 sl_steps_up() {
+	sl_nowake_up
 	sl_usb_rebind
 	if [ -n "$SL_GOV" ]; then
 		sl_power resume || sl_event FAIL "governor: $SL_ERR"
