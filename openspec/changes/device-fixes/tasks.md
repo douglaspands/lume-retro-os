@@ -85,7 +85,7 @@ depois de a 2.1 mostrar o bit limpo após um desligamento normal, ou junto da 5.
 | 10.2 | 10.1 | GA36, USUARIO | PR | — | 10 | J2 |
 | 10.3 | 10.2 | R36S, USUARIO | PR | — | 11 | J3 |
 
-Modelos: propostos, aguardando aprovação do usuário.
+Modelos aprovados pelo usuário em 2026-11-18.
 
 - **opus:** 1.2, 1.3, 3.2, 5.1, 5.2, 6.3, 6.4, 7.1, 7.2, 7.3, 8.1, 8.2, 8.3.
 - **sonnet:** 1.1, 1.4, 3.1, 3.3, 3.4, 4.1, 5.3, 5.4, 5.5, 6.1, 6.2, 7.4, 8.4, 8.5, 8.6,
