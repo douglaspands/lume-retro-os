@@ -1,7 +1,8 @@
 /*
- * r36os-powerctl: CPU frequency by the load of the game (openspec game-governor D12).
+ * r36os-powerctl: CPU frequency by the load of the game (openspec game-governor D12) and, with
+ * --mode auto, CPU and GPU by the bottleneck of the game (D17, see run_auto below).
  *
- * Started by the r36os-power service when a game profile has controller=load, stopped with
+ * Started by the r36os-power service when a game profile has controller=load|auto, stopped with
  * SIGTERM at the end of the game. It puts cpu0's policy in the `userspace` governor and picks
  * the frequency itself through scaling_setspeed:
  *
@@ -398,10 +399,583 @@ static int has_word(const char *text, const char *word)
 static void usage(void)
 {
 	fprintf(stderr,
-		"usage: " PROG " [--min KHZ] [--max KHZ] [--sys DIR] [--proc DIR] [--cgroup DIR]\n"
-		"                      [--owner PID] [--interval MS] [--up PCT] [--up-time MS]\n"
-		"                      [--down PCT] [--down-time MS] [--wait MS] [--fake-clock]\n");
+		"usage: " PROG " [--mode load|auto] [--min KHZ] [--max KHZ] [--sys DIR] [--proc DIR]\n"
+		"                      [--cgroup DIR] [--owner PID] [--interval MS] [--up PCT]\n"
+		"                      [--up-time MS] [--down PCT] [--down-time MS] [--wait MS]\n"
+		"                      [--gpu DIR] [--gpu-min HZ] [--gpu-max HZ] [--state FILE]\n"
+		"                      [--fake-clock]\n");
 	exit(2);
+}
+
+/* ==== bottleneck controller (--mode auto, openspec game-governor D17) ====================
+ *
+ * One decision per window (--interval, 1000 ms by default in this mode). Signals:
+ * - cpu: the busiest thread of the game cgroup, percent of one core (as in the load mode);
+ * - gpu: for every DRM file the game has open (/proc/<pid>/fd -> /dev/dri/..., found again
+ *   every 2 s), the drm-engine-<name> times of its fdinfo; one client opened twice counts
+ *   once (drm-client-id). Busy = the busiest engine's time over the window, in percent;
+ * - frames: the sum of drm-page-flips of those clients over the window (kernel patch 0036);
+ *   the target is the highest rate of the last 30 windows; a drop is a window below 95% of
+ *   it (only with a target of at least 20 fps and 5 windows of history);
+ * - thermal: scaling_max_freq of the CPU and max_freq of the GPU devfreq (the kernel lowers
+ *   them); never written above;
+ * - memory: MemAvailable and CmaFree of /proc/meminfo, diagnosis only (D19).
+ * Rules, one step per window and resource:
+ *   1. a saturated resource (busy > --up) goes up;
+ *   2. a frame drop with no saturated resource raises the busier one that can still rise
+ *      (bottleneck "pacing");
+ *   3. a resource below --down for --down-time, with no drop and no step up in the last 5 s,
+ *      goes down;
+ *   4. never above the thermal caps ("thermal" when a saturated or dropping game is held
+ *      under a cap below the top of the range).
+ * A resource whose range has a single step is not controlled: the CPU then keeps its governor
+ * (the profile pinned it), the GPU keeps its min_freq. The CPU runs on the userspace governor
+ * (scaling_setspeed); the GPU through the min_freq floor of its devfreq (simple_ondemand stays
+ * free above it), given back at the end.
+ */
+
+#define MAX_FDS 32
+#define MAX_CLIENTS 16
+#define MAX_ENGINES 4
+#define HIST 30
+
+static int mode_auto;
+static const char *gpu_dir_opt;
+static long opt_gmin = -1, opt_gmax = -1;
+static const char *state_file;
+
+struct drmfd {
+	long pid;
+	int fd;
+};
+
+struct client {
+	unsigned long long id, flips;
+	int have_flips, nengines;
+	char eng[MAX_ENGINES][24];
+	unsigned long long ns[MAX_ENGINES];
+};
+
+static struct drmfd drmfds[MAX_FDS];
+static int ndrmfds;
+static long long drm_scan_ms = -1000000;
+static struct client cl_prev[MAX_CLIENTS], cl_cur[MAX_CLIENTS];
+static int ncl_prev, ncl_cur, have_cl_prev;
+
+static void drm_scan(const long *pids, int npids)
+{
+	char p[600], link[256];
+	int i;
+
+	ndrmfds = 0;
+	for (i = 0; i < npids && ndrmfds < MAX_FDS; i++) {
+		DIR *d;
+		struct dirent *e;
+
+		mkpath(p, sizeof(p), "%s/%ld/fd", proc_root, pids[i]);
+		d = opendir(p);
+		if (!d)
+			continue;
+		while ((e = readdir(d)) && ndrmfds < MAX_FDS) {
+			ssize_t n;
+			char lp[700];
+
+			if (e->d_name[0] < '0' || e->d_name[0] > '9')
+				continue;
+			mkpath(lp, sizeof(lp), "%s/%s", p, e->d_name);
+			n = readlink(lp, link, sizeof(link) - 1);
+			if (n <= 0)
+				continue;
+			link[n] = 0;
+			if (strncmp(link, "/dev/dri/", 9))
+				continue;
+			drmfds[ndrmfds].pid = pids[i];
+			drmfds[ndrmfds].fd = (int)strtol(e->d_name, NULL, 10);
+			ndrmfds++;
+		}
+		closedir(d);
+	}
+}
+
+/* fdinfo of every DRM fd -> cl_cur (one entry per drm-client-id) */
+static void drm_sample(void)
+{
+	char p[600], buf[2048];
+	int i;
+
+	ncl_cur = 0;
+	for (i = 0; i < ndrmfds; i++) {
+		struct client c;
+		char *line, *save = NULL;
+		int have_id = 0, j, dup = 0;
+
+		mkpath(p, sizeof(p), "%s/%ld/fdinfo/%d", proc_root, drmfds[i].pid, drmfds[i].fd);
+		if (read_text(p, buf, sizeof(buf)) <= 0)
+			continue;
+		memset(&c, 0, sizeof(c));
+		for (line = strtok_r(buf, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+			char *v = strchr(line, ':');
+
+			if (!v)
+				continue;
+			*v++ = 0;
+			if (!strcmp(line, "drm-client-id")) {
+				c.id = strtoull(v, NULL, 10);
+				have_id = 1;
+			} else if (!strcmp(line, "drm-page-flips")) {
+				c.flips = strtoull(v, NULL, 10);
+				c.have_flips = 1;
+			} else if (!strncmp(line, "drm-engine-", 11) && c.nengines < MAX_ENGINES &&
+				   strncmp(line + 11, "capacity", 8)) {
+				snprintf(c.eng[c.nengines], sizeof(c.eng[0]), "%s", line + 11);
+				c.ns[c.nengines] = strtoull(v, NULL, 10);
+				c.nengines++;
+			}
+		}
+		if (!have_id)
+			c.id = 1000000000ULL + (unsigned long long)i; /* no id: never merged */
+		for (j = 0; j < ncl_cur; j++)
+			if (cl_cur[j].id == c.id)
+				dup = 1;
+		if (!dup && ncl_cur < MAX_CLIENTS)
+			cl_cur[ncl_cur++] = c;
+	}
+}
+
+static const struct client *cl_find(unsigned long long id)
+{
+	int i;
+
+	for (i = 0; i < ncl_prev; i++)
+		if (cl_prev[i].id == id)
+			return &cl_prev[i];
+	return NULL;
+}
+
+/* deltas since the previous sample: frames (-1 when no client reports page flips) and the
+ * busiest engine's time in ns (-1 when no client reports engines) */
+static void drm_deltas(long long *frames, long long *busy_ns)
+{
+	char names[MAX_CLIENTS * MAX_ENGINES][24];
+	unsigned long long sums[MAX_CLIENTS * MAX_ENGINES];
+	int nnames = 0, i, k, any_flips = 0, any_eng = 0;
+	unsigned long long fl = 0, best = 0;
+
+	for (i = 0; i < ncl_cur; i++) {
+		const struct client *c = &cl_cur[i], *o = have_cl_prev ? cl_find(c->id) : NULL;
+
+		if (!o)
+			continue;
+		if (c->have_flips && o->have_flips) {
+			any_flips = 1;
+			if (c->flips >= o->flips)
+				fl += c->flips - o->flips;
+		}
+		for (k = 0; k < c->nengines; k++) {
+			int m, n;
+			unsigned long long d = 0;
+
+			for (m = 0; m < o->nengines; m++)
+				if (!strcmp(o->eng[m], c->eng[k]) && c->ns[k] >= o->ns[m])
+					d = c->ns[k] - o->ns[m];
+			any_eng = 1;
+			for (n = 0; n < nnames; n++)
+				if (!strcmp(names[n], c->eng[k]))
+					break;
+			if (n == nnames) {
+				snprintf(names[n], sizeof(names[0]), "%s", c->eng[k]);
+				sums[n] = 0;
+				nnames++;
+			}
+			sums[n] += d;
+		}
+	}
+	for (i = 0; i < nnames; i++)
+		if (sums[i] > best)
+			best = sums[i];
+	*frames = any_flips ? (long long)fl : -1;
+	*busy_ns = any_eng ? (long long)best : -1;
+	memcpy(cl_prev, cl_cur, sizeof(cl_cur[0]) * (size_t)ncl_cur);
+	ncl_prev = ncl_cur;
+	have_cl_prev = 1;
+}
+
+/* MemAvailable and CmaFree in kB (-1 when missing) */
+static void meminfo(long *avail, long *cma)
+{
+	char p[600], buf[4096], *s;
+
+	*avail = *cma = -1;
+	mkpath(p, sizeof(p), "%s/meminfo", proc_root);
+	if (read_text(p, buf, sizeof(buf)) <= 0)
+		return;
+	if ((s = strstr(buf, "MemAvailable:")))
+		*avail = strtol(s + 13, NULL, 10);
+	if ((s = strstr(buf, "CmaFree:")))
+		*cma = strtol(s + 8, NULL, 10);
+}
+
+/* GPU steps of the devfreq table inside [lo, hi] */
+static long gsteps[MAX_STEPS];
+static long long gstep_ms[MAX_STEPS];
+static int ngsteps;
+static char gdir[512];
+
+static int load_gsteps(long lo, long hi)
+{
+	char p[600], buf[2048], *s, *end;
+	long all[MAX_STEPS];
+	int n = 0, i;
+
+	ngsteps = 0;
+	mkpath(p, sizeof(p), "%s/available_frequencies", gdir);
+	if (read_text(p, buf, sizeof(buf)) <= 0)
+		return 0;
+	for (s = buf; n < MAX_STEPS; s = end) {
+		long v = strtol(s, &end, 10);
+
+		if (end == s)
+			break;
+		all[n++] = v;
+	}
+	qsort(all, (size_t)n, sizeof(all[0]), cmp_long);
+	for (i = 0; i < n; i++)
+		if ((lo < 0 || all[i] >= lo) && (hi < 0 || all[i] <= hi) &&
+		    (ngsteps == 0 || gsteps[ngsteps - 1] != all[i]))
+			gsteps[ngsteps++] = all[i];
+	return ngsteps;
+}
+
+static int gcap_index(long cap)
+{
+	int i;
+
+	if (cap <= 0)
+		return ngsteps - 1;
+	for (i = ngsteps - 1; i > 0; i--)
+		if (gsteps[i] <= cap)
+			return i;
+	return 0;
+}
+
+static long gdir_long(const char *name)
+{
+	char p[600];
+
+	mkpath(p, sizeof(p), "%s/%s", gdir, name);
+	return read_long(p);
+}
+
+/* first devfreq device with a frequency table (the GPU on both consoles) */
+static int find_gpu_dir(void)
+{
+	char p[600];
+	DIR *d;
+	struct dirent *e;
+	struct stat st;
+
+	if (gpu_dir_opt) {
+		mkpath(gdir, sizeof(gdir), "%s", gpu_dir_opt);
+		mkpath(p, sizeof(p), "%s/available_frequencies", gdir);
+		return !stat(p, &st);
+	}
+	mkpath(p, sizeof(p), "%s/class/devfreq", sys_root);
+	d = opendir(p);
+	if (!d)
+		return 0;
+	while ((e = readdir(d))) {
+		char q[800];
+
+		if (e->d_name[0] == '.')
+			continue;
+		mkpath(q, sizeof(q), "%s/%s/available_frequencies", p, e->d_name);
+		if (!stat(q, &st)) {
+			mkpath(gdir, sizeof(gdir), "%s/%s", p, e->d_name);
+			closedir(d);
+			return 1;
+		}
+	}
+	closedir(d);
+	return 0;
+}
+
+enum { B_NONE, B_CPU, B_GPU, B_PACING, B_THERMAL, B_MEMORY, B_N };
+static const char *bname[B_N] = { "none", "cpu", "gpu", "pacing", "thermal", "memory" };
+
+static void write_state(long ckhz, long load, long ghz, long gbusy, long fps10, long target10,
+			int b, long avail)
+{
+	char tmp[600], text[512];
+	int fd, n;
+
+	if (!state_file)
+		return;
+	n = snprintf(text, sizeof(text),
+		     "mode auto\ncpu_khz %ld\ncpu_load %ld\ngpu_hz %ld\ngpu_busy %ld\n"
+		     "fps %ld.%ld\nfps_target %ld.%ld\nbottleneck %s\nmem_avail_kb %ld\n",
+		     ckhz, load, ghz, gbusy, fps10 < 0 ? -1 : fps10 / 10, fps10 < 0 ? 0 : fps10 % 10,
+		     target10 / 10, target10 % 10, bname[b], avail);
+	mkpath(tmp, sizeof(tmp), "%s.tmp", state_file);
+	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	if (fd < 0)
+		return;
+	if (write(fd, text, (size_t)n) != n) {
+		close(fd);
+		unlink(tmp);
+		return;
+	}
+	close(fd);
+	rename(tmp, state_file);
+}
+
+static void auto_summary(int ups, int downs, const int *bcount, long mem_min, const char *end)
+{
+	int i;
+
+	printf("cpu:");
+	for (i = nsteps - 1; i >= 0; i--)
+		if (step_ms[i] > 0)
+			printf(" %ld=%lld.%llds", steps[i], step_ms[i] / 1000, step_ms[i] % 1000 / 100);
+	printf(" gpu:");
+	for (i = ngsteps - 1; i >= 0; i--)
+		if (gstep_ms[i] > 0)
+			printf(" %ld=%lld.%llds", gsteps[i], gstep_ms[i] / 1000, gstep_ms[i] % 1000 / 100);
+	printf(" up=%d down=%d bottleneck", ups, downs);
+	for (i = B_CPU; i < B_N; i++)
+		printf(" %s=%d", bname[i], bcount[i]);
+	if (mem_min >= 0)
+		printf(" mem_min=%ldk", mem_min);
+	printf(" end=%s\n", end);
+	fflush(stdout);
+}
+
+static int run_auto(void)
+{
+	char p[600], buf[1024], val[32];
+	long pids[MAX_PIDS], cwritten = -1, gwritten = -1, orig_gmin = -1, mem_min = -1;
+	long hist[HIST];
+	long long start_ms, last_ms, dt = 0, last_up_ms = -1000000;
+	long long cslack = 0, gslack = 0;
+	int nhist = 0, hpos = 0, cidx, gidx = 0, ups = 0, downs = 0, rc = 0, i;
+	int cpu_ctl, gpu_ctl, have_gpu, bcount[B_N];
+	const char *end = "stop";
+
+	memset(bcount, 0, sizeof(bcount));
+	/* CPU: controlled when the range has more than one step */
+	cpu_ctl = nsteps > 1;
+	if (cpu_ctl) {
+		cf_path(p, sizeof(p), "scaling_available_governors");
+		if (read_text(p, buf, sizeof(buf)) <= 0 || !has_word(buf, "userspace")) {
+			fprintf(stderr, PROG ": refused: userspace governor not available\n");
+			return 3;
+		}
+	}
+	/* GPU */
+	have_gpu = find_gpu_dir();
+	if (have_gpu) {
+		orig_gmin = gdir_long("min_freq");
+		if (opt_gmin < 0)
+			opt_gmin = orig_gmin;
+		if (opt_gmax < 0)
+			opt_gmax = gdir_long("max_freq");
+		have_gpu = load_gsteps(opt_gmin, opt_gmax) > 0;
+	}
+	gpu_ctl = have_gpu && ngsteps > 1;
+
+	if (setpriority(PRIO_PROCESS, 0, -10))
+		errno = 0;
+	if (cpu_ctl) {
+		cf_path(p, sizeof(p), "scaling_governor");
+		if (write_text(p, "userspace")) {
+			fprintf(stderr, PROG ": refused: cannot select the userspace governor\n");
+			return 3;
+		}
+	}
+	now_ms = fake_clock ? 0 : mono_ms();
+	start_ms = last_ms = now_ms;
+	/* the game is loading: start at the top of each range under the caps */
+	cidx = cap_index(cf_long("scaling_max_freq"));
+	if (have_gpu)
+		gidx = gcap_index(gdir_long("max_freq"));
+
+	for (;;) {
+		long load = -1, gbusy = -1, fps10 = -1, target10 = 0, avail, cma, ccap_khz, gcap_hz;
+		long long frames = -1, busy_ns = -1;
+		int npids = -1, capi, gcapi = 0, drop = 0, csat, gsat, b = B_NONE, raised = 0;
+
+		if (owner > 0 && kill((pid_t)owner, 0) && errno == ESRCH) {
+			end = "owner";
+			break;
+		}
+		if (cpu_ctl && cwritten >= 0) {
+			cf_path(p, sizeof(p), "scaling_governor");
+			if (read_text(p, buf, sizeof(buf)) <= 0 || strncmp(buf, "userspace", 9)) {
+				end = "governor";
+				rc = 4;
+				break;
+			}
+		}
+		if (!game_cg[0]) {
+			char cand[512];
+
+			if (newest_game(cand, sizeof(cand)) && cg_pids(cand, pids, MAX_PIDS) > 0)
+				mkpath(game_cg, sizeof(game_cg), "%s", cand);
+			else if (now_ms - start_ms >= wait_ms) {
+				end = "no-game";
+				break;
+			}
+		}
+		if (game_cg[0]) {
+			npids = cg_pids(game_cg, pids, MAX_PIDS);
+			if (npids <= 0) {
+				end = "game";
+				break;
+			}
+			load = busiest_load(pids, npids);
+			if (now_ms - drm_scan_ms >= 2000) {
+				drm_scan(pids, npids);
+				drm_scan_ms = now_ms;
+			}
+			drm_sample();
+			drm_deltas(&frames, &busy_ns);
+		}
+		if (dt > 0 && busy_ns >= 0)
+			gbusy = (long)(busy_ns / 10000LL / dt); /* ns / (dt ms * 1e6) * 100 */
+		if (dt > 0 && frames >= 0) {
+			fps10 = (long)(frames * 10000LL / dt);
+			hist[hpos] = fps10;
+			hpos = (hpos + 1) % HIST;
+			if (nhist < HIST)
+				nhist++;
+		}
+		for (i = 0; i < nhist; i++)
+			if (hist[i] > target10)
+				target10 = hist[i];
+		if (fps10 >= 0 && nhist >= 5 && target10 >= 200 && fps10 * 100 < target10 * 95)
+			drop = 1;
+		meminfo(&avail, &cma);
+		if (avail >= 0 && (mem_min < 0 || avail < mem_min))
+			mem_min = avail;
+
+		/* caps */
+		ccap_khz = cf_long("scaling_max_freq");
+		capi = cap_index(ccap_khz);
+		if (have_gpu) {
+			gcap_hz = gdir_long("max_freq");
+			gcapi = gcap_index(gcap_hz);
+		}
+		csat = cpu_ctl && load > up_pct;
+		gsat = gpu_ctl && gbusy > up_pct;
+
+		if (load >= 0 || gbusy >= 0) {
+			/* rule 1: the saturated resource(s) */
+			if (csat && cidx < capi) {
+				cidx++;
+				raised = 1;
+			}
+			if (gsat && gidx < gcapi) {
+				gidx++;
+				raised = 1;
+			}
+			if (csat || gsat)
+				b = (csat && (!gsat || load >= gbusy)) ? B_CPU : B_GPU;
+			/* rule 2: frames lost, nothing saturated: the busier one that can rise */
+			if (drop && !csat && !gsat) {
+				int c_can = cpu_ctl && cidx < capi, g_can = gpu_ctl && gidx < gcapi;
+
+				b = B_PACING;
+				if (c_can && (!g_can || load >= gbusy)) {
+					cidx++;
+					raised = 1;
+				} else if (g_can) {
+					gidx++;
+					raised = 1;
+				}
+			}
+			/* rule 4: held under a thermal cap below the top of the range */
+			if ((csat || gsat || drop) && !raised &&
+			    ((cpu_ctl && capi < nsteps - 1 && cidx >= capi) ||
+			     (gpu_ctl && gcapi < ngsteps - 1 && gidx >= gcapi)))
+				b = B_THERMAL;
+			if (raised) {
+				ups++;
+				last_up_ms = now_ms;
+				cslack = gslack = 0;
+			}
+			/* rule 3: slack, never right after a step up or with frames lost */
+			cslack = (!raised && !drop && cpu_ctl && load >= 0 && load < down_pct) ? cslack + dt : 0;
+			gslack = (!raised && !drop && gpu_ctl && gbusy >= 0 && gbusy < down_pct) ? gslack + dt : 0;
+			if (now_ms - last_up_ms >= 5000) {
+				if (cslack >= down_time && cidx > 0) {
+					cidx--;
+					downs++;
+					cslack = 0;
+				}
+				if (gslack >= down_time && gidx > 0) {
+					gidx--;
+					downs++;
+					gslack = 0;
+				}
+			}
+		}
+		if (b == B_NONE && avail >= 0 && avail < 32 * 1024)
+			b = B_MEMORY;
+		if (b != B_NONE)
+			bcount[b]++;
+		if (cidx > capi)
+			cidx = capi;
+		if (have_gpu && gidx > gcapi)
+			gidx = gcapi;
+
+		if (cpu_ctl && steps[cidx] != cwritten) {
+			snprintf(val, sizeof(val), "%ld", steps[cidx]);
+			cf_path(p, sizeof(p), "scaling_setspeed");
+			if (write_text(p, val))
+				fprintf(stderr, PROG ": write scaling_setspeed %s failed\n", val);
+			cwritten = steps[cidx];
+		}
+		if (gpu_ctl && gsteps[gidx] != gwritten) {
+			snprintf(val, sizeof(val), "%ld", gsteps[gidx]);
+			mkpath(p, sizeof(p), "%s/min_freq", gdir);
+			if (write_text(p, val))
+				fprintf(stderr, PROG ": write gpu min_freq %s failed\n", val);
+			gwritten = gsteps[gidx];
+		}
+		write_state(cpu_ctl ? steps[cidx] : cf_long("scaling_cur_freq"), load,
+			    have_gpu ? (gpu_ctl ? gsteps[gidx] : gdir_long("cur_freq")) : -1, gbusy, fps10,
+			    target10, b, avail);
+		if (fake_clock) {
+			printf("tick %lld cpu=%ld gpu=%ld fps=%ld -> %ld %ld %s\n", now_ms, load, gbusy,
+			       fps10 < 0 ? -1 : fps10 / 10, cpu_ctl ? steps[cidx] : -1L,
+			       gpu_ctl ? gsteps[gidx] : -1L, bname[b]);
+			fflush(stdout);
+		}
+
+		if (!tick_wait()) {
+			if (cpu_ctl)
+				step_ms[cidx] += now_ms - last_ms;
+			if (gpu_ctl)
+				gstep_ms[gidx] += now_ms - last_ms;
+			end = "stop";
+			break;
+		}
+		dt = now_ms - last_ms;
+		if (cpu_ctl)
+			step_ms[cidx] += dt;
+		if (gpu_ctl)
+			gstep_ms[gidx] += dt;
+		last_ms = now_ms;
+	}
+	/* the GPU floor goes back to what the profile set */
+	if (gpu_ctl && orig_gmin > 0) {
+		snprintf(val, sizeof(val), "%ld", orig_gmin);
+		mkpath(p, sizeof(p), "%s/min_freq", gdir);
+		write_text(p, val);
+	}
+	if (state_file)
+		unlink(state_file);
+	auto_summary(ups, downs, bcount, mem_min, end);
+	return rc;
 }
 
 static long num_arg(const char *s)
@@ -432,7 +1006,7 @@ int main(int argc, char **argv)
 	struct sigaction sa;
 	long pids[MAX_PIDS], written = -1;
 	long long up_acc = 0, down_acc = 0, start_ms, last_ms, dt = 0;
-	int i, idx, ups = 0, downs = 0, rc = 0;
+	int i, idx, ups = 0, downs = 0, rc = 0, interval_set = 0;
 	const char *end = "stop";
 
 	if ((env = getenv("PP_SYS")) && *env)
@@ -448,7 +1022,22 @@ int main(int argc, char **argv)
 		}
 		if (i + 1 >= argc)
 			usage();
-		if (!strcmp(a, "--min"))
+		if (!strcmp(a, "--mode")) {
+			const char *m = argv[++i];
+
+			if (!strcmp(m, "auto"))
+				mode_auto = 1;
+			else if (strcmp(m, "load"))
+				usage();
+		} else if (!strcmp(a, "--gpu"))
+			gpu_dir_opt = argv[++i];
+		else if (!strcmp(a, "--gpu-min"))
+			opt_gmin = num_arg(argv[++i]);
+		else if (!strcmp(a, "--gpu-max"))
+			opt_gmax = num_arg(argv[++i]);
+		else if (!strcmp(a, "--state"))
+			state_file = argv[++i];
+		else if (!strcmp(a, "--min"))
 			opt_min = num_arg(argv[++i]);
 		else if (!strcmp(a, "--max"))
 			opt_max = num_arg(argv[++i]);
@@ -460,8 +1049,10 @@ int main(int argc, char **argv)
 			cg_root = argv[++i];
 		else if (!strcmp(a, "--owner"))
 			owner = num_arg(argv[++i]);
-		else if (!strcmp(a, "--interval"))
+		else if (!strcmp(a, "--interval")) {
 			interval_ms = num_arg(argv[++i]);
+			interval_set = 1;
+		}
 		else if (!strcmp(a, "--up"))
 			up_pct = num_arg(argv[++i]);
 		else if (!strcmp(a, "--up-time"))
@@ -475,12 +1066,30 @@ int main(int argc, char **argv)
 		else
 			usage();
 	}
+	if (mode_auto && !interval_set)
+		interval_ms = 1000;
 	if (interval_ms < 10)
 		usage();
 	clk_tck = sysconf(_SC_CLK_TCK);
 	if (clk_tck <= 0)
 		clk_tck = 100;
 	mkpath(cf, sizeof(cf), "%s/devices/system/cpu/cpu0/cpufreq", sys_root);
+
+	if (mode_auto) {
+		/* the CPU range; an empty one only means the CPU is not controlled */
+		if (opt_min < 0)
+			opt_min = cf_long("scaling_min_freq");
+		if (opt_max < 0)
+			opt_max = cf_long("cpuinfo_max_freq");
+		if (opt_min >= 0 && opt_max >= 0)
+			load_steps(opt_min, opt_max);
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = on_signal;
+		sigaction(SIGTERM, &sa, NULL);
+		sigaction(SIGINT, &sa, NULL);
+		sigaction(SIGHUP, &sa, NULL);
+		return run_auto();
+	}
 
 	/* refusals: nothing is changed */
 	cf_path(p, sizeof(p), "scaling_available_governors");

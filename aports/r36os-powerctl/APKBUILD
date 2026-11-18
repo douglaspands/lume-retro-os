@@ -1,11 +1,13 @@
-# Lume Retro OS: the load controller of the power service (openspec game-governor D12). In a
-# game profile with controller=load, r36os-power starts it: the userspace governor, one step of
-# the frequency table up or down by the load of the busiest thread of the game, inside the
-# profile limits and under the thermal cap. Stopped at the end of the game.
+# Lume Retro OS: the game controller of the power service (openspec game-governor D12, D17). In
+# a game profile with controller=load, r36os-power starts it: the userspace governor, one step
+# of the frequency table up or down by the load of the busiest thread of the game, inside the
+# profile limits and under the thermal cap. With controller=auto it finds the bottleneck (CPU,
+# GPU, frame pacing, thermal) from /proc and the DRM fdinfo and raises only that resource: the
+# CPU clock or the GPU devfreq floor. Stopped at the end of the game.
 pkgname=r36os-powerctl
-pkgver=1.0
+pkgver=1.1
 pkgrel=0
-pkgdesc="CPU frequency by the load of the game, for the power profiles (Lume Retro OS)"
+pkgdesc="CPU and GPU clocks by the load and bottleneck of the game (Lume Retro OS)"
 url="https://example.invalid"
 arch="x86_64 armv7 aarch64"
 license="GPL-2.0-or-later"
@@ -22,5 +24,5 @@ package() {
 }
 
 sha512sums="
-c982675f56e1d9c865495386706d57db5d480df4bf51116093526d10f0f9e5176f02de29bc0b210ce4b04adeb7e79a6364a72d7f96f05d8e64a2910cea43c32b  powerctl.c
+e129fde952743c17b1b418a652041338cdf495fd33c4d2a6e8da40e1f6f88f0442a349a86ef6d3edeb7b38e5e8379dfaa3f5ab5aa9a1e386b33c0966973c58c0  powerctl.c
 "
