@@ -111,6 +111,9 @@ ADDED_AFTER_MOVE = {
     # device-fixes 3.2: the suspension mode of each console (lume-power, read by lume-sleep)
     "usr/share/lume/sleep/ga36.conf",
     "usr/share/lume/sleep/r36s.conf",
+    # device-fixes 8.3: suspend and power off by the power button (lume-power)
+    "usr/libexec/lume/lume-sleep",
+    "etc/init.d/lume-sleep",
     # device-fixes 9.1: the clock that only moves forward (lume-core) and its NTP hook (lume-net)
     "usr/bin/lume-clock",
     "etc/init.d/lume-clock",

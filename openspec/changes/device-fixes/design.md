@@ -116,8 +116,10 @@ o console volta ao mesmo ponto.
   `ROMS/system/card/.restart-log` antes do kexec ou do reinício, e o início seguinte as registra
   com o sufixo `(before kexec)` ou `(before reboot)`. No R36S, a linha que vale para a 2.1 é a
   com sufixo.
-- **Botão segurado:** vai pelo `lume-sleep`/`poweroff` e depende do `mount-ro` do OpenRC, não
-  do `session`; a J2 confere o bit nesse caminho também.
+- **Botão segurado:** o `lume-sleep` manda `SIGUSR1` ao `session`, que termina o frontend,
+  espera ele acabar e chama a mesma `power_off` (com o `release_storage`); só sem sessão viva,
+  ou depois de 30 s sem desligar, o `lume-sleep` chama `poweroff` e depende do `mount-ro` do
+  OpenRC (8.3). A J2 confere o bit nesse caminho também.
 
 ### D3. Pedido de verificação dentro da ROMS
 

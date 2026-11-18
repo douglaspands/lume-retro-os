@@ -1,5 +1,7 @@
 # Lume Retro OS: the power fragment (build-speed D2, node 8.1). The zram service and script, the sysctl settings and the backlight udev rule.
 # The lume-power service, its profile validator and the console profile files (game-governor).
+# The lume-sleep service: suspend and power off by the power button, with the suspension mode
+# of each console (device-fixes D11, tasks 3.2 and 8.3).
 # The files live in files/ at the same paths and modes they have in the image, and the package
 # ships them as they are.
 #
@@ -7,8 +9,8 @@
 # architecture (lume build, packages.build_noarch). No ELF file may be added to files/.
 pkgname=lume-power
 pkgver=1.0
-pkgrel=0
-pkgdesc="Power and memory settings: power profiles, ZRAM swap, sysctl, backlight rule"
+pkgrel=1
+pkgdesc="Power and memory settings: power profiles, suspend, ZRAM swap, sysctl, backlight rule"
 url="https://example.invalid"
 arch="noarch"
 license="GPL-2.0-or-later"

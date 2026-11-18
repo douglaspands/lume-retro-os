@@ -65,10 +65,13 @@ for s in seatd alsa lume-mixer lume-persist lume-logd lume-usb lume-savesync lum
 	add "$s" default
 done
 # After the frontend (build-speed D20, "after frontend" in their depend() or conf.d): the
-# game lists, the card maintenance requests (lume-card, device-fixes D4) and Wi-Fi by USB
-# dongle (usb-device-access D9). dbus has no order (NetworkManager needs it). bluetooth only
-# on the consoles, below (the vm kernel has no Bluetooth, so bluetoothd would crash there).
-for s in lume-playlists lume-index lume-card lume-clock dbus networkmanager lume-ssh-wifi; do
+# game lists, the card maintenance requests (lume-card, device-fixes D4), suspend and power
+# off by the power button (lume-sleep, device-fixes D11), the clock restore (lume-clock,
+# device-fixes D15) and Wi-Fi by USB dongle (usb-device-access D9). dbus has no order
+# (NetworkManager needs it). bluetooth only on the consoles, below (the vm kernel has no
+# Bluetooth, so bluetoothd would crash there).
+for s in lume-playlists lume-index lume-clock lume-sleep lume-card dbus networkmanager \
+	lume-ssh-wifi; do
 	add "$s" default
 done
 # Board services that live in the common overlay. lume-vmnet (virtual-gamepad 3.3): the vm's

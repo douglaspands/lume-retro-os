@@ -108,7 +108,7 @@ Uma linha por evento:
 |---|---|
 | `boot` | boot iniciado (placa, kernel, `boot_id`); concluído com o tempo até o frontend; erros do initramfs |
 | `service` | serviço do OpenRC que não iniciou (`FAIL`) |
-| `frontend` | iniciado; encerrado pelo usuário ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
+| `frontend` | iniciado; encerrado pelo usuário (`closed by user: shutting down`), pelo botão de energia segurado (`closed by the power button: shutting down`, device-fixes D11) ou pelo serviço; terminou com erro; parado após 3 falhas; vivo mas sem responder por 15 s (`FAIL`) e de volta a responder (`OK`); travado, sem CPU e sem vblank por 10 s (`FAIL`) e recuperado pelo `logd` (`OK`) |
 | `game` | com o lume-launcher (frontend padrão), gravadas pelo `lume-run`, sem nome nem caminho do jogo: início (`OK <sistema> <runner> <core> start`, ou `menu` para o menu do RetroArch sem jogo) e fim (`<sistema> <runner> <core> exit=<código ou sigN> end=<normal, quit-combo, killed ou session> secs=<duração>`; `OK` com saída 0 ou fim por Fn+Start, `FAIL` nos outros casos; `-` no lugar do core de um runner nativo). Com o RetroArch como frontend: aberto (core e conteúdo) e fechado (core, conteúdo e duração), pelo `logd`. Nos dois: lento, duas amostras seguidas abaixo de 95% do FPS nominal do core (`FAIL slow`); de volta à velocidade cheia (`OK full speed again`) |
 | `index` | fim de um scan das listas de jogos do launcher (`lume-index`): `scan systems=<n> games=<n> added=<n> failed=<n> ms=<n>` e a contagem por sistema com jogos (`nes=40 snes=12`), nunca um nome |
 | `audio` | o dispositivo de som parou de consumir e o jogo segue sem som (`FAIL`, linha `[ALSA] Playback stalled` do RetroArch, patch 0003); o som voltou (`OK`) |
@@ -508,7 +508,18 @@ O sono (device-fixes D11) deixa no log do kernel só o que não vira evento do `
 lume-input: no sleep service (/run/lume/sleep missing): power button request dropped
 lume-sleep: suspend request dropped: busy (suspending 4)
 lume-sleep: suspend request dropped: the press that woke the console
+lume-sleep: suspend cancelled: power off requested
+lume-sleep: poweroff request dropped: busy (poweroff)
+lume-sleep: power button held: the session powers off
+lume-sleep: power button held: no session, powering off
+lume-sleep: the session did not power off within 30s: powering off
+lume-sleep: cannot give /run/lume/sleep to the group game
 ```
+
+O pedido de suspensão feito durante uma sequência (um segundo toque, o item Suspender) é
+apagado no fim dela com a linha `busy (suspending <seq>)`. Com o botão segurado durante a
+espera dos clientes, a suspensão é cancelada (tudo volta, sem evento `sleep OK suspend`) e o
+desligamento roda em seguida.
 
 ## Escolha do device tree no `boot/boot-<n>.log`
 
