@@ -461,6 +461,54 @@ D10, D11, D12, D15) e no P-95. Em resumo:
 - **`lume-index`:** aparece `crashed` no `rc-status` porque a varredura termina e o processo
   sai (o OpenRC espera um daemon). É cosmético e anterior à troca.
 
+### Kernels de experimento (`device-fixes` 6.3, P-95 e P-25)
+
+Variantes do kernel que **nunca entram na imagem padrão**, em `kernel/variants/ga36/<nome>/`
+(patches aplicados depois de `kernel/patches/`, um `board.dtsi` opcional incluído no fim de
+cada DTS e o `variant.toml`). O build compila no mesmo tree e na mesma pasta de build do
+padrão, mas grava em `out/ga36/variants/<nome>/`, não publica nada em `out/repo` e arquiva
+um build que o `latest` **não** aponta: só o kernel, os DTBs (no `e1`), o `VERSION` (com a
+linha `kernel variant: ga36 <nome> (base <build>)`) e as imagens de boot dos painéis mudam
+em relação ao build base. Um patch de variante só pode mexer em driver embutido no kernel
+(`panel-ga36mb-jd9366.c`, `sun6i_mipi_dsi.c`); os módulos continuam os do padrão. No log de
+boot, cada uma se anuncia com `experiment kernel <nome>: …`.
+
+| Variante | O que muda | Link por via | Quadro |
+|---|---|---|---|
+| (padrão) | modo de 30 MHz pedido; o `pll-mipi` só chega a 297 × 6 / 5 = 356,4 MHz | 356,4 Mbit/s | 29,7 MHz / (1040 × 518) = **55,13 Hz** reais (o `retroarch-ga36.cfg` diz 55,69, falta medir) |
+| `e4-slow` | pixel de 27,5 MHz (`pll-mipi` 297 × 10 / 9 = 330 MHz exatos), totais de fábrica | 330 (−7,4%) | 51,05 Hz |
+| `e4-nonburst` | vídeo sem rajada com pulsos de sincronia (link em HS na linha toda) | 356,4 | 55,13 Hz |
+| `e4-eotp` | pacote EoT depois de cada transmissão HS (`lcd_dsi_eotp = 1` da fábrica) | 356,4 | 55,13 Hz |
+| `60hz` | pixel de 32,175 MHz (297 × 13 / 10 = 386,1 MHz exatos), front porch 275 (`htotal` 1035) | 386,1 (+8,3%) | 60,013 Hz |
+| `60hz-porch` | link de hoje (29,7 MHz), front porch 196 (`htotal` 956) | 356,4 | 59,975 Hz |
+| `e1` | só o DTB: DCDC1 (`vcc-io` e, pelo `dc1sw`, o painel) a 3,3 V | 356,4 | 55,13 Hz |
+
+**Na janela (J2a), com o console no cabo e a bateria acima de 20%:**
+
+```sh
+uv run lume build --console ga36 kernel                    # o controle (padrão), vira o latest
+uv run lume build --console ga36 kernel --variant e4-nonburst
+uv run lume push --console ga36 --build <id impresso pelo build da variante>
+# só nas variantes que mudam o quadro (e4-slow, 60hz, 60hz-porch), a cada boot:
+uv run lume dev sh --console ga36 'echo video_refresh_rate = \"60.013430\" > /run/lume/retroarch-extra.cfg'
+uv run lume push --console ga36                            # desfaz: volta ao latest (padrão)
+```
+
+O build da variante imprime o id, o comando de envio, o de desfazer e, quando o quadro muda,
+a taxa do RetroArch (também no `variant.toml`). O `SLOTS.old` não desfaz um kernel: ele é o
+conjunto anterior da raiz; quem volta o kernel é o `push` do `latest`, que manda de novo o
+`ga36/zImage` e a imagem do setor 172032. **Se a variante não der imagem**, o console
+continua respondendo pelo cabo (o painel não tem relação com o USB): `lume push --console
+ga36`. **Se nem o cabo responder**, gravar pelo PC a imagem do painel 1 do build base no setor
+172032 (ver "À mão" na seção 3.1, conferindo o SHA256 depois: leitor `14cd:125d`) e depois
+`lume push`.
+
+**Riscos não verificados:** o JD9366 não tem datasheet aqui (faixa de pixel clock e de
+tensão); o `pll-mipi` a 330 e a 386,1 MHz não foi medido (hoje roda a 356,4); no `e1`, os
+limites do microcontrolador do controle e de outros chips nas linhas PB/PF/PG/PH a 3,3 V são
+desconhecidos (o A33-OLinuXino roda o DCDC1 a 3,3 V no mainline). Só o painel 1 existe neste
+aparelho: o painel 2 fica sem prova.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
