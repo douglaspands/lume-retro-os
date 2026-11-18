@@ -538,13 +538,22 @@ fn chords_become_retroarch_commands() {
     let ra = FakeRa::new("PLAYING");
     let listener = listen(&e.dir.join("input.sock"));
     waiting_game(&e, "retroarch-cmd", RA_ACTIONS);
+    // a fake lume-menu that records its arguments: the picture of Fn+Y is the system's
+    let pm = e.dir.join("lume-menu");
+    let d_ = e.dir.display().to_string();
+    fs::write(&pm, format!("#!/bin/sh\necho \"$*\" >> \"{d_}/shot.args\"\n")).unwrap();
+    fs::set_permissions(&pm, fs::Permissions::from_mode(0o755)).unwrap();
     let mut run = spawn_logged(&e, ra.port);
-    read_pid(&e.dir.join("game"), Duration::from_secs(5));
+    let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
     for m in ["save_state", "load_state", "screenshot", "app_menu", "volume", "unknown thing"] {
         d.send(m);
     }
-    assert_eq!(ra.plain(), ["SAVE_STATE", "LOAD_STATE", "SCREENSHOT", "MENU_TOGGLE"]);
+    // Fn+Y is taken by the system (any emulator, the user 2026-11-17): no SCREENSHOT to RetroArch
+    assert_eq!(ra.plain(), ["SAVE_STATE", "LOAD_STATE", "MENU_TOGGLE"]);
+    std::thread::sleep(Duration::from_millis(200));
+    let args = fs::read_to_string(e.dir.join("shot.args")).unwrap();
+    assert!(args.starts_with(&format!("--shot {pid} ")) && args.contains("/screenshots/") && args.trim_end().ends_with(".png"), "{args}");
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
 }
@@ -673,35 +682,36 @@ fn key_and_signal_actions_and_undeclared_ones() {
     let listener = listen(&e.dir.join("input.sock"));
     let d_ = e.dir.display().to_string();
     let game = format!("trap 'echo usr1 > \"{d_}/usr1\"' USR1; echo $$ > \"{d_}/game\"; while [ ! -f \"{d_}/exit\" ]; do sleep 0.05; done");
-    e.step(1, 64, &format!("action=save_state key:KEY_F2\naction=screenshot signal:SIGUSR1\n{}", launch("snes", "sigterm", 1, &["/bin/sh", "-c", &game])));
+    e.step(1, 64, &format!("action=save_state key:KEY_F2\naction=load_state signal:SIGUSR1\n{}", launch("snes", "sigterm", 1, &["/bin/sh", "-c", &game])));
     e.step(2, 0, "");
     let mut run = spawn_logged(&e, ra.port);
     read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
     d.send("save_state");
     assert_eq!(d.received(), ["tap KEY_F2"]);
-    d.send("screenshot");
+    d.send("load_state");
     std::thread::sleep(Duration::from_millis(200));
     assert!(e.dir.join("usr1").exists(), "SIGUSR1 to the game's group");
-    // not declared: one log line, nothing else; no overlay and no lume-menu: the menu and
-    // the hint are ignored with a line too, and the bar (drawn by the system, any runner)
-    // says it has no lume-menu to draw with
-    d.send("load_state");
+    // not declared: one log line, nothing else; no lume-menu: the menu, the hint, the bar and
+    // the picture of Fn+Y (all drawn or taken by the system, any runner) say so
+    d.send("app_menu");
     d.send("fn_tap");
     d.send("fn_hold B=app_menu Start=quit");
     d.send("hud");
+    d.send("screenshot");
     assert!(ra.cmds().is_empty(), "{:?}", ra.cmds());
     fs::write(e.dir.join("exit"), "").unwrap();
     assert_eq!(wait(&mut run, Duration::from_secs(5)), 0);
     let log = stderr(&e);
-    for line in ["action load_state not supported by runner fake", "fn_tap ignored: runner fake draws no overlay",
-                 "fn_hold ignored: runner fake draws no overlay", "status bar: no lume-menu, the bar is not drawn"] {
+    for line in ["action app_menu not supported by runner fake", "fn_tap ignored: runner fake draws no overlay",
+                 "fn_hold ignored: no lume-menu to draw the hint (runner fake)",
+                 "status bar: no lume-menu, the bar is not drawn", "screenshot: no lume-menu"] {
         assert!(log.contains(line), "{line}: {log}");
     }
 }
 
 #[test]
-fn hint_goes_to_retroarch_and_the_bar_to_the_system() {
+fn hint_and_bar_are_drawn_by_the_system() {
     let e = setup("hint", false);
     let ra = FakeRa::new("PLAYING");
     let listener = listen(&e.dir.join("input.sock"));
@@ -710,10 +720,18 @@ fn hint_goes_to_retroarch_and_the_bar_to_the_system() {
     let mut run = spawn_logged(&e, ra.port);
     let pid = read_pid(&e.dir.join("game"), Duration::from_secs(5));
     let d = Daemon::accept(&listener);
-    d.send("fn_hold B=app_menu R1=save_state X=hud Start=quit Vol=brightness");
-    assert_eq!(ra.cmds(), ["LUME_HINT Fn+B\tFake menu|Fn+R1\tSave state|Fn+X\tStatus bar|Fn+Start\tEnd game"]);
+    // the hint: lume-menu --hint while Fn is held (the picture and the bar are the system's,
+    // always listed), nothing to RetroArch
+    d.send("fn_hold B=app_menu R1=save_state Y=screenshot X=hud Start=quit Vol=brightness");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fs::read_to_string(e.dir.join("menu.args")).unwrap().trim(), format!("--hint {pid}"));
+    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().next(),
+               Some("Fn+B\tFake menu|Fn+R1\tSave state|Fn+Y\tScreenshot|Fn+X\tStatus bar|Fn+Start\tEnd game"));
     d.send("fn_release");
-    assert_eq!(ra.cmds().last().unwrap(), "LUME_HINT -");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fs::read_to_string(e.dir.join("menu.lines")).unwrap().lines().last(), Some("closed"));
+    assert!(ra.cmds().is_empty(), "{:?}", ra.cmds());
+    fs::remove_file(e.dir.join("menu.lines")).unwrap();
     // the bar: drawn by the system (lume-menu --hud), renewed every second, then off;
     // remembered for the next game; nothing of it goes to RetroArch (the user, 2026-11-17)
     d.send("hud");

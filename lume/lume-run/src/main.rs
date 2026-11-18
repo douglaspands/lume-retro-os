@@ -108,11 +108,26 @@ struct Overlay {
     /// `lume-menu --hud`, the bar drawn by the system over any game (None: not on the screen
     /// yet; the next tick tries again, a game may not have a screen in its first second)
     bar: Option<sysmenu::SysMenu>,
+    /// `lume-menu --hint`, the chord hint while Fn is held
+    hint_proc: Option<sysmenu::SysMenu>,
+    /// `lume-menu --shot` of Fn+Y still writing its picture
+    shots: Vec<std::process::Child>,
     lang: String,
     /// the menu drawn by the system (lume-menu, D14), while it is open
     sysmenu: Option<sysmenu::SysMenu>,
     /// the group was stopped for the system-drawn menu (SIGCONT when it closes)
     stopped_for_menu: bool,
+}
+
+/// Local time as `YYMMDD-HHMMSS`, the suffix of a screenshot's name (RetroArch's own style,
+/// so the pictures of both ways sort together).
+fn stamp() -> String {
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        format!("{:02}{:02}{:02}-{:02}{:02}{:02}", tm.tm_year % 100, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
+    }
 }
 
 /// The game's title for the menu: the ROM's name without folder and extension.
@@ -248,6 +263,8 @@ impl Run {
             hint: None,
             hud: None,
             bar: None,
+            hint_proc: None,
+            shots: Vec::new(),
             lang,
             sysmenu: None,
             stopped_for_menu: false,
@@ -332,6 +349,13 @@ impl Run {
         // screen's master open until it is closed (the launcher could not take the screen)
         if let Some(b) = ov.bar.take() {
             b.close();
+        }
+        if let Some(p) = ov.hint_proc.take() {
+            p.close();
+        }
+        // a picture of Fn+Y still being written holds the game's DRM file too
+        for mut c in ov.shots.drain(..) {
+            let _ = c.wait();
         }
         if ov.hud.is_some() {
             hud::panfrost_profiling(Path::new("/"), false);
@@ -470,9 +494,34 @@ impl Run {
         }
     }
 
+    /// The hint goes away: `lume-menu --hint` gets the end of its stdin and gives the plane back.
     fn hide_hint(&self, ov: &mut Overlay) {
-        if ov.hint.take().is_some() {
-            self.ra("LUME_HINT -");
+        ov.hint = None;
+        if let Some(p) = ov.hint_proc.take() {
+            p.close();
+        }
+    }
+
+    /// Fn+Y in any game (the user, 2026-11-17: from the system, not the emulator): the picture
+    /// on the game's screen, without the bar or the hint, in ROMS/screenshots/ named by the game
+    /// and the time. lume-menu --shot runs once and exits; the loop does not wait for it.
+    fn screenshot(&self, l: &Launch, pid: libc::pid_t, ov: &mut Overlay) {
+        let Some(bin) = self.menu_bin() else {
+            log("screenshot: no lume-menu");
+            return;
+        };
+        let dir = lume_core::paths::storage().join("screenshots");
+        let out = dir.join(format!("{}-{}.png", game_title(l), stamp()));
+        match std::process::Command::new(&bin)
+            .arg("--shot")
+            .arg(pid.to_string())
+            .arg(&out)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => ov.shots.push(c),
+            Err(e) => log(&format!("screenshot: {}: {e}", bin.display())),
         }
     }
 
@@ -500,9 +549,8 @@ impl Run {
                 self.draw_menu(ov);
             }
         }
-        if let Some(h) = &ov.hint {
-            self.ra(&format!("LUME_HINT {h}"));
-        }
+        // the pictures of Fn+Y that ended (lume-menu --shot exits on its own)
+        ov.shots.retain_mut(|c| !matches!(c.try_wait(), Ok(Some(_))));
     }
 
     /// One message of the input daemon; Some(end) when the game must end.
@@ -524,7 +572,9 @@ impl Run {
                     self.menu_effect(menu::Effect::Close, l, pid, input, ov);
                 }
                 let name = a.as_str();
-                if !actions::run(l.action(name), self.ra_port, pid, input, &log) {
+                if a == Action::Screenshot {
+                    self.screenshot(l, pid, ov);
+                } else if !actions::run(l.action(name), self.ra_port, pid, input, &log) {
                     log(&format!("action {name} not supported by runner {}", l.runner));
                 }
             }
@@ -542,14 +592,21 @@ impl Run {
             Message::FnHold(table) => {
                 if ov.menu.is_open() {
                     // the menu is on the screen already
-                } else if !l.overlay {
-                    log(&format!("fn_hold ignored: runner {} draws no overlay", l.runner));
-                } else {
-                    let declared = |a: &str| if a == "hud" { l.overlay } else { l.action(a).is_some() };
+                } else if let Some(bin) = self.menu_bin() {
+                    // drawn by the system over any game (lume-menu --hint), only while Fn is
+                    // held; the bar and the picture are the system's, so they are always listed
+                    let declared = |a: &str| matches!(a, "hud" | "screenshot") || l.action(a).is_some();
                     let app = lume_core::gametext::app_name(&l.runner);
                     let text = menu::hint_text(&ov.lang, &app, &table, &declared);
-                    self.ra(&format!("LUME_HINT {text}"));
-                    ov.hint = Some(text);
+                    match sysmenu::SysMenu::start_mode(&bin, "--hint", pid, &text) {
+                        Ok(p) => {
+                            ov.hint_proc = Some(p);
+                            ov.hint = Some(text);
+                        }
+                        Err(why) => log(&format!("hint not shown: {why}")),
+                    }
+                } else {
+                    log(&format!("fn_hold ignored: no lume-menu to draw the hint (runner {})", l.runner));
                 }
             }
             Message::FnRelease => self.hide_hint(ov),

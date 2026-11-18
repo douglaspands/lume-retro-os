@@ -439,19 +439,27 @@ pub struct Bar<'a> {
     plane: u32,
     bufs: Vec<Buf>,
     front: Option<usize>,
+    pub x: i32,
+    pub y: i32,
     pub width: u32,
     pub height: u32,
     pub pitch: usize,
 }
 
 impl<'a> Bar<'a> {
+    /// A strip of the screen's width at the top (the status bar).
     pub fn new(screen: &'a Screen, height: u32) -> Result<Bar<'a>, String> {
+        Bar::at(screen, 0, 0, screen.fb.width, height)
+    }
+
+    /// A box of `w` x `h` at (`x`, `y`) of the screen (the chord hint, in the middle).
+    pub fn at(screen: &'a Screen, x: i32, y: i32, w: u32, h: u32) -> Result<Bar<'a>, String> {
         let fd = screen.fd.as_raw_fd();
         let planes = free_alpha_planes(fd, screen.crtc);
         if planes.is_empty() {
             return Err("no free plane with alpha on the game's CRTC".into());
         }
-        let mut bar = Bar { screen, plane: 0, bufs: Vec::new(), front: None, width: screen.fb.width, height, pitch: 0 };
+        let mut bar = Bar { screen, plane: 0, bufs: Vec::new(), front: None, x, y, width: w, height: h, pitch: 0 };
         for _ in 0..2 {
             bar.add_buffer().map_err(|e| format!("our buffer: {e}"))?;
         }
@@ -500,6 +508,8 @@ impl<'a> Bar<'a> {
             plane_id: self.plane,
             crtc_id: if fb == 0 { 0 } else { self.screen.crtc },
             fb_id: fb,
+            crtc_x: if fb == 0 { 0 } else { self.x },
+            crtc_y: if fb == 0 { 0 } else { self.y },
             crtc_w: if fb == 0 { 0 } else { w },
             crtc_h: if fb == 0 { 0 } else { h },
             src_w: if fb == 0 { 0 } else { w << 16 },

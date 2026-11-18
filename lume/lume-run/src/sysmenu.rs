@@ -56,8 +56,14 @@ impl SysMenu {
     /// Starts `lume-menu --hud PGID` with the first text of the status bar (D6: drawn by the
     /// system over any game); Err(why) when it did not say "ok" in time.
     pub fn start_hud(bin: &Path, pgid: libc::pid_t, first: &str) -> Result<SysMenu, String> {
+        SysMenu::start_mode(bin, "--hud", pgid, first)
+    }
+
+    /// `lume-menu <mode> PGID` (`--hud`, `--hint`) with its first line; Err(why) when it did
+    /// not say "ok" in time.
+    pub fn start_mode(bin: &Path, mode: &str, pgid: libc::pid_t, first: &str) -> Result<SysMenu, String> {
         let mut child = Command::new(bin)
-            .arg("--hud")
+            .arg(mode)
             .arg(pgid.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

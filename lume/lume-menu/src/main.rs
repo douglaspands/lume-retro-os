@@ -46,6 +46,91 @@ fn fail(why: &str) -> ExitCode {
     ExitCode::from(3)
 }
 
+/// `--shot PGID OUT.png`: the picture on the game's screen (its primary plane, so without the
+/// bar, the hint or the menu), saved as PNG; the game keeps running. Written to a temporary
+/// name and renamed, so a cut never leaves half a picture.
+fn shot(pgid: i32, out: &std::path::Path) -> ExitCode {
+    let screen = match drm::Screen::of_group(pgid) {
+        Ok(s) => s,
+        Err(why) => return fail(&why),
+    };
+    let (w, h) = (screen.fb.width as usize, screen.fb.height as usize);
+    let mut frame = vec![0u8; w * h * 4];
+    {
+        let Some(src) = screen.map_frame() else { return fail("cannot read the game's framebuffer") };
+        let mut img = draw::Image { px: &mut frame, w, h, pitch: w * 4 };
+        draw::copy_frame(&mut img, src.bytes(), screen.fb.pitches[0] as usize, screen.fb.pixel_format);
+    }
+    drop(screen);
+    // XRGB8888 (B G R X) to RGB
+    let rgb: Vec<u8> = frame.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    let tmp = out.with_extension("png.part");
+    let write = || -> Result<(), String> {
+        if let Some(dir) = out.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(f), w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.set_compression(png::Compression::Fast);
+        let mut wr = enc.write_header().map_err(|e| e.to_string())?;
+        wr.write_image_data(&rgb).map_err(|e| e.to_string())?;
+        wr.finish().map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, out).map_err(|e| e.to_string())
+    };
+    match write() {
+        Ok(()) => {
+            say(&format!("ok {}", out.display()));
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            let _ = std::fs::remove_file(&tmp);
+            fail(&format!("{}: {why}", out.display()))
+        }
+    }
+}
+
+/// `--hint PGID`: the chord hint in the middle of the screen while stdin is open; each line
+/// is the hint ("Fn+B\tRetroArch menu|Fn+R1\tSave state|..."), "-" or the end takes it away.
+fn hint(pgid: i32) -> ExitCode {
+    let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
+    let screen = match drm::Screen::of_group(pgid) {
+        Ok(s) => s,
+        Err(why) => return fail(&why),
+    };
+    let (sw, sh) = (screen.fb.width as f32, screen.fb.height as f32);
+    let mut stdin = std::io::stdin().lock().lines();
+    let Some(Ok(first)) = stdin.next() else { return ExitCode::SUCCESS };
+    let rows = bar::hint_rows(&first);
+    let (w, h) = bar::hint_size(&fonts, &rows, sh);
+    let (x, y) = (((sw - w as f32) / 2.0).round() as i32, ((sh - h as f32) / 2.0).round() as i32);
+    let mut panel = match drm::Bar::at(&screen, x, y, w, h) {
+        Ok(b) => b,
+        Err(why) => return fail(&why),
+    };
+    let (pw, ph, pitch) = (panel.width as usize, panel.height as usize, panel.pitch);
+    let mut line = first;
+    loop {
+        {
+            let px = panel.back_pixels();
+            let mut s = bar::Strip { px, w: pw, h: ph, pitch };
+            bar::draw_hint(&mut s, &fonts, &bar::hint_rows(&line), sh);
+        }
+        if let Err(e) = panel.present() {
+            return fail(&format!("SETPLANE: {e}"));
+        }
+        say("ok");
+        match stdin.next() {
+            Some(Ok(l)) if l.trim() != "-" => line = l,
+            _ => break,
+        }
+    }
+    drop(panel);
+    drop(screen);
+    ExitCode::SUCCESS
+}
+
 /// `--hud PGID`: the status bar until stdin ends.
 fn hud(pgid: i32) -> ExitCode {
     let Some(fonts) = draw::Fonts::bundled() else { return fail("no font in /usr/share/lume/fonts") };
@@ -90,11 +175,15 @@ fn hud(pgid: i32) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("--hud") {
-        return match args.get(2).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0) {
-            Some(pgid) => hud(pgid),
-            None => {
-                eprintln!("usage: lume-menu --hud PGID");
+    let mode = args.get(1).map(String::as_str);
+    if matches!(mode, Some("--hud" | "--hint" | "--shot")) {
+        let pgid = args.get(2).and_then(|a| a.parse::<i32>().ok()).filter(|p| *p > 0);
+        return match (mode, pgid, args.get(3)) {
+            (Some("--hud"), Some(p), _) => hud(p),
+            (Some("--hint"), Some(p), _) => hint(p),
+            (Some("--shot"), Some(p), Some(out)) => shot(p, std::path::Path::new(out)),
+            _ => {
+                eprintln!("usage: lume-menu --hud PGID | --hint PGID | --shot PGID OUT.png");
                 ExitCode::from(2)
             }
         };

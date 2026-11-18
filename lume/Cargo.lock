@@ -213,6 +213,7 @@ version = "0.1.0"
 dependencies = [
  "fontdue",
  "libc",
+ "png",
 ]
 
 [[package]]

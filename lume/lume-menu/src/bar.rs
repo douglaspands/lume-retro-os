@@ -7,7 +7,7 @@
 //! The pixels are premultiplied ARGB (the default blend of a DRM plane): the strip itself is
 //! (0, 0, 0, 153), and a glyph over it keeps its color at full opacity.
 
-use crate::draw::{text_width, Fonts, ACCENT, FG, MUTED};
+use crate::draw::{text_width, Fonts, ACCENT, FG, MUTED, PANEL};
 
 /// Sizes at 640x480, scaled with the screen height (the widget's 0.85 of RetroArch's font)
 pub mod px {
@@ -124,6 +124,89 @@ pub fn draw(strip: &mut Strip, fonts: &Fonts, text: &str, screen_h: f32) {
     }
 }
 
+/// Sizes of the chord hint at 640x480 (the family of the Lume menu: panel color, radius and
+/// the accent on the button)
+pub mod hint_px {
+    pub const PAD: f32 = 16.0;
+    pub const ROW: f32 = 30.0;
+    pub const TEXT: f32 = 17.0;
+    pub const GAP: f32 = 16.0;
+    pub const RADIUS: f32 = 12.8;
+}
+
+/// The rows of a hint text: `button\tname` joined by `|`.
+pub fn hint_rows(text: &str) -> Vec<(String, String)> {
+    text.split('|')
+        .filter(|r| !r.trim().is_empty())
+        .map(|r| match r.split_once('\t') {
+            Some((b, n)) => (b.trim().to_string(), n.trim().to_string()),
+            None => (r.trim().to_string(), String::new()),
+        })
+        .collect()
+}
+
+/// The panel's size (w, h) in pixels for those rows on a screen `screen_h` high.
+pub fn hint_size(fonts: &Fonts, rows: &[(String, String)], screen_h: f32) -> (u32, u32) {
+    let s = screen_h / 480.0;
+    let size = hint_px::TEXT * s;
+    let keys = rows.iter().map(|(b, _)| text_width(&fonts.bold, b, size)).fold(0.0, f32::max);
+    let names = rows.iter().map(|(_, n)| text_width(&fonts.regular, n, size)).fold(0.0, f32::max);
+    let w = keys + hint_px::GAP * s + names + 2.0 * hint_px::PAD * s;
+    let h = rows.len().max(1) as f32 * hint_px::ROW * s + 2.0 * hint_px::PAD * s;
+    // even sizes: some display engines want them
+    (((w.ceil() as u32) + 1) & !1, ((h.ceil() as u32) + 1) & !1)
+}
+
+/// Draws the hint panel filling the strip: rounded panel, a row per chord.
+pub fn draw_hint(strip: &mut Strip, fonts: &Fonts, rows: &[(String, String)], screen_h: f32) {
+    let s = screen_h / 480.0;
+    let size = hint_px::TEXT * s;
+    let (w, h, r) = (strip.w as f32, strip.h as f32, hint_px::RADIUS * s);
+    // the panel: PANEL at 94% inside the rounded rectangle, transparent outside
+    let (pr, pg, pb) = ((PANEL >> 16) & 0xff, (PANEL >> 8) & 0xff, PANEL & 0xff);
+    for y in 0..strip.h {
+        for x in 0..strip.w {
+            let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let dx = (r - cx).max(cx - (w - r)).max(0.0);
+            let dy = (r - cy).max(cy - (h - r)).max(0.0);
+            let cover = if dx > 0.0 && dy > 0.0 { (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+            let a = (240.0 * cover).round() as u32;
+            let o = y * strip.pitch + x * 4;
+            // premultiplied
+            strip.px[o..o + 4].copy_from_slice(&[(pb * a / 255) as u8, (pg * a / 255) as u8, (pr * a / 255) as u8, a as u8]);
+        }
+    }
+    let keys = rows.iter().map(|(b, _)| text_width(&fonts.bold, b, size)).fold(0.0, f32::max);
+    let pad = hint_px::PAD * s;
+    for (i, (button, name)) in rows.iter().enumerate() {
+        let top = pad + i as f32 * hint_px::ROW * s;
+        strip.text_in_row(fonts, &fonts.bold, button, size, pad, top, hint_px::ROW * s, ACCENT);
+        strip.text_in_row(fonts, &fonts.regular, name, size, pad + keys + hint_px::GAP * s, top, hint_px::ROW * s, FG);
+    }
+}
+
+impl Strip<'_> {
+    fn text_in_row(&mut self, fonts: &Fonts, font: &fontdue::Font, s: &str, size: f32, x: f32, top: f32, row_h: f32, color: u32) {
+        let lm = font.horizontal_line_metrics(size);
+        let (asc, desc) = lm.map(|m| (m.ascent, m.descent)).unwrap_or((size * 0.93, -size * 0.24));
+        let baseline = top + (row_h - (asc - desc)) / 2.0 + asc;
+        let mut pen = x;
+        for c in s.chars() {
+            pen += fonts.glyph(font, c, size, |m, bitmap| {
+                let gx = pen.round() as i32 + m.xmin;
+                let gy = baseline.round() as i32 - m.height as i32 - m.ymin;
+                for row in 0..m.height {
+                    for col in 0..m.width {
+                        let cov = bitmap[row * m.width + col] as u32;
+                        self.blend(gx + col as i32, gy + row as i32, color, cov + (cov >> 7));
+                    }
+                }
+                m.advance_width
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +247,23 @@ mod tests {
         // the last group ends near the right edge (spread over the width)
         let last_text = (0..w).rev().find(|&x| (0..h).any(|y| pixel(&buf, w * 4, x, y)[3] == 255)).unwrap();
         assert!(last_text > w - 20, "last text at {last_text}");
+    }
+
+    #[test]
+    fn hint_rows_and_panel() {
+        let rows = hint_rows("Fn+B\tRetroArch menu|Fn+X\tStatus bar|Fn+Start\tEnd game");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], ("Fn+B".to_string(), "RetroArch menu".to_string()));
+        let Some(f) = fonts() else { return };
+        let (w, h) = hint_size(&f, &rows, 480.0);
+        assert_eq!(h, 3 * 30 + 32);
+        assert!(w > 150 && w < 400 && w % 2 == 0, "{w}");
+        let mut buf = vec![0u8; w as usize * h as usize * 4];
+        let mut s = Strip { px: &mut buf, w: w as usize, h: h as usize, pitch: w as usize * 4 };
+        draw_hint(&mut s, &f, &rows, 480.0);
+        // the corner outside the radius is transparent, the middle of the panel is opaque-ish
+        assert_eq!(pixel(&buf, w as usize * 4, 0, 0)[3], 0);
+        assert!(pixel(&buf, w as usize * 4, w as usize / 2, 4)[3] >= 200);
     }
 
     #[test]
