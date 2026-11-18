@@ -158,6 +158,10 @@ fn main() -> ExitCode {
     const IDLE: Duration = Duration::from_secs(1);
     // the first screen is the menu scenario for the power service (D9)
     app.announce_menu();
+    // The first frame twice: on the GA36 (KMSDRM, lima) the first swap after a game leaves the
+    // screen black until the next one, so the launcher only showed on the first key press
+    // (2026-11-17). One extra frame at start costs a few ms.
+    app.draw(&mut c);
     let mut redraw = true;
     let code = loop {
         if redraw {
