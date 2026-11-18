@@ -58,8 +58,8 @@ CHUNK = 1 << 22
 ALIGN = 2048                        # 1 MiB, as the initramfs (initramfs/lib/storage.sh)
 MIN_ROMS = 131072                   # 64 MiB, as the initramfs
 # shipped by the lume-games and lume-retroarch-cfg fragments
-CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
-FACTORY = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory"
+CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/lume/systems.json"
+FACTORY = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/factory"
 BASE_FOLDERS = ("bios", "saves", "states", "screenshots", "system")
 
 
@@ -137,7 +137,7 @@ def populate_roms(root: Path, language: str = lang.DEFAULT) -> None:
 
     roms/<id> for every system of the catalog and the base folders (make_folders in the
     initramfs), and system/retroarch/ from the factory config with the build's language
-    (what r36os-persist seeds on a card without system/retroarch/).
+    (what lume-persist seeds on a card without system/retroarch/).
     """
     ids = [s["id"] for s in json.loads(CATALOG.read_text())["systems"]]
     for sid in ids:

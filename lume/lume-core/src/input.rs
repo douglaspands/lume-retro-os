@@ -1,6 +1,6 @@
-//! The protocol of the input daemon's socket, `/run/r36os/input.sock` (lume-hud-actions D2,
+//! The protocol of the input daemon's socket, `/run/lume/input.sock` (lume-hud-actions D2,
 //! D11, D13). SOCK_SEQPACKET, one message per packet; the header of
-//! `aports/r36os-input/input.c` describes the same protocol and both change together.
+//! `aports/lume-input/input.c` describes the same protocol and both change together.
 //!
 //! ```text
 //! daemon -> client   quit | app_menu | save_state | load_state | screenshot | hud

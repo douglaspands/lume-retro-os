@@ -49,7 +49,7 @@ fn card(name: &str, snes_games: usize, covers: bool) -> Card {
     fs::write(roms.join("snes/gamelist.xml"), gl).unwrap();
     fs::create_dir_all(roms.join("ports")).unwrap();
     fs::write(roms.join("ports/Tool.sh"), "echo").unwrap();
-    let catalog = Catalog::load(&repo().join("aports/lume-games/files/usr/share/r36os/systems.json")).unwrap();
+    let catalog = Catalog::load(&repo().join("aports/lume-games/files/usr/share/lume/systems.json")).unwrap();
     let ctx = lume_index::Ctx { storage: root.join("storage"), catalog: catalog.clone(), tile: lume_index::DEFAULT_TILE };
     for (_, r) in lume_index::update_all(&ctx, &[], false, |_, _, _| {}) {
         r.unwrap();
@@ -400,7 +400,7 @@ fn ssh_over_wifi_switch_in_the_wifi_panel() {
     a.draw(&mut cv);
     assert!(cv.has_text("On") && cv.has_text("ssh console@192.168.1.20") && cv.has_text("Code") && cv.has_text("—"));
     assert_eq!(a.wait(), Some(Duration::from_millis(1000)));
-    // the code on the card (made by r36os-ssh-wifi): shown as it is; nothing wakes the loop now
+    // the code on the card (made by lume-ssh-wifi): shown as it is; nothing wakes the loop now
     let code_file = c.root.join("storage/system/ssh/wifi-code");
     fs::create_dir_all(code_file.parent().unwrap()).unwrap();
     fs::write(&code_file, "7K4M-9Q2X\n").unwrap();
@@ -439,7 +439,7 @@ fn ssh_codes_use_the_alphabet() {
 
 #[test]
 fn level_colors_follow_the_theme_for_the_line_over_a_game() {
-    // r36os-input reads them to draw the same lines over a game (RetroArch LUME_LEVEL)
+    // lume-input reads them to draw the same lines over a game (RetroArch LUME_LEVEL)
     let c = card("levelcolors", 3, false);
     let mut a = app(&c, FakeSystem::default());
     let path = c.root.join("storage/system/lume/level-colors");

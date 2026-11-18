@@ -1,6 +1,6 @@
 //! The DRM side of lume-menu (D14): the game's own DRM file through pidfd_getfd, its primary
 //! plane's framebuffer, a dumb buffer of ours on that plane, and everything given back.
-//! No libdrm: the kernel uapi ioctls, as in r36os-shot and the J1 proof (4.6).
+//! No libdrm: the kernel uapi ioctls, as in lume-shot and the J1 proof (4.6).
 
 use std::fs;
 use std::io;

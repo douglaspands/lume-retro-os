@@ -17,7 +17,7 @@ error_logger="logger -t lume-index"
 
 depend() {
 	need localmount
-	after r36os-persist frontend
+	after lume-persist frontend
 }
 
 start() {

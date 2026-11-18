@@ -5,7 +5,7 @@
 # of the PX30/RK3326 (DSI host, Innosilicon D-PHY, VOP, GRF and CRU) plus the kernel
 # state around it (dmesg, clock tree, DRM state, live device tree), and saves them
 # next to this script, in ../regdump/<kernel>-<date>/. Meant to run on the factory
-# ArkOS card (Ports menu, /roms/ports) with the screen working, and on r36os, so the
+# ArkOS card (Ports menu, /roms/ports) with the screen working, and on Lume, so the
 # two dumps can be compared register by register.
 #
 # Only reads: /dev/mem is mapped read/write because ctypes needs a writable buffer

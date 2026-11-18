@@ -40,10 +40,10 @@ def test_trivial_apkbuild_builds_and_installs(tmp_path, monkeypatch):
     assert pub.is_file()
     assert REPO_ROOT not in pub.parents  # chave fica no cache, fora do repositório
 
-    packages.build_packages(vm, ["r36os-hello"], aports=fixtures)
+    packages.build_packages(vm, ["lume-hello"], aports=fixtures)
     # noarch vai para o diretório da arquitetura do build
     repo = packages.repo_dir(vm)
     assert (repo / "APKINDEX.tar.gz").is_file()
-    assert list(repo.glob("r36os-hello-1.0-r0.apk"))
+    assert list(repo.glob("lume-hello-1.0-r0.apk"))
 
-    assert "r36os-hello" in packages.install_test(vm, "r36os-hello", fixtures)
+    assert "lume-hello" in packages.install_test(vm, "lume-hello", fixtures)

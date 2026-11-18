@@ -10,7 +10,7 @@ a reboot, when the console is back to the card's set. Steps, all through ssh (pu
 2. take the newest published version of the fragment for that arch from
    out/repo/<arch>/hashes.json (noarch fragments are in every arch repo) and refuse what
    cannot change without a reboot: kernel, modules, device trees, the `base` slot and any
-   package that is not a project fragment (`lume-*`, `r36os-*`), and any fragment shipping
+   package that is not a project fragment (`lume-*`), and any fragment shipping
    files under /boot or /lib/modules;
 3. turn the data part of the .apk into a plain tar on the PC (no .PKGINFO, signatures,
    .lume-content or install scripts: `apk add` is not run on the console, P-14), check it
@@ -43,7 +43,7 @@ from r36os.push import PushError, Remote, console_name, console_refusal
 
 # the fragments that only change with a reboot (normal `r36os push`)
 REFUSED = frozenset({"lume-kernel", "lume-modules", "lume-dtbs"})
-PREFIXES = ("lume-", "r36os-")
+PREFIXES = ("lume-",)
 # a fragment with files here belongs to the boot, not to the running system
 BOOT_PATHS = ("boot/", "lib/modules/")
 SLOTS_MAP = REPO_ROOT / "rootfs" / "slots.toml"     # group -> packages (build-speed D9)
@@ -52,11 +52,11 @@ BLOCK = 4096                    # tmpfs page: every file takes whole pages
 MARGIN = 1 << 20                # left free in the RAM layer after the push
 FRONTEND = "frontend"
 ARCHES = {"armv7l": "armv7", "armv7": "armv7", "aarch64": "aarch64", "x86_64": "x86_64"}
-LIBEXEC = "/usr/libexec/r36os"
+LIBEXEC = "/usr/libexec/lume"
 
 _PROBE = f"""
 uname -m
-b=$(cat /etc/r36os/board 2>/dev/null); echo "${{b:--}}"
+b=$(cat /etc/lume/board 2>/dev/null); echo "${{b:--}}"
 if grep -q '^overlay / overlay .*upperdir={UPPER}' /proc/mounts; then echo overlay; else echo none; fi
 f=$(df -Pk / 2>/dev/null | awk 'NR==2{{print $4}}'); echo "${{f:--}}"
 """
@@ -111,7 +111,7 @@ def refusal(fragment: str, base: set[str] | None = None) -> str | None:
     if fragment in (base_slot_packages() if base is None else base):
         return f"{fragment} is in the base slot, it only changes with a reboot: {normal}"
     if not fragment.startswith(PREFIXES):
-        return (f"{fragment} is not a project fragment (only lume-* and r36os-* go with "
+        return (f"{fragment} is not a project fragment (only lume-* go with "
                 f"--hot): {normal}")
     return None
 

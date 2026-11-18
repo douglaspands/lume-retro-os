@@ -11,7 +11,7 @@ NET = REPO_ROOT / "aports/lume-net/files"
 CFG = REPO_ROOT / "aports/lume-retroarch-cfg/files"
 PACKAGES = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
-LUME_CFG = (CFG / "usr/share/r36os/retroarch-lume.cfg").read_text()
+LUME_CFG = (CFG / "usr/share/lume/retroarch-lume.cfg").read_text()
 
 
 FIRMWARE = ("linux-firmware-rtw88", "linux-firmware-rtlwifi", "linux-firmware-ath9k_htc",
@@ -51,7 +51,7 @@ def test_bluez_answers_the_frontend_user():
 
 def test_services_start_without_holding_the_frontend():
     # in the list of services after the frontend (build-speed D20, tests/unit/test_boot_order.py)
-    line = re.search(r'^for s in r36os-playlists .*?; do', CONFIGURE, re.S | re.M).group(0)
+    line = re.search(r'^for s in lume-playlists .*?; do', CONFIGURE, re.S | re.M).group(0)
     for service in ("dbus", "networkmanager"):
         assert re.search(rf"\b{service}\b", line), service
     # bluetooth on the consoles only: the vm kernel (linux-virt) has no Bluetooth, and

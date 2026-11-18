@@ -252,12 +252,12 @@ def _repo(tmp_path: Path, files: list[str]) -> Path:
 def test_cleanup_keeps_newest_and_previous_of_each_package(tmp_path):
     repo = _repo(tmp_path, [f"lume-launcher-0.1.0-r{n}.apk" for n in range(1, 28)]
                  + ["retroarch-1.22.2-r111.apk", "retroarch-1.22.2-r112.apk",
-                    "r36os-devmem-1.0-r0.apk", "APKINDEX.tar.gz", "hashes.json"])
+                    "lume-devmem-1.0-r0.apk", "APKINDEX.tar.gz", "hashes.json"])
     removed, freed = frag.remove_old_versions(repo, set())
     assert len(removed) == 25 and freed == 25 * 1000
     assert sorted(p.name for p in repo.iterdir()) == [
-        "APKINDEX.tar.gz", "hashes.json", "lume-launcher-0.1.0-r26.apk",
-        "lume-launcher-0.1.0-r27.apk", "r36os-devmem-1.0-r0.apk",
+        "APKINDEX.tar.gz", "hashes.json", "lume-devmem-1.0-r0.apk",
+        "lume-launcher-0.1.0-r26.apk", "lume-launcher-0.1.0-r27.apk",
         "retroarch-1.22.2-r111.apk", "retroarch-1.22.2-r112.apk"]
 
 

@@ -1,4 +1,4 @@
-//! Writer of the power FIFO `/run/r36os/power` (openspec game-governor, D1/D2).
+//! Writer of the power FIFO `/run/lume/power` (openspec game-governor, D1/D2).
 //!
 //! Protocol: one message per line, `menu`, `idle`, `game <system> <core> [<key>]`, `end` or
 //! `reload`. `<key>` is [`game_key`] of the ROM (D18): a per-game profile without the name.
@@ -77,9 +77,9 @@ pub fn is_game_key(s: &str) -> bool {
     s.len() == 16 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Path of the FIFO: `$R36OS_RUN/power` (default `/run/r36os/power`).
+/// Path of the FIFO: `$LUME_RUN/power` (default `/run/lume/power`).
 pub fn fifo_path() -> PathBuf {
-    std::env::var_os("R36OS_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/r36os")).join("power")
+    std::env::var_os("LUME_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/lume")).join("power")
 }
 
 /// Writes the message to `path` without blocking. Errors mean "not delivered" (no FIFO, no

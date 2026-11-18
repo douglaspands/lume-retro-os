@@ -415,7 +415,7 @@ pub fn panfrost_profiling(root: &Path, on: bool) {
     }
 }
 
-/// The bar's state across games (`/run/r36os/hud`, D6): shown when the file says 1.
+/// The bar's state across games (`/run/lume/hud`, D6): shown when the file says 1.
 pub fn load_shown(file: &Path) -> bool {
     read(file).as_deref() == Some("1")
 }

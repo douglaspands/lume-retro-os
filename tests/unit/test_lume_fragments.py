@@ -13,9 +13,9 @@ FRAGMENTS = ("lume-usb", "lume-net", "lume-audio", "lume-saves", "lume-diag", "l
 
 # services that `push --hot` restarts (empty: applied at the next boot or not restartable)
 RESTART = {
-    "lume-usb": "", "lume-net": "bluetooth r36os-hostshare", "lume-audio": "r36os-mixer r36os-jack",
-    "lume-saves": "r36os-persist r36os-savesync", "lume-diag": "", "lume-power": "",
-    "lume-games": "lume-index r36os-playlists", "lume-launcher-data": "",
+    "lume-usb": "", "lume-net": "bluetooth lume-hostshare", "lume-audio": "lume-mixer lume-jack",
+    "lume-saves": "lume-persist lume-savesync", "lume-diag": "", "lume-power": "",
+    "lume-games": "lume-index lume-playlists", "lume-launcher-data": "",
     "lume-retroarch-cfg": "", "lume-shaders": "",
 }
 

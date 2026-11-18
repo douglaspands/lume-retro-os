@@ -16,7 +16,7 @@ from r36os.targets import get_target
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="no podman")
 
-NAME = "r36os-hello-arch"
+NAME = "lume-hello-arch"
 
 
 @pytest.fixture
@@ -100,14 +100,14 @@ def test_noarch_fragment_skips_and_versions_in_every_arch(tmp_path, monkeypatch)
     monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
     monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
     aports = REPO_ROOT / "tests/fixtures/aports"
-    apks = packages.build_noarch(["r36os-hello"], aports=aports)
-    assert [a.name for a in apks] == ["r36os-hello-1.0-r0.apk"]
+    apks = packages.build_noarch(["lume-hello"], aports=aports)
+    assert [a.name for a in apks] == ["lume-hello-1.0-r0.apk"]
     packages.publish_noarch(apks)
     for arch in packages.REPO_ARCHES:
-        h = packages.read_repo_hashes(arch).packages["r36os-hello"]
+        h = packages.read_repo_hashes(arch).packages["lume-hello"]
         assert h.version == "1.0-r0"
         assert fragments.apk_lume_content(packages.arch_repo_dir(arch) / h.file) == h.content
-    assert packages.build_noarch(["r36os-hello"], aports=aports) == []
-    assert packages.build_noarch(["r36os-hello"], aports=aports, force=True) == []
+    assert packages.build_noarch(["lume-hello"], aports=aports) == []
+    assert packages.build_noarch(["lume-hello"], aports=aports, force=True) == []
     assert manifests.read_hashes(packages.hashes_path("armv7"), "armv7").packages[
-        "r36os-hello"].version == "1.0-r0"
+        "lume-hello"].version == "1.0-r0"

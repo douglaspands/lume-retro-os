@@ -20,7 +20,7 @@
 //!
 //! Environment (defaults in parentheses): LUME_UI (/usr/bin/lume-ui), LUME_INDEX
 //! (/usr/bin/lume-index), LUME_CGROUP (/sys/fs/cgroup/lume), LUME_INPUT_SOCK
-//! (/run/r36os/input.sock), LUME_RA_PORT (55355), R36OS_RUN (/run/r36os), XDG_RUNTIME_DIR.
+//! (/run/lume/input.sock), LUME_RA_PORT (55355), LUME_RUN (/run/lume), XDG_RUNTIME_DIR.
 
 mod actions;
 mod events;
@@ -182,9 +182,9 @@ impl Run {
             ui: env_path("LUME_UI", "/usr/bin/lume-ui"),
             index: env_path("LUME_INDEX", "/usr/bin/lume-index"),
             cgroup_base: env_path("LUME_CGROUP", "/sys/fs/cgroup/lume"),
-            input_sock: env_path("LUME_INPUT_SOCK", "/run/r36os/input.sock"),
+            input_sock: env_path("LUME_INPUT_SOCK", "/run/lume/input.sock"),
             ra_port: std::env::var("LUME_RA_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(55355),
-            events: events::Events::new(&env_path("R36OS_RUN", "/run/r36os")),
+            events: events::Events::new(&env_path("LUME_RUN", "/run/lume")),
             sig: proc::signal_fd()?,
             games: 0,
             helpers: Vec::new(),
@@ -194,7 +194,7 @@ impl Run {
     }
 
     fn status(&self, s: &str) {
-        // read by r36os-logd for the frontend state (ui, game:<runner>)
+        // read by lume-logd for the frontend state (ui, game:<runner>)
         let _ = std::fs::write(self.runtime.join("status"), format!("{s}\n"));
     }
 

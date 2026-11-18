@@ -4,7 +4,7 @@
 //! [runner]
 //! id = "retroarch"
 //! kind = "libretro"          # libretro shows Aspect and Shader and takes a core
-//! exec = ["/usr/libexec/r36os/frontends/retroarch", "-L", "{core_path}", "{rom}"]
+//! exec = ["/usr/libexec/lume/frontends/retroarch", "-L", "{core_path}", "{rom}"]
 //! quit = "retroarch-cmd"     # retroarch-cmd | sigterm
 //! timeout = 3                # seconds before the forced end
 //! overlay = "retroarch"      # optional: draws the status bar and the chord hint
@@ -18,7 +18,7 @@
 //!
 //! The image brings `/usr/share/lume/runners.d/` and the card `ROMS/system/lume/runners.d/`;
 //! with the same id, the card wins. An invalid file is refused with one log line and the
-//! other runners keep working. The rules match `r36os.catalog.validate_runner()`.
+//! other runners keep working. The rules match `lume_tool.catalog.validate_runner()`.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -83,7 +83,7 @@ pub const SIGNALS: &[(&str, i32)] = &[
 pub enum ActionForm {
     /// A network command of RetroArch (UDP 127.0.0.1:55355), e.g. `SAVE_STATE`
     RetroarchCmd(String),
-    /// A keyboard key tapped on the virtual device (`tap KEY_F2` to r36os-input)
+    /// A keyboard key tapped on the virtual device (`tap KEY_F2` to lume-input)
     Key(String),
     /// A signal to the game's process group
     Signal(String),

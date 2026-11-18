@@ -152,7 +152,7 @@ def test_quit_label_patch_keeps_the_three_languages():
                   "go back to the game list", "vuelve a la lista de juegos"):
         assert words in text, words
     # the frontend script sets the variable only when the launcher opens RetroArch
-    script = (REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch").read_text()
+    script = (REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/frontends/retroarch").read_text()
     assert "LUME_RETROARCH_QUIT=launcher" in script
 
 

@@ -1,4 +1,4 @@
-"""System catalog (`/usr/share/r36os/systems.json`), the launcher runners and their validation.
+"""System catalog (`/usr/share/lume/systems.json`), the launcher runners and their validation.
 
 The schemas are documented in docs/CATALOG.md and docs/LAUNCHER.md.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from r36os.paths import REPO_ROOT
 
-CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
+CATALOG = REPO_ROOT / "aports/lume-games/files/usr/share/lume/systems.json"
 RUNNERS_DIR = REPO_ROOT / "aports/lume-games/files/usr/share/lume/runners.d"
 ARCHES = {"x86_64", "aarch64", "armv7"}
 _ID = re.compile(r"^[a-z0-9]+$")

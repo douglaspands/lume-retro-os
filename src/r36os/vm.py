@@ -37,7 +37,7 @@ def run_dir() -> Path:
 def prepare_disk(dest: Path, append: str = "", src: Path | None = None) -> Path:
     """Throwaway copy of out/vm/vm.img, grown to 4 GB like a real card.
 
-    `append` adds parameters to the kernel cmdline in the copy (e.g. r36os.selftest=1).
+    `append` adds parameters to the kernel cmdline in the copy (e.g. lume.selftest=1).
     """
     src = src or target_out(TARGETS["vm"]) / "vm.img"
     if not src.exists():

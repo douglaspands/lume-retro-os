@@ -36,8 +36,8 @@ def test_rootfs_has_openrc_init_and_game_user(first_build):
         assert "./sbin/init" in names
         assert "./sbin/openrc" in names
         inittab = _read(tar, "./etc/inittab")
-        assert "::sysinit:/usr/libexec/r36os/rc-tee sysinit" in inittab
-        assert "/sbin/openrc" in _read(tar, "./usr/libexec/r36os/rc-tee")
+        assert "::sysinit:/usr/libexec/lume/rc-tee sysinit" in inittab
+        assert "/sbin/openrc" in _read(tar, "./usr/libexec/lume/rc-tee")
         passwd = _read(tar, "./etc/passwd")
         game = next(l for l in passwd.splitlines() if l.startswith("game:"))
         assert game.split(":")[2] == "1000"

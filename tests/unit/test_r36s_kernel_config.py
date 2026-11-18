@@ -88,7 +88,7 @@ def test_kernel_cmdline_and_boot_options():
     opts = _options(FRAGMENT)
     assert opts["CONFIG_CMDLINE_FORCE"] == "y"
     assert opts["CONFIG_INITRAMFS_SOURCE"] == '"/initramfs/initramfs.cpio"'
-    assert opts["CONFIG_LOCALVERSION"] == '"-r36os"'
+    assert opts["CONFIG_LOCALVERSION"] == '"-lume"'
 
 
 def test_fragment_keeps_mainline_cpufreq_and_thermal():

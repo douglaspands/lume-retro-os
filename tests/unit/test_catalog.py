@@ -119,7 +119,7 @@ def test_schema3_launcher_fields():
 
 def test_emulators_derived_from_core_fields():
     # the two forms agree: the libretro emulators are the default core of the architecture
-    # first, then the other cores of the system, and r36os-playlists keeps using `core`
+    # first, then the other cores of the system, and lume-playlists keeps using `core`
     by_id = {s["id"]: s for s in CAT["systems"]}
     assert catalog.emulators(by_id["nes"], "x86_64") == [
         {"runner": "retroarch", "core": "fceumm"}, {"runner": "retroarch", "core": "nestopia"}]

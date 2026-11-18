@@ -5,7 +5,7 @@ each screen from the launcher home is in tests/device/shots/screens.toml. The co
 one that reports it (`uname -m`: armv7l = ga36, aarch64 = r36s), since one card moves between
 the two consoles.
 
-PNGs are decoded and encoded with zlib/struct (no image library): r36os-shot writes plain
+PNGs are decoded and encoded with zlib/struct (no image library): lume-shot writes plain
 8-bit RGB images, and the decoder also accepts RGBA and every scanline filter.
 
 The comparison is per pixel: a pixel differs when any channel differs by more than

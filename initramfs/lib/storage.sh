@@ -154,7 +154,7 @@ setup_storage() {
 		log "ERROR: partition 2 exists but is not exFAT; nothing formatted. Continuing without ROMS."
 		;;
 	usbc)
-		log "ERROR: the first sector of partition 2 holds a USB command block (\"USBC\") instead of exFAT data: the card was corrupted by a faulty USB card reader on the PC. Nothing formatted; continuing without ROMS. Use another card reader, then repair the partition with fsck.exfat or write the card again (r36os flash --full)."
+		log "ERROR: the first sector of partition 2 holds a USB command block (\"USBC\") instead of exFAT data: the card was corrupted by a faulty USB card reader on the PC. Nothing formatted; continuing without ROMS. Use another card reader, then repair the partition with fsck.exfat or write the card again (lume flash --full)."
 		;;
 	nospace)
 		log "ERROR: no free space for ROMS partition"

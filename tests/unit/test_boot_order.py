@@ -22,10 +22,10 @@ PACKAGED = {
 }
 
 # What no game uses: started after the frontend
-LATE = ("bluetooth", "networkmanager", "r36os-playlists", "lume-index")
+LATE = ("bluetooth", "networkmanager", "lume-playlists", "lume-index")
 # What a game, the cable or the screen before the game uses: started before the frontend
-EARLY = ("seatd", "alsa", "r36os-mixer", "r36os-jack", "r36os-persist", "r36os-logd",
-         "r36os-usb", "r36os-savesync", "r36os-hostshare", "r36os-input", "r36os-hwsummary")
+EARLY = ("seatd", "alsa", "lume-mixer", "lume-jack", "lume-persist", "lume-logd",
+         "lume-usb", "lume-savesync", "lume-hostshare", "lume-input", "lume-hwsummary")
 
 
 def default_runlevel():
@@ -105,7 +105,7 @@ def test_openrc_runs_the_services_in_parallel():
 def test_every_service_of_the_default_runlevel_is_known():
     for name in NAMES:
         assert init_script(name) or name in PACKAGED, name
-    for name in LATE + EARLY + ("frontend", "dbus", "r36os-ssh-wifi", "r36os-selftest"):
+    for name in LATE + EARLY + ("frontend", "dbus", "lume-ssh-wifi", "lume-selftest"):
         assert name in NAMES, name
 
 
@@ -150,8 +150,8 @@ def test_packaged_services_get_the_order_from_conf_d():
 
 
 def test_hardware_snapshot_is_taken_after_the_frontend():
-    logd = (REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/logd").read_text()
+    logd = (REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/logd").read_text()
     run = re.search(r"^cmd_run\(\) \{(.*?)^\}", logd, re.S | re.M).group(1)
     assert run.index("wait_frontend") < run.index("hw_snapshot")
-    assert "/usr/libexec/r36os/hwinfo" in re.search(r"^hw_snapshot\(\) \{(.*?)^\}", logd,
+    assert "/usr/libexec/lume/hwinfo" in re.search(r"^hw_snapshot\(\) \{(.*?)^\}", logd,
                                                     re.S | re.M).group(1)

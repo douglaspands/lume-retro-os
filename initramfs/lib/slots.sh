@@ -1,6 +1,6 @@
 # Reader of the slot manifest <console>/SLOTS on BOOT (build-speed D9), for the init.
 # Needs the log() of storage.sh. The format (also read and written by
-# src/r36os/manifests.py, which accepts exactly the same lines):
+# src/lume_tool/manifests.py, which accepts exactly the same lines):
 #
 #   lume-slots 1
 #   build <build id>

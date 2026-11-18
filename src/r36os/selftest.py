@@ -1,6 +1,6 @@
 """`r36os test-vm`: acceptance test of the vm image (D12).
 
-Boots the VM headless with r36os.selftest=1 and the TESTDATA disk, follows the serial,
+Boots the VM headless with lume.selftest=1 and the TESTDATA disk, follows the serial,
 serves the guest self-test requests (abrupt reset, keys over QMP) and checks the power off
 on quit. Keeps the full serial log in out/vm/test-vm/.
 """
@@ -45,7 +45,7 @@ KEYS = {
     "keys-menu": ("shift_r", "s"),           # Select + X (keyboard-only shortcut)
     "keys-start-select": ("ret", "shift_r"),  # Start + Select (menu combo)
     "keys-esc": ("esc",),
-    "keys-fn-start": ("f1", "ret"),           # Fn + Start of the vm r36os-input profile
+    "keys-fn-start": ("f1", "ret"),           # Fn + Start of the vm lume-input profile
 }
 # "key-<qcode>": one key, for driving the lume-launcher (lume-launcher 8.1)
 KEY_PREFIX = "key-"
@@ -69,7 +69,7 @@ def expected_checks() -> list[str]:
         "boot-no-logs-dir", "logs-dirs", "logs-hw", "logs-game-events", "logs-metrics-game",
         "logs-cost", "logs-abrupt", "logs-metrics-last-batch", "logs-frontend-fail-event",
         "logs-recreated", "logs-service-fail", "logs-clean", "logs-disabled",
-        # OTG port sample of r36os-logd (usb-device-access 1.1)
+        # OTG port sample of lume-logd (usb-device-access 1.1)
         "logs-usb",
         # Wi-Fi and Bluetooth services, RetroArch commands on 127.0.0.1 (usb-device-access 8.2, 8.3)
         "wireless-services", "netcmd-localhost",
@@ -116,7 +116,7 @@ def test_vm(keep: bool = False) -> int:
     shutil.rmtree(out, ignore_errors=True)
     ensure_dir(out)
     d = run_dir()
-    disk = prepare_disk(d / "test.img", append="r36os.selftest=1")
+    disk = prepare_disk(d / "test.img", append="lume.selftest=1")
     td = testdata.build_testdata(d / "testdata.img")
     serial = d / "test-serial.log"
     sock = d / "test.sock"

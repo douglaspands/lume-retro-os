@@ -13,8 +13,8 @@ from r36os.paths import REPO_ROOT
 from r36os.push import CONSOLE_ADDR, PushError, Remote, split_host
 
 NET = REPO_ROOT / "aports/lume-net/files"
-VMNET = NET / "usr/libexec/r36os/vm-net"
-INIT = (NET / "etc/init.d/r36os-vmnet").read_text()
+VMNET = NET / "usr/libexec/lume/vm-net"
+INIT = (NET / "etc/init.d/lume-vmnet").read_text()
 CONFIGURE = (REPO_ROOT / "rootfs/configure.sh").read_text()
 
 
@@ -93,26 +93,26 @@ def test_main_push_passes_the_host(monkeypatch):
 
 def test_vmnet_is_enabled_on_the_vm_only():
     case = re.search(r'^case "\$BOARD" in\n(.*?)^esac', CONFIGURE, re.S | re.M).group(1)
-    assert "vm) add r36os-vmnet default ;;" in case
+    assert "vm) add lume-vmnet default ;;" in case
     # nowhere else: not in the common runlevel lists, not for ga36/r36s
-    assert CONFIGURE.count("r36os-vmnet default") == 1
+    assert CONFIGURE.count("lume-vmnet default") == 1
     for line in CONFIGURE.splitlines():
-        if "r36os-vmnet" in line and "add" in line:
+        if "lume-vmnet" in line and "add" in line:
             assert line.strip().startswith("vm)"), line
 
 
 def test_vmnet_is_not_a_console_service():
-    selftest = (REPO_ROOT / "aports/lume-diag/files/usr/libexec/r36os/selftest-device")
+    selftest = (REPO_ROOT / "aports/lume-diag/files/usr/libexec/lume/selftest-device")
     services = re.search(r"^device_services\(\) \{(.*?)^\}", selftest.read_text(),
                          re.S | re.M).group(1)
-    assert "r36os-vmnet" not in services
+    assert "lume-vmnet" not in services
 
 
 def test_service_starts_after_the_frontend_and_only_with_a_vm_nic():
     deps = re.search(r"depend\(\) \{(.*?)\n\}", INIT, re.S).group(1)
     assert "after frontend" in deps and "before" not in deps
     assert 'supervisor="supervise-daemon"' in INIT
-    assert 'command="/usr/libexec/r36os/vm-net"' in INIT and 'command_args="run"' in INIT
+    assert 'command="/usr/libexec/lume/vm-net"' in INIT and 'command_args="run"' in INIT
     start = re.search(r"^start\(\) \{(.*?)^\}", INIT, re.S | re.M).group(1)
     assert start.index("has_vm_nic") < start.index("return 0") < start.index("default_start")
     nic = re.search(r"^has_vm_nic\(\) \{(.*?)^\}", INIT, re.S | re.M).group(1)
@@ -129,7 +129,7 @@ def test_dropbear_on_the_leased_address_like_the_cable():
 
 def test_scripts_are_executable():
     assert VMNET.stat().st_mode & 0o111
-    assert (NET / "etc/init.d/r36os-vmnet").stat().st_mode & 0o111
+    assert (NET / "etc/init.d/lume-vmnet").stat().st_mode & 0o111
 
 
 # --- vm-net in a shell with a fake sysfs and fake tools ---------------------------------

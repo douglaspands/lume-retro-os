@@ -70,7 +70,7 @@
 /*
  * The question on the screen after a kexec (D10). It was off while the device tests of
  * usb-device-access ran (2026-11-13 to 2026-11-15); -DLUME_CONFIRM=0 turns it off again,
- * and then r36os-logd confirms a pending device tree when the frontend starts.
+ * and then lume-logd confirms a pending device tree when the frontend starts.
  */
 #ifndef LUME_CONFIRM
 #define LUME_CONFIRM 1
@@ -929,7 +929,7 @@ static void save_state(void)
 		lg("ERROR: cannot write %s: %s", tmp, strerror(errno));
 		return;
 	}
-	fprintf(f, "# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, r36os-logd)\n"
+	fprintf(f, "# Lume Retro OS: device tree choice of the %s device %s (lume-bootsel, lume-logd)\n"
 		   "manual=%s\ngood=%s\npending=%s\nbad=%s\n",
 		soc, *serial ? serial : "(every device: no serial number)", st.manual, st.good,
 		st.pending, st.bad);
@@ -1855,7 +1855,7 @@ static void put32(uint8_t *p, uint32_t v)
 
 /*
  * The Android boot image v0 the vendor U-Boot of the GA36 loads, built the same way as
- * src/r36os/bootimg.py (mkbootimg --base 0x40000000 --board sun8i --pagesize 2048): the
+ * src/lume_tool/bootimg.py (mkbootimg --base 0x40000000 --board sun8i --pagesize 2048): the
  * kernel is the zImage with the device tree appended, the ramdisk is empty.
  */
 static uint8_t *make_bootimg(const char *zimage, size_t zsize, const void *dtb, size_t dsize,

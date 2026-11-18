@@ -52,7 +52,7 @@ fn main() -> ExitCode {
         return screenshot(&mut app, font, std::path::Path::new(&out));
     }
     // GLES first: on lima (GA36) the default "opengl" renderer only clears the screen, no
-    // tiles and no text (seen with r36os-shot, 2026-11-14). SDL falls back to the other
+    // tiles and no text (seen with lume-shot, 2026-11-14). SDL falls back to the other
     // renderers when GLES is missing; SDL_RENDER_DRIVER in the environment still wins.
     if std::env::var_os("SDL_RENDER_DRIVER").is_none() {
         sdl2::hint::set("SDL_RENDER_DRIVER", "opengles2");
@@ -99,7 +99,7 @@ fn main() -> ExitCode {
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
         let _ = t.send(Ev::Input(a, rep));
     }));
-    // volume keys (and Fn + volume keys, the brightness): r36os-input applies them and tells
+    // volume keys (and Fn + volume keys, the brightness): lume-input applies them and tells
     // its socket clients; the level is read here as the Settings read it
     {
         use lume_ui::input::Level;

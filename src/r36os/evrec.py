@@ -1,8 +1,8 @@
-"""Reader and writer of the `r36os-evrec` recording format (change virtual-gamepad, D2).
+"""Reader and writer of the `lume-evrec` recording format (change virtual-gamepad, D2).
 
 Text format, version 1:
 
-    # r36os-evrec 1 <ga36|r36s|vm>
+    # lume-evrec 1 <ga36|r36s|vm>
     <ms> <type> <code> <value>          (one line per event, decimal integers)
     # end <ms>
 
@@ -16,7 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-MAGIC = "# r36os-evrec"
+MAGIC = "# lume-evrec"
+# Recordings made before the lume rename (device-fixes 1.2) still load on the PC; `dumps`
+# always writes MAGIC, so what `play` sends to the console has the new header.
+LEGACY_MAGIC = "# r36os-evrec"
 VERSION = 1
 CONSOLES = ("ga36", "r36s", "vm")
 
@@ -57,8 +60,8 @@ def parse(text: str, expect_console: str | None = None) -> Recording:
     if not lines:
         raise EvrecError("line 1: empty recording")
     head = lines[0].split(" ")
-    if len(head) != 4 or " ".join(head[:2]) != MAGIC:
-        raise EvrecError("line 1: bad header (want `# r36os-evrec 1 <ga36|r36s|vm>`)")
+    if len(head) != 4 or " ".join(head[:2]) not in (MAGIC, LEGACY_MAGIC):
+        raise EvrecError("line 1: bad header (want `# lume-evrec 1 <ga36|r36s|vm>`)")
     if head[2] != str(VERSION):
         raise EvrecError(f"line 1: unsupported version `{head[2]}`")
     if head[3] not in CONSOLES:

@@ -4,7 +4,7 @@
 # regular file in place of the jack input device (each 24-byte record is one event).
 set -u
 cd "$(dirname "$0")/../.."
-JACK="busybox sh aports/lume-audio/files/usr/libexec/r36os/jack"
+JACK="busybox sh aports/lume-audio/files/usr/libexec/lume/jack"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -80,7 +80,7 @@ out=$(INPUT_SYSFS="$W/sys" $JACK 2>/dev/null)
 rc=$?
 check "sysfs: no jack device is an error, named in the output" \
 	'[ "$rc" = 1 ] && printf "%s\n" "$out" | grep -q "no input device named \"rk817_int Headphones\""'
-check "service: enabled only on the R36S" 'grep -q "r36s) add r36os-jack default[;]" rootfs/configure.sh'
+check "service: enabled only on the R36S" 'grep -q "r36s) add lume-jack default[;]" rootfs/configure.sh'
 
 rm -rf "$W"
 echo "failures: $FAILS"

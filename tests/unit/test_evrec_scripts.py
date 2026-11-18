@@ -64,12 +64,19 @@ type = "close_game"
 
 def test_evrec_round_trip(tmp_path):
     text = evrec.dumps(REC)
-    assert text.splitlines()[0] == "# r36os-evrec 1 ga36"
+    assert text.splitlines()[0] == "# lume-evrec 1 ga36"
     assert text.splitlines()[-1] == "# end 500"
     assert evrec.parse(text) == REC
     f = tmp_path / "a.evrec"
     evrec.write(f, REC)
     assert evrec.read(f, "ga36") == REC
+
+
+def test_evrec_recording_from_before_the_rename_loads_and_is_written_with_the_new_header():
+    old = evrec.dumps(REC).replace(evrec.MAGIC, evrec.LEGACY_MAGIC, 1)
+    assert old.startswith(evrec.LEGACY_MAGIC + " 1 ga36\n")
+    assert evrec.parse(old) == REC
+    assert evrec.dumps(evrec.parse(old)).splitlines()[0] == "# lume-evrec 1 ga36"
 
 
 def test_evrec_wrong_console_refused(tmp_path):
@@ -83,7 +90,7 @@ def test_evrec_vm_recording_round_trip_and_cross_refusal(tmp_path):
     rec = evrec.Recording("vm", [evrec.Event(0, 1, 28, 1), evrec.Event(0, 0, 0, 0)], 10)
     f = tmp_path / "vm.evrec"
     evrec.write(f, rec)
-    assert f.read_text().splitlines()[0] == "# r36os-evrec 1 vm"
+    assert f.read_text().splitlines()[0] == "# lume-evrec 1 vm"
     assert evrec.read(f, "vm") == rec
     with pytest.raises(evrec.EvrecError, match="recording is for vm, not ga36"):
         evrec.read(f, "ga36")
@@ -102,14 +109,14 @@ def test_script_for_the_vm_console():
 
 @pytest.mark.parametrize("text,msg", [
     ("", "empty"),
-    ("# r36os-evrec 2 ga36\n# end 0\n", "version"),
-    ("# r36os-evrec 1 gba\n# end 0\n", "unknown console"),
-    ("# r36os-evrec 1 ga36\n0 1 2\n# end 0\n", "line 2"),
-    ("# r36os-evrec 1 ga36\n0 1 x 1\n# end 0\n", "line 2: bad code"),
-    ("# r36os-evrec 1 ga36\n5 1 2 1\n3 1 2 0\n# end 9\n", "line 3: time goes backwards"),
-    ("# r36os-evrec 1 ga36\n5 1 2 1\n", "missing end"),
-    ("# r36os-evrec 1 ga36\n5 1 2 1\n# end 4\n", "end time"),
-    ("# r36os-evrec 1 ga36\n# end 0\n1 1 2 1\n", "line 3: data after"),
+    ("# lume-evrec 2 ga36\n# end 0\n", "version"),
+    ("# lume-evrec 1 gba\n# end 0\n", "unknown console"),
+    ("# lume-evrec 1 ga36\n0 1 2\n# end 0\n", "line 2"),
+    ("# lume-evrec 1 ga36\n0 1 x 1\n# end 0\n", "line 2: bad code"),
+    ("# lume-evrec 1 ga36\n5 1 2 1\n3 1 2 0\n# end 9\n", "line 3: time goes backwards"),
+    ("# lume-evrec 1 ga36\n5 1 2 1\n", "missing end"),
+    ("# lume-evrec 1 ga36\n5 1 2 1\n# end 4\n", "end time"),
+    ("# lume-evrec 1 ga36\n# end 0\n1 1 2 1\n", "line 3: data after"),
 ])
 def test_evrec_strict_reader(text, msg):
     with pytest.raises(evrec.EvrecError, match=msg):

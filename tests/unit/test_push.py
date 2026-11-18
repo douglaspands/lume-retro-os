@@ -52,7 +52,7 @@ class FakeConsole:
                  gone_after=1, back_after=40, boot_ok_after=50, booted_build=None,
                  send_seconds=30, loops=None, cut_at=None, damaged_on_boot=None):
         self.clock = clock or Clock()
-        self.fragments = None           # name -> version of the lume-*/r36os-* apk packages
+        self.fragments = None           # name -> version of the lume-* apk packages
         self.boot_n, self.rebooted_at = boot_n, None
         self.gone_after, self.back_after = gone_after, back_after
         self.boot_ok_after, self.booted_build = boot_ok_after, booted_build
@@ -722,9 +722,9 @@ def test_ssh_drops_a_dead_connection_and_a_hung_probe_is_no_answer(monkeypatch):
 # --- push --hot (build-speed D11, task 5.1) -------------------------------------------------
 
 HOT_VERSION = "1.0-r3"
-HOT_FILES = {"usr/libexec/r36os/session": b"#!/bin/sh\necho new session\n",
+HOT_FILES = {"usr/libexec/lume/session": b"#!/bin/sh\necho new session\n",
              "etc/init.d/frontend": b"#!/sbin/openrc-run\n",
-             "etc/init.d/r36os-logd": b"#!/sbin/openrc-run\n"}
+             "etc/init.d/lume-logd": b"#!/sbin/openrc-run\n"}
 
 
 class FakeHotConsole:
@@ -732,7 +732,7 @@ class FakeHotConsole:
     service restarts; records every command in order."""
 
     def __init__(self, machine="armv7l", overlay=True, ram_free=20 << 20,
-                 running=("frontend", "r36os-logd"), failing=()):
+                 running=("frontend", "lume-logd"), failing=()):
         self.machine, self.overlay, self.ram_free = machine, overlay, ram_free
         self.running, self.failing = set(running), set(failing)
         self.cmds = []
@@ -795,12 +795,12 @@ def test_hot_extracts_the_files_logs_the_event_and_restarts_the_services(repo, t
     assert all(not pax for _, pax in console.root.values())
     probe, extract, event, restart = console.cmds
     assert extract == "tar -xf - -C /"
-    assert event == (". /usr/libexec/r36os/lib.sh && . /usr/libexec/r36os/logs.sh && "
+    assert event == (". /usr/libexec/lume/lib.sh && . /usr/libexec/lume/logs.sh && "
                      f"event push OK hot lume-core {HOT_VERSION} && {{ logs_flush; true; }}")
-    assert restart.startswith("for s in frontend r36os-logd; do")
+    assert restart.startswith("for s in frontend lume-logd; do")
     assert f"event:   push OK hot lume-core {HOT_VERSION}" in lines
     assert any("restarts the launcher session" in ln for ln in lines)
-    assert "restart: frontend" in lines and "restart: r36os-logd" in lines
+    assert "restart: frontend" in lines and "restart: lume-logd" in lines
     assert lines[-1] == f"ok: lume-core {HOT_VERSION} is live until the next reboot"
     # nothing touches BOOT, the card's SYSTEM or apk
     assert not any("/boot" in c or "apk add" in c or "reboot" in c for c in console.cmds)
@@ -817,19 +817,19 @@ def test_hot_restarts_what_lume_restart_lists_and_leaves_stopped_services(repo, 
     aports = tmp_path / "aports"
     (aports / "lume-core").mkdir(parents=True)
     (aports / "lume-core/APKBUILD").write_text(
-        'pkgname=lume-core\n_lume_restart="r36os-logd lume-extra"\n')
-    console = FakeHotConsole(running=("r36os-logd",))
+        'pkgname=lume-core\n_lume_restart="lume-logd lume-extra"\n')
+    console = FakeHotConsole(running=("lume-logd",))
     rc, lines = hot(console, tmp_path, aports=aports)
-    assert rc == 0 and console.cmds[-1].startswith("for s in r36os-logd lume-extra; do")
+    assert rc == 0 and console.cmds[-1].startswith("for s in lume-logd lume-extra; do")
     assert "restart: lume-extra not running, left stopped" in lines
     assert not any("launcher session" in ln for ln in lines)
 
 
 def test_hot_reports_a_failed_restart_with_a_fail_event(repo, tmp_path):
-    console = FakeHotConsole(failing=("r36os-logd",))
-    with pytest.raises(push.PushError, match="restart of r36os-logd failed"):
+    console = FakeHotConsole(failing=("lume-logd",))
+    with pytest.raises(push.PushError, match="restart of lume-logd failed"):
         hot(console, tmp_path)
-    assert f"event push FAIL hot lume-core {HOT_VERSION} restart r36os-logd" in console.cmds[-1]
+    assert f"event push FAIL hot lume-core {HOT_VERSION} restart lume-logd" in console.cmds[-1]
 
 
 @pytest.mark.parametrize("fragment,why", [
@@ -1260,7 +1260,7 @@ def test_a_push_whose_console_fell_back_to_slots_old_fails(builds):
 # --- fragment versions after the boot (build-speed task 8.2) ---------------------------------
 
 E = "20261117-130000"
-SENT = {"lume-core": "1.0-r5", "lume-diag": "1.0-r2", "r36os-logd": "1.0-r1"}
+SENT = {"lume-core": "1.0-r5", "lume-diag": "1.0-r2", "lume-logd": "1.0-r1"}
 
 
 def build_with_packages(tmp_path):
@@ -1302,7 +1302,7 @@ def test_fragment_mismatches_name_both_versions():
     assert got == ["the console runs lume-core 1.0-r4, the push sent 1.0-r5"]
     got = push.fragment_mismatches(SENT, {"lume-core": "1.0-r5"})
     assert got == ["the console has no lume-diag, the push sent 1.0-r2",
-                   "the console has no r36os-logd, the push sent 1.0-r1"]
+                   "the console has no lume-logd, the push sent 1.0-r1"]
 
 
 def test_push_confirms_the_fragments_installed_after_the_boot(builds, tmp_path):

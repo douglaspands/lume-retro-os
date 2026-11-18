@@ -31,7 +31,7 @@ PACKAGES = {
     "retroarch": ("1.22.2-r112", [("usr/bin", [("retroarch", b"ra")]),
                                   ("usr/share/retroarch", [("a.png", b"png")])]),
     "libretro-fceumm": ("0_git20241123-r0", [("usr/lib/libretro", [("fceumm.so", b"core")])]),
-    "lume-core": ("1.0-r3", [("usr/libexec/r36os", [("logd", b"logd")])]),
+    "lume-core": ("1.0-r3", [("usr/libexec/lume", [("logd", b"logd")])]),
     "mesa-egl": ("26.1.6-r0", [("usr/lib", [("libEGL.so.1", b"egl"),
                                             ("libEGL.so", b"libEGL.so.1")])]),
 }
@@ -148,7 +148,7 @@ def test_files_go_to_the_slot_of_their_owner(tmp_path):
     assert sp.files["./usr/bin/retroarch"] == "runtime"
     assert sp.files["./usr/lib/libretro/fceumm.so"] == "runtime"
     assert sp.files["./usr/lib/libEGL.so"] == "runtime"            # symlink, Z of target
-    assert sp.files["./usr/libexec/r36os/logd"] == "lume"
+    assert sp.files["./usr/libexec/lume/logd"] == "lume"
     # an owned empty directory stays with its owner (default group: base)
     assert sp.dirs["./var/empty"] == {"base"}
     assert sp.packages["lume"] == [("lume-core", "1.0-r3")]
@@ -208,7 +208,7 @@ def test_a_file_owned_by_two_groups_goes_to_lume(tmp_path):
     assert db.versions == {"a": "1-r0", "b": "1-r0"}
     # the same in a rootfs: busybox (base) and lume-core (lume) both list etc/inittab
     PACKAGES_TWO = dict(PACKAGES)
-    PACKAGES_TWO["lume-core"] = ("1.0-r3", [("usr/libexec/r36os", [("logd", b"logd")]),
+    PACKAGES_TWO["lume-core"] = ("1.0-r3", [("usr/libexec/lume", [("logd", b"logd")]),
                                             ("bin", [("busybox", b"bb")])])
     old = dict(PACKAGES)
     PACKAGES.clear()
@@ -255,7 +255,7 @@ def test_slots_toml_groups():
     assert groups.group_of("sdl2") == "runtime"
     assert groups.group_of("lume-launcher") == "lume"
     assert groups.group_of("lume-bootsel") == "lume"
-    assert groups.group_of("r36os-input") == "lume"
+    assert groups.group_of("lume-input") == "lume"
     assert groups.group_of("busybox") == "base"
     assert groups.group_of("musl") == "base"                    # not named: the default
     # every local aport goes to a named group
@@ -497,7 +497,7 @@ def test_only_the_slots_whose_content_changed_are_packed_again(tmp_path, monkeyp
     assert slots.rebuilt_slots(sdir) == ["base", "runtime", "lume"]
     # a new lume-core: its file and the apk database (no owner) are both in lume
     monkeypatch.setitem(PACKAGES, "lume-core",
-                        ("1.1-r0", [("usr/libexec/r36os", [("logd", b"new logd")])]))
+                        ("1.1-r0", [("usr/libexec/lume", [("logd", b"new logd")])]))
     again = slots.build_overlay_slots(_rootfs(tmp_path / "rootfs.tar", mtime=7), sdir, "-a",
                                       GROUPS, squash=_recording_squash(runs))
     assert runs[1:] == [["lume"]]

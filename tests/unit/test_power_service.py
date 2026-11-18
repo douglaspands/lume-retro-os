@@ -1,4 +1,4 @@
-"""Tests for the r36os-power service (openspec game-governor, node 2.2).
+"""Tests for the lume-power service (openspec game-governor, node 2.2).
 
 The service is POSIX shell: each test runs it with `sh` against a fake sysfs tree, talks to it
 through its FIFO and reads the sysfs writes (PW_TRACE), the events and power.state.
@@ -16,13 +16,13 @@ import pytest
 from r36os.paths import REPO_ROOT
 
 POWER = REPO_ROOT / "aports/lume-power/files"
-SERVICE = POWER / "usr/bin/r36os-power"
-INIT = POWER / "etc/init.d/r36os-power"
-CORE_LIB = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os"
+SERVICE = POWER / "usr/bin/lume-power"
+INIT = POWER / "etc/init.d/lume-power"
+CORE_LIB = REPO_ROOT / "aports/lume-core/files/usr/libexec/lume"
 GA36_CONF = POWER / "usr/share/lume/power/ga36.conf"
 R36S_CONF = POWER / "usr/share/lume/power/r36s.conf"
 CONFIGURE_SH = REPO_ROOT / "rootfs/configure.sh"
-SYSTEMS_JSON = REPO_ROOT / "aports/lume-games/files/usr/share/r36os/systems.json"
+SYSTEMS_JSON = REPO_ROOT / "aports/lume-games/files/usr/share/lume/systems.json"
 
 # the OPP table of the mainline sun8i-a33.dtsi, in kHz
 A33_FREQS = "120000 240000 312000 408000 480000 504000 600000 648000 720000 816000 912000 1008000"
@@ -79,7 +79,7 @@ class Service:
         lib.mkdir()
         for f in ("lib.sh", "logs.sh"):
             shutil.copy(CORE_LIB / f, lib / f)
-        shutil.copy(POWER / "usr/libexec/r36os/power-profiles.sh", lib)
+        shutil.copy(POWER / "usr/libexec/lume/power-profiles.sh", lib)
         share = tmp / "share"
         share.mkdir()
         if conf is not None:
@@ -715,9 +715,9 @@ def test_forged_controller_message_is_ignored(tmp_path, services):
 def powerctl(tmp_path_factory):
     if CC is None:
         pytest.skip("no C compiler")
-    exe = tmp_path_factory.mktemp("powerctl") / "r36os-powerctl"
+    exe = tmp_path_factory.mktemp("powerctl") / "lume-powerctl"
     r = subprocess.run([CC, "-Wall", "-Wextra", "-Werror", "-o", str(exe),
-                        str(REPO_ROOT / "aports/r36os-powerctl/powerctl.c")],
+                        str(REPO_ROOT / "aports/lume-powerctl/powerctl.c")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return exe
@@ -752,7 +752,7 @@ def test_real_controller_refuses_without_userspace_and_the_profile_stays(tmp_pat
     s.start()
     s.send("game psx pcsx_rearmed")
     s.wait_event("profile: game -> heavy (without controller)")
-    assert ("power FAIL controller: exit 3: r36os-powerctl: refused: userspace governor not available"
+    assert ("power FAIL controller: exit 3: lume-powerctl: refused: userspace governor not available"
             in s.events())
     assert s.sysfs(f"{CF}/scaling_governor") == "ondemand"
 
@@ -906,9 +906,9 @@ def test_ga36_conf_initial_values():
 
 
 def test_service_is_in_the_boot_runlevel_and_supervised():
-    assert "add r36os-power boot" in CONFIGURE_SH.read_text()
+    assert "add lume-power boot" in CONFIGURE_SH.read_text()
     text = INIT.read_text()
     assert text.startswith("#!/sbin/openrc-run")
-    assert 'command="/usr/bin/r36os-power"' in text and 'command_args="run"' in text
+    assert 'command="/usr/bin/lume-power"' in text and 'command_args="run"' in text
     assert 'supervisor="supervise-daemon"' in text
     assert os.access(SERVICE, os.X_OK) and os.access(INIT, os.X_OK)

@@ -1,0 +1,101 @@
+#!/bin/sh
+# Pendrive on the OTG port, host role (usb-device-access D8, P-38).
+#
+# usb-storage add <name>: called by udev (/etc/udev/rules.d/90-lume-usb-storage.rules) for
+# each filesystem of a USB disk (sda1, or sda for a disk without a partition table), with
+# ID_FS_TYPE and ID_FS_LABEL from udev. vfat, exfat and ext2/3/4 are mounted read-write
+# under /storage/usb/<label or name>, where the RetroArch file browser reaches them; the FAT
+# ones belong to the frontend user and use "flush", so a pendrive pulled out loses at most
+# what was being written.
+# usb-storage remove <name>: lazy unmount and the empty folder removed.
+# Each mount and removal is a usb event of events.log.
+#
+# Environment for the tests: USB_MOUNT_ROOT (default /storage/usb), MOUNTS_FILE (default
+# /proc/mounts), MOUNT, UMOUNT, DEV_DIR (default /dev), GAME_UID, GAME_GID, USB_LIBDIR,
+# LOGS_RAM, KMSG.
+USB_MOUNT_ROOT=${USB_MOUNT_ROOT:-/storage/usb}
+MOUNTS_FILE=${MOUNTS_FILE:-/proc/mounts}
+MOUNT=${MOUNT:-mount}
+UMOUNT=${UMOUNT:-umount}
+DEV_DIR=${DEV_DIR:-/dev}
+KMSG=${KMSG:-/dev/kmsg}
+
+. "${USB_LIBDIR:-/usr/libexec/lume}/lib.sh"
+. "${USB_LIBDIR:-/usr/libexec/lume}/logs.sh"
+
+say() {
+	echo "usb-storage: $1"
+	[ -w "$KMSG" ] && echo "lume-usb-storage: $1" >> "$KMSG" 2>/dev/null
+	return 0
+}
+
+game_id() {  # -u|-g
+	id "$1" game 2>/dev/null || echo 1000
+}
+
+# mount point of a device, from the mounts table (empty when not mounted)
+mounted_on() {
+	local dev mp rest
+	while read -r dev mp rest; do
+		[ "$dev" = "$1" ] && { echo "$mp"; return 0; }
+	done < "$MOUNTS_FILE"
+	return 0
+}
+
+# a folder name from the label: letters, digits, dot, dash and underscore only
+folder_name() {  # label name
+	local n
+	n=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^[._]*//')
+	echo "${n:-$2}"
+}
+
+cmd_add() {
+	local name="$1" dev="$DEV_DIR/$1" fs="${ID_FS_TYPE:-}" dir opts uid gid
+	[ -n "$(mounted_on "$dev")" ] && return 0
+	case "$fs" in
+	vfat|exfat|ext2|ext3|ext4) ;;
+	"") return 0 ;;   # no filesystem (the disk of a partitioned pendrive)
+	*)
+		event usb FAIL "storage: $name has $fs, not mounted (vfat, exfat or ext4 only)"
+		say "$name: $fs is not supported"
+		return 0 ;;
+	esac
+	dir="$USB_MOUNT_ROOT/$(folder_name "${ID_FS_LABEL:-}" "$name")"
+	# two pendrives with the same label: the second gets the device name too
+	[ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ] && dir="$dir-$name"
+	uid=${GAME_UID:-$(game_id -u)}
+	gid=${GAME_GID:-$(game_id -g)}
+	case "$fs" in
+	vfat) opts="rw,noatime,uid=$uid,gid=$gid,umask=022,flush" ;;
+	exfat) opts="rw,noatime,uid=$uid,gid=$gid,umask=022" ;;
+	*) opts="rw,noatime" ;;
+	esac
+	mkdir -p "$dir"
+	if $MOUNT -t "$fs" -o "$opts" "$dev" "$dir"; then
+		event usb OK "storage: mounted $name ($fs${ID_FS_LABEL:+, \"$ID_FS_LABEL\"}) on $dir"
+		say "$name mounted on $dir"
+	else
+		rmdir "$dir" 2>/dev/null
+		event usb FAIL "storage: could not mount $name ($fs)"
+		say "ERROR: could not mount $name ($fs)"
+	fi
+	return 0
+}
+
+cmd_remove() {
+	local name="$1" dir
+	dir=$(mounted_on "$DEV_DIR/$name")
+	[ -n "$dir" ] || return 0
+	$UMOUNT -l "$dir"
+	rmdir "$dir" 2>/dev/null
+	event usb OK "storage: removed $name from $dir"
+	say "$name removed from $dir"
+	return 0
+}
+
+case "$1" in
+add) [ -n "$2" ] && cmd_add "$2" ;;
+remove) [ -n "$2" ] && cmd_remove "$2" ;;
+*) echo "usage: $0 add|remove <device name>" >&2; exit 2 ;;
+esac
+exit 0

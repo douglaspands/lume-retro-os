@@ -215,7 +215,7 @@ def test_boot_log_command_runs_in_busybox_sh(tmp_path):
         import pytest
         pytest.skip("no sh")
     # same command against a fake tree: the paths are rewritten under tmp_path
-    run = tmp_path / "run/r36os/logs"
+    run = tmp_path / "run/lume/logs"
     (run / "boot").mkdir(parents=True)
     (run / "boot-n").write_text("7\n")
     (run / "boot/boot-7.log").write_text("== boot 7\n")

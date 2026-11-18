@@ -11,7 +11,7 @@ from r36os import archive, cli, fragment_build as fb, image, manifests, slots, v
 from r36os.targets import IMAGES
 
 GROUPS = slots.Groups(patterns={"runtime": ("retroarch", "libretro-*", "mesa", "mesa-*"),
-                                "lume": ("lume-*", "r36os-*"), "base": ()},
+                                "lume": ("lume-*",), "base": ()},
                       default="base")
 
 
@@ -25,7 +25,7 @@ APORTS = {a.name: a for a in [
     _aport("lume-theme", "noarch", deps=["lume-core"]),
     _aport("lume-launcher", "x86_64 armv7 aarch64", deps=["cargo", "sdl2-dev"]),
     _aport("lume-bootsel", "all", deps=["linux-headers"]),
-    _aport("r36os-devmem", "armv7"),
+    _aport("lume-devmem", "armv7"),
     _aport("mesa", "x86_64", subs=["mesa-dev", "mesa-egl"]),
     _aport("libretro-common", "all", subs=["libretro-common-dev"]),
     _aport("libretro-a", "all", deps=["libretro-common-dev", "linux-headers"]),
@@ -50,9 +50,9 @@ def test_noarch_fragment_reaches_both_consoles_and_only_the_lume_slot():
 
 
 def test_arch_fragment_reaches_only_the_consoles_of_its_arch():
-    p = plan(["r36os-devmem"])                       # arch="armv7": the GA36 only
+    p = plan(["lume-devmem"])                       # arch="armv7": the GA36 only
     assert p.consoles == ("ga36",)
-    assert p.packages == {"ga36": ("r36os-devmem",)}
+    assert p.packages == {"ga36": ("lume-devmem",)}
     assert p.noarch == ()
     assert any(line.startswith("  r36s: unchanged") for line in p.lines())
 
@@ -80,8 +80,8 @@ def test_console_option_restricts_the_plan():
     assert p.consoles == ("r36s",)
     assert p.packages == {"r36s": ("libretro-a",)}       # libretro-b skips aarch64
     assert p.noarch == ("lume-core", "lume-theme")
-    with pytest.raises(fb.FragmentPlanError, match="r36os-devmem is not built for the r36s"):
-        plan(["r36os-devmem"], console="r36s")
+    with pytest.raises(fb.FragmentPlanError, match="lume-devmem is not built for the r36s"):
+        plan(["lume-devmem"], console="r36s")
     with pytest.raises(fb.FragmentPlanError, match="--console vm"):
         plan(["lume-core"], console="vm")
 
@@ -103,8 +103,8 @@ def test_kernel_fragment_redoes_only_stage_1_of_the_console_asked():
     # both consoles without --console; the package names work as aliases
     assert plan(["lume-kernel"]).stage1 == ("ga36", "r36s")
     # with a package of that console: both in one build
-    p = plan(["kernel", "r36os-devmem"], console="ga36")
-    assert p.packages == {"ga36": ("r36os-devmem",)} and p.stage1 == ("ga36",)
+    p = plan(["kernel", "lume-devmem"], console="ga36")
+    assert p.packages == {"ga36": ("lume-devmem",)} and p.stage1 == ("ga36",)
 
 
 def test_stage1_fragments_are_the_ones_the_initramfs_installs():

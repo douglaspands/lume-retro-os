@@ -68,7 +68,7 @@ def _parser() -> argparse.ArgumentParser:
                    help="reboot and return, without waiting for the console to come back "
                         "and checking the new boot")
     u.add_argument("--hot", metavar="FRAGMENT",
-                   help="extract one lume-*/r36os-* fragment into the console's RAM layer "
+                   help="extract one lume-* fragment into the console's RAM layer "
                         "and restart its services, without a reboot (gone after a reboot; "
                         "not for kernel, modules or base)")
     u.add_argument("--console", choices=("ga36", "r36s"),
@@ -122,7 +122,7 @@ def _parser() -> argparse.ArgumentParser:
         action.add_argument("--console", choices=("ga36", "r36s", "vm"),
                             help="refuse to run when the console on the cable is the other one")
 
-    wt = ds.add_parser("watch", help="on every saved file of a lume-*/r36os-* fragment: "
+    wt = ds.add_parser("watch", help="on every saved file of a lume-* fragment: "
                                      "fragment build, then push --hot (Ctrl-C ends)")
     wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
     for action in (w, sh, st, ky, lg, ck, rp, rc, pl, rn, wt):

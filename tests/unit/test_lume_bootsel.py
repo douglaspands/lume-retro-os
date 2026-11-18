@@ -971,7 +971,7 @@ def test_without_a_confirm_key_there_is_no_question(tools, root, keys_file, devi
     assert rc == 0
     assert ("no question on the screen (no confirm key or tty1): ga36-panel2 stays pending "
             "until the frontend starts") in err
-    assert root.state()["pending"] == "ga36-panel2"          # for r36os-logd
+    assert root.state()["pending"] == "ga36-panel2"          # for lume-logd
 
 
 def test_the_package_builds_with_the_question():
