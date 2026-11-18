@@ -5,3 +5,13 @@
 SUBSYSTEM=="input", ATTRS{name}=="gpio-keys|adc-joystick", ENV{ID_INPUT_JOYSTICK}=""
 # GA36: the kernel gamepad (BUS_HOST); the virtual one has the same name on BUS_VIRTUAL
 SUBSYSTEM=="input", ATTRS{name}=="GA36-MB Gamepad", ATTRS{id/bustype}=="0019", ENV{ID_INPUT_JOYSTICK}=""
+
+# Read-only nodes for the games (device-fixes D16, P-87): the user of the games is in the
+# input group and could inject events by writing to a node. Only lume-input (root) writes to
+# the built-in controls, the virtual gamepad and the power/volume buttons. Matched by name,
+# never by event number; USB pads keep 0660 (rumble and LEDs need write).
+# built-in controls and buttons: R36S (gpio-keys, adc-joystick, adc-keys, rk805-pwrkey) and
+# GA36 (the kernel gamepad, the LRADC volume buttons, axp20x-pek)
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ENV{ID_BUS}!="usb", ATTRS{name}=="gpio-keys|adc-joystick|adc-keys|volume-keys|rk805-pwrkey|axp20x-pek|1c22800.lradc|GA36-MB Gamepad", MODE="0640"
+# the virtual gamepad published by lume-input (any board name, BUS_VIRTUAL)
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{name}=="R36S Gamepad|GA36-MB Gamepad", ATTRS{id/bustype}=="0006", MODE="0640"
