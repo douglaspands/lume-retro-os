@@ -5,11 +5,13 @@
 //! in white, and a thin divider between groups (the user's choice, 2026-11-17):
 //!
 //! ```text
-//! CPU 47% 1008MHz|GPU 62%|MEM 124/1006M sw 200M|BAT 74% 1.9W 2:40
+//! FPS 59.7|CPU 47% 1008|GPU 62%|MEM 124/492 sw 20|BAT 74% 1.9W 2:40
 //! ```
 //!
 //! `--` stands for a value that cannot be read and `--:--` for no estimate yet; charging,
-//! `BAT 74% + 0:50` (the time until full). MEM is used/total and the swap in use, in MiB.
+//! `BAT 74% + 0:50` (the time until full). FPS: the game's frames per second, from the frame
+//! counter of RetroArch's GET_STATUS between two samples. CPU: the use (mean of the cores) and
+//! the clock in MHz. MEM is used/total and the swap only when in use, in MiB.
 //!
 //! Every path hangs from `root` (`/` on the console), so the tests use fake trees.
 
@@ -49,6 +51,9 @@ pub struct Hud {
     /// (seconds since the first sample, |current| in uA, capacity)
     samples: VecDeque<(f64, i64, Option<u32>)>,
     battery_dir: Option<Option<PathBuf>>,
+    /// (frame counter, seconds) of the last sample and the FPS between the last two
+    last_frames: Option<(u64, f64)>,
+    fps: Option<f64>,
 }
 
 fn read(p: &Path) -> Option<String> {
@@ -69,7 +74,24 @@ impl Hud {
             last_gpu: None,
             samples: VecDeque::new(),
             battery_dir: None,
+            last_frames: None,
+            fps: None,
         }
+    }
+
+    /// The game's frame counter now (RetroArch's GET_STATUS, patch 0004), before `sample`;
+    /// None when it did not answer. The FPS is the frames between two samples over the time.
+    pub fn frames(&mut self, frames: Option<u64>, elapsed: f64) {
+        let Some(n) = frames else {
+            self.last_frames = None;
+            self.fps = None;
+            return;
+        };
+        self.fps = match self.last_frames {
+            Some((p, t)) if n >= p && elapsed > t => Some((n - p) as f64 / (elapsed - t)),
+            _ => None,
+        };
+        self.last_frames = Some((n, elapsed));
     }
 
     fn path(&self, p: &str) -> PathBuf {
@@ -270,7 +292,9 @@ impl Hud {
             .map(|(u, t, s)| if s > 0 { format!("{u}/{t} sw {s}") } else { format!("{u}/{t}") })
             .unwrap_or_else(|| "--".into());
         let bat = self.battery_text(elapsed);
-        format!("CPU {cpu}|GPU {gpu}|MEM {mem}|{bat}")
+        // the FPS first (the user, 2026-11-17: "muito importante"); one decimal, as RetroArch's
+        let fps = self.fps.map(|f| format!("{f:.1}")).unwrap_or_else(|| "--".into());
+        format!("FPS {fps}|CPU {cpu}|GPU {gpu}|MEM {mem}|{bat}")
     }
 }
 
@@ -355,10 +379,31 @@ mod tests {
         gpu(&d, &[("gp", 0), ("pp", 0)]);
         let mut h = Hud::new(&d, 42);
         // the first sample has no difference yet
-        assert_eq!(h.sample(0.0), "CPU -- 1008|GPU --|MEM 124/1006 sw 200|BAT --");
+        h.frames(Some(1000), 0.0);
+        assert_eq!(h.sample(0.0), "FPS --|CPU -- 1008|GPU --|MEM 124/1006 sw 200|BAT --");
         stat(&d, 147, 953); // 47 busy of 100
         gpu(&d, &[("gp", 100_000_000), ("pp", 620_000_000)]);
-        assert_eq!(h.sample(1.0), "CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
+        h.frames(Some(1060), 1.0);
+        assert_eq!(h.sample(1.0), "FPS 60.0|CPU 47% 1008|GPU 62%|MEM 124/1006 sw 200|BAT --");
+    }
+
+    #[test]
+    fn fps_from_the_frame_counter() {
+        let d = tree("fps");
+        let mut h = Hud::new(&d, 42);
+        h.frames(Some(0), 0.0);
+        h.frames(Some(54), 2.0);
+        assert!(h.sample(2.0).starts_with("FPS 27.0|"), "{}", h.sample(2.0));
+        // RetroArch silent: no value, and the next answer starts the count again
+        h.frames(None, 3.0);
+        assert!(h.sample(3.0).starts_with("FPS --|"));
+        h.frames(Some(200), 4.0);
+        assert!(h.sample(4.0).starts_with("FPS --|"));
+        h.frames(Some(260), 5.0);
+        assert!(h.sample(5.0).starts_with("FPS 60.0|"));
+        // a new game resets the counter: no negative FPS
+        h.frames(Some(10), 6.0);
+        assert!(h.sample(6.0).starts_with("FPS --|"));
     }
 
     #[test]
@@ -376,7 +421,7 @@ mod tests {
         assert!(h2.sample(1.0).contains("GPU --"));
         // no cpufreq (the vm): the clock is --
         fs::remove_file(d2.join("sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq")).unwrap();
-        assert!(h2.sample(2.0).starts_with("CPU --|"), "no clock: only the use");
+        assert!(h2.sample(2.0).starts_with("FPS --|CPU --|"), "no clock: only the use");
     }
 
     #[test]

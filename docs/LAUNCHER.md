@@ -39,8 +39,10 @@ voltou a ser do jogo. Se o programa do jogo travar, o toque no Fn mostra "Força
 A barra, a lista de atalhos e o menu aparecem nos jogos do RetroArch; num Port ou num jogo LÖVE,
 só Fn+Start vale nesta versão (os outros atalhos só deixam uma linha no log).
 
-A barra mostra `CPU 47% 1008 │ GPU 62% │ MEM 124/492 sw 20 │ BAT 74% 1.9W 2:40`, espalhada pela
-largura da tela, com os rótulos na cor de destaque e uma divisória entre os grupos: uso (média
+A barra mostra `FPS 59.7 │ CPU 47% 1008 │ GPU 62% │ MEM 124/492 sw 20 │ BAT 74% 1.9W 2:40`,
+espalhada pela largura da tela em letra 15% menor que a dos outros avisos, com os rótulos na cor
+de destaque e uma divisória entre os grupos: quadros por segundo do jogo (pelo contador de
+quadros do `GET_STATUS` do RetroArch, a cada segundo), uso (média
 dos núcleos) e clock da CPU em MHz, uso da GPU (no GA36, que não informa o uso, o clock dela em
 MHz), memória usada/total e o swap só quando em uso, em MiB, e bateria (nível, potência e tempo
 restante;

@@ -49,6 +49,9 @@ const EXIT_LAUNCH: i32 = 64;
 const EXIT_MENU: i32 = 65;
 /// After cgroup.kill, how long the cgroup may take to empty
 const KILL_GRACE: Duration = Duration::from_secs(2);
+/// How long the bar waits for RetroArch's frame counter each second (a frozen RetroArch
+/// costs the loop no more than this)
+const HUD_STATUS_WAIT: Duration = Duration::from_millis(100);
 /// Gap between the two QUIT commands (RetroArch's quit_press_twice wants a second one)
 const QUIT_GAP: Duration = Duration::from_millis(200);
 
@@ -371,6 +374,8 @@ impl Run {
         if on {
             hud::panfrost_profiling(Path::new("/"), true);
             let mut h = hud::Hud::new(Path::new("/"), pid);
+            // the first count: the FPS shows from the next sample on
+            h.frames(actions::ra_frames(self.ra_port, HUD_STATUS_WAIT), 0.0);
             let text = h.sample(0.0);
             self.ra(&format!("LUME_HUD {text}"));
             ov.hud = Some((h, Instant::now()));
@@ -461,6 +466,8 @@ impl Run {
     /// capture (the daemon ends it after 2 s of silence).
     fn tick(&self, ov: &mut Overlay, input: Option<RawFd>) {
         if let Some((h, since)) = &mut ov.hud {
+            // the frame counter for the FPS: RetroArch answers on its next frame (~17 ms)
+            h.frames(actions::ra_frames(self.ra_port, HUD_STATUS_WAIT), since.elapsed().as_secs_f64());
             let text = h.sample(since.elapsed().as_secs_f64());
             self.ra(&format!("LUME_HUD {text}"));
         }

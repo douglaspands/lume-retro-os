@@ -45,6 +45,21 @@ pub fn ra_status(port: u16, wait: Duration) -> Option<Status> {
     })
 }
 
+/// The video frame counter of GET_STATUS (",frames=<n>" at the end, patch 0004), for the FPS
+/// of the status bar; None when RetroArch does not answer within `wait` or has no content.
+pub fn ra_frames(port: u16, wait: Duration) -> Option<u64> {
+    let s = UdpSocket::bind("127.0.0.1:0").ok()?;
+    s.set_read_timeout(Some(wait)).ok()?;
+    s.send_to(b"GET_STATUS", ("127.0.0.1", port)).ok()?;
+    let mut buf = [0u8; 512];
+    let (n, _) = s.recv_from(&mut buf).ok()?;
+    parse_frames(&String::from_utf8_lossy(&buf[..n]))
+}
+
+fn parse_frames(reply: &str) -> Option<u64> {
+    reply.rsplit_once(",frames=")?.1.trim().parse().ok()
+}
+
 /// Who paused the game for the menu, so the menu undoes only its own pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Paused {
@@ -153,5 +168,18 @@ pub fn run(form: Option<&ActionForm>, port: u16, pgid: libc::pid_t, input: Optio
 pub fn to_daemon(input: Option<RawFd>, msg: &str) {
     if let Some(fd) = input {
         unsafe { libc::send(fd, msg.as_ptr().cast(), msg.len(), libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_frames;
+
+    #[test]
+    fn frames_from_get_status() {
+        assert_eq!(parse_frames("GET_STATUS PLAYING nes,Game,crc32=1a2b,frames=12345\n"), Some(12345));
+        assert_eq!(parse_frames("GET_STATUS CONTENTLESS"), None);
+        // an older RetroArch without patch 0004: no counter
+        assert_eq!(parse_frames("GET_STATUS PLAYING nes,Game,crc32=1a2b"), None);
     }
 }

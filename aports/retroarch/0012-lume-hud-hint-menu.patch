@@ -131,7 +131,7 @@ index 1879687..c854659 100644
  extern const gfx_widget_t gfx_widget_libretro_message;
  extern const gfx_widget_t gfx_widget_progress_message;
 diff --git a/gfx/widgets/gfx_widget_volume.c b/gfx/widgets/gfx_widget_volume.c
-index bfad70c..e52c96b 100644
+index bfad70c..77e8680 100644
 --- a/gfx/widgets/gfx_widget_volume.c
 +++ b/gfx/widgets/gfx_widget_volume.c
 @@ -15,8 +15,14 @@
@@ -149,7 +149,7 @@ index bfad70c..e52c96b 100644
  #include "../gfx_widgets.h"
  #include "../gfx_animation.h"
  #include "../gfx_display.h"
-@@ -484,3 +490,318 @@ const gfx_widget_t gfx_widget_lume_level = {
+@@ -484,3 +490,338 @@ const gfx_widget_t gfx_widget_lume_level = {
     NULL, /* iterate */
     gfx_widget_lume_level_frame
  };
@@ -258,7 +258,25 @@ index bfad70c..e52c96b 100644
 +         vw, vh, (rgb << 8) | 0xff, align, false);
 +}
 +
-+/* The bar: groups separated by '|' ("CPU 47% 1008MHz|GPU 62%|..."); the first word of
++/* The bar's text is 15% smaller than the widgets' font, so the FPS fits with the rest at
++ * 640x480 (the user's choice, 2026-11-17) */
++#define LUME_HUD_SCALE 0.85f
++
++static float gfx_widget_lume_width_scaled(gfx_widget_font_data_t *font, const char *s, float scale)
++{
++   return (float)font_driver_get_message_width(font->font, s, strlen(s), scale);
++}
++
++static void gfx_widget_lume_text_scaled(gfx_widget_font_data_t *font, const char *s,
++      float x, float row_h, unsigned vw, unsigned vh, unsigned rgb, float scale)
++{
++   gfx_display_draw_text(font->font, s, x,
++         row_h / 2.0f + font->line_centre_offset * scale,
++         vw, vh, (rgb << 8) | 0xff, TEXT_ALIGN_LEFT, scale, false, 0.0f, false);
++   font->usage_count++;
++}
++
++/* The bar: groups separated by '|' ("FPS 59.7|CPU 47% 1008|..."); the first word of
 + * each group (the label) in the accent, the rest in the text color, a thin muted divider
 + * between groups (the user's choice, 2026-11-17). */
 +static void gfx_widget_lume_hud(dispgfx_widget_t *w, gfx_display_t *p_disp,
@@ -270,9 +288,10 @@ index bfad70c..e52c96b 100644
 +   float widths[LUME_ROWS_MAX];
 +   gfx_widget_font_data_t *font = &w->gfx_widget_fonts.regular;
 +   gfx_widget_font_data_t *bold = &w->gfx_widget_fonts.bold;
-+   float h                      = font->line_height + 8.0f * s;
++   float k                      = LUME_HUD_SCALE;
++   float h                      = font->line_height * k + 8.0f * s;
 +   float margin                 = 8.0f * s;
-+   float label_gap              = 5.0f * s;
++   float label_gap              = 4.0f * s;
 +   float pen                    = margin;
 +   float total                  = 0.0f;
 +   float space;
@@ -286,9 +305,9 @@ index bfad70c..e52c96b 100644
 +      values[i] = strchr(groups[i], ' ');
 +      if (values[i])
 +         *values[i]++ = '\0';
-+      widths[i] = gfx_widget_lume_width(bold, groups[i]);
++      widths[i] = gfx_widget_lume_width_scaled(bold, groups[i], k);
 +      if (values[i] && *values[i])
-+         widths[i] += label_gap + gfx_widget_lume_width(font, values[i]);
++         widths[i] += label_gap + gfx_widget_lume_width_scaled(font, values[i], k);
 +      total += widths[i];
 +   }
 +   /* the groups spread over the whole width, the divider in the middle of each space
@@ -303,10 +322,11 @@ index bfad70c..e52c96b 100644
 +         gfx_widget_lume_quad(p_disp, userdata, vw, vh, pen - space / 2.0f, 6.0f * s, 1.0f * s,
 +               h - 12.0f * s, LUME_MUTED, 0.6f);
 +      }
-+      gfx_widget_lume_text(bold, groups[i], pen, 0, h, vw, vh, LUME_ACCENT, TEXT_ALIGN_LEFT);
++      gfx_widget_lume_text_scaled(bold, groups[i], pen, h, vw, vh, LUME_ACCENT, k);
 +      if (values[i] && *values[i])
-+         gfx_widget_lume_text(font, values[i], pen + gfx_widget_lume_width(bold, groups[i]) + label_gap,
-+               0, h, vw, vh, LUME_TEXT, TEXT_ALIGN_LEFT);
++         gfx_widget_lume_text_scaled(font, values[i],
++               pen + gfx_widget_lume_width_scaled(bold, groups[i], k) + label_gap,
++               h, vw, vh, LUME_TEXT, k);
 +      pen += widths[i] + space;
 +   }
 +   gfx_widgets_flush_text(vw, vh, bold);

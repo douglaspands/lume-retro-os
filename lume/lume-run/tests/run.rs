@@ -713,7 +713,7 @@ fn hint_and_bar_go_to_retroarch() {
     d.send("hud");
     std::thread::sleep(Duration::from_millis(1200));
     let bars: Vec<String> = ra.cmds().into_iter().filter(|c| c.starts_with("LUME_HUD ")).collect();
-    assert!(bars.len() >= 2 && bars[0].starts_with("LUME_HUD CPU "), "{bars:?}");
+    assert!(bars.len() >= 2 && bars[0].starts_with("LUME_HUD FPS --|CPU "), "{bars:?}");
     assert_eq!(fs::read_to_string(e.dir.join("xdg/lume/hud")).unwrap(), "1\n");
     d.send("hud");
     assert_eq!(ra.cmds().last().unwrap(), "LUME_HUD -");
