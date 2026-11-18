@@ -107,9 +107,13 @@ cartão; ordem J1, J3, J2, J4):
 `docs/BRINGUP-GA36.md`, "Governor por gargalo"):**
 - Provado no GA36 e marcado: 2.1, 2.4, 2.5, 2.6, 3.1, 4.1.
 - Provado no GA36, falta o R36S (J2/J4): 2.2 (cenários, `reload`, `power.state`, `enabled 0`
-  com o piso, modo manual), 2.3 (o modo `load` não foi usado: os perfis do GA36 usam o `auto`),
+  com o piso, modo manual), 2.3 (o modo `load`, provado num perfil de teste do cartão: num jogo
+  de NES desceu de 1008 a 816 MHz, `1008000=7.7s 912000=3.0s 816000=39.4s up=0 down=2 end=stop`;
+  os perfis do GA36 usam o `auto`),
   3.2 (escurece em 2 min, primeiro botão só devolve a luz e o perfil `menu`), 4.2 (SNES no
-  `snes9x2005_plus` novo a 60,1 quadros/s; falta o save state antigo), 5.1 (só armv7).
+  `snes9x2005_plus` novo a 60,1 quadros/s; o cartão não tem save state antigo de SNES, só os
+  saves internos `.srm`: a prova do save state antigo precisa de um state do core de 2022 ou
+  fica dispensada pelo usuário), 5.1 (só armv7).
 - 1.2, provado no GA36 (falta o R36S): o laço de amostras virou o `lume-logd` em C (APK
   próprio, pedido do usuário; o `logd` em shell faz o resto e o chama), com o mesmo formato.
   Medido em 120 s: **0,8%** de um núcleo no launcher parado e **0,9%** num jogo, ~550 KB de
