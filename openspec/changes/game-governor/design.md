@@ -381,10 +381,19 @@ que desenha a 30), então um jogo que roda abaixo do painel por desenho não é 
 1. Recurso saturado (ocupação acima de 85% por 1 s) sobe um degrau: CPU pelo `scaling_setspeed`
    (governor `userspace`, como no D12), GPU pelo piso `min_freq` do devfreq (o `simple_ondemand`
    continua livre para ir acima do piso).
-2. Queda de quadros (abaixo do alvo menos 5%, por 1 s) sem nenhum saturado: sobe o recurso mais
-   ocupado (gargalo de ritmo: a carga média é baixa, mas o quadro chega tarde, hipótese a).
-3. Recurso folgado (abaixo de 50% por 3 s), sem queda de quadros nesses 3 s e sem subida
-   nos últimos 5 s: desce um degrau (é a "CPU com potência demais" da queixa, hipótese b).
+2. Queda de quadros (abaixo do alvo menos 5%, por 1 s) sem nenhum saturado e com o recurso
+   mais ocupado em pelo menos 50%: sobe esse recurso (gargalo de ritmo, `pacing`: a carga média
+   é moderada, mas o quadro chega tarde, hipótese a). Queda com os dois abaixo de 50% não é
+   problema de clock (`sync`: vsync, áudio, painel mais lento que o core) e não sobe nada.
+3. Recurso folgado (abaixo de 50% por 3 s), sem queda de quadros por clock nesses 3 s (uma
+   queda `sync` não impede) e sem subida nos últimos 5 s: desce um degrau (é a "CPU com
+   potência demais" da queixa, hipótese b).
+
+**Medido no GA36 (2026-11-18, antes do controlador):** num jogo de NES o core roda a 60,3
+quadros/s, o painel faz 55,7 vblanks/s e só 42 a 47 trocas de quadro por segundo chegam ao
+painel, com a thread principal em ~10% e a GPU em 5 a 8%; GPU no máximo, CPU em `performance` e
+`video_vsync` desligado não mudam isso (43, 47, 43). É o caso `sync` da regra 2, e a causa vai
+para o P-93 (fora desta change): subir clock nesse caso só gastaria bateria.
 4. O teto térmico do kernel manda: nunca se escreve acima dele; tempo sob teto é registrado.
 5. Sem sinal de quadros (kernel sem o patch 0036, ou jogo sem DRM) o controlador vira o D12 nos
    dois recursos (só as regras 1 e 3).

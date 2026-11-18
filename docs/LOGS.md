@@ -121,7 +121,7 @@ Uma linha por evento:
 | `push` | `r36os push --hot`: fragmento extraído na camada em RAM até o reboot (`OK hot <fragmento> <versão>`); reinício de serviço que falhou (`FAIL hot <fragmento> <versão> restart <serviços>`) |
 | `usb` | a porta OTG mudou de estado (`OK otg: <estado>`, com os campos da linha `usb:` do `trace/`); um PC configurou o gadget "Lume" (`OK device: connected`, `udc` em `configured`) e foi desligado (`OK device: disconnected`); na VM, sem porta OTG, não há evento |
 
-| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
+| `power` | `r36os-power` (game-governor, ver "Energia" abaixo): troca de perfil (`OK profile: <cenário> -> <perfil>`, sem nome de jogo); perfis desligados (`OK disabled: enabled 0`); linha ou perfil recusado (`FAIL <origem>: rejected <tipo> <nome>: <motivo>`, origem `image` ou `card`); arquivo da imagem recusado inteiro (`FAIL image: whole file refused, game_min <khz> is not an OPP (floor <khz>)`); `FAIL image profiles file unreadable`; console sem arquivo de perfis ou sem cpufreq, como a VM (`OK no profiles file for <console>: kernel default`, `OK no cpufreq: kernel default`); escrita no sysfs recusada pelo kernel (`FAIL write <caminho> <valor> failed`); modo manual da medição (`OK manual: <perfil>`, `OK auto`; as trocas nele saem como `profile: <cenário> -> <perfil> (manual)`); aviso de bateria fraca, uma vez por descarga (`OK warning: battery <n>%`); desligamento por bateria crítica (`OK shutdown: battery critical`); controlador pela carga ao parar (`OK controller: <khz>=<s>s ... up=<n> down=<n> end=<motivo>`, o tempo em cada degrau; no modo por gargalo, `OK controller: cpu: ... gpu: ... up=<n> down=<n> bottleneck cpu=<n> gpu=<n> pacing=<n> thermal=<n> memory=<n> sync=<n> mem_min=<kB>k end=<motivo>`) ou ao cair/recusar (`FAIL controller: exit <código>: <última linha>`), seguido de `OK profile: game -> <perfil> (without controller)` |
 
 Exemplo de um `push --hot` (o `<time>` e o `<boot>` são os do console; a linha vem do `event` do
 próprio console e é descarregada no cartão na hora):
@@ -220,15 +220,16 @@ acima), a ocupação da GPU (o maior `drm-engine-*` do `fdinfo` dos arquivos do 
 tem abertos, `/proc/<pid>/fd` -> `/dev/dri/*`, achados a cada 2 s, um cliente por
 `drm-client-id`) e os quadros entregues (`drm-page-flips` do mesmo `fdinfo`, patch 0036; alvo =
 maior ritmo dos últimos 30 s, queda = abaixo de 95% dele). Regras: recurso acima de 85% sobe
-um degrau; queda de quadros sem recurso saturado sobe o mais ocupado (`pacing`); recurso abaixo
-de 50% por 3 s, sem queda e sem subida nos últimos 5 s, desce um; nunca acima do teto térmico.
+um degrau; queda de quadros sem recurso saturado sobe o mais ocupado se ele passa de 50%
+(`pacing`), senão é `sync` (vsync, áudio, painel: não sobe nada); recurso abaixo de 50% por 3 s,
+sem queda por clock e sem subida nos últimos 5 s, desce um; nunca acima do teto térmico.
 A CPU vai pelo `scaling_setspeed`; a GPU pelo `min_freq` do devfreq (o `simple_ondemand` segue
 livre acima dele), devolvido ao parar. Faixa de um degrau = recurso travado, não controlado (a
 CPU fica no governor do perfil). Sem `drm-page-flips` ele vira o controlador pela carga nos dois
 recursos. A linha ao parar:
 
 ```
-power OK controller: cpu: 1008000=12.0s 912000=3.0s gpu: 384000000=4.0s 240000000=11.0s up=2 down=3 bottleneck cpu=1 gpu=2 pacing=0 thermal=0 memory=0 mem_min=412000k end=stop
+power OK controller: cpu: 1008000=12.0s 912000=3.0s gpu: 384000000=4.0s 240000000=11.0s up=2 down=3 bottleneck cpu=1 gpu=2 pacing=0 thermal=0 memory=0 sync=0 mem_min=412000k end=stop
 ```
 
 `/run/r36os/powerctl.state` (reescrito a cada segundo enquanto o controlador vive, apagado ao
@@ -242,7 +243,7 @@ gpu_hz 240000000        # piso atual da GPU (ou o clock atual, travada), -1 sem 
 gpu_busy 41             # %, -1 sem drm-engine-*
 fps 59.9                # -1.0 sem drm-page-flips
 fps_target 60.0
-bottleneck gpu          # none, cpu, gpu, pacing, thermal ou memory
+bottleneck gpu          # none, cpu, gpu, pacing, thermal, memory ou sync
 mem_avail_kb 412000     # MemAvailable; memory = abaixo de 32 MiB (só diagnóstico, D19)
 ```
 

@@ -213,6 +213,20 @@ def test_frames_lost_with_nothing_saturated_raise_the_busier_one(exe, world):
     assert (r["khz"], r["hz"], r["b"]) == (648000, 240000000, "pacing")
 
 
+def test_frames_lost_with_both_idle_is_sync_and_never_raises_a_clock(exe, world):
+    """the GA36 case: a 60 fps core on the 55.7 Hz panel delivers 42-47 frames with the CPU
+    and the GPU almost idle; more clock does not help, so nothing goes up and the left-over
+    clocks still go down"""
+    world.game()
+    world.start(exe)
+    world.run(6, cpu=10, gpu=10, fps=56)                # learn the target
+    r = world.tick(cpu=10, gpu=8, fps=44)
+    assert r["b"] == "sync"
+    # inside the 30 s target window: still sync, and both clocks went down meanwhile
+    r = world.run(20, cpu=10, gpu=8, fps=44)
+    assert (r["khz"], r["hz"], r["b"]) == (600000, 144000000, "sync")
+
+
 def test_no_step_down_while_frames_are_lost_nor_right_after_a_step_up(exe, world):
     world.game()
     world.start(exe)
@@ -301,7 +315,7 @@ def test_state_file_and_summary(exe, world):
     assert rc == 0
     # the GPU is saturated at its top (hardware limit, not thermal); the idle CPU stepped down
     assert re.match(r"cpu: 1008000=\d+\.\ds gpu: 384000000=\d+\.\ds up=0 down=1 "
-                    r"bottleneck cpu=0 gpu=3 pacing=0 thermal=0 memory=0 mem_min=600000k end=stop$",
+                    r"bottleneck cpu=0 gpu=3 pacing=0 thermal=0 memory=0 sync=0 mem_min=600000k end=stop$",
                     summary), summary
     assert not world.state.exists()                     # removed at the end
     assert world.gpu_file("min_freq") == "144000000"    # the profile floor is back

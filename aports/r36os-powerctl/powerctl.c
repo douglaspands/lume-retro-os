@@ -163,7 +163,7 @@ static long long mono_ms(void)
 static int tick_wait(void)
 {
 	if (fake_clock) {
-		char line[64];
+		char line[64] = "";
 
 		if (stop_sig || !fgets(line, sizeof(line), stdin))
 			return 0;
@@ -699,8 +699,8 @@ static int find_gpu_dir(void)
 	return 0;
 }
 
-enum { B_NONE, B_CPU, B_GPU, B_PACING, B_THERMAL, B_MEMORY, B_N };
-static const char *bname[B_N] = { "none", "cpu", "gpu", "pacing", "thermal", "memory" };
+enum { B_NONE, B_CPU, B_GPU, B_PACING, B_THERMAL, B_MEMORY, B_SYNC, B_N };
+static const char *bname[B_N] = { "none", "cpu", "gpu", "pacing", "thermal", "memory", "sync" };
 
 static void write_state(long ckhz, long load, long ghz, long gbusy, long fps10, long target10,
 			int b, long avail)
@@ -801,7 +801,7 @@ static int run_auto(void)
 	for (;;) {
 		long load = -1, gbusy = -1, fps10 = -1, target10 = 0, avail, cma, ccap_khz, gcap_hz;
 		long long frames = -1, busy_ns = -1;
-		int npids = -1, capi, gcapi = 0, drop = 0, csat, gsat, b = B_NONE, raised = 0;
+		int npids = -1, capi, gcapi = 0, drop = 0, csat, gsat, b = B_NONE, raised = 0, sync = 0;
 
 		if (owner > 0 && kill((pid_t)owner, 0) && errno == ESRCH) {
 			end = "owner";
@@ -879,8 +879,14 @@ static int run_auto(void)
 			}
 			if (csat || gsat)
 				b = (csat && (!gsat || load >= gbusy)) ? B_CPU : B_GPU;
-			/* rule 2: frames lost, nothing saturated: the busier one that can rise */
-			if (drop && !csat && !gsat) {
+			/* rule 2: frames lost, nothing saturated, the busier one at least half busy: it
+			 * rises (pacing). Frames lost with both resources mostly idle are not a clock
+			 * problem (vsync, audio pacing, a panel slower than the core): "sync", no step
+			 * up, and the slack rule may still lower what is left over. */
+			sync = drop && !csat && !gsat && load < down_pct && gbusy < down_pct;
+			if (sync)
+				b = B_SYNC;
+			if (drop && !csat && !gsat && !sync) {
 				int c_can = cpu_ctl && cidx < capi, g_can = gpu_ctl && gidx < gcapi;
 
 				b = B_PACING;
@@ -902,9 +908,9 @@ static int run_auto(void)
 				last_up_ms = now_ms;
 				cslack = gslack = 0;
 			}
-			/* rule 3: slack, never right after a step up or with frames lost */
-			cslack = (!raised && !drop && cpu_ctl && load >= 0 && load < down_pct) ? cslack + dt : 0;
-			gslack = (!raised && !drop && gpu_ctl && gbusy >= 0 && gbusy < down_pct) ? gslack + dt : 0;
+			/* rule 3: slack, never right after a step up or with frames lost to a clock */
+			cslack = (!raised && (!drop || sync) && cpu_ctl && load >= 0 && load < down_pct) ? cslack + dt : 0;
+			gslack = (!raised && (!drop || sync) && gpu_ctl && gbusy >= 0 && gbusy < down_pct) ? gslack + dt : 0;
 			if (now_ms - last_up_ms >= 5000) {
 				if (cslack >= down_time && cidx > 0) {
 					cidx--;
