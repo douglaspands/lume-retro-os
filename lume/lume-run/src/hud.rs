@@ -139,7 +139,8 @@ impl Hud {
     }
 
     /// The GPU's clock from devfreq (`/sys/class/devfreq/*gpu*/cur_freq`), in MHz: the field
-    /// on the GA36, whose `lima` has no per-client time in the fdinfo (J1, 2026-11-17).
+    /// when the driver has no per-client time in the fdinfo (the GA36's `lima` before kernel
+    /// patch 0035, J1 2026-11-17).
     fn gpu_mhz(&self) -> Option<u64> {
         let dir = self.path("/sys/class/devfreq");
         let mut entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).collect();
