@@ -1,0 +1,22 @@
+#!/bin/sh
+# lume-card (device-fixes D4): waits for card maintenance requests in /run/lume/card/ with
+# inotifyd. Blocked in the kernel while idle: no loop, no timer, no CPU. The handler is
+# card-event; the folder belongs to root with the group "game" able to create files in it.
+#
+# Environment for the tests: CARD_LIBDIR, CARD_DIR, CARD_GROUP, CARD_HANDLER.
+. "${CARD_LIBDIR:-/usr/libexec/lume}/lib.sh"
+CARD_DIR=${CARD_DIR:-$LUME_RUN/card}
+CARD_GROUP=${CARD_GROUP:-game}
+CARD_HANDLER=${CARD_HANDLER:-/usr/libexec/lume/card-event}
+
+mkdir -p "$CARD_DIR"
+chown "root:$CARD_GROUP" "$CARD_DIR" 2>/dev/null || log "card: cannot give $CARD_DIR to the group $CARD_GROUP"
+chmod 0775 "$CARD_DIR"
+# a status left by a service that died while trimming must not read as "running"
+rm -f "$CARD_DIR"/status "$CARD_DIR"/.status.tmp.* "$LUME_RUN/card-trim.pid"
+# requests made before the service came up
+for f in "$CARD_DIR"/*; do
+	[ -f "$f" ] && "$CARD_HANDLER" w "$CARD_DIR" "${f##*/}"
+done
+# w: file closed after writing (the launcher creates it empty), y: moved in
+exec inotifyd "$CARD_HANDLER" "$CARD_DIR:wy"

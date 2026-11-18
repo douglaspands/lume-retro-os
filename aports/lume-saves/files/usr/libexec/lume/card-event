@@ -1,0 +1,122 @@
+#!/bin/sh
+# Card maintenance requests (device-fixes D4, interface in docs/LAUNCHER.md): inotifyd handler
+# of lume-card, "<event> <directory> <file>", for each file the launcher creates in
+# /run/lume/card/. The file name is the verb:
+#   trim             fstrim -v /storage in the background; status running, then ok <bytes> or
+#                    fail <reason>; ROMS/system/card/last-trim gets the boot number. A request
+#                    while one runs is deleted without running.
+#   check-next-boot  writes ROMS/system/card/check-next-boot with the boot number; status ok.
+# Any other name is deleted and logged as refused. Every request file is deleted when picked
+# up. "card-event run-trim" is the background worker of the trim.
+#
+# Environment for the tests: CARD_LIBDIR, CARD_DIR, CARD_STORAGE, FSTRIM, MOUNTPOINT, LOGS_RAM.
+. "${CARD_LIBDIR:-/usr/libexec/lume}/lib.sh"
+. "${CARD_LIBDIR:-/usr/libexec/lume}/logs.sh"
+
+CARD_DIR=${CARD_DIR:-$LUME_RUN/card}
+CARD_STORAGE=${CARD_STORAGE:-/storage}
+FSTRIM=${FSTRIM:-fstrim}
+MOUNTPOINT=${MOUNTPOINT:-mountpoint}
+MARKERS=$CARD_STORAGE/system/card
+# pid of the running trim worker (outside the request folder, which the game group can write)
+TRIM_PID=${CARD_TRIM_PID:-$LUME_RUN/card-trim.pid}
+
+set_status() {
+	printf '%s\n' "$1" > "$CARD_DIR/.status.tmp.$$" && mv -f "$CARD_DIR/.status.tmp.$$" "$CARD_DIR/status"
+}
+
+# marker <name> <boot>: atomic write of a boot number into ROMS/system/card/
+marker() {
+	mkdir -p "$MARKERS" || return 1
+	printf '%s\n' "$2" > "$MARKERS/.$1.tmp.$$" && mv -f "$MARKERS/.$1.tmp.$$" "$MARKERS/$1" || {
+		rm -f "$MARKERS/.$1.tmp.$$"
+		return 1
+	}
+}
+
+run_trim() {
+	local out rc bytes reason
+	set_status running
+	if ! $MOUNTPOINT -q "$CARD_STORAGE"; then
+		set_status "fail no games partition"
+		event card FAIL "trim: no games partition"
+		rm -f "$TRIM_PID"
+		return 0
+	fi
+	out=$($FSTRIM -v "$CARD_STORAGE" 2>&1)
+	rc=$?
+	if [ "$rc" = 0 ]; then
+		# util-linux: "/storage: 1.2 GiB (1288490188 bytes) trimmed on ..."; busybox: "... N bytes ..."
+		bytes=$(printf '%s\n' "$out" | sed -n 's/.*[( ]\([0-9][0-9]*\) bytes.*/\1/p' | tail -n 1)
+		bytes=${bytes:-0}
+		boot_n_var
+		marker last-trim "$BOOT_N" || event card FAIL "trim: last-trim not written"
+		set_status "ok $bytes"
+		event card OK "trim: $bytes bytes trimmed"
+	else
+		reason=$(printf '%s\n' "$out" | tr -d '\r' | sed '/^$/d' | tail -n 1)
+		reason=${reason:-exit $rc}
+		set_status "fail $reason"
+		event card FAIL "trim: $reason"
+	fi
+	rm -f "$TRIM_PID"
+	return 0
+}
+
+trim_running() {
+	local pid
+	{ read -r pid < "$TRIM_PID"; } 2>/dev/null
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+request_trim() {
+	if trim_running; then
+		event card FAIL "trim: busy, request dropped"
+		return 0
+	fi
+	event card OK "trim: started"
+	# the worker is detached so the next event is not held up
+	"$0" run-trim > /dev/null 2>&1 < /dev/null &
+	# a worker that already ended leaves no file (it removes it itself)
+	kill -0 "$!" 2>/dev/null && echo "$!" > "$TRIM_PID"
+	return 0
+}
+
+request_check() {
+	boot_n_var
+	if ! $MOUNTPOINT -q "$CARD_STORAGE"; then
+		set_status "fail no games partition"
+		event card FAIL "check-next-boot: no games partition"
+		return 0
+	fi
+	if marker check-next-boot "$BOOT_N"; then
+		set_status ok
+		event card OK "check-next-boot: requested for the next boot"
+	else
+		set_status "fail cannot write the request"
+		event card FAIL "check-next-boot: cannot write the request"
+	fi
+	return 0
+}
+
+if [ "$1" = run-trim ]; then
+	run_trim
+	exit 0
+fi
+
+# only closed writes and files moved in are requests (the status file is renamed in too)
+case "$1" in w|y) ;; *) exit 0 ;; esac
+name=$3
+# our own files (status and its temporary) are not requests
+case "$name" in status|.*|'') exit 0 ;; esac
+[ -f "$CARD_DIR/$name" ] || exit 0
+rm -f "$CARD_DIR/$name"
+case "$name" in
+trim) request_trim ;;
+check-next-boot) request_check ;;
+*)
+	shown=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '?' | cut -c1-32)
+	event card FAIL "refused request: $shown"
+	;;
+esac
+exit 0

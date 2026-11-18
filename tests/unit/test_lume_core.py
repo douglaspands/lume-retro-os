@@ -110,6 +110,10 @@ ADDED_AFTER_MOVE = {
     # device-fixes 3.2: the suspension mode of each console (lume-power, read by lume-sleep)
     "usr/share/lume/sleep/ga36.conf",
     "usr/share/lume/sleep/r36s.conf",
+    # device-fixes 5.3: the card maintenance requests (lume-saves)
+    "usr/libexec/lume/card",
+    "usr/libexec/lume/card-event",
+    "etc/init.d/lume-card",
 }
 
 
