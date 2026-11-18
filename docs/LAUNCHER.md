@@ -18,6 +18,8 @@ ao mesmo lugar. Durante o jogo, a interface sai da memória. Planejamento e deci
 | **Fn+Start** | nada | nada | **encerra o jogo aberto e volta ao launcher** |
 | Volume + / − | volume do sistema, em qualquer tela e em qualquer jogo | | |
 | Fn + Volume + / − | brilho da tela, em passos de 5%, em qualquer tela e em qualquer jogo | | |
+| Energia (toque) | suspende o console; outro toque acorda (ver [Suspender](#suspender-e-desligar-pelo-botão-de-energia)) | | |
+| Energia (segurar 2 s) | desliga, como o item Desligar | | |
 
 ### Atalhos dentro do jogo (o Fn é o botão do sistema)
 
@@ -66,6 +68,120 @@ A busca ignora maiúsculas e acentos e exige todas as palavras: "super bros" ach
 **Fn+Start** funciona com qualquer programa aberto pelo launcher: RetroArch, LÖVE, um script de
 Ports ou um emulador travado. Primeiro o programa recebe um pedido para sair (o RetroArch grava o
 save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abriu são encerrados.
+
+## Suspender e desligar pelo botão de energia
+
+- **Tocar** no botão de energia (soltar antes de 1 s) suspende o console, com o launcher ou
+  com um jogo na tela: o jogo pausa, a tela, a luz e o som se apagam. Outro toque acorda o
+  console no mesmo ponto, com o mesmo brilho e volume, e **o jogo continua sozinho**. Os
+  outros botões não acordam o console, e o que for apertado com ele suspenso é descartado.
+- **Segurar** o botão por 2 s desliga, pelo mesmo caminho do item Desligar (grava o pendente
+  antes). Segurar por vários segundos continua desligando à força pelo hardware, como reserva.
+- O item **Suspender** das Configurações (acima de Desligar) faz o mesmo que o toque, sem
+  confirmação.
+- Antes de suspender, o que estava pendente de gravação vai para o cartão (`sync`): acabar a
+  bateria com o console suspenso não perde o save.
+- Se a suspensão falhar, o console volta ao estado de antes com a tela acesa, e o
+  `events.log` registra o motivo (`sleep FAIL ...`, ver [`docs/LOGS.md`](LOGS.md#eventslog)).
+
+### Protocolo do sono (para quem programa)
+
+Congelado na change `device-fixes` (D11, tarefa 3.2). Código de referência:
+`lume/lume-core/src/sleep.rs` (tipos, leitura e escrita, prazo da resposta, admissão do
+pedido) e `lume/lume-core/src/input.rs` (o socket); `aports/lume-input/input.c` e o serviço
+`lume-sleep` (pacote `lume-power`, em shell) seguem o mesmo protocolo e mudam junto.
+
+```
+ toque no botão (solto antes de 1 s)  lume-input -> pedido   /run/lume/sleep/suspend
+                                      lume-input -> clientes power_tap
+ botão segurado 2 s                   lume-input -> pedido   /run/lume/sleep/poweroff
+                                      lume-input -> clientes power_hold
+ item Suspender                       lume-ui    -> pedido   /run/lume/sleep/suspend
+
+ lume-sleep (inotifyd)                grava phase    "suspend <seq>"
+ lume-input repassa                   socket         "suspend <seq>"
+ cada cliente, já pausado             socket         "suspend_ok <seq>"
+ lume-input (todos ou 2 s)            grava clients  "suspend <seq> ok|timeout <a>/<n>"
+ lume-sleep: som, hora, sync, luz, Wi-Fi, governor, gadget USB solto, /sys/power/state
+ ... o botão de energia acorda ...
+ lume-sleep: os mesmos passos na ordem inversa, por último phase "resume <seq>"
+ lume-input descarta a entrada acumulada e repassa "resume <seq>"
+```
+
+**Socket do `lume-input`** (`/run/lume/input.sock`, `SOCK_SEQPACKET`, uma mensagem por
+pacote, sem quebra de linha):
+
+| Mensagem | Sentido | Significado |
+|---|---|---|
+| `power_tap` | daemon → clientes | o botão foi tocado. Só aviso: o `lume-input` já fez o pedido `suspend`, e o cliente **não** faz outro |
+| `power_hold` | daemon → clientes | o botão ficou segurado 2 s (o pedido `poweroff` já foi feito). Só aviso |
+| `suspend <seq>` | daemon → clientes | pausar o jogo (`lume-run`, pelo caminho de pausa da `lume-hud-actions`) ou parar de desenhar (`lume-ui`) e então responder |
+| `suspend_ok <seq>` | cliente → daemon | pronto para suspender, com o mesmo `<seq>` |
+| `resume <seq>` | daemon → clientes | o console voltou: continuar (o jogo continua sozinho; o `lume-ui` redesenha). Sem resposta |
+
+`<seq>` é um inteiro decimal positivo, crescente a cada suspensão desde que o `lume-sleep`
+subiu; os lados só comparam igualdade. Uma mensagem com `<seq>` ausente, zero ou com outro
+texto não é do protocolo e é ignorada.
+
+**Prazos:**
+
+| Prazo | Valor | Quem espera | Ao estourar |
+|---|---|---|---|
+| resposta dos clientes | 2 s | `lume-input`, pelo `suspend_ok <seq>` de cada cliente ligado quando o aviso saiu | grava `clients` com `timeout <respondidos>/<total>` e a suspensão segue |
+| resposta do `lume-input` | 3 s | `lume-sleep`, pelo `clients` do seu `<seq>` | segue sem ele (`sleep FAIL clients: lume-input did not answer within 3s`) |
+| guarda do despertar | 1 s | `lume-sleep` | um `suspend` até 1 s depois de voltar a `awake` é o toque que acordou o console: apagado sem rodar |
+| religar o gadget USB | ~1 s | `lume-sleep`, em segundo plano | — (não atrasa a tela) |
+| toque / segurar | solto antes de 1 s / 2 s | `lume-input` | — |
+
+Um cliente que se desliga durante a espera deixa de ser esperado. Uma resposta de outro
+`<seq>`, uma segunda resposta do mesmo cliente ou de um cliente que não foi avisado não conta.
+Sem nenhum cliente ligado, o `clients` sai na hora com `ok 0/0`.
+
+**Pasta `/run/lume/sleep/`** (criada pelo `lume-sleep` ao subir, `root:game`, modo `1770`;
+sem ela não há serviço, e o toque só deixa uma linha no log do `lume-input`):
+
+| Arquivo | Quem grava | Conteúdo |
+|---|---|---|
+| `suspend` | `lume-input` (toque), `lume-ui` (item Suspender) | vazio: o pedido. Criado com `O_EXCL`: se já existe, o pedido está pendente e nada novo é feito |
+| `poweroff` | `lume-input` (segurado 2 s) | vazio: o pedido |
+| `phase` | `lume-sleep` (root, por `rename`) | `suspend <seq>` ou `resume <seq>`: o aviso ao `lume-input`, que observa a pasta |
+| `clients` | `lume-input` (root, por `rename`) | `suspend <seq> ok <n>/<n>` ou `suspend <seq> timeout <a>/<n>` |
+| `status` | `lume-sleep` (root, por `rename`) | `awake`, `suspending <seq>`, `suspended <seq> <modo>`, `resuming <seq>` ou `poweroff` |
+
+O `lume-sleep` e o `lume-input` só confiam em `phase`, `clients` e `status` do dono root (o
+grupo `game` pode criar arquivos na pasta). Nomes começados por `.` (temporários, trava) não
+são pedidos. Qualquer outro nome é apagado e registrado (`sleep FAIL refused request: <nome>`).
+
+**Admissão do pedido** (o arquivo é apagado em todo caso): `suspend` roda com o `status` em
+`awake`; durante uma sequência (`suspending`, `suspended`, `resuming`) o pedido em dobro é
+apagado sem rodar, só com uma linha no log do kernel; dentro da guarda de 1 s depois de
+acordar também. `poweroff` roda em qualquer estado, menos depois de outro `poweroff`. O
+`poweroff` leva ao desligamento da sessão, pelo mesmo caminho do item Desligar.
+
+**Modo de cada console:** `/usr/share/lume/sleep/<placa>.conf` (pacote `lume-power`), linha
+`mode freeze` ou `mode mem` (`#` comenta); sem arquivo ou com valor inválido, `freeze`.
+`freeze` grava `freeze` em `/sys/power/state`; `mem` grava `deep` em `/sys/power/mem_sleep` e
+depois `mem` em `/sys/power/state`, e só vale num console que acordou 10 vezes em 10.
+
+| Console | Modo | Origem |
+|---|---|---|
+| GA36 | `freeze` | medido (2.3, J1, 2026-11-18): `mem_sleep` só oferece `[s2idle]`; 10 de 10 despertares pelo botão |
+| R36S | `freeze` | padrão, ainda não medido: a J1 do R36S (2.3) confere o `mem_sleep` e preenche o arquivo |
+| VM | `freeze` | padrão (sem arquivo) |
+
+**Dois achados da J1 no GA36 que o `lume-sleep` (8.3) e o `lume-input` (8.2) cumprem:**
+
+1. **Gadget USB:** depois de um `freeze` o `musb` fica em `b_peripheral` com o UDC
+   `not_attached`, e o PC não enumera nem com o cabo recolocado. Antes de gravar em
+   `/sys/power/state`, o `lume-sleep` guarda o conteúdo de
+   `/sys/kernel/config/usb_gadget/lume/UDC` e grava vazio nele (solta o gadget); ~1 s depois
+   de acordar, em segundo plano, grava de volta o nome guardado (só se estava ligado). Falha:
+   `sleep FAIL usb: <motivo>`, sem impedir a suspensão.
+2. **Entrada acumulada:** ao acordar, a interface "andava" sozinha com os eventos do controle
+   da suspensão. Entre o `phase suspend` e o `phase resume` o `lume-input` não repassa nada
+   (nem toque, nem acorde, nem pedido); no `resume`, antes de avisar os clientes, ele lê e
+   descarta tudo o que está na fila das origens, solta as teclas seguradas no controle virtual
+   e ignora o botão de energia até vê-lo solto (o toque que acordou não vira outro pedido).
 
 ## Dock
 

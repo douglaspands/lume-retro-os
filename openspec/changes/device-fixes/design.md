@@ -300,6 +300,14 @@ Ao acordar, devolve tudo na ordem inversa e **o jogo continua sozinho** (padrão
   da suspensão; o `lume-sleep`/`lume-input` descartam a entrada acumulada ao acordar (8.2, 8.3).
 - Acordado, o launcher parado gasta ~324 mA da bateria no brilho 7.
 
+**Protocolo congelado (3.2):** `docs/LAUNCHER.md` ("Protocolo do sono") e
+`lume/lume-core/src/sleep.rs`. O `lume-input` faz o pedido (`/run/lume/sleep/suspend` no
+toque, `poweroff` no segurado) e manda `power_tap`/`power_hold` aos clientes só como aviso; o
+`lume-sleep` avisa pelo arquivo `phase` (`suspend|resume <seq>`), o `lume-input` repassa aos
+clientes pelo socket, espera `suspend_ok <seq>` até 2 s e responde no arquivo `clients`; o
+`lume-sleep` espera essa resposta até 3 s. Modo por console em
+`/usr/share/lume/sleep/<placa>.conf` (GA36 `freeze` medido, R36S `freeze` até a J1 dele).
+
 ### D12. Brilho: o limite aprendido no lugar da trava
 
 - O `backlight_max` sai dos perfis. O brilho vai até o máximo do hardware.
