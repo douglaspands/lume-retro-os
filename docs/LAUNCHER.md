@@ -377,6 +377,9 @@ kind = "native"                     # native, ou libretro (mostra Aspecto e Shad
 exec = ["/storage/bios/meu-emulador/run", "--fullscreen", "{rom}"]
 quit = "sigterm"                    # sigterm, ou retroarch-cmd (só o RetroArch)
 timeout = 3                         # segundos até o encerramento forçado
+
+[runner.env]                        # opcional: variáveis de ambiente de todo jogo deste runner
+MEU_EMULADOR_HOME = "/storage/bios/meu-emulador"
 ```
 
 - `exec` é a lista de argumentos, sem shell. Cada marcador vale um argumento inteiro: `{rom}`,
@@ -385,6 +388,10 @@ timeout = 3                         # segundos até o encerramento forçado
 - O primeiro item é o caminho absoluto de um executável. Um arquivo com erro, ou que cite um
   executável que não existe, é ignorado e o log diz qual foi; os outros runners continuam.
 - Com o mesmo `id` de um runner da imagem (`retroarch`, `love`, `sh`), o do cartão vence.
+- `[runner.env]` (opcional) é uma tabela de nome e valor em texto; todo jogo daquele runner (e só
+  ele) recebe essas variáveis, aplicadas depois de `LANG`, `LANGUAGE` e `TZ`, na ordem alfabética
+  do nome. O nome segue `[A-Za-z_][A-Za-z0-9_]*` e nem o nome nem o valor aceitam o byte NUL; um
+  nome inválido (por exemplo com `=`) faz o runner ser ignorado, com uma linha no log.
 - Os atalhos do Fn chegam ao emulador pela tabela opcional `[runner.actions]`: `pause`,
   `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, cada uma como
   `retroarch-cmd:<COMANDO>` (comando de rede do RetroArch), `key:<KEY_*>` (uma tecla apertada e
