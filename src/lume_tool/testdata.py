@@ -24,8 +24,9 @@ CORE_SYSTEM_OVERRIDE: dict[str, str] = {}
 # Systems with no free test ROM: the build cannot generate a Sega CD disc (it needs the
 # non-free BIOS to boot), a 32X cart or a CPS-1/CPS-2/Neo Geo romset (only the real ones
 # work). Their cores are tested through another system, or, for the fbalpha2012_* cores,
-# only by loading with no content (tests/cores/load_cores.sh).
-NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "neogeo"}
+# only by loading with no content (tests/cores/load_cores.sh). Game Gear and SG-1000 have no
+# generated ROM yet: their core (genesis_plus_gx) is tested through the Master System.
+NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "neogeo", "gamegear", "sg1000"}
 SIZE_MIB = 64
 
 

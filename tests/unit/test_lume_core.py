@@ -111,6 +111,10 @@ ADDED_AFTER_MOVE = {
     # device-fixes 3.2: the suspension mode of each console (lume-power, read by lume-sleep)
     "usr/share/lume/sleep/ga36.conf",
     "usr/share/lume/sleep/r36s.conf",
+    # R36S J1 (2026-11-19): panfrost profiling for the video group (lume-hud-actions 4.4) and
+    # the R36S card read-ahead (device-fixes 5.5), both lume-power udev rules
+    "etc/udev/rules.d/90-lume-gpu-profiling.rules",
+    "etc/udev/rules.d/90-lume-readahead.rules",
     # device-fixes 8.3: suspend and power off by the power button (lume-power)
     "usr/libexec/lume/lume-sleep",
     "etc/init.d/lume-sleep",
@@ -139,6 +143,8 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
 
 # files edited on purpose after the move (only their mode is still held to the base commit)
 EDITED_AFTER_MOVE = {
+    # 2026-11-19, the user: same cores on both consoles; Game Gear and SG-1000 added
+    "usr/share/lume/systems.json",
     "usr/libexec/lume/hwinfo",     # 8.2: the fragments section
     "usr/libexec/lume/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
     "usr/share/lume/i18n/en.toml",  # game-governor 3.2: the low-battery text

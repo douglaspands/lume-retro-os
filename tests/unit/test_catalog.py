@@ -17,8 +17,9 @@ def test_every_core_has_package_in_common_list():
 
 def test_systems_match_design_table():
     ids = [s["id"] for s in CAT["systems"]]
-    assert ids == ["nes", "snes", "mastersystem", "megadrive", "segacd", "sega32x", "gb", "gbc",
-                   "gba", "arcade", "cps1", "cps2", "neogeo", "psx", "love", "ports"]
+    assert ids == ["nes", "snes", "mastersystem", "gamegear", "sg1000", "megadrive", "segacd",
+                   "sega32x", "gb", "gbc", "gba", "arcade", "cps1", "cps2", "neogeo", "psx",
+                   "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
     # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap
     assert by_id["snes"]["core"] == "snes9x2005_plus"
@@ -34,6 +35,13 @@ def test_systems_match_design_table():
         for arch in ("x86_64", "aarch64", "armv7"):
             assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
         assert by_id[sid]["alt_cores"] == ["picodrive"]
+    # Game Gear and SG-1000 (the user, 2026-11-19): the same genesis_plus_gx as the rest of the
+    # Sega 8/16-bit family, so one core to optimize
+    assert by_id["gamegear"]["extensions"] == ["gg", "zip", "7z"]
+    assert by_id["sg1000"]["extensions"] == ["sg", "zip", "7z"]
+    for sid in ("gamegear", "sg1000"):
+        for arch in ("x86_64", "aarch64", "armv7"):
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
     assert by_id["segacd"]["bios"][0]["files"] == [
         "bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
     assert by_id["segacd"]["bios"][0]["required"] is True
@@ -100,7 +108,7 @@ def test_validator_catches_errors():
     assert any("doesnotexist" in e for e in errs)
     assert any("snes: extensions" in e for e in errs)
     assert any("architecture" in e for e in errs)
-    assert any(e.startswith("megadrive:") for e in errs)
+    assert any(e.startswith(f"{bad['systems'][3]['id']}:") for e in errs)
 
 
 def test_validator_refuses_arcade_core_by_arch():

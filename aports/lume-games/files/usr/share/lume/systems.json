@@ -38,6 +38,30 @@
       "romset": null
     },
     {
+      "id": "gamegear",
+      "name": "Game Gear",
+      "abbr": "GG",
+      "extensions": ["gg", "zip", "7z"],
+      "core": "genesis_plus_gx",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "emulators": [],
+      "bios": [],
+      "romset": null
+    },
+    {
+      "id": "sg1000",
+      "name": "SG-1000",
+      "abbr": "SG",
+      "extensions": ["sg", "zip", "7z"],
+      "core": "genesis_plus_gx",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "emulators": [],
+      "bios": [],
+      "romset": null
+    },
+    {
       "id": "megadrive",
       "name": "Mega Drive",
       "abbr": "MD",
