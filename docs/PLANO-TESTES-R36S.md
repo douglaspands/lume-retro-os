@@ -15,8 +15,8 @@ de cada onda; horários para o usuário em UTC-3; avisar antes de cada momento d
 
 - Cartão com o build `20261118-233509` (GA36) e o lado do R36S de `20261118-230848` (RetroArch
   com o patch 0015, kernel e initramfs da 9.16).
-- Disparado em 2026-11-19: `lume build --console r36s lume-input lume-audio lume-launcher`
-  (7.2, 7.5, 9.15 e 7.6 no R36S). Se terminou, falta só o `push`.
+- Feito em 2026-11-19: `lume build --console r36s lume-input lume-audio lume-launcher` (7.2,
+  7.5, 9.15 e 7.6 no R36S), terminou bem. Falta só o `push` (nó R0).
 - Pendência de teste P-103 (`docs/PENDENCIAS.md`) resume as mesmas provas.
 
 ## Grafo
