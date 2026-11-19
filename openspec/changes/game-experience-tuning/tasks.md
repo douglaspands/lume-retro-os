@@ -108,7 +108,7 @@ Os nós 7.x são da sessão principal porque medem no aparelho; dentro de uma ja
 
 ## 5. Ferramenta de medição
 
-- [ ] 5.1 Medição A/B por core (D6): script em `tests/device/` que, com o console no cabo, para cada core e variante, abre o jogo N do sistema pelo `lume dev run`, aplica as chaves da variante por `/run/lume/retroarch-extra.cfg` ou o `.opt` da variante (devolvendo o original), espera 30 s, mede 120 s na ordem A, B, A e grava uma linha agregada em `docs/tuning/<console>.md` (quadros mostrados por segundo, velocidade do core, falhas de áudio, clock médio, CPU por núcleo, temperatura, ruído entre os dois A, decisão). Fixa a fonte das falhas de áudio (`status` do ALSA ou log do RetroArch). Verificação: testes de unidade da agregação e do critério de aceite do spec (ganho acima do ruído, velocidade cheia, som contínuo) com amostras gravadas; o relatório não aceita nome de jogo nem caminho.
+- [x] 5.1 Medição A/B por core (D6): script em `tests/device/` que, com o console no cabo, para cada core e variante, abre o jogo N do sistema pelo `lume dev run`, aplica as chaves da variante por `/run/lume/retroarch-extra.cfg` ou o `.opt` da variante (devolvendo o original), espera 30 s, mede 120 s na ordem A, B, A e grava uma linha agregada em `docs/tuning/<console>.md` (quadros mostrados por segundo, velocidade do core, falhas de áudio, clock médio, CPU por núcleo, temperatura, ruído entre os dois A, decisão). Fixa a fonte das falhas de áudio (`status` do ALSA ou log do RetroArch). Verificação: testes de unidade da agregação e do critério de aceite do spec (ganho acima do ruído, velocidade cheia, som contínuo) com amostras gravadas; o relatório não aceita nome de jogo nem caminho.
 
 ## 6. Imagem e provas funcionais
 
