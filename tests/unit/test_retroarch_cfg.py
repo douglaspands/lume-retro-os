@@ -275,7 +275,7 @@ def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: s
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
            "BOARD_FILE": str(board_file), "LUME_SHARE": str(SHARE),
            "LUME_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
-           **(env_extra or {})}
+           "LUME_INFO": str(tmp_path / "info"), **(env_extra or {})}
     r = subprocess.run(["sh", str(FRONTEND), *args], env=env, capture_output=True, text=True,
                        check=check)
     defaults = run_dir / "retroarch-defaults.cfg"
@@ -530,3 +530,163 @@ def test_menu_has_no_transparency():
         assert f'{key} = "1.000000"' in FACTORY, key
     assert 'menu_rgui_transparency = "false"' in FACTORY
     assert "opacity" not in CFG
+
+
+# --- new factory defaults on existing cards (game-experience-tuning D3, task 1.2) ---
+
+FACTORY_KEYS = _keys(FACTORY)
+CORENAMES_FIXTURE = REPO_ROOT / "tests/fixtures/libretro-corenames.txt"
+FACTORY_OPT_DIR = SHARE / "factory/retroarch/config"
+
+
+def _corenames() -> dict[str, str]:
+    """core -> corename of its .info (tests/fixtures/libretro-corenames.txt)."""
+    text = CORENAMES_FIXTURE.read_text()
+    return dict(re.findall(r'^(\w+) = "([^"]+)"$', text, re.M))
+
+
+def _factory_line(key: str) -> str:
+    return re.search(rf"^{key} = .*$", FACTORY, re.M).group(0)
+
+
+def test_missing_factory_key_is_added_and_the_users_never_change(tmp_path):
+    # a card from before a new factory default: the key it lacks arrives with the factory
+    # value, a factory key the user already has keeps the user's value
+    user = 'menu_driver = "xmb"\nmenu_timedate_enable = "true"\nmy_own_key = "1"\n'
+    _, cfg, _ = _frontend(tmp_path, "ga36", user)
+    lines = cfg.splitlines()
+    assert lines[:3] == ['menu_driver = "xmb"', 'menu_timedate_enable = "true"', 'my_own_key = "1"']
+    assert _keys(cfg) >= FACTORY_KEYS
+    assert sum(1 for line in lines if line.startswith("menu_driver ")) == 1
+    assert 'menu_timedate_enable = "false"' not in lines
+    assert _factory_line("menu_swap_ok_cancel_buttons") in lines
+
+
+def test_seeding_is_stable_and_keeps_the_users_choice_across_starts(tmp_path):
+    _, first, _ = _frontend(tmp_path, "r36s", 'all_users_control_menu = "false"\n')
+    _, second, _ = _frontend(tmp_path, "r36s")
+    assert first == second
+    assert 'all_users_control_menu = "false"' in second.splitlines()
+    assert 'all_users_control_menu = "true"' not in second
+
+
+def test_factory_key_of_a_run_the_user_never_had_gets_the_factory_value(tmp_path):
+    # video_threaded is a factory key and a run key of pcsx_rearmed; a run killed on an image
+    # from before the seeding left "#unset video_threaded" (the user had none): the restore
+    # removes it, then the seeding gives the factory value (vm: no board value)
+    (tmp_path / "card").mkdir()
+    (tmp_path / "card/restore.cfg").write_text("#unset video_threaded\n")
+    out, cfg, _ = _frontend(tmp_path, "vm", 'video_threaded = "true"\n')
+    assert not (tmp_path / "card/restore.cfg").exists()
+    assert f"during: {_factory_line('video_threaded')}" in out
+    assert cfg.count("video_threaded") == 1
+
+
+def _opt_env(tmp_path, opts: dict[str, str], cores: dict[str, str] | None = None,
+             info_text=None) -> dict:
+    """A share with factory .opt files ({corename: text}) and .info files for the cores."""
+    share = tmp_path / "share"
+    if not share.exists():
+        shutil.copytree(SHARE, share)
+    for name, text in opts.items():
+        d = share / "factory/retroarch/config" / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{name}.opt").write_text(text)
+    info = tmp_path / "info"
+    info.mkdir(exist_ok=True)
+    for core, name in (cores if cores is not None else _corenames()).items():
+        body = info_text(name) if info_text else f'display_name = "x"\ncorename = "{name}"\n'
+        (info / f"{core}_libretro.info").write_text(body)
+    return {"LUME_SHARE": str(share), "LUME_INFO": str(info)}
+
+
+GPGX = ("-L", "/usr/lib/libretro/genesis_plus_gx_libretro.so", "/storage/roms/megadrive/x.md")
+GPGX_OPT = 'genesis_plus_gx_ym2612 = "nuked (ym2612)"\ngenesis_plus_gx_audio_filter = "low-pass"\n'
+
+
+def _user_opt(tmp_path, name="Genesis Plus GX"):
+    return tmp_path / "home/.config/retroarch/config" / name / f"{name}.opt"
+
+
+def test_core_options_file_that_does_not_exist_is_born_equal_to_the_factory(tmp_path):
+    env = _opt_env(tmp_path, {"Genesis Plus GX": GPGX_OPT})
+    _frontend(tmp_path, "ga36", "", args=GPGX, env_extra=env)
+    assert _user_opt(tmp_path).read_text() == GPGX_OPT
+    assert not list(_user_opt(tmp_path).parent.glob("*.tmp.*"))
+
+
+def test_users_core_option_stays_and_the_missing_ones_arrive(tmp_path):
+    env = _opt_env(tmp_path, {"Genesis Plus GX": GPGX_OPT})
+    opt = _user_opt(tmp_path)
+    opt.parent.mkdir(parents=True)
+    opt.write_text('genesis_plus_gx_ym2612 = "mame (ym2612)"\ngenesis_plus_gx_bram = "per game"\n')
+    _frontend(tmp_path, "ga36", "", args=GPGX, env_extra=env)
+    assert opt.read_text().splitlines() == [
+        'genesis_plus_gx_ym2612 = "mame (ym2612)"', 'genesis_plus_gx_bram = "per game"',
+        'genesis_plus_gx_audio_filter = "low-pass"']
+    # complete now: the next game leaves the file alone (same inode, not rewritten)
+    before = opt.stat()
+    _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
+    after = opt.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
+def test_core_options_only_for_the_core_of_the_run(tmp_path):
+    env = _opt_env(tmp_path, {"Genesis Plus GX": GPGX_OPT, "PCSX-ReARMed": 'pcsx_rearmed_x = "1"\n'})
+    _frontend(tmp_path, "ga36", "", args=GPGX, env_extra=env)
+    assert _user_opt(tmp_path).exists()
+    assert not _user_opt(tmp_path, "PCSX-ReARMed").exists()
+    # the menu without a game (no -L) touches no core options
+    _frontend(tmp_path, "ga36", env_extra=env)
+    assert not _user_opt(tmp_path, "PCSX-ReARMed").exists()
+    # a core without factory options or without a .info gets nothing
+    snes = ("-L", "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/x.sfc")
+    _frontend(tmp_path, "ga36", args=snes, env_extra=env)
+    assert not (tmp_path / "home/.config/retroarch/config/Snes9x 2005 Plus").exists()
+    (tmp_path / "b").mkdir()
+    env_no_info = _opt_env(tmp_path / "b", {"Genesis Plus GX": GPGX_OPT}, cores={})
+    _frontend(tmp_path / "b", "ga36", "", args=GPGX, env_extra=env_no_info)
+    assert not _user_opt(tmp_path / "b").exists()
+
+
+def test_corename_is_read_with_any_spacing(tmp_path):
+    for i, fmt in enumerate(('corename="{}"\n', 'corename\t=\t"{}"  \n', 'corename = {}\n')):
+        base = tmp_path / str(i)
+        base.mkdir()
+        env = _opt_env(base, {"Genesis Plus GX": GPGX_OPT}, cores={"genesis_plus_gx": "Genesis Plus GX"},
+                       info_text=lambda name, fmt=fmt: f'display_name = "corename"\n{fmt.format(name)}')
+        _frontend(base, "ga36", "", args=GPGX, env_extra=env)
+        assert _user_opt(base).read_text() == GPGX_OPT, fmt
+
+
+def test_corename_fixture_covers_every_installed_core():
+    # the core files of the libretro-* packages (package name with "_" for "-")
+    packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
+    cores = {p.removeprefix("libretro-").replace("-", "_") for p in packages
+             if p.startswith("libretro-") and p != "libretro-core-info"}
+    assert cores == set(_corenames())
+
+
+def test_factory_option_folders_are_corenames_of_installed_cores():
+    # RetroArch looks for config/<corename>/<corename>.opt; a folder with another name would
+    # never be seeded. No factory options yet (task 8.1 adds them): the check still runs
+    names = set(_corenames().values())
+    folders = sorted(p for p in FACTORY_OPT_DIR.iterdir()) if FACTORY_OPT_DIR.exists() else []
+    for folder in folders:
+        assert folder.is_dir() and folder.name in names, folder.name
+        assert [p.name for p in folder.iterdir()] == [f"{folder.name}.opt"], folder.name
+        text = folder.joinpath(f"{folder.name}.opt").read_text()
+        assert all(re.match(r'^\w+ = ".*"$', line) for line in text.splitlines()), folder.name
+
+
+def test_shipped_factory_options_reach_the_user_through_the_frontend(tmp_path):
+    # every shipped factory .opt is found through the corename of its core's .info
+    env = _opt_env(tmp_path, {})
+    by_name = {name: core for core, name in _corenames().items()}
+    folders = sorted(FACTORY_OPT_DIR.iterdir()) if FACTORY_OPT_DIR.exists() else []
+    for folder in folders:
+        core = by_name[folder.name]
+        args = ("-L", f"/usr/lib/libretro/{core}_libretro.so", "/storage/roms/x/game")
+        _frontend(tmp_path, "ga36", "", args=args, env_extra=env)
+        user = _user_opt(tmp_path, folder.name)
+        assert user.read_text() == (folder / f"{folder.name}.opt").read_text()

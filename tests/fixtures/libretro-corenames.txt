@@ -1,0 +1,21 @@
+# corename of the .info of every core in rootfs/packages.txt (libretro-core-info, the
+# <core>_libretro.info files that rootfs/configure.sh copies to /usr/share/lume/libretro-info).
+# RetroArch keeps the options of a core in config/<corename>/<corename>.opt, so the folders of
+# factory/retroarch/config must be one of these names (game-experience-tuning D3).
+# No .info file is available offline (they come with the libretro-core-info package of the
+# image), so the names are copied here, checked on 2026-11-19 against
+# https://github.com/libretro/libretro-core-info (master). A new core in packages.txt fails
+# test_corename_fixture_covers_every_installed_core until its line is added here.
+fceumm = "FCEUmm"
+nestopia = "Nestopia"
+gambatte = "Gambatte"
+gpsp = "gpSP"
+snes9x2005_plus = "Snes9x 2005 Plus"
+genesis_plus_gx = "Genesis Plus GX"
+picodrive = "PicoDrive"
+fbneo = "FinalBurn Neo"
+fbalpha2012_cps1 = "FB Alpha 2012 CPS-1"
+fbalpha2012_cps2 = "FB Alpha 2012 CPS-2"
+fbalpha2012_neogeo = "FB Alpha 2012 Neo Geo"
+pcsx_rearmed = "PCSX-ReARMed"
+mednafen_pce_fast = "Beetle PCE Fast"
