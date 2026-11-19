@@ -91,13 +91,19 @@ apply() {
 	state=$("$AMIXER" -c "$CARD" cget iface=CARD,name='Headphones Jack' 2>/dev/null \
 		| sed -n 's/.*: values=//p')
 	case "$state" in
-	on) mux=HP out=headphones ;;
-	off) mux=SPK out=speaker ;;
+	on) mux=HP out=headphones amp=off ;;
+	off) mux=SPK out=speaker amp=on ;;
 	*) return 0 ;;
 	esac
 	[ "$mux" = "$last" ] && return 0
+	# The speaker amplifier (spk-ctl, "Internal Speakers") is fed by the headphone stage
+	# (kernel patch 0024), so the mux alone leaves the speaker playing with headphones in
+	# (R36S J1, 2026-11-19): it goes off with headphones and on again without them.
+	if ! "$AMIXER" -c "$CARD" -q sset 'Internal Speakers' "$amp" >/dev/null 2>&1; then
+		say "jack: FAILED to switch the speaker amplifier $amp"
+	fi
 	if "$AMIXER" -c "$CARD" -q sset 'Playback Mux' "$mux" >/dev/null 2>&1; then
-		say "jack: headphones $state, playback mux $mux"
+		say "jack: headphones $state, playback mux $mux, speaker amplifier $amp"
 		last=$mux
 		set_output "$out"
 		apply_level "$out"

@@ -33,8 +33,9 @@ events 4 > "$W/evdev"
 out=$(JACK_EVDEV="$W/evdev" $JACK)
 check "speaker: the mux is set to SPK" 'grep -qxF -e "-c rk817int -q sset Playback Mux SPK" "$FAKE_LOG"'
 check "speaker: no level file, the default 70% (raw 228) is applied" 'grep -qxF -e "-c rk817int -q sset Master 228" "$FAKE_LOG"'
-check "speaker: set only once (mux and level, no more writes per event)" '[ "$(grep -c "" "$FAKE_LOG")" = 2 ]'
-check "speaker: logged in English" 'printf "%s\n" "$out" | grep -qx "jack: headphones off, playback mux SPK"'
+check "speaker: the speaker amplifier is switched on" 'grep -qxF -e "-c rk817int -q sset Internal Speakers on" "$FAKE_LOG"'
+check "speaker: set only once (amplifier, mux and level, no more writes per event)" '[ "$(grep -c "" "$FAKE_LOG")" = 3 ]'
+check "speaker: logged in English" 'printf "%s\n" "$out" | grep -qx "jack: headphones off, playback mux SPK, speaker amplifier on"'
 check "speaker: the active output is written for lume-input (7.2)" '[ "$(cat "$OUTPUT_FILE")" = speaker ] && [ ! -e "$OUTPUT_FILE.tmp" ]'
 
 ### headphones plugged in: HP, with the level of that output (3.4 conversion)
@@ -46,6 +47,7 @@ export LEVEL_DIR="$W/audio"
 : > "$FAKE_LOG"
 JACK_EVDEV="$W/evdev" $JACK >/dev/null
 check "headphones: the mux is set to HP" 'grep -qxF -e "-c rk817int -q sset Playback Mux HP" "$FAKE_LOG"'
+check "headphones: the speaker amplifier is switched off (R36S J1: it played with headphones in)" 'grep -qxF -e "-c rk817int -q sset Internal Speakers off" "$FAKE_LOG"'
 check "headphones: 100% is the loudest clean raw (255)" 'grep -qxF -e "-c rk817int -q sset Master 255" "$FAKE_LOG"'
 check "headphones: the active output is written for lume-input (7.2)" '[ "$(cat "$OUTPUT_FILE")" = headphones ]'
 echo off > "$W/state"
@@ -92,7 +94,7 @@ EOF
 echo on > "$W/state"
 : > "$FAKE_LOG"
 JACK_EVDEV="$W/evdev" $JACK >/dev/null
-check "change: HP then SPK on the next event, each with the level of its output" '[ "$(cat "$FAKE_LOG" | tr "\n" "|")" = "-c rk817int -q sset Playback Mux HP|-c rk817int -q sset Master 255|-c rk817int -q sset Playback Mux SPK|-c rk817int -q sset Master 255|" ]'
+check "change: HP then SPK on the next event, each with its amplifier state and level" '[ "$(cat "$FAKE_LOG" | tr "\n" "|")" = "-c rk817int -q sset Internal Speakers off|-c rk817int -q sset Playback Mux HP|-c rk817int -q sset Master 255|-c rk817int -q sset Internal Speakers on|-c rk817int -q sset Playback Mux SPK|-c rk817int -q sset Master 255|" ]'
 
 ### other boards: the service does nothing
 for b in ga36 vm; do
