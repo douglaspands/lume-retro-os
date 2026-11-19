@@ -31,35 +31,85 @@ DROPBEARKEY=${DROPBEARKEY:-dropbearkey}
 CHPASSWD=${CHPASSWD:-chpasswd}
 ROOT_SSH=${ROOT_SSH:-/root/.ssh}
 RUN=${RUN:-/run/lume}
-INTERVAL=${INTERVAL:-4}
+INTERVAL=${INTERVAL:-5}
 PID=$RUN/ssh-wifi.pid
 ADDR=$RUN/ssh-wifi.addr
 APPLIED=$RUN/ssh-wifi.applied
+WAKE=$RUN/ssh-wifi.wake
 # the code's alphabet: no 0/O, 1/I/L (the launcher makes new codes with the same one)
 ALPHABET=23456789ABCDEFGHJKMNPQRSTUVWXYZ
 
 say() { echo "ssh-wifi: $*"; logger -t lume-ssh-wifi "$*" 2>/dev/null; return 0; }
 
-enabled() { grep -Eq '^[[:space:]]*ssh_wifi[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$SETTINGS" 2>/dev/null; }
+# The watch loop starts no process while the option is off or the Wi-Fi is down (game-governor
+# D20): files are read with the read builtin. With the option on and the interface up, one
+# `ip` per round gives the address.
+
+# first line of a file in LINE ("" when missing)
+first_line() {
+	LINE=""
+	[ -r "$1" ] && read -r LINE 2>/dev/null <"$1"
+	return 0
+}
+
+# ssh_wifi = true in the launcher's settings (blanks ignored)
+enabled() {
+	local l
+	[ -r "$SETTINGS" ] || return 1
+	while IFS= read -r l || [ -n "$l" ]; do
+		l=${l//[[:space:]]/}
+		[ "$l" = ssh_wifi=true ] && return 0
+	done <"$SETTINGS"
+	return 1
+}
 
 # the first wireless interface by name, not a Wi-Fi Direct group (lume-ui picks the same)
 wifi_iface() {
+	local d n
+	IFACE=""
 	for d in "$NET_CLASS"/*; do
 		n=${d##*/}
 		case $n in p2p*) continue ;; esac
-		if [ -e "$d/wireless" ] || [ -e "$d/phy80211" ]; then echo "$n"; return 0; fi
+		if [ -e "$d/wireless" ] || [ -e "$d/phy80211" ]; then IFACE=$n; return 0; fi
 	done
 	return 1
 }
 
+# IPv4 address of the Wi-Fi interface in WANT ("" when none); `ip` only when the interface
+# is not down
 wifi_addr() {
-	i=$(wifi_iface) || return 0
-	"$IP" -4 -o addr show dev "$i" 2>/dev/null | sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' | head -n 1
+	local out
+	WANT=""
+	wifi_iface || return 0
+	first_line "$NET_CLASS/$IFACE/operstate"
+	[ "$LINE" = down ] && return 0
+	out=$("$IP" -4 -o addr show dev "$IFACE" 2>/dev/null)
+	# "3: wlan0    inet 192.168.1.20/24 brd ..."
+	set -- $out
+	while [ $# -gt 1 ]; do
+		[ "$1" = inet ] && { WANT=${2%%/*}; return 0; }
+		shift
+	done
+	return 0
 }
 
-# the address the running server listens on (empty when none runs)
+# the address the running server listens on in HAVE (empty when none runs)
 running_addr() {
-	[ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null && cat "$ADDR" 2>/dev/null
+	HAVE=""
+	first_line "$PID"
+	[ -n "$LINE" ] && kill -0 "$LINE" 2>/dev/null || return 0
+	first_line "$ADDR"
+	HAVE=$LINE
+	return 0
+}
+
+# the whole of a small file in TEXT, read with the builtin
+read_all() {
+	local l
+	TEXT=""
+	[ -r "$1" ] || return 1
+	while IFS= read -r l || [ -n "$l" ]; do TEXT="$TEXT$l
+"; done <"$1"
 	return 0
 }
 
@@ -72,7 +122,8 @@ new_code() {
 # The code on the card (made when missing), applied as the password of "console" whenever it
 # changed; the card's text is only trusted when it looks like a code.
 apply_code() {
-	code=$(head -n 1 "$CODE" 2>/dev/null | tr -d '\r\n ')
+	first_line "$CODE"
+	code=${LINE//[[:space:]]/}
 	case $code in
 	[2-9A-Z][2-9A-Z][2-9A-Z][2-9A-Z]-[2-9A-Z][2-9A-Z][2-9A-Z][2-9A-Z]) ;;
 	*)
@@ -82,7 +133,8 @@ apply_code() {
 		say "new code made"
 		;;
 	esac
-	if [ "$(cat "$APPLIED" 2>/dev/null)" != "$code" ]; then
+	first_line "$APPLIED"
+	if [ "$LINE" != "$code" ]; then
 		echo "console:$code" | "$CHPASSWD" > /dev/null 2>&1 || { say "code not applied"; return 1; }
 		mkdir -p "$RUN"
 		echo "$code" > "$APPLIED"
@@ -92,23 +144,28 @@ apply_code() {
 
 install_keys() {
 	if [ ! -s "$KEYS" ]; then
-		rm -f "$ROOT_SSH/authorized_keys"
+		[ -e "$ROOT_SSH/authorized_keys" ] && rm -f "$ROOT_SSH/authorized_keys"
 		return 0
 	fi
+	# the same keys already installed: nothing to do, with no process
+	local want
+	read_all "$KEYS"
+	want=$TEXT
+	read_all "$ROOT_SSH/authorized_keys" && [ "$TEXT" = "$want" ] && return 0
 	mkdir -p "$ROOT_SSH" && chmod 700 "$ROOT_SSH" || return 1
-	cmp -s "$KEYS" "$ROOT_SSH/authorized_keys" 2>/dev/null && return 0
 	cp "$KEYS" "$ROOT_SSH/authorized_keys.tmp" && chmod 600 "$ROOT_SSH/authorized_keys.tmp" &&
 		mv -f "$ROOT_SSH/authorized_keys.tmp" "$ROOT_SSH/authorized_keys"
 }
 
 stop_ssh() {
 	if [ -f "$PID" ]; then
-		kill "$(cat "$PID")" 2>/dev/null
+		first_line "$PID"
+		[ -n "$LINE" ] && kill "$LINE" 2>/dev/null
 		rm -f "$PID" "$ADDR"
 		say "stopped"
 	fi
 	# the keys only stay while it runs; "console" goes back to locked
-	rm -f "$ROOT_SSH/authorized_keys"
+	[ -e "$ROOT_SSH/authorized_keys" ] && rm -f "$ROOT_SSH/authorized_keys"
 	if [ -f "$APPLIED" ]; then
 		echo 'console:!' | "$CHPASSWD" -e > /dev/null 2>&1
 		rm -f "$APPLIED"
@@ -132,9 +189,11 @@ start_ssh() {
 }
 
 apply() {
-	want=""
-	if enabled; then want=$(wifi_addr); fi
-	have=$(running_addr)
+	WANT=""
+	if enabled; then wifi_addr; fi
+	want=$WANT
+	running_addr
+	have=$HAVE
 	if [ -n "$want" ] && [ "$want" = "$have" ]; then
 		# a new code asked in the launcher, or a key added or removed on the card
 		apply_code
@@ -150,11 +209,21 @@ apply() {
 case "${1:-}" in
 apply) apply ;;
 watch)
-	trap 'stop_ssh; exit 0' TERM INT
+	trap 'stop_ssh; rm -f "$WAKE"; exit 0' TERM INT
+	# the wait is read -t on a FIFO of its own, opened read-write (never blocks, never an end
+	# of file); a line on it applies at once
+	mkdir -p "$RUN"
+	rm -f "$WAKE"
+	fifo=0
+	if mkfifo -m 0600 "$WAKE" 2>/dev/null; then exec 3<>"$WAKE" && fifo=1; fi
 	while :; do
 		apply
-		sleep "$INTERVAL" &
-		wait $!
+		if [ "$fifo" = 1 ]; then
+			read -t "$INTERVAL" -r _ <&3 || :
+		else
+			sleep "$INTERVAL" &
+			wait $!
+		fi
 	done ;;
 *) echo "usage: ssh-wifi apply|watch" >&2; exit 2 ;;
 esac

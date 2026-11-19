@@ -1,6 +1,6 @@
 # Funções comuns dos scripts do Lume Retro OS (ash/busybox).
 
-LUME_RUN=/run/lume
+LUME_RUN=${LUME_RUN:-/run/lume}
 mkdir -p "$LUME_RUN"
 
 # Mensagem na tela/serial (stdout do serviço) e no syslog.
@@ -35,18 +35,37 @@ mirror() {
 	return 0
 }
 
-# Observa as árvores "$@" com inotifyd e chama "$HANDLER evento dir arquivo".
-# Recria o inotifyd quando surge um diretório novo (o inotifyd não é recursivo).
-# Uso: WATCH_NAME=<nome> watch_tree <handler> <eventos> <diretório>...
+# uptime in centiseconds in LUME_UP (no process)
+uptime_cs() {
+	local u
+	read -r u _ </proc/uptime
+	LUME_UP=$((${u%.*} * 100 + 1${u#*.} - 100))
+}
+
+# Watches the trees "$@" with inotifyd, which runs "<handler> <event> <dir> <file>" for each
+# event. While nothing changes no process is started (game-governor D20): the loop waits with
+# read -t on its FIFO $LUME_RUN/watch.<name>, and a handler wakes it with watch_wake.
+# "rescan" (a new directory, see note_new_dir) starts inotifyd again with the new list, since
+# inotifyd is not recursive. WATCH_TICK, when set, is called with each message, with "" when
+# WATCH_WAIT seconds passed with none, and with "restart" when inotifyd is started again; it
+# may change WATCH_WAIT (WATCH_IDLE, 10 s, by default). Every WATCH_WAIT the loop also checks
+# that inotifyd is alive (it exits when a watched directory is removed).
+# Usage: WATCH_NAME=<name> watch_tree <handler> <events> <directory>...
 watch_tree() {
 	export WATCH_NAME="${WATCH_NAME:-watch}"
-	local handler="$1" events="$2" args d old_ifs nl; shift 2
+	local handler="$1" events="$2" args d old_ifs nl msg fifo t0 rescanned; shift 2
 	nl='
 '
+	fifo=$LUME_RUN/watch.$WATCH_NAME
+	WATCH_IDLE=${WATCH_IDLE:-10}
+	WATCH_WAIT=$WATCH_IDLE
 	pid=""
-	trap 'kill $pid 2>/dev/null; exit 0' TERM INT
+	trap 'kill $pid 2>/dev/null; rm -f "$fifo"; exit 0' TERM INT
+	rm -f "$fifo"
+	# read-write: the open never blocks and the loop never sees an end of file
+	if mkfifo -m 0600 "$fifo" 2>/dev/null; then exec 3<>"$fifo"; else fifo=""; fi
 	while :; do
-		# Uma linha por diretório: nomes com espaço ("config/Genesis Plus GX") ficam inteiros.
+		# One line per directory: names with spaces ("config/Genesis Plus GX") stay whole.
 		args=""
 		for d in "$@"; do
 			[ -d "$d" ] && args="$args$(find "$d" -type d | sed "s|\$|:$events|")$nl"
@@ -57,23 +76,53 @@ watch_tree() {
 		inotifyd "$handler" $args &
 		pid=$!
 		IFS=$old_ifs
+		rescanned=0
 		while kill -0 "$pid" 2>/dev/null; do
-			sleep 1
-			[ -n "$WATCH_TICK" ] && $WATCH_TICK
-			if [ -e "$LUME_RUN/rescan.$WATCH_NAME" ]; then
+			msg=""
+			if [ -n "$fifo" ]; then
+				uptime_cs
+				t0=$LUME_UP
+				read -t "$WATCH_WAIT" -r msg <&3
+				if [ -z "$msg" ]; then
+					uptime_cs
+					# back at once with nothing: the FIFO broke; never spin
+					if [ $((LUME_UP - t0)) -lt 5 ]; then
+						log "$WATCH_NAME: wake FIFO failed, waiting with sleep"
+						fifo=""
+					fi
+				fi
+			else
+				sleep "$WATCH_WAIT"
+			fi
+			if [ "$msg" = rescan ] || [ -e "$LUME_RUN/rescan.$WATCH_NAME" ]; then
 				rm -f "$LUME_RUN/rescan.$WATCH_NAME"
 				kill "$pid" 2>/dev/null
 				wait "$pid" 2>/dev/null
+				rescanned=1
 			fi
+			[ -n "$WATCH_TICK" ] && $WATCH_TICK "$msg"
 		done
-		# inotifyd saiu (diretório removido, por exemplo): não perde o debounce
-		[ -n "$WATCH_TICK" ] && $WATCH_TICK
-		sleep 1
+		[ -n "$WATCH_TICK" ] && $WATCH_TICK restart
+		# inotifyd exited by itself (a watched directory removed, for example): not in a burst
+		[ "$rescanned" = 1 ] || sleep 1
 	done
 }
 
-# Para os handlers: um diretório novo pede para refazer a lista do inotifyd.
-note_new_dir() { [ "$1" = n ] && [ -d "$2/$3" ] && : > "$LUME_RUN/rescan.${WATCH_NAME:-watch}"; return 0; }
+# For the handlers: wakes the watch_tree loop with one line (never blocks; nothing without
+# the loop's FIFO).
+watch_wake() {
+	local f="$LUME_RUN/watch.${WATCH_NAME:-watch}"
+	[ -p "$f" ] || return 0
+	{ printf '%s\n' "$1" >&4; } 4<>"$f" 2>/dev/null
+	return 0
+}
+
+# For the handlers: a new directory asks for a new inotifyd list.
+note_new_dir() {
+	[ "$1" = n ] && [ -d "$2/$3" ] || return 0
+	: > "$LUME_RUN/rescan.${WATCH_NAME:-watch}"
+	watch_wake rescan
+}
 
 board() { cat "${BOARD_FILE:-/etc/lume/board}" 2>/dev/null; }
 

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Handler do inotifyd do savesync: <evento> <diretório> <arquivo>
-. /usr/libexec/lume/lib.sh
+# inotifyd handler of savesync: <event> <directory> <file>
+. "${SAVESYNC_LIBSH:-/usr/libexec/lume/lib.sh}"
 note_new_dir "$1" "$2" "$3"
 case "$1" in
 w|y)

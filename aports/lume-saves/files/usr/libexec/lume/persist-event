@@ -1,6 +1,7 @@
 #!/bin/sh
 # inotifyd handler of lume-persist: <event> <directory> <file>
-. /usr/libexec/lume/lib.sh
+. "${PERSIST_LIBSH:-/usr/libexec/lume/lib.sh}"
 case "$3" in *.tmp.*) exit 0 ;; esac
 note_new_dir "$1" "$2" "$3"
 : > "$LUME_RUN/persist.dirty"
+watch_wake dirty

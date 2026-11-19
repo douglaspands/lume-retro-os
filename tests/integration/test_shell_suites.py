@@ -24,7 +24,9 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
     "tests/usb/test_usb_gadget.sh",       # usb-device-access 3.2, 3.3
     "tests/usb/test_usb_storage.sh",      # usb-device-access 7.3
     "tests/session/test_session.sh",      # lume-launcher 6.1
-    "tests/net/test_ssh_wifi.sh",         # lume-launcher 12.5
+    "tests/net/test_ssh_wifi.sh",         # lume-launcher 12.5, game-governor 7.2
+    "tests/saves/test_persist.sh",        # game-governor 7.2
+    "tests/saves/test_savesync.sh",       # game-governor 7.2
     "tests/selftest/test_selftest_device.sh",  # build-speed 3.2
     "tests/card/test_card.sh",            # device-fixes 5.3
     "tests/clock/test_clock.sh",          # device-fixes 9.1

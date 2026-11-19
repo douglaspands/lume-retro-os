@@ -15,7 +15,8 @@ SYS=${PERSIST_SYS:-/storage/system}
 CARD=$SYS/retroarch
 FACTORY=${PERSIST_FACTORY:-/usr/share/lume/factory/retroarch}
 DIRTY=$LUME_RUN/persist.dirty
-DEBOUNCE=2
+DEBOUNCE=${PERSIST_DEBOUNCE:-2}
+LIBEXEC=${PERSIST_LIBEXEC:-/usr/libexec/lume}
 
 storage_ok() { mountpoint -q "${PERSIST_MOUNT:-/storage}"; }
 
@@ -62,13 +63,18 @@ flush() {
 	sync
 }
 
-# Chamado a cada segundo pelo watch_tree: sincroniza 2 s depois da última mudança.
+# WATCH_TICK of watch_tree (game-governor D20: no process while nothing changes): each
+# "dirty" from persist-event restarts a wait of DEBOUNCE seconds; when it ends with no new
+# change, RAM goes to the card. A dirty mark without a message (the FIFO was not there yet)
+# is synced at the next idle timeout.
 tick() {
-	[ -e "$DIRTY" ] || return 0
-	local now last
-	now=$(date +%s)
-	last=$(stat -c %Y "$DIRTY" 2>/dev/null) || return 0
-	[ $((now - last)) -ge $DEBOUNCE ] && flush
+	case $1 in
+	dirty) WATCH_WAIT=$DEBOUNCE ;;
+	'')
+		[ -e "$DIRTY" ] && flush
+		WATCH_WAIT=$WATCH_IDLE
+		;;
+	esac
 	return 0
 }
 
@@ -81,7 +87,7 @@ watch)
 	storage_ok || exit 0
 	WATCH_TICK=tick
 	WATCH_NAME=persist
-	watch_tree /usr/libexec/lume/persist-event wymnd "$RAM"
+	watch_tree "$LIBEXEC/persist-event" wymnd "$RAM"
 	;;
 *) echo "usage: $0 restore|watch|flush" >&2; exit 2 ;;
 esac
