@@ -19,10 +19,11 @@ MAP_FILE = REPO_ROOT / "docs" / "NOMES.md"
 # Task 1.4 turned this on: a pending `r36os` fails the test.
 ENFORCE = True
 
-# The main specs are not edited by hand: they are updated from the name-only MODIFIED deltas of
-# device-fixes when the change is archived. test_main_specs_have_a_name_delta checks the deltas.
+# The main specs are not edited by hand: they were updated from the name-only MODIFIED deltas of
+# device-fixes when the change was archived (2026-11-19). test_main_specs_have_a_name_delta now
+# fails on any r36os in a main spec that those archived deltas do not cover.
 SPEC_DIR = "openspec/specs/"
-DELTA_DIR = "openspec/changes/device-fixes/specs/"
+DELTA_DIR = "openspec/changes/archive/2026-11-19-device-fixes/specs/"
 
 NEEDLE = re.compile(r"r36os", re.IGNORECASE)
 MAX_BYTES = 2_000_000

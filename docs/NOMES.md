@@ -480,8 +480,8 @@ por isso a 1.2 muda as pastas e esses testes no mesmo passo.
 | `aports/r36os-input/vm.conf` | `aports/lume-input/vm.conf` | caminho | `dev.py` |
 | `aports/r36os-input/evrec.c` | `aports/lume-input/evrec.c` | caminho | `docs/BUILD.md` |
 | `aports/r36os-padmerge` | `aports/lume-padmerge` | caminho | só em um comentário de teste; a pasta já não existe |
-| `aports/r36os-` | `aports/lume-` | caminho | prefixo citado em `openspec/changes/device-fixes/proposal.md` |
-| `aports/r36os-input/` | `aports/lume-input/` | caminho | citado em `openspec/changes/virtual-gamepad/proposal.md` |
+| `aports/r36os-` | `aports/lume-` | caminho | prefixo citado em `openspec/changes/archive/2026-11-19-device-fixes/proposal.md` |
+| `aports/r36os-input/` | `aports/lume-input/` | caminho | citado em `openspec/changes/archive/2026-11-19-virtual-gamepad/proposal.md` |
 | `aports/lume-core/files/usr/libexec/r36os` | `aports/lume-core/files/usr/libexec/lume` | caminho | testes (`test_logs_doc.py`, `test_power_service.py`) |
 | `PWD/aports/lume-core/files/usr/libexec/r36os` | `PWD/aports/lume-core/files/usr/libexec/lume` | caminho | `tests/logs`, `tests/selftest` |
 | `aports/lume-diag/files/usr/libexec/r36os` | `aports/lume-diag/files/usr/libexec/lume` | caminho | testes |
@@ -532,7 +532,7 @@ ocorrência.
 |---|---|
 | `openspec/changes/archive/` | Changes arquivadas são histórico: não se reescreve |
 | `docs/referencia/` | Material de referência medido (dados do GA36 e de outros projetos), copiado com crédito; não é nome do projeto |
-| `openspec/changes/device-fixes/` | A própria change que descreve a troca precisa dos nomes antigos para explicar o que muda (design, proposta, tarefas e specs) |
+| `openspec/changes/archive/2026-11-19-device-fixes/` | A própria change que descreve a troca precisa dos nomes antigos para explicar o que muda (design, proposta, tarefas e specs); arquivada em 2026-11-19, já coberta pela linha do `archive/` |
 | `docs/NOMES.md` | Este mapa lista os nomes antigos |
 | `tests/unit/test_lume_names.py` | O teste-guarda cita o prefixo antigo |
 | `uv.lock` | Arquivo gerado: o `uv sync --inexact` o refaz depois da troca do nome do projeto |
