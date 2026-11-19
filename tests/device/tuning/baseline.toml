@@ -1,0 +1,82 @@
+# Baseline of every core of the catalog and of the LÖVE runner (game-experience-tuning 7.1,
+# 7.5): the first game of one system per core in the test set (var/roms_test/), no variant.
+# Run: .venv/bin/python tests/device/tuning_ab.py baseline --console ga36 [--dry-run]
+#
+# Format (lume_tool.tuning): no game names nor paths, the game is the position in the list.
+#   [[core]]
+#   core = "<libretro core, as in the lume-run start event>"   (a label for process "love")
+#   system = "<system id of systems.json>"
+#   position = <game N of that system, from 1>
+#   process = "retroarch" | "love"        (optional, default retroarch)
+#   [[core.variant]]                      (A/B candidates; none in the baseline)
+#   name = "<a-z0-9_.+->"
+#   retroarch = { key = "value" }         (appended to /run/lume/retroarch-extra.cfg)
+#   options = { key = "value" }           (written into the user's .opt of the core)
+description = "Baseline: default configuration, one game per core"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fceumm"
+system = "nes"
+position = 1
+
+[[core]]
+core = "snes9x2005_plus"
+system = "snes"
+position = 1
+
+[[core]]
+core = "genesis_plus_gx"
+system = "megadrive"
+position = 1
+
+[[core]]
+core = "picodrive"
+system = "sega32x"
+position = 1
+
+[[core]]
+core = "gambatte"
+system = "gbc"
+position = 1
+
+[[core]]
+core = "gpsp"
+system = "gba"
+position = 1
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+position = 1
+
+[[core]]
+core = "fbalpha2012_cps1"
+system = "cps1"
+position = 1
+
+[[core]]
+core = "fbalpha2012_cps2"
+system = "cps2"
+position = 1
+
+[[core]]
+core = "fbalpha2012_neogeo"
+system = "neogeo"
+position = 1
+
+[[core]]
+core = "pcsx_rearmed"
+system = "psx"
+position = 1
+
+[[core]]
+core = "mednafen_pce_fast"
+system = "pcengine"
+position = 1
+
+[[core]]
+core = "love"
+system = "love"
+position = 1
+process = "love"
