@@ -47,6 +47,12 @@ perfis iguais ao padrão do kernel até a 5.4.
 | 6.2 | 6.1, 5.3 | — | AG | sonnet | 9 | |
 | 6.3 | 6.2, 5.4 | CPU, ARCH:aarch64 | PR | — | 10 | |
 | 6.4 | 6.3, 5.5 | R36S, USUARIO | PR | — | 11 | J4 |
+| 7.1 | — | — | PR | opus (a aprovar: o laço mantém o SSH e o MTP pelo cabo) | 12 | |
+| 7.2 | — | — | PR | sonnet (a aprovar) | 12 | |
+| 7.3 | — | — | PR | sonnet (a aprovar) | 12 | |
+| 7.4 | — | — | PR | sonnet (a aprovar) | 12 | |
+| 7.5 | 7.1, 7.2, 7.3, 7.4 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 13 | |
+| 7.6 | 7.5 | GA36 ou R36S | PR | — | 14 | pelo cabo |
 
 Modelos: ondas 0, 1 e 2 aprovadas pelo usuário em 2026-11-17 (como na tabela, em paralelo); as
 outras ondas aguardam aprovação antes de começar.
@@ -90,6 +96,9 @@ só depois que o GA36 terminar.
 - Onda 3: 5.1 (build de medição, as duas arquiteturas, fila única de CPU, com o kernel do GA36).
 - GA36: Onda 4: 5.2 (J1). Onda 5: 5.3. Onda 6: 5.4. Onda 7: 5.5 (J3).
 - R36S, depois do GA36: Onda 8: 6.1 (J2). Onda 9: 6.2. Onda 10: 6.3. Onda 11: 6.4 (J4).
+- Revisão de 2026-11-19 (D20, P-112): Onda 12: 7.1, 7.2, 7.3, 7.4 (sessão principal, um de
+  cada vez; a 7.1 primeiro, por ser a de risco). Onda 13: 7.5 (build). Onda 14: 7.6 (medição
+  pelo cabo).
 
 **Janelas de aparelho** (depois das provas da `build-speed` e da `card-health`, na fila única do
 cartão; ordem J1, J3, J2, J4):
@@ -139,7 +148,7 @@ cartão; ordem J1, J3, J2, J4):
 ## 1. Interfaces e coletor
 
 - [x] 1.1 Congelar o protocolo do FIFO `/run/lume/power` (D1: `menu`, `idle`, `game <sistema> <core>`, `end`, uma por linha; escritor sem bloquear, que ignora a ausência do serviço) e o formato do arquivo de perfis (D3: `profile`, `class`, `core`, `battery`, `controller=load`, comentários, sobrescrita pelo `ROMS/system/lume/power.conf` com `enabled 0` e `idle after=`), com o validador em shell (clocks na tabela, governor disponível, `cores` no intervalo, piso `limit game_min=` dos perfis de jogo, D3) e o escritor do FIFO em Rust no `lume-core`; para a interface (D16): a mensagem `reload`, o formato do `/run/lume/power.state` e o editor do `power.conf` em Rust no `lume-core` (lê, valida contra o estado, muda uma linha, mantém comentários e linhas desconhecidas, grava atômico); `docs/LOGS.md` com os eventos `power`. Verificação: testes do shell com árvores falsas do sysfs (arquivo válido, clock fora da tabela recusa o perfil, governor ausente, sobrescrita do cartão, linha desconhecida, perfil de jogo sem `min` recebe o piso, `min` abaixo do piso recusado, `limit` no `power.conf` ignorado) e testes Rust do escritor (FIFO sem leitor não bloqueia nem falha o chamador) e do editor (ida e volta sem mudar o arquivo, comentários mantidos, valor fora do estado recusado, gravação atômica).
-- [ ] 1.2 `logd` barato (D8, P-60): cada amostra sem processos externos (leituras com `read`, `/dev/kmsg` no lugar do `dmesg`, um `pidof` por amostra, data sem processo por linha); se não chegar a 1% de um núcleo, o coletor da amostra vira um binário em C com o mesmo formato. Verificação: `tests/logs/test_logs.sh` com as mesmas colunas e eventos de antes (formato congelado antes da troca); no GA36 e no R36S, o `logd` com os filhos abaixo de 1% de um núcleo em 60 s no launcher parado e num jogo, e o `sugov:0` antes e depois anotados no P-60 (J1, J2); spec `boot-runtime`.
+- [ ] 1.2 (GA36 medido em 2026-11-19: o `lume-logd` em C com os filhos 0,85% de um núcleo parado e 0,94% num jogo de SNES, meta cumprida; fecha com a medição da 7.6, que também mede o R36S quando ele estiver no cabo, ou fica no P-110.) `logd` barato (D8, P-60): cada amostra sem processos externos (leituras com `read`, `/dev/kmsg` no lugar do `dmesg`, um `pidof` por amostra, data sem processo por linha); se não chegar a 1% de um núcleo, o coletor da amostra vira um binário em C com o mesmo formato. Verificação: `tests/logs/test_logs.sh` com as mesmas colunas e eventos de antes (formato congelado antes da troca); no GA36 e no R36S, o `logd` com os filhos abaixo de 1% de um núcleo em 60 s no launcher parado e num jogo, e o `sugov:0` antes e depois anotados no P-60 (J1, J2); spec `boot-runtime`.
 
 - [x] 1.3 `lume power report [--since <boot>] [--console ga36|r36s]` (D14): lê pelo cabo as métricas e o `events.log` da `ROMS/logs/` e resume por cenário e por sistema (corrente média, FPS contra o nominal, eventos `game FAIL slow`, CPU por núcleo, clock médio, temperatura máxima, custo do `logd` e da `sugov`), sem nome de jogo; tabela no terminal e CSV em `cache/`. Verificação: testes de unidade com métricas e eventos de exemplo (amostras antigas sem as colunas novas, eventos `power`, nenhum nome de jogo na saída); comando documentado no `docs/BUILD.md`.
 
@@ -180,6 +189,19 @@ cartão; ordem J1, J3, J2, J4):
 - [x] 6.2 (Movida para o P-108 em 2026-11-19 com a 5.2/6.1, decisão do usuário: depende da medição longa.) Escrever `r36s.conf` com os perfis escolhidos na 6.1 (mesmas regras da 5.3). Verificação: os testes do validador da 1.1 com o arquivo real contra a tabela de OPP do R36S (copiada do aparelho para os testes) e a tabela do `design.md` citada em cada perfil.
 - [x] 6.3 (Movida para o P-108 em 2026-11-19 com a 5.2/6.1, decisão do usuário: depende da medição longa.) Build final do R36S com os perfis da 6.2 (aarch64) e `lume push`. Verificação: `.apk` novos e `push` com `ok`.
 - [x] 6.4 (Movida para o P-110 em 2026-11-19, decisão do usuário: o resto das provas pelo cabo no R36S.) (R36S, 2026-11-19, pelo cabo: eventos `power` de menu, jogo e ocioso certos; a tela escurece de 80 para 16 em 2 min e o primeiro botão só devolve a luz; `idle after=300` com `reload` aparece no `power.state` sem reboot. A sessão longa sem carregador fica no P-98, como no GA36; a comparação dos `slow` com a tabela da medição foi para o P-108 com a 6.1; o resto, pelo cabo, com o `r36s.conf` no padrão do kernel.) Janela J4 no R36S, com o mesmo cartão: as mesmas provas da 5.5. Verificação: resultado no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, P-20 (etapa 1), P-60, P-78 e P-83 movidos para "Concluídas", P-23 com a medição anotada e o item 3 do P-64 marcado como feito.
+
+## 7. Laços em segundo plano sem processo por volta (P-112, D20; revisão de 2026-11-19)
+
+Pedido do usuário (2026-11-19): corrigir nesta change o desperdício que a avaliação do coletor
+achou (D20). A 1.2 fecha com a medição da 7.6. Modelos propostos na tabela do grafo; o usuário
+aprova antes de aplicar.
+
+- [ ] 7.1 `usb-gadget` (`aports/lume-usb/files/usr/libexec/lume/usb-gadget`, D20): `role_watch`, `net_watch`, `pc_watch` e o VBUS lidos com `read -r v < arquivo` e `case`, sem `$( )`, `cat`, `grep` nem `for` dentro do laço; o UDC, o arquivo do papel da porta, os `extcon` e as fontes de energia USB procurados na subida e de novo só quando somem; a espera por `read -t` num FIFO em `/run/lume/usb/` no lugar do `sleep`; 1 s enquanto o estado do UDC muda, 2 s sem mudança; o `stop` acorda o laço pelo FIFO. Nada muda no que o serviço faz: mesma rede, mesmo SSH e MTP pelo cabo, mesmos eventos `usb OK|FAIL`. Verificação: `tests/usb/test_usb_gadget.sh` com os casos novos (a troca de estado do UDC percebida em até 2 s, VBUS falso mantendo a rede, UDC ausente e depois presente, papel da porta trocado pelo ID, `stop` sem esperar a volta) e um teste que conta os processos criados em 10 voltas do laço com o estado parado (zero além da espera); no aparelho, a rede e o SSH pelo cabo voltam depois de tirar e pôr o cabo (7.6).
+- [ ] 7.2 `persist` e `savesync` (`aports/lume-saves/files/usr/libexec/lume/`) e `ssh-wifi` (`aports/lume-net/files/usr/libexec/lume/ssh-wifi`), D20: leitura sem processo como na 7.1; `persist` e `savesync` esperando por evento (`inotifyd` nos arquivos e pastas que vigiam) no lugar do laço de 1 s, sem perder o que gravam hoje (a configuração persistida, os saves sincronizados no fim do jogo e no desligamento); `ssh-wifi` a cada 5 s com a espera por `read -t`. Verificação: suítes novas `tests/saves/test_persist.sh` e `tests/saves/test_savesync.sh` (um arquivo mudado é gravado, nada parado cria processo) e `tests/net/test_ssh_wifi.sh` com o ritmo novo; `tests/session/test_session.sh` e `tests/card/test_card.sh` verdes.
+- [ ] 7.3 Hora do log (D20): o `lume-logd` (`aports/lume-logd/logd.c`) lê `/etc/timezone` a cada lote e, quando muda, `setenv("TZ", ":/usr/share/zoneinfo/<fuso>")` e `tzset()`; o `logd` em shell faz o mesmo com o `TZ` do ambiente. Verificação: `tests/unit/test_lume_logd.py` (um fuso escrito no meio da execução muda a hora das linhas seguintes) e `tests/logs/test_logs.sh`; `sha512sums` do `APKBUILD` atualizado.
+- [ ] 7.4 `schedutil` do R36S (D20): `profile menu` e `profile idle` do `r36s.conf` com o `rate_limit_us` do GA36 (100000 no menu, 200000 parado); os perfis de jogo seguem o padrão até o P-108. Verificação: os testes do validador da 1.1 com o arquivo real; no R36S, o `sugov:0` parado medido antes e depois (7.6 ou P-110).
+- [ ] 7.5 Build parcial dos pacotes mudados (`lume-usb`, `lume-saves`, `lume-net`, `lume-logd`, `lume-core`, `lume-power`) para os dois consoles, um por vez sob a proteção de calor, e `lume push` para o console no cabo. Verificação: `.apk` novos e o `push` terminando com `ok`; logo depois do boot, a rede e o SSH pelo cabo respondendo (se não, voltar o conjunto anterior pelo `SLOTS.old`, D20).
+- [ ] 7.6 Medição pelo cabo no console que estiver no cabo (GA36 primeiro), com o mesmo método de 2026-11-19 (`cache`: ticks próprios e dos filhos em 60 s, o contador `processes` de `/proc/stat` com um script que só lê duas vezes): launcher parado e um jogo de SNES. Meta da spec `boot-runtime`: os laços somando menos de 1% de um núcleo e menos de 60 processos novos por minuto parado; o `lume-logd` continua abaixo de 1%. Também: tirar e pôr o cabo (a rede volta), um save gravado no fim de um jogo, uma mudança no volume persistida depois de reiniciar. Verificação: tabela antes e depois no D20 e no `docs/BRINGUP-<console>.md`; a 1.2 marcada; o P-112 e o P-60 movidos para "Concluídas"; o console que não estiver no cabo fica no P-110.
 
 ## Workflow follow-up
 

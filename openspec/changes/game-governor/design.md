@@ -257,6 +257,44 @@ houver, senão uma vez por lote. Medir o `logd` e o `sugov:0` em 60 s, antes e d
 consoles. Se o shell não chegar a 1%, o coletor da amostra vira um binário em C pequeno, como o
 `lume-input`, mantendo o formato das métricas (`docs/LOGS.md`).
 
+**Medido (2026-11-19, GA36, build `20261119-164004`):** o `lume-logd` em C gasta 0,85% de
+um núcleo com o launcher parado e 0,94% num jogo de SNES, contando os filhos: a meta de 1% está
+cumprida. O custo que sobrava estava em outro lugar (D20).
+
+### D20. Laços em segundo plano sem processo por volta (P-112, revisão de 2026-11-19)
+
+**Medido no GA36 (60 s, ticks próprios e dos filhos):** o sistema cria ~930 processos por
+minuto com o launcher parado. Num jogo de SNES: `usb-gadget` 5,08% de um núcleo (0,68% dele,
+4,40% dos filhos), `persist` 0,51%, `savesync` 0,49%, `ssh-wifi` 0,43%. Parado, o `sugov:0`
+gasta 2,85% no GA36 e 4,4% no R36S (22% num jogo de SNES no R36S, com o `schedutil`).
+
+**Causa:** cada volta de 1 s do `usb-gadget` (`role_watch`, `net_watch`, `pc_watch`) lê o
+sysfs com `$(cat ...)`, `grep -qx` e laços `for`, e procura o UDC de novo; os outros três dormem
+com o `sleep` externo e leem arquivos com `cat`. No busybox cada um desses é um processo.
+
+**Decisão:**
+- Leitura sem processo: `read -r v < arquivo` (com `|| v=` para arquivo ausente) e `case` no
+  lugar de `grep -qx`; nada de `$( )` dentro do laço. O nome do UDC, o caminho do papel da porta
+  e as fontes de energia USB são procurados uma vez na subida e de novo só quando somem.
+- Espera sem processo: `read -t <s>` num descritor aberto num FIFO próprio em `/run/lume/`
+  (o mesmo recurso do `lume-power`, D2), no lugar de `sleep`; o FIFO também serve para acordar
+  o laço de propósito nos testes e no `stop`.
+- Ritmo: o `usb-gadget` continua em 1 s só enquanto o cabo está ligado e o UDC muda de estado;
+  sem mudança, a rede e o papel da porta são vistos a cada 2 s (a troca do cabo continua
+  percebida em até 2 s). O `persist` e o `savesync` passam a esperar por evento (`inotifyd`)
+  onde o que vigiam é arquivo comum; o `ssh-wifi`, a cada 5 s.
+- Se o shell não chegar à meta, o vigia vira C, como o `lume-logd` (D8).
+- O R36S ganha o mesmo `rate_limit_us` maior do `schedutil` que o GA36 usa no menu e no
+  launcher parado (`r36s.conf`, perfis `menu` e `idle` apenas; os de jogo seguem o P-108).
+- Hora do log: o `lume-logd` sobe antes do `lume-persist` aplicar o fuso e grava em UTC até o
+  boot seguinte. Ele passa a ler `/etc/timezone` a cada lote e, quando muda, `setenv("TZ",
+  ":/usr/share/zoneinfo/<fuso>")` e `tzset()` (o musl recarrega quando o `TZ` muda).
+
+**Riscos:** o `usb-gadget` mantém a rede, o SSH e o MTP pelo cabo: um erro deixa o console
+sem acesso pelo cabo. Por isso a suíte `tests/usb` cobre a troca de estado do UDC, o VBUS falso,
+a falta do UDC e o papel da porta antes de qualquer build, e o `push` guarda o conjunto anterior
+(`SLOTS.old`) para a volta pelo leitor do PC, com o SHA-256 conferido.
+
 ### D9. Launcher
 
 - A thread da bateria passa de 30 s para 5 s (duas leituras pequenas do sysfs; conferir o
