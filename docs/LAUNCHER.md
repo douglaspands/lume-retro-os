@@ -335,6 +335,24 @@ senha continua valendo só pelo cabo USB. A chave do console
 Avançado: quem tem uma chave SSH pode pô-la em `ROMS/system/ssh/authorized_keys` (uma por
 linha) e entrar como `root` sem o código.
 
+### Pelo cabo USB: scp, sftp e rsync
+
+Com o cabo USB ligado, o console responde em **`10.55.0.1`** (o PC recebe `10.55.0.2`) e o root
+entra sem senha. Os jogos ficam em `/storage` (a partição `ROMS`). O console traz o servidor
+sftp e o `rsync`; nada deles roda sem o cabo (só existem durante uma sessão SSH).
+
+- **scp** (sem a opção `-O`; o `scp` moderno já usa sftp):
+  `scp jogo.zip root@10.55.0.1:/storage/roms/<sistema>/`
+- **Gerenciador de arquivos** (Nautilus, Dolphin, Thunar...): abra o endereço
+  `sftp://root@10.55.0.1/storage`.
+- **rsync** (copia só o que falta e retoma uma cópia interrompida; rode de novo o mesmo
+  comando):
+  `rsync -av --partial --progress jogo.zip root@10.55.0.1:/storage/roms/<sistema>/`
+
+Para conferir a cópia: `sha256sum jogo.zip` no PC e `ssh root@10.55.0.1 sha256sum /storage/roms/<sistema>/jogo.zip`.
+Os dois pacotes (`openssh-sftp-server` e `rsync`) ocupam poucos MB na partição SYSTEM; o
+tamanho exato sai do manifesto da imagem (não medido ainda).
+
 ## Listas de jogos (`gamelist.xml`)
 
 Cada console tem `ROMS/roms/<id>/gamelist.xml`, no formato do EmulationStation. As listas são
