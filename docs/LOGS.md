@@ -361,7 +361,7 @@ hardware são descobertas a cada boot, e o cabeçalho de cada arquivo diz quais 
 
 | Coluna | Conteúdo |
 |---|---|
-| `time` | data e hora local (`AAAA-MM-DDTHH:MM:SS`) |
+| `time` | data e hora local (`AAAA-MM-DDTHH:MM:SS`); o fuso é o de `ROMS/system/etc/timezone`, que o `lume-persist` aplica no boot e o coletor relê a cada amostra (as primeiras linhas do boot, antes disso, saem em UTC) |
 | `uptime_s` | segundos desde o boot |
 | `temp_<zona>_c` | uma por zona térmica: temperatura em °C (ex.: `temp_cpu_thermal_c`) |
 | `freq_<política>_mhz` | uma por política de cpufreq: frequência atual em MHz (ex.: `freq_policy0_mhz`) |

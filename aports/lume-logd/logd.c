@@ -22,7 +22,8 @@
  * LUME_STATUS, FRONTEND_LOG, INTERRUPTS_FILE, IRQ_SYS, DRI_DIR, ASOUND_DIR, GPU_DEVFREQ_DIR,
  * KMSG_DEV, RA_PORT (55355), LOGD_CMD (the shell logd), LOGD_SAMPLES (stop after N samples,
  * tests), LOGD_NOWAIT (no wait between samples, tests), RECOVER_MAX (3), KICK_MAX (5),
- * HANG_LIMIT (2), LUME_FRONTENDS (/usr/libexec/lume/frontends/).
+ * HANG_LIMIT (2), LUME_FRONTENDS (/usr/libexec/lume/frontends/), TIMEZONE_FILE
+ * (/etc/timezone), ZONEINFO_DIR (/usr/share/zoneinfo).
  * Processes (retroarch, lume-run...) are always looked up in the real /proc.
  */
 #define _GNU_SOURCE
@@ -194,6 +195,33 @@ static void read_uptime(void)
 		*sp = 0;
 	snprintf(up_txt, sizeof(up_txt), "%s", b);
 	up_cs = text_cs(b);
+}
+
+/* The time zone: lume-persist sets /etc/timezone at boot, after lume-logd started (which then
+ * wrote in UTC until the next boot, game-governor D20). Read every round; when it changes, TZ
+ * points at its zoneinfo file and tzset() loads it (musl reloads when TZ changes). The shell
+ * logd children inherit the new TZ. A name that is not a zone, or has no file, is ignored. */
+static const char *tz_file, *zoneinfo_dir;
+static char tz_cur[128];
+
+static void tz_follow(void)
+{
+	char z[128], p[512], tz[600];
+	size_t i;
+
+	first_line(tz_file, z, sizeof(z));
+	if (!*z || !strcmp(z, tz_cur) || strstr(z, ".."))
+		return;
+	for (i = 0; z[i]; i++)
+		if (!isalnum((unsigned char)z[i]) && !strchr("/_+-", z[i]))
+			return;
+	path(p, sizeof(p), "%s/%s", zoneinfo_dir, z);
+	if (!readable(p))
+		return;
+	snprintf(tz_cur, sizeof(tz_cur), "%s", z);
+	snprintf(tz, sizeof(tz), ":%s", p);
+	setenv("TZ", tz, 1);
+	tzset();
 }
 
 static char log_ts[32], log_hms[16];
@@ -1654,6 +1682,7 @@ static int cmd_run(void)
 	flush_at = up_cs / 100 + log_flush;
 	next_ms = mono_ms();
 	while (!stop_sig) {
+		tz_follow();
 		if (log_enable) {
 			sample();
 			kmsg_drain();
@@ -1705,6 +1734,8 @@ int main(int argc, char **argv)
 	kmsg_dev = env("KMSG_DEV", "/dev/kmsg");
 	logd_cmd = env("LOGD_CMD", "/usr/libexec/lume/logd");
 	frontends_dir = env("LUME_FRONTENDS", "/usr/libexec/lume/frontends/");
+	tz_file = env("TIMEZONE_FILE", "/etc/timezone");
+	zoneinfo_dir = env("ZONEINFO_DIR", "/usr/share/zoneinfo");
 	ra_port = envi("RA_PORT", 55355);
 	recover_max = envi("RECOVER_MAX", 3);
 	kick_max = envi("KICK_MAX", 5);

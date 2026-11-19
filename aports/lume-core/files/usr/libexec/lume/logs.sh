@@ -84,12 +84,25 @@ boot_n() { boot_n_var; echo "$BOOT_N"; }
 # `date`. The date is then worked out with shell arithmetic (days to civil date).
 LOG_CLK_UP=-100000 LOG_CLK_EPOCH=0 LOG_CLK_OFF=0
 LOG_CLOCK_REFRESH=${LOG_CLOCK_REFRESH:-60}
+
+# The time zone lume-persist sets at boot (/etc/timezone), as lume-logd does (game-governor
+# D20): read once per batch, and TZ points at its zoneinfo file, so a TZ inherited from the
+# environment never keeps an old zone. A name that is not a zone, or has no file, is ignored.
+log_tz() {
+	local z=""
+	{ read -r z < "${TIMEZONE_FILE:-/etc/timezone}"; } 2>/dev/null
+	case $z in '' | *..* | *[!A-Za-z0-9/_+-]*) return 0 ;; esac
+	[ -f "${ZONEINFO_DIR:-/usr/share/zoneinfo}/$z" ] || return 0
+	TZ=":${ZONEINFO_DIR:-/usr/share/zoneinfo}/$z"
+	export TZ
+}
 log_clock() {
 	local up=${1:-} s z h m d sec era doe yoe doy mp y
 	[ -n "$up" ] || { read -r up _ < "${UPTIME_FILE:-/proc/uptime}"; } 2>/dev/null
 	up=${up%%.*}
 	up=${up:-0}
 	if [ $((up - LOG_CLK_UP)) -ge "$LOG_CLOCK_REFRESH" ] || [ "$up" -lt "$LOG_CLK_UP" ]; then
+		log_tz
 		set -- $(date '+%s %z')
 		LOG_CLK_EPOCH=${1:-0} LOG_CLK_UP=$up
 		z=${2:-+0000}

@@ -641,6 +641,29 @@ FAKE_DATE="1800000000 +0000"
 log_clock 161; b=$LOG_TS
 check "clock: the base is taken again after a batch (a clock set meanwhile is seen)" \
 	'[ "$a" = 2023-11-14T22:14:19 ] && [ "$b" = 2027-01-15T08:00:00 ]'
+# game-governor 7.3 (D20): the time zone lume-persist writes at boot is taken at the next
+# batch, over a TZ inherited from the environment; a name that is not a zone is ignored
+mkdir -p "$W/zoneinfo/Test"
+: > "$W/zoneinfo/Test/Plus3"
+export TIMEZONE_FILE=$W/timezone ZONEINFO_DIR=$W/zoneinfo TZ=UTC0
+LOG_CLK_UP=-100000
+log_clock 100
+check "tz: no /etc/timezone keeps the TZ of the environment" '[ "$TZ" = UTC0 ]'
+echo "Test/Plus3" > "$W/timezone"
+log_clock 120
+check "tz: not read again inside a batch" '[ "$TZ" = UTC0 ]'
+log_clock 161
+check "tz: the next batch points TZ at the zone file, exported to date" \
+	'[ "$TZ" = ":$W/zoneinfo/Test/Plus3" ] && [ "$(busybox env | grep "^TZ=")" = "TZ=:$W/zoneinfo/Test/Plus3" ]'
+echo "../../etc/passwd" > "$W/timezone"
+LOG_CLK_UP=-100000
+log_clock 100
+check "tz: a name that is not a zone is ignored" '[ "$TZ" = ":$W/zoneinfo/Test/Plus3" ]'
+echo "Test/None" > "$W/timezone"
+LOG_CLK_UP=-100000
+log_clock 100
+check "tz: a zone with no file is ignored" '[ "$TZ" = ":$W/zoneinfo/Test/Plus3" ]'
+unset TZ TIMEZONE_FILE ZONEINFO_DIR
 unset -f date
 LOG_CLK_UP=-100000
 before=$(date '+%Y-%m-%dT%H:%M:%S'); log_clock; after=$(date '+%Y-%m-%dT%H:%M:%S')

@@ -482,6 +482,40 @@ def test_flush_every_interval_and_on_term(exe, world):
     assert world.shell_calls()[-1] == "flush"
 
 
+HOST_ZONE = Path("/usr/share/zoneinfo/Etc/GMT-3")  # UTC+3, no daylight saving
+
+
+@pytest.mark.skipif(not HOST_ZONE.exists(), reason="no tzdata on the host")
+def test_time_zone_written_while_running_moves_the_next_lines(exe, world):
+    # game-governor 7.3 (D20): lume-persist writes /etc/timezone after lume-logd started
+    zi = world.tmp / "zoneinfo"
+    (zi / "Test").mkdir(parents=True)
+    shutil.copy(HOST_ZONE, zi / "Test/Plus3")
+    tzf = world.tmp / "timezone"
+    world.conf.write_text("interval=1\nflush=60\n")
+    e = dict(world.env, TIMEZONE_FILE=str(tzf), ZONEINFO_DIR=str(zi), LOGD_SAMPLES="3")
+    e.pop("LOGD_NOWAIT")
+    p = subprocess.Popen([str(exe), "run"], env=e)
+    time.sleep(0.5)
+    tzf.write_text("Test/Plus3\n")
+    assert p.wait(10) == 0
+    stamps = [time.strptime(l.split(",")[0], "%Y-%m-%dT%H:%M:%S") for l in world.metrics()]
+    assert len(stamps) == 3
+    first, last = (time.mktime(s) for s in (stamps[0], stamps[-1]))
+    # UTC first, UTC+3 from the next round on (plus the ~2 s between the samples)
+    assert 3 * 3600 <= last - first <= 3 * 3600 + 5, (stamps[0], stamps[-1])
+
+
+def test_time_zone_that_is_not_a_zone_is_ignored(exe, world):
+    tzf = world.tmp / "timezone"
+    tzf.write_text("../../etc/passwd\n")
+    r = world.run(exe, 1, TIMEZONE_FILE=tzf, ZONEINFO_DIR=world.tmp)
+    assert r.returncode == 0, r.stderr
+    stamp = world.metrics()[0].split(",")[0]
+    utc = time.strftime("%Y-%m-%dT%H", time.gmtime())
+    assert stamp.startswith(utc), (stamp, utc)
+
+
 def test_aport_and_image():
     apkbuild = (APORT / "APKBUILD").read_text()
     assert re.search(r'^arch="x86_64 armv7 aarch64"$', apkbuild, re.M)
