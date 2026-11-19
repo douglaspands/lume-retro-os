@@ -13,6 +13,8 @@
 [screens.home]
 keys = ""
 
-# the Settings screen (the gear left of Favorites), first item (Language) open
+# the Settings screen (the gear left of Favorites), the focus on the list (Language): never
+# inside a panel, where A or ◀▶ change a setting (a second A chose English on the GA36,
+# 2026-11-19)
 [screens.settings]
-keys = "left,a,wait:300,a,wait:300"
+keys = "left,a,wait:500"
