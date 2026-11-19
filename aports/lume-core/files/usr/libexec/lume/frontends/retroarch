@@ -25,8 +25,17 @@
 # The user's values of those keys are saved in LUME_RESTORE (on the card) and written back
 # when RetroArch ends; if it was killed, at the start of the next run. RetroArch saves its
 # whole config, so without this the run's value would become the user's.
-# BOARD_FILE, LUME_SHARE, LUME_EXTRA_CFG and LUME_RESTORE only change for the tests.
+#
+# New factory defaults reach cards that already have a saved config (game-experience-tuning
+# D3): every start adds to the user config the keys of factory/retroarch/retroarch.cfg it
+# lacks, and a game run adds to the core's options (config/<corename>/<corename>.opt, the
+# folder RetroArch uses) the options of factory/retroarch/config/<corename>/<corename>.opt it
+# lacks. A key or option the user already has is never changed.
+# BOARD_FILE, LUME_SHARE, LUME_INFO, LUME_EXTRA_CFG and LUME_RESTORE only change for the tests.
 SHARE=${LUME_SHARE:-/usr/share/lume}
+FACTORY=$SHARE/factory/retroarch
+# the .info files of the installed cores (rootfs/configure.sh, libretro_info_path)
+INFO=${LUME_INFO:-/usr/share/lume/libretro-info}
 RESTORE=${LUME_RESTORE:-/storage/system/lume/retroarch-restore.cfg}
 EXTRA=${LUME_EXTRA_CFG:-/run/lume/retroarch-extra.cfg}
 USER_CFG=$HOME/.config/retroarch/retroarch.cfg
@@ -64,13 +73,62 @@ restore_user_keys() {
 		rm -f "$RESTORE"
 }
 
+# Adds to a user file the "KEY = value" lines of a factory file whose key it lacks, after
+# its own lines; a key the user file has keeps its value. One awk per pair of files, and the
+# user file is only rewritten (temp file + mv in its folder) when a key was missing. A user
+# file that does not exist is born as a copy of the factory one.
+seed_missing() {  # user_file factory_file
+	[ -f "$2" ] || return 0
+	if [ ! -f "$1" ]; then
+		mkdir -p "${1%/*}"
+		cp "$2" "$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"
+		return 0
+	fi
+	# exit 1: nothing missing, nothing written
+	awk '
+		function key(l) { if (match(l, /^[A-Za-z0-9_]+[ \t]*=/)) { k = substr(l, 1, RLENGTH - 1); sub(/[ \t]+$/, "", k); return k } return "" }
+		FILENAME == FACTORY { k = key($0); if (k != "") { if (!(k in want)) order[++n] = k; want[k] = $0 } next }
+		{ line[++m] = $0; k = key($0); if (k != "") have[k] = 1 }
+		END {
+			for (i = 1; i <= n; i++) if (!(order[i] in have)) miss[++c] = want[order[i]]
+			if (!c) exit 1
+			for (i = 1; i <= m; i++) print line[i] > OUT
+			for (i = 1; i <= c; i++) print miss[i] > OUT
+			close(OUT)
+		}
+	' FACTORY="$2" OUT="$1.tmp.$$" "$2" "$1" && mv -f "$1.tmp.$$" "$1"
+	return 0
+}
+
+# CORE_NAME = the corename of a core's .info (the folder of its options), empty without one.
+# Read by the shell itself: no process for each game.
+core_name() {  # core
+	CORE_NAME=""
+	[ -f "$INFO/${1}_libretro.info" ] || return 0
+	local l
+	while IFS= read -r l; do
+		case $l in
+		"corename "*|"corename	"*|corename=*)
+			l=${l#*=}
+			l=${l#"${l%%[! 	]*}"}
+			l=${l%"${l##*[! 	]}"}
+			l=${l#\"}
+			CORE_NAME=${l%\"}
+			return 0 ;;
+		esac
+	done < "$INFO/${1}_libretro.info"
+}
+
 # shellcheck disable=SC2086
 merge_fixed "$USER_CFG" $CFGS
 # a run killed before it could put the user's values back
 restore_user_keys
+# factory defaults the card does not have yet (D3); after the restore, so a key the user
+# never had (the "#unset" of a run) gets the factory value
+seed_missing "$USER_CFG" "$FACTORY/retroarch.cfg"
 # distro defaults for the reset: factory config + fixed keys (skipped if the runtime dir
 # is not writable; the reset then behaves as upstream)
-if cp "$SHARE/factory/retroarch/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
+if cp "$FACTORY/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
 	# shellcheck disable=SC2086
 	merge_fixed "$DEFAULTS" $CFGS
 	export LUME_RETROARCH_DEFAULTS="$DEFAULTS"
@@ -119,6 +177,15 @@ for a in "$@"; do
 	[ "$prev" = -L ] && CORE=${a##*/} && CORE=${CORE%_libretro.so}
 	prev=$a
 done
+# the factory options of this core that its options file lacks (D3); nothing to do (no
+# process at all) for a core without factory options
+if [ -n "$CORE" ] && [ -d "$FACTORY/config" ]; then
+	core_name "$CORE"
+	if [ -n "$CORE_NAME" ] && [ -f "$FACTORY/config/$CORE_NAME/$CORE_NAME.opt" ]; then
+		seed_missing "$HOME/.config/retroarch/config/$CORE_NAME/$CORE_NAME.opt" \
+			"$FACTORY/config/$CORE_NAME/$CORE_NAME.opt"
+	fi
+fi
 if [ -n "$CORE" ] && [ -f "$SHARE/retroarch-core.keys" ]; then
 	# One awk for the whole file. The first field says who the line is for; the lines are
 	# written in the order of their priority, the last one wins in merge_fixed:
