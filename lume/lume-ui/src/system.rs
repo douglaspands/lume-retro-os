@@ -19,6 +19,9 @@ pub trait SystemAdapter {
     fn set_volume(&mut self, pct: u8);
     fn brightness(&self) -> Option<u8>;
     fn set_brightness(&mut self, pct: u8);
+    /// Saves the current brightness on the card for the next boot (lume-input re-applies it).
+    /// Only the user's choice goes through here, never the idle dimming (device-fixes 9.15).
+    fn save_brightness(&mut self);
     /// (text key, value) pairs of the System panel
     fn info(&self) -> Vec<(&'static str, String)>;
     /// battery level in percent and whether it is charging; None without a battery
@@ -111,7 +114,13 @@ pub struct RealSystem {
     pub mixer: Option<Mixer>,
     /// the backlight's raw ceiling from the board's lume-input profile (100% of the launcher)
     pub backlight_max: Option<u64>,
+    /// where the brightness level is saved (`BRIGHTNESS_FILE`)
+    pub brightness_file: PathBuf,
 }
+
+/// The saved brightness (`ROMS/system/display/brightness`, frozen in docs/LAUNCHER.md): an
+/// integer 0-100 and a newline, in percent of the launcher's scale (the ceiling is 100%).
+pub const BRIGHTNESS_FILE: &str = "/storage/system/display/brightness";
 
 /// The `backlight_max` line of a lume-input profile (GA36: 8 of 10, the panel flickers
 /// above it).
@@ -306,7 +315,7 @@ impl RealSystem {
     pub fn new() -> RealSystem {
         let board = std::fs::read_to_string("/etc/lume/board").unwrap_or_default();
         let profile = PathBuf::from(format!("/usr/share/lume/input/{}.conf", board.trim()));
-        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile) }
+        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile), brightness_file: BRIGHTNESS_FILE.into() }
     }
 
     fn backlight(&self) -> Option<PathBuf> {
@@ -380,6 +389,15 @@ impl SystemAdapter for RealSystem {
                 // never fully dark, never above the board's ceiling (GA36: level 8)
                 let v = backlight_value(pct, max, self.backlight_max);
                 let _ = std::fs::write(b.join("brightness"), v.to_string());
+            }
+        }
+    }
+
+    fn save_brightness(&mut self) {
+        // the level as it reads back, so lume-input applies the same raw value at boot
+        if let Some(pct) = self.brightness() {
+            if let Err(e) = lume_core::atomic::write(&self.brightness_file, format!("{pct}\n").as_bytes()) {
+                lume_core::log::line("lume-ui", &format!("brightness not saved: {e}"));
             }
         }
     }
@@ -469,6 +487,8 @@ pub struct FakeSystem {
     pub net: (bool, bool),
     pub addr: Option<String>,
     pub free: Option<u64>,
+    /// the brightness last saved with `save_brightness` (the dimming never saves)
+    pub saved_bri: Option<u8>,
 }
 
 impl SystemAdapter for FakeSystem {
@@ -495,6 +515,9 @@ impl SystemAdapter for FakeSystem {
     }
     fn set_brightness(&mut self, pct: u8) {
         self.bri = pct;
+    }
+    fn save_brightness(&mut self) {
+        self.saved_bri = Some(self.bri);
     }
     fn info(&self) -> Vec<(&'static str, String)> {
         self.info_reads.set(self.info_reads.get() + 1);
@@ -605,6 +628,24 @@ mod tests {
         std::fs::write(ps.join("axp20x-battery/status"), "Full\n").unwrap();
         assert_eq!(read_battery(&sys), Some((82, false)), "full: no charge mark");
         assert_eq!(read_battery(Path::new("/nonexistent")), None);
+    }
+
+    #[test]
+    fn the_brightness_is_saved_as_it_reads_back() {
+        // GA36: 0-10 with the ceiling 7; 3 of 7 reads back as 43% and is saved as 43
+        let dir = std::env::temp_dir().join(format!("lume-bri-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let panel = dir.join("sys/class/backlight/panel");
+        std::fs::create_dir_all(&panel).unwrap();
+        std::fs::write(panel.join("max_brightness"), "10\n").unwrap();
+        std::fs::write(panel.join("brightness"), "8\n").unwrap();
+        let mut s = RealSystem { sys: dir.join("sys"), proc_: dir.join("proc"), mixer: None, backlight_max: Some(7), brightness_file: dir.join("display/brightness") };
+        s.set_brightness(50);
+        assert!(!s.brightness_file.exists(), "setting alone saves nothing (the dimming uses it)");
+        s.save_brightness();
+        assert_eq!(std::fs::read_to_string(&s.brightness_file).unwrap(), "43\n");
+        assert_eq!(std::fs::read_to_string(panel.join("brightness")).unwrap().trim(), "3");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -1695,12 +1695,11 @@ impl<S: SystemAdapter> App<S> {
                 self.level.insert(key, v);
                 if row == SetRow::Volume {
                     self.sys.set_volume(v);
-                    self.settings.volume = Some(v);
                 } else {
+                    // the user's choice is saved on the card (lume-input applies it at boot)
                     self.sys.set_brightness(v);
-                    self.settings.brightness = Some(v);
+                    self.sys.save_brightness();
                 }
-                self.save_settings();
             }
             _ => {}
         }
