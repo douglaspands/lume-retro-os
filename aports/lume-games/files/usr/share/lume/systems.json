@@ -138,6 +138,34 @@
       "romset": null
     },
     {
+      "id": "pcengine",
+      "name": "TurboGrafx-16",
+      "abbr": "TG16",
+      "extensions": ["pce"],
+      "core": "mednafen_pce_fast",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "emulators": [],
+      "bios": [],
+      "romset": null
+    },
+    {
+      "id": "pcenginecd",
+      "name": "TurboGrafx-CD",
+      "abbr": "TGCD",
+      "extensions": ["cue", "ccd", "chd", "toc", "m3u"],
+      "core": "mednafen_pce_fast",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "emulators": [],
+      "bios": [
+        {"files": ["syscard3.pce"],
+         "required": true,
+         "note": "Obrigatória: syscard3.pce (System Card 3.0) vai em bios/. Sem ela os jogos em CD não abrem."}
+      ],
+      "romset": null
+    },
+    {
       "id": "arcade",
       "name": "Arcade",
       "abbr": "ARC",
@@ -172,6 +200,18 @@
       "emulators": [],
       "bios": [],
       "romset": "FB Alpha v0.2.97.29"
+    },
+    {
+      "id": "cps3",
+      "name": "CPS-3",
+      "abbr": "CPS3",
+      "extensions": ["zip"],
+      "core": "fbneo",
+      "core_by_arch": {},
+      "alt_cores": [],
+      "emulators": [],
+      "bios": [],
+      "romset": "FBNeo (a versão do core da imagem)"
     },
     {
       "id": "neogeo",
@@ -242,6 +282,7 @@
     "fbalpha2012_cps1": {"package": "libretro-fbalpha2012-cps1", "file": "fbalpha2012_cps1_libretro.so"},
     "fbalpha2012_cps2": {"package": "libretro-fbalpha2012-cps2", "file": "fbalpha2012_cps2_libretro.so"},
     "fbalpha2012_neogeo": {"package": "libretro-fbalpha2012-neogeo", "file": "fbalpha2012_neogeo_libretro.so"},
+    "mednafen_pce_fast": {"package": "libretro-mednafen-pce-fast", "file": "mednafen_pce_fast_libretro.so"},
     "pcsx_rearmed": {"package": "libretro-pcsx-rearmed", "file": "pcsx_rearmed_libretro.so"}
   }
 }

@@ -52,6 +52,18 @@ def test_segacd_bios_in_bios_folder():
     assert "BIOS (obrigatória), em bios/" in block
 
 
+def test_new_systems_in_leiame():
+    # game-experience-tuning D8: TurboGrafx-16/CD and CPS-3
+    text = leiame.render()
+    assert "TurboGrafx-16\n  pasta:      roms/pcengine/" in text
+    assert "TurboGrafx-CD\n  pasta:      roms/pcenginecd/" in text
+    cd = _section(text, "pcenginecd")
+    assert "BIOS (obrigatória), em bios/, este nome: syscard3.pce" in cd
+    block = _section(text, "cps3")
+    assert "Romset: FBNeo" in block
+    assert "Core alternativo" not in block
+
+
 def test_factory_reset_explained():
     assert "Apague esta pasta" in leiame.render()
 

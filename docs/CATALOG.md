@@ -52,6 +52,15 @@ Regras:
   desempenho no A33; agora usam o `genesis_plus_gx` nos dois, com o `picodrive` como
   alternativo (a velocidade no GA36 fica para a J2 dele).
 
+- **TurboGrafx e CPS-3** (`game-experience-tuning`, D8): `pcengine` ("TurboGrafx-16", `TG16`,
+  só `.pce`) e `pcenginecd` ("TurboGrafx-CD", `TGCD`, `.cue`, `.ccd`, `.chd`, `.toc`, `.m3u`) usam
+  o `mednafen_pce_fast` nos dois consoles; as extensões vêm do `.info` do core
+  (`pce|cue|ccd|chd|toc|m3u`) e o teste confere a divisão. A BIOS `syscard3.pce` (em `bios/`) é
+  obrigatória no CD, regra nossa: no `.info` do core todas as BIOS são opcionais. Os ids são os
+  do EmulationStation/ArkOS, para quem já tem as pastas. `cps3` ("CPS-3", `CPS3`) usa o `fbneo`
+  com o romset do FBNeo, sem `core_by_arch` e sem core alternativo (regra do arcade). O
+  Dock mostra a sigla de cada sistema (`abbr`), sem logotipo de fabricante: nenhum ícone novo.
+
 ## Emuladores do launcher
 
 A lista de emuladores de um sistema numa arquitetura (`lume_tool.catalog.emulators()`, e a mesma
