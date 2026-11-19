@@ -252,6 +252,10 @@ net_down() {  # interface
 # Inside the loop every file is read with the read builtin and matched with case; the UDC,
 # the role file, the extcon with the ID pin and the USB power supply are looked up once and
 # again only when they go away. A process is started only when something changes.
+# Each shell step costs: on the GA36 idle (lowest clock) a function call or a read of sysfs
+# is ~0.1-0.2 ms at 720 MHz and several times that at the lowest clock (measured 2026-11-19:
+# 15 ms per round before the short path). A still round therefore reads only the UDC state
+# and VBUS, from paths kept in variables, with no function nesting.
 
 # UDC name in USB_UDC, kept while its directory exists; fails without one
 USB_UDC=""
@@ -266,13 +270,17 @@ udc_find() {
 }
 
 # state of the UDC in USB_ST ("configured" while a PC has the gadget configured);
-# USB_HAS_ST=1 when there is a UDC with a state to read
-USB_ST="" USB_HAS_ST=0
+# USB_HAS_ST=1 when there is a UDC with a state to read. The state file is read straight
+# from USB_STATE_FILE; the UDC is looked up again only when that read fails.
+USB_ST="" USB_HAS_ST=0 USB_STATE_FILE=/nonexistent
 udc_read_state() {
-	USB_ST="" USB_HAS_ST=0
-	udc_find || return 0
-	[ -r "$UDC_CLASS/$USB_UDC/state" ] || return 0
-	read -r USB_ST 2>/dev/null <"$UDC_CLASS/$USB_UDC/state" || USB_ST=""
+	USB_HAS_ST=0
+	if ! read -r USB_ST 2>/dev/null <"$USB_STATE_FILE"; then
+		USB_ST=""
+		udc_find || return 0
+		USB_STATE_FILE=$UDC_CLASS/$USB_UDC/state
+		read -r USB_ST 2>/dev/null <"$USB_STATE_FILE" || USB_ST=""
+	fi
 	[ -n "$USB_ST" ] && USB_HAS_ST=1
 	return 0
 }
@@ -295,13 +303,28 @@ ps_find() {
 # "name:0", or nothing when there is none. Not reliable alone (GA36 J1: 0 for ~5 s with the
 # cable in and the UDC configured, 1 for 76 s without a cable), so it only gets logged,
 # never decides.
-USB_VBUS=""
+USB_VBUS="" USB_PS_ONLINE=/nonexistent
 vbus_online() {
 	local v=""
 	USB_VBUS=""
-	ps_find || return 0
-	read -r v 2>/dev/null <"$POWER_CLASS/$USB_PS/online" || v=""
+	if ! read -r v 2>/dev/null <"$USB_PS_ONLINE"; then
+		v=""
+		ps_find || return 0
+		USB_PS_ONLINE=$POWER_CLASS/$USB_PS/online
+		read -r v 2>/dev/null <"$USB_PS_ONLINE" || v=""
+	fi
 	[ -n "$v" ] && USB_VBUS="$USB_PS:$v"
+	return 0
+}
+
+# VBUS 0 with the UDC configured: a glitch of the PMIC reading, not a cable out; logged once
+# when it starts and once when it ends
+vbus_watch() {
+	vbus_online
+	case "$USB_VBUS" in
+	*:1*|"") [ "$VBUS_GLITCH" = 1 ] && { VBUS_GLITCH=0; event usb OK "vbus glitch over: $USB_VBUS, the UDC stayed configured"; } ;;
+	*) [ "$VBUS_GLITCH" = 0 ] && { VBUS_GLITCH=1; event usb OK "vbus glitch: $USB_VBUS while the UDC is configured, network kept"; } ;;
+	esac
 	return 0
 }
 
@@ -313,7 +336,7 @@ vbus_online() {
 NET_UDC_LAST=""
 VBUS_GLITCH=0
 net_watch() {
-	local n=$USB_IF carrier="" st=$USB_ST v
+	local n=$USB_IF carrier="" st=$USB_ST
 	if [ "$USB_HAS_ST" = 1 ]; then
 		if [ "$st" = configured ]; then
 			[ -e "$NET_CLASS/$n" ] || return 0
@@ -321,13 +344,7 @@ net_watch() {
 				$IP link set "$n" up 2>/dev/null
 				net_up "$n"
 			fi
-			# VBUS 0 with the UDC configured: a glitch of the PMIC reading, not a cable out
-			vbus_online
-			v=$USB_VBUS
-			case "$v" in
-			*:1*|"") [ "$VBUS_GLITCH" = 1 ] && { VBUS_GLITCH=0; event usb OK "vbus glitch over: $v, the UDC stayed configured"; } ;;
-			*) [ "$VBUS_GLITCH" = 0 ] && { VBUS_GLITCH=1; event usb OK "vbus glitch: $v while the UDC is configured, network kept"; } ;;
-			esac
+			vbus_watch
 		else
 			VBUS_GLITCH=0
 			[ "$NET_UP" = 1 ] && net_down "$n"
@@ -419,12 +436,19 @@ cmd_stop() {
 	return 0
 }
 
-# role file of the USB role switch (R36S) in USB_ROLE_FILE; none on the GA36
-USB_ROLE_FILE=""
+# role file of the USB role switch (R36S) in USB_ROLE_FILE; none on the GA36. Without one,
+# it is looked for again only every ROLE_RESCAN rounds.
+USB_ROLE_FILE="" USB_ROLE_WAIT=0
+ROLE_RESCAN=${ROLE_RESCAN:-16}
 role_find() {
 	local f
 	[ -n "$USB_ROLE_FILE" ] && [ -e "$USB_ROLE_FILE" ] && return 0
 	USB_ROLE_FILE=""
+	if [ "$USB_ROLE_WAIT" -gt 0 ]; then
+		USB_ROLE_WAIT=$((USB_ROLE_WAIT - 1))
+		return 1
+	fi
+	USB_ROLE_WAIT=$ROLE_RESCAN
 	for f in "$ROLE_CLASS"/*/role; do
 		[ -e "$f" ] && { USB_ROLE_FILE=$f; ROLE_LAST=""; return 0; }
 	done
@@ -519,30 +543,46 @@ usb_open_fifo() {
 }
 
 USB_MSG=""
-usb_wait() {  # seconds centiseconds
-	local t0
+usb_wait() {  # seconds
 	USB_MSG=""
 	if [ "$USB_FIFO_OK" = 1 ]; then
-		uptime_cs
-		t0=$USB_UP
 		read -t "$1" -r USB_MSG <&3
-		[ -n "$USB_MSG" ] && return 0
-		uptime_cs
-		[ $((USB_UP - t0)) -ge $(($2 / 2)) ] && return 0
-		# returning at once means the FIFO broke: never spin, wait with sleep this time
-		say "ERROR: the wake FIFO failed, reopening it"
-		usb_open_fifo
+		return 0
 	fi
 	sleep "$1" &
 	wait $!
 }
 
+# The FIFO never ends (the loop holds it read-write), but if the read ever came back at once
+# the loop would spin. Every 32 rounds the time they took is compared with the waits asked
+# (USB_ASKED, centiseconds, rounds woken by a message not counted): under half means the
+# FIFO broke; it is opened again, or the loop waits with sleep.
+USB_ROUNDS=0 USB_ASKED=0 USB_T0=0
+usb_guard() {
+	uptime_cs
+	if [ "$USB_ASKED" -gt 0 ] && [ $((USB_UP - USB_T0)) -lt $((USB_ASKED / 2)) ]; then
+		say "ERROR: the wake FIFO failed, reopening it"
+		usb_open_fifo
+	fi
+	USB_T0=$USB_UP USB_ROUNDS=0 USB_ASKED=0
+}
+
 # One look at the port. USB_FAST counts the rounds left at POLL: some after the UDC state
 # changed, and while the network waits for its interface; otherwise the next look is POLL_IDLE.
+# Short path: the same UDC state as the last round and nothing waiting (the network up while
+# configured) only reads VBUS (logged) and the ID pin.
 USB_ST_PREV="" USB_FAST=3
 usb_tick() {
 	udc_read_state
 	role_watch
+	if [ "$USB_HAS_ST" = 1 ] && [ "$USB_ST" = "$USB_ST_PREV" ]; then
+		if [ "$USB_ST" != configured ]; then
+			return 0
+		elif [ "$NET_UP" = 1 ]; then
+			vbus_watch
+			return 0
+		fi
+	fi
 	net_watch
 	pc_watch
 	if [ "$USB_ST" != "$USB_ST_PREV" ]; then
@@ -571,15 +611,21 @@ cmd_run() {
 	fast_cs=$USB_CS
 	to_cs "$POLL_IDLE"
 	idle_cs=$USB_CS
+	uptime_cs
+	USB_T0=$USB_UP
 	while :; do
 		usb_tick
 		if [ "$USB_FAST" -gt 0 ]; then
 			USB_FAST=$((USB_FAST - 1))
-			usb_wait "$POLL" "$fast_cs"
+			usb_wait "$POLL"
+			[ -n "$USB_MSG" ] || USB_ASKED=$((USB_ASKED + fast_cs))
 		else
-			usb_wait "$POLL_IDLE" "$idle_cs"
+			usb_wait "$POLL_IDLE"
+			[ -n "$USB_MSG" ] || USB_ASKED=$((USB_ASKED + idle_cs))
 		fi
 		[ "$USB_MSG" = stop ] && usb_quit
+		USB_ROUNDS=$((USB_ROUNDS + 1))
+		[ "$USB_ROUNDS" -ge 32 ] && usb_guard
 	done
 }
 

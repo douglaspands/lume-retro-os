@@ -56,9 +56,14 @@ first_line() {
 enabled() {
 	local l
 	[ -r "$SETTINGS" ] || return 1
+	# the blank strip is slow in busybox (~1 ms per line on the GA36): only on the one line
 	while IFS= read -r l || [ -n "$l" ]; do
-		l=${l//[[:space:]]/}
-		[ "$l" = ssh_wifi=true ] && return 0
+		case $l in
+		*ssh_wifi*)
+			l=${l//[[:space:]]/}
+			[ "$l" = ssh_wifi=true ] && return 0
+			;;
+		esac
 	done <"$SETTINGS"
 	return 1
 }

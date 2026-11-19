@@ -138,7 +138,7 @@ $GADGET_SH stop >/dev/null
 mkdir -p "$W/role/ff300000.usb-role-switch" "$W/extcon/extcon0"
 echo none > "$W/role/ff300000.usb-role-switch/role"
 printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
-export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1 POLL_IDLE=0.2
+export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1 POLL_IDLE=0.2 ROLE_RESCAN=2
 $GADGET_SH run > "$W/run.out" 2>&1 &
 RUN=$!
 i=0; while [ ! -s "$G/UDC" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
