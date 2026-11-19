@@ -7,13 +7,15 @@
 //! back to `kill(-pgid)` (logged as `cgroup unavailable`).
 //!
 //! The process is single-threaded, so the child of `clone3`/`fork` may run Rust code until
-//! `exec`; it only calls async-signal-safe functions anyway.
+//! `exec`; it only calls async-signal-safe functions anyway, and allocates nothing: argv, the
+//! game's environment (gameenv.rs) and the program path are built before the fork, and a game
+//! starts with `execve` (the interface with `execvp` and lume-run's own environment).
 
 use std::ffi::CString;
 use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -56,14 +58,71 @@ impl Exit {
     }
 }
 
-fn cstrings(argv: &[String]) -> io::Result<Vec<CString>> {
-    argv.iter()
-        .map(|a| CString::new(a.as_bytes()).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in argument")))
-        .collect()
+fn cstring(bytes: Vec<u8>) -> io::Result<CString> {
+    CString::new(bytes).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in argument or environment"))
 }
 
-/// In the child, after clone3/fork: default signal mask, optional new session, exec.
-fn exec_child(argv: &[CString], new_session: bool, cgroup_procs: Option<RawFd>) -> ! {
+/// Everything `exec` needs, built in the parent before `clone3`/`fork`: the child only reads
+/// it (no allocation after the fork). The pointers point into the heap buffers of the
+/// CStrings, which stay where they are while `Exec` lives.
+struct Exec {
+    /// the program for `execve`, already looked up in the game's PATH
+    path: CString,
+    _argv: Vec<CString>,
+    _envp: Vec<CString>,
+    argv_ptrs: Vec<*const libc::c_char>,
+    /// None: `execvp` with lume-run's own environment (the interface)
+    envp_ptrs: Option<Vec<*const libc::c_char>>,
+}
+
+fn ptrs(v: &[CString]) -> Vec<*const libc::c_char> {
+    v.iter().map(|c| c.as_ptr()).chain([std::ptr::null()]).collect()
+}
+
+/// `prog` as `execvp` would find it, but in the PATH of the game's environment; a name not
+/// found stays as it is (execve then fails and the child ends with 127).
+fn resolve(prog: &str, path_var: Option<&[u8]>) -> PathBuf {
+    if prog.contains('/') {
+        return PathBuf::from(prog);
+    }
+    let path_var = path_var.unwrap_or(b"/usr/local/bin:/bin:/usr/bin");
+    for dir in path_var.split(|&b| b == b':') {
+        let dir = if dir.is_empty() { Path::new(".") } else { Path::new(std::ffi::OsStr::from_bytes(dir)) };
+        let p = dir.join(prog);
+        if let Ok(m) = fs::metadata(&p) {
+            use std::os::unix::fs::PermissionsExt;
+            if m.is_file() && m.permissions().mode() & 0o111 != 0 {
+                return p;
+            }
+        }
+    }
+    PathBuf::from(prog)
+}
+
+impl Exec {
+    fn new(argv: &[String], env: Option<&[crate::gameenv::Var]>) -> io::Result<Exec> {
+        let args: Vec<CString> = argv.iter().map(|a| cstring(a.as_bytes().to_vec())).collect::<io::Result<_>>()?;
+        let first = argv.first().map(String::as_str).unwrap_or("");
+        let (path, envp) = match env {
+            Some(env) => {
+                let envp: Vec<CString> = env
+                    .iter()
+                    .map(|(k, v)| cstring([k.as_slice(), b"=", v.as_slice()].concat()))
+                    .collect::<io::Result<_>>()?;
+                let path = resolve(first, crate::gameenv::get(env, "PATH"));
+                (cstring(path.into_os_string().into_vec())?, Some(envp))
+            }
+            None => (cstring(first.as_bytes().to_vec())?, None),
+        };
+        let argv_ptrs = ptrs(&args);
+        let envp_ptrs = envp.as_deref().map(ptrs);
+        Ok(Exec { path, _argv: args, _envp: envp.unwrap_or_default(), argv_ptrs, envp_ptrs })
+    }
+}
+
+/// In the child, after clone3/fork: default signal mask, optional new session, exec. Only
+/// async-signal-safe calls, nothing allocated.
+fn exec_child(e: &Exec, new_session: bool, cgroup_procs: Option<RawFd>) -> ! {
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
@@ -81,9 +140,10 @@ fn exec_child(argv: &[CString], new_session: bool, cgroup_procs: Option<RawFd>) 
         if new_session {
             libc::setsid();
         }
-        let mut ptrs: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
-        ptrs.push(std::ptr::null());
-        libc::execvp(ptrs[0], ptrs.as_ptr());
+        match &e.envp_ptrs {
+            Some(envp) => libc::execve(e.path.as_ptr(), e.argv_ptrs.as_ptr(), envp.as_ptr()),
+            None => libc::execvp(e.path.as_ptr(), e.argv_ptrs.as_ptr()),
+        };
         libc::_exit(127);
     }
 }
@@ -96,24 +156,24 @@ fn pidfd_open(pid: libc::pid_t) -> io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd as RawFd) })
 }
 
-fn fork_exec(argv: &[CString], new_session: bool, cgroup_procs: Option<RawFd>) -> io::Result<Child> {
+fn fork_exec(e: &Exec, new_session: bool, cgroup_procs: Option<RawFd>) -> io::Result<Child> {
     let pid = unsafe { libc::fork() };
     match pid {
         -1 => Err(io::Error::last_os_error()),
-        0 => exec_child(argv, new_session, cgroup_procs),
+        0 => exec_child(e, new_session, cgroup_procs),
         pid => Ok(Child { pid, pidfd: pidfd_open(pid)? }),
     }
 }
 
-/// Runs a plain child (the interface): same session, no cgroup.
+/// Runs a plain child (the interface): same session, no cgroup, lume-run's environment.
 pub fn spawn(argv: &[String]) -> io::Result<Child> {
-    fork_exec(&cstrings(argv)?, false, None)
+    fork_exec(&Exec::new(argv, None)?, false, None)
 }
 
-/// Runs a game in a new session, inside `cgroup` when given. Returns the child and whether it
-/// really is in the cgroup.
-pub fn spawn_game(argv: &[String], cgroup: Option<&Path>) -> io::Result<(Child, bool)> {
-    let args = cstrings(argv)?;
+/// Runs a game with the environment `env` (gameenv.rs) in a new session, inside `cgroup`
+/// when given. Returns the child and whether it really is in the cgroup.
+pub fn spawn_game(argv: &[String], env: &[crate::gameenv::Var], cgroup: Option<&Path>) -> io::Result<(Child, bool)> {
+    let args = Exec::new(argv, Some(env))?;
     let Some(cg) = cgroup else {
         return Ok((fork_exec(&args, true, None)?, false));
     };
@@ -288,4 +348,21 @@ pub fn read_message(fd: RawFd) -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&buf[..n as usize]).trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn program_is_looked_up_in_the_game_path() {
+        assert_eq!(resolve("/x/y", None), PathBuf::from("/x/y"));
+        assert_eq!(resolve("sh", Some(b"/nonexistent-dir:/bin")), PathBuf::from("/bin/sh"));
+        assert_eq!(resolve("no-such-program-xyz", Some(b"/bin")), PathBuf::from("no-such-program-xyz"));
+        let e = Exec::new(&["sh".into(), "-c".into()], Some(&[(b"PATH".to_vec(), b"/bin".to_vec())])).unwrap();
+        assert_eq!(e.path.as_bytes(), b"/bin/sh");
+        assert_eq!(e.argv_ptrs.len(), 3);
+        assert_eq!(e.envp_ptrs.as_ref().map(Vec::len), Some(2));
+        assert!(Exec::new(&["/bin/sh".into()], Some(&[(b"A".to_vec(), b"x\0y".to_vec())])).is_err());
+    }
 }

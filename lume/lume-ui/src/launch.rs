@@ -167,6 +167,10 @@ impl Request {
         for (name, form) in self.runner.resolved_actions() {
             s.push_str(&format!("action={name} {}\n", form.to_value()));
         }
+        // game-experience-tuning D5: the runner's variables, applied by lume-run last
+        for (name, value) in self.runner.env_pairs() {
+            s.push_str(&format!("env={name}={value}\n"));
+        }
         for a in &self.argv {
             s.push_str(&format!("arg={a}\n"));
         }
@@ -177,8 +181,8 @@ impl Request {
     /// format), which only a strange file name can cause.
     pub fn write(&self, runtime: &Path, menu: bool) -> std::io::Result<()> {
         let text = self.file(menu);
-        if self.argv.iter().chain([&self.path, &self.states]).any(|v| v.contains('\n')) {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "line break in a path"));
+        if self.argv.iter().chain([&self.path, &self.states]).chain(self.runner.env.values()).any(|v| v.contains('\n')) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "line break in a path or a runner variable"));
         }
         lume_core::atomic::write(&runtime.join("launch"), text.as_bytes())
     }
@@ -269,6 +273,26 @@ mod tests {
         let sh = Request { system: "ports".into(), runner: runners["sh"].clone(), core: String::new(),
                            path: "x.sh".into(), states: String::new(), argv: vec!["/bin/sh".into()] };
         assert!(!sh.file(false).contains("action=") && !sh.file(false).contains("overlay="));
+        assert!(!sh.file(false).contains("env="));
+    }
+
+    #[test]
+    fn launch_file_carries_the_runner_env() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let (runners, _) = lume_core::runner::load(&[repo.join("aports/lume-games/files/usr/share/lume/runners.d")], false);
+        let mut runner = runners["sh"].clone();
+        runner.env.insert("ZED".into(), "a=b c".into());
+        runner.env.insert("SDL_VIDEODRIVER".into(), "kmsdrm".into());
+        let r = Request { system: "ports".into(), runner, core: String::new(),
+                          path: "x.sh".into(), states: String::new(), argv: vec!["/bin/sh".into()] };
+        let text = r.file(false);
+        let env: Vec<&str> = text.lines().filter(|l| l.starts_with("env=")).collect();
+        // sorted by name, the value kept whole (an `=` in it included)
+        assert_eq!(env, ["env=SDL_VIDEODRIVER=kmsdrm", "env=ZED=a=b c"]);
+        // a line break in a value would break the file: refused
+        let mut bad = r;
+        bad.runner.env.insert("X".into(), "a\nb".into());
+        assert!(bad.write(&std::env::temp_dir(), false).is_err());
     }
 
     #[test]

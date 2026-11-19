@@ -14,12 +14,13 @@
 //! overlay=retroarch    the runner draws the bar and the hint (lume-hud-actions D3), optional
 //! action=pause retroarch-pause                 one line per declared action, optional
 //! action=save_state retroarch-cmd:SAVE_STATE
+//! env=SDL_VIDEODRIVER=kmsdrm  one line per variable of the runner (game-experience-tuning D5)
 //! arg=/usr/libexec/lume/frontends/retroarch
 //! arg=-L
 //! ...
 //! ```
 
-use lume_core::runner::{ActionForm, ACTIONS};
+use lume_core::runner::{is_valid_env_name, ActionForm, ACTIONS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quit {
@@ -42,6 +43,8 @@ pub struct Launch {
     pub overlay: bool,
     /// the runner's actions (D3), in the order of the file
     pub actions: Vec<(String, ActionForm)>,
+    /// the runner's environment variables (game-experience-tuning D5), in the order of the file
+    pub env: Vec<(String, String)>,
 }
 
 impl Launch {
@@ -63,6 +66,7 @@ pub fn parse(text: &str) -> Result<Launch, String> {
         argv: Vec::new(),
         overlay: false,
         actions: Vec::new(),
+        env: Vec::new(),
     };
     for line in text.lines() {
         if line.is_empty() {
@@ -108,6 +112,13 @@ pub fn parse(text: &str) -> Result<Launch, String> {
                 if ACTIONS.contains(&name) {
                     l.actions.push((name.into(), ActionForm::parse(name, form)?));
                 }
+            }
+            "env" => {
+                let (name, value) = v.split_once('=').ok_or_else(|| format!("bad env {v:?}"))?;
+                if !is_valid_env_name(name) {
+                    return Err(format!("bad env name {name:?}"));
+                }
+                l.env.push((name.into(), value.into()));
             }
             // unknown keys come from a newer interface: ignored
             _ => {}
@@ -155,6 +166,17 @@ mod tests {
         assert!(parse(&format!("{base}action=save_state retroarch-pause\n")).is_err());
         assert!(parse(&format!("{base}action=save_state\n")).is_err());
         assert!(parse(&format!("{base}overlay=sdl\n")).is_err());
+    }
+
+    #[test]
+    fn env_lines() {
+        let base = "kind=game\nsystem=love\nrunner=love\narg=/bin/love\n";
+        assert!(parse(base).unwrap().env.is_empty());
+        let l = parse(&format!("{base}env=SDL_VIDEODRIVER=kmsdrm\nenv=_X=a=b c\nenv=EMPTY=\n")).unwrap();
+        assert_eq!(l.env, [("SDL_VIDEODRIVER".to_string(), "kmsdrm".to_string()), ("_X".into(), "a=b c".into()), ("EMPTY".into(), String::new())]);
+        for bad in ["env=NOVALUE", "env=1A=x", "env==x", "env=A B=x"] {
+            assert!(parse(&format!("{base}{bad}\n")).is_err(), "{bad}");
+        }
     }
 
     #[test]

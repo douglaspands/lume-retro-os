@@ -21,10 +21,13 @@
 //!
 //! Environment (defaults in parentheses): LUME_UI (/usr/bin/lume-ui), LUME_INDEX
 //! (/usr/bin/lume-index), LUME_CGROUP (/sys/fs/cgroup/lume), LUME_INPUT_SOCK
-//! (/run/lume/input.sock), LUME_RA_PORT (55355), LUME_RUN (/run/lume), XDG_RUNTIME_DIR.
+//! (/run/lume/input.sock), LUME_RA_PORT (55355), LUME_RUN (/run/lume), XDG_RUNTIME_DIR;
+//! for the game's environment (gameenv.rs) LUME_STORAGE (/storage), TIMEZONE_FILE
+//! (/etc/timezone) and ZONEINFO_DIR (/usr/share/zoneinfo).
 
 mod actions;
 mod events;
+mod gameenv;
 mod hud;
 mod launch;
 mod menu;
@@ -248,7 +251,9 @@ impl Run {
         let started = Instant::now();
         // power service: the scenario changes before the game's exec (non-blocking, never fails)
         power_game(l);
-        let spawned = proc::spawn_game(&l.argv, cg.as_ref().map(|c| c.dir.as_path()));
+        // game-experience-tuning D5: language and zone read now, the runner's variables last
+        let env = gameenv::for_game(&l.env);
+        let spawned = proc::spawn_game(&l.argv, &env, cg.as_ref().map(|c| c.dir.as_path()));
         let (child, in_cgroup) = match spawned {
             Ok(c) => c,
             Err(e) => {

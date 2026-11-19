@@ -414,6 +414,90 @@ fn power_native_runner_uses_the_runner_as_core() {
     assert_eq!(got, "game ports sh\nend\n");
 }
 
+/// A fake runner that writes its own environment to `$1`, then writes each following
+/// `<file> <text>` pair (the user changing the language or the zone between two games).
+const ENV_RUNNER: &str = "#!/bin/sh\nenv > \"$1\"\nshift\nwhile [ $# -ge 2 ]; do printf '%s\\n' \"$2\" > \"$1\"; shift 2; done\n";
+
+fn env_lines(path: &Path) -> Vec<String> {
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).lines().map(String::from).collect()
+}
+
+fn has(env: &[String], line: &str) -> bool {
+    env.iter().any(|l| l == line)
+}
+
+fn named(env: &[String], name: &str) -> bool {
+    env.iter().any(|l| l.starts_with(&format!("{name}=")))
+}
+
+#[test]
+fn game_environment_has_language_zone_and_runner_variables() {
+    // game-experience-tuning 2.2 (D5)
+    let e = setup("gameenv", false);
+    let settings = e.dir.join("storage/system/lume/settings.toml");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    fs::write(&settings, "language = \"pt\"\n").unwrap();
+    fs::create_dir_all(e.dir.join("zoneinfo/America")).unwrap();
+    fs::write(e.dir.join("zoneinfo/America/Sao_Paulo"), "").unwrap();
+    let tzf = e.dir.join("timezone");
+    fs::write(&tzf, "America/Sao_Paulo\n").unwrap();
+    let runner = e.dir.join("env-runner");
+    fs::write(&runner, ENV_RUNNER).unwrap();
+    fs::set_permissions(&runner, fs::Permissions::from_mode(0o755)).unwrap();
+    let (r, s, t) = (runner.display().to_string(), settings.display().to_string(), tzf.display().to_string());
+    let out = |n: u32| e.dir.join(format!("env-{n}"));
+    let game = |runner_id: &str, env: &str, args: &[&str]| {
+        let mut l = format!("kind=game\nsystem=love\nrunner={runner_id}\nquit=sigterm\ntimeout=2\n{env}");
+        for a in args {
+            l.push_str(&format!("arg={a}\n"));
+        }
+        l
+    };
+    // 1: Portuguese, the runner declares two variables; the game switches to Spanish
+    e.step(1, 64, &game("love", "env=LUME_TEST_RUNNER=yes\nenv=SDL_TEST=a=b c\n",
+                        &[&r, &out(1).display().to_string(), &s, "language = \"es\""]));
+    // 2: another runner with no variables; the game clears the language and names a zone
+    // with no file
+    e.step(2, 64, &game("sh", "", &[&r, &out(2).display().to_string(), &s, "", &t, "Nowhere/None"]));
+    // 3: no language saved, no usable zone
+    e.step(3, 64, &game("sh", "", &[&r, &out(3).display().to_string()]));
+    e.step(4, 0, "");
+    let inherited = [("LANG", "C"), ("LANGUAGE", "fr"), ("LC_ALL", "C"), ("LC_NUMERIC", "de_DE.UTF-8"), ("TZ", "UTC0")];
+    let mut extra: Vec<(&str, String)> = inherited.iter().map(|(k, v)| (*k, v.to_string())).collect();
+    extra.push(("LUME_STORAGE", e.dir.join("storage").display().to_string()));
+    extra.push(("TIMEZONE_FILE", t.clone()));
+    extra.push(("ZONEINFO_DIR", e.dir.join("zoneinfo").display().to_string()));
+    assert_eq!(wait(&mut e.spawn(&extra), Duration::from_secs(10)), 0);
+    assert_eq!(e.ui_runs(), 4);
+
+    let tz = format!("TZ=:{}/zoneinfo/America/Sao_Paulo", e.dir.display());
+    let g1 = env_lines(&out(1));
+    assert!(has(&g1, "LANG=pt_BR.UTF-8") && has(&g1, "LANGUAGE=pt_BR:pt"), "{g1:?}");
+    assert!(has(&g1, &tz), "{g1:?}");
+    assert!(has(&g1, "LUME_TEST_RUNNER=yes") && has(&g1, "SDL_TEST=a=b c"), "{g1:?}");
+    // the rest of lume-run's environment is still there
+    assert!(has(&g1, "LUME_LAUNCHER=1") && named(&g1, "PATH"), "{g1:?}");
+
+    // the language changed in between counts for the next game; the runner's variables
+    // stay with their runner
+    let g2 = env_lines(&out(2));
+    assert!(has(&g2, "LANG=es_ES.UTF-8") && has(&g2, "LANGUAGE=es_ES:es"), "{g2:?}");
+    assert!(has(&g2, &tz), "{g2:?}");
+    assert!(!named(&g2, "LUME_TEST_RUNNER") && !named(&g2, "SDL_TEST"), "{g2:?}");
+
+    let g3 = env_lines(&out(3));
+    assert!(has(&g3, "LANG=en_US.UTF-8") && has(&g3, "LANGUAGE=en_US:en"), "{g3:?}");
+    // a zone with no file: no TZ at all, not the inherited one
+    assert!(!named(&g3, "TZ"), "{g3:?}");
+
+    for g in [&g1, &g2, &g3] {
+        // never LC_ALL, and no inherited LC_* or locale of lume-run's own environment
+        assert!(!g.iter().any(|l| l.starts_with("LC_")), "{g:?}");
+        assert!(!has(g, "LANG=C") && !has(g, "LANGUAGE=fr") && !has(g, "TZ=UTC0"), "{g:?}");
+        assert_eq!(g.iter().filter(|l| l.starts_with("LANG=")).count(), 1, "{g:?}");
+    }
+}
+
 #[test]
 fn fifo_without_reader_does_not_stop_the_game() {
     let e = setup("noreader", false);
