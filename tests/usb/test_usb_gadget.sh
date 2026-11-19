@@ -138,7 +138,7 @@ $GADGET_SH stop >/dev/null
 mkdir -p "$W/role/ff300000.usb-role-switch" "$W/extcon/extcon0"
 echo none > "$W/role/ff300000.usb-role-switch/role"
 printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
-export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1
+export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1 POLL_IDLE=0.2
 $GADGET_SH run > "$W/run.out" 2>&1 &
 RUN=$!
 i=0; while [ ! -s "$G/UDC" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
@@ -243,6 +243,112 @@ sleep 0.8
 check "udc: back to configured brings the network up again, even with the carrier at 0" 'grep -qx "ip link set usb0 up" "$LOG" && grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG" && grep -q "^udhcpd " "$LOG" && grep -q "^dropbear " "$LOG"'
 kill -TERM $RUN; wait $RUN
 rm -f "$W/udc/musb-hdrc.2.auto/state"
+
+### game-governor 7.1 (D20): the loop reads without processes and waits on its FIFO
+now_cs() { read -r u _ </proc/uptime; echo $((${u%.*} * 100 + 1${u#*.} - 100)); }
+# until_cs <centiseconds> <condition>: polls every 0.1 s, fails at the deadline
+until_cs() {
+	local end=$(($(now_cs) + $1))
+	while ! eval "$2"; do
+		[ "$(now_cs)" -ge "$end" ] && return 1
+		sleep 0.1
+	done
+}
+echo 1 > "$W/power/axp20x-usb/online"
+echo 1 > "$W/net/usb0/carrier"
+
+# the real rhythm (1 s while the UDC state changes, 2 s without change): a cable pulled after
+# a long quiet time is seen within 2 s
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" POLL=1 POLL_IDLE=2 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 500 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+sleep 4
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+t0=$(now_cs)
+until_cs 400 'grep -q " usb OK network: down on usb0$" "$EV"'
+dt=$(($(now_cs) - t0))
+check "rhythm: a UDC state change is seen within 2 s while idle (took ${dt} cs)" '[ $dt -le 230 ]'
+kill -TERM $RUN; wait $RUN
+
+# the UDC goes away and comes back under another name: it is looked up again
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+mv "$W/udc/musb-hdrc.2.auto" "$W/udc-away"
+echo 0 > "$W/net/usb0/carrier"
+until_cs 200 'grep -q " usb OK network: down on usb0$" "$EV"'
+check "udc gone: the carrier decides again (network down)" 'grep -q " usb OK network: down on usb0$" "$EV"'
+: > "$LOG"
+mv "$W/udc-away" "$W/udc/musb-hdrc.3.auto"
+until_cs 200 'grep -q "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+check "udc back under a new name: found again, its configured state brings the network up" 'grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+kill -TERM $RUN; wait $RUN
+rm -rf "$W/udc/"*; mkdir -p "$W/udc/musb-hdrc.2.auto"
+
+# R36S: the role switch goes away and comes back: looked up again and set from the ID pin
+rm -rf "$W/role/"*; mkdir -p "$W/role/ff300000.usb-role-switch"
+echo none > "$W/role/ff300000.usb-role-switch/role"
+printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
+$GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ "$(cat $W/role/ff300000.usb-role-switch/role)" = device ]'
+rm -rf "$W/role/ff300000.usb-role-switch"
+sleep 0.4
+mkdir -p "$W/role/ff300001.usb-role-switch"
+echo none > "$W/role/ff300001.usb-role-switch/role"
+printf 'USB=0\nUSB-HOST=1\n' > "$W/extcon/extcon0/state"
+until_cs 200 '[ "$(cat $W/role/ff300001.usb-role-switch/role)" = host ]'
+check "role: a new role switch is found and follows the ID pin" '[ "$(cat $W/role/ff300001.usb-role-switch/role)" = host ]'
+kill -TERM $RUN; wait $RUN
+rm -rf "$W/role/"*
+printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
+
+# stop and TERM do not wait for the round to end (POLL_IDLE of 5 s)
+POLL_IDLE=5 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ -p "$W/run/wake" ] && [ -s "$G/UDC" ]'
+sleep 4
+t0=$(now_cs)
+$GADGET_SH stop > /dev/null
+dt=$(($(now_cs) - t0))
+check "stop: wakes the loop through its FIFO, which removes the gadget and exits (took ${dt} cs)" '[ $dt -lt 150 ] && ! kill -0 $RUN 2>/dev/null && [ ! -e "$G" ] && [ ! -e "$W/run/wake" ]'
+wait $RUN
+POLL_IDLE=5 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ -p "$W/run/wake" ] && [ -s "$G/UDC" ]'
+sleep 4
+t0=$(now_cs)
+kill -TERM $RUN; wait $RUN; rc=$?
+dt=$(($(now_cs) - t0))
+check "TERM: the loop leaves the wait at once (took ${dt} cs)" '[ $rc = 0 ] && [ $dt -lt 150 ] && [ ! -e "$G" ]'
+
+# processes: none per round with everything still (cable in, network up, VBUS read). PIDs are
+# handed out one after the other inside the container's own PID namespace, so the PID of a
+# probe before and after 10 rounds counts every process started in between.
+if [ -f /run/.containerenv ] || [ -f /.dockerenv ]; then
+	printf '#!/bin/sh\nsleep 0.3\ntouch "$FFS_DIR/ep0" "$FFS_DIR/ep1" "$FFS_DIR/ep2" "$FFS_DIR/ep3"\nexec sleep 100000\n' > "$W/bin/umtprd-quiet"
+	printf '#!/bin/sh\nexec sleep 100000\n' > "$W/bin/serve-quiet"
+	chmod +x "$W/bin/umtprd-quiet" "$W/bin/serve-quiet"
+	echo configured > "$W/udc/musb-hdrc.2.auto/state"
+	rm -f "$EV"; : > "$LOG"
+	UMTPRD="$W/bin/umtprd-quiet" UDHCPD="$W/bin/serve-quiet" DROPBEAR="$W/bin/serve-quiet" \
+		POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+	RUN=$!
+	until_cs 300 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+	sleep 1.5   # past the fast rounds after the change
+	: & p0=$!
+	sleep 2.2   # 10 rounds of POLL_IDLE=0.2
+	: & p1=$!
+	n=$((p1 - p0 - 2))   # minus the sleep and the second probe
+	check "processes: none started by 10 still rounds (saw $n)" '[ $n = 0 ]'
+	kill -TERM $RUN; wait $RUN
+else
+	echo "SKIP processes: needs the PID namespace of the builder container"
+fi
 
 rm -rf "$W"
 echo "failures: $FAILS"
