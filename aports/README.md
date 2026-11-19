@@ -44,6 +44,7 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | libretro-fbneo | testing, atualizado (zlib embutido) | `77016b4d` |
 | libretro-mame2003-plus | novo; **desativado** (`arch=""`) desde 2026-11-11, a pedido do usuário | `4f6b3b46` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
+| libretro-mednafen-pce-fast | novo, PC Engine/TurboGrafx-16 e PCE-CD (`game-experience-tuning` D8; build padrão do upstream, sem flags por CPU; o `.info` vem do `libretro-core-info`) | `2de1ce1c` |
 
 Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba` não entra
 nesta versão: o GBA usa o `gpsp` em todos os alvos.

@@ -1,0 +1,29 @@
+# Lume Retro OS local package (not in Alpine).
+# Beetle PCE Fast (mednafen_pce_fast): the PC Engine / TurboGrafx-16 and PCE-CD core
+# (game-experience-tuning D8). Default upstream build (Makefile platform unix, -O2), no
+# per-CPU flags: they wait for P-10. The commit is the newest of
+# libretro/beetle-pce-fast-libretro master (2026-10-30). The info file comes from
+# libretro-core-info (mednafen_pce_fast_libretro.info), copied by rootfs/configure.sh.
+pkgname=libretro-mednafen-pce-fast
+pkgver=0_git20261030
+pkgrel=0
+_commit="2de1ce1c3f237b161c126c54ba407990bb86d1e9"
+pkgdesc="PC Engine / TurboGrafx-16 and PCE-CD core for libretro (Beetle PCE Fast)"
+url="https://github.com/libretro/beetle-pce-fast-libretro"
+arch="all"
+license="GPL-2.0-or-later"
+makedepends="linux-headers"
+source="$pkgname-$_commit.tar.gz::https://github.com/libretro/beetle-pce-fast-libretro/archive/$_commit.tar.gz"
+builddir="$srcdir/beetle-pce-fast-libretro-$_commit"
+options="!check" # No tests
+
+build() {
+	make -f Makefile
+}
+
+package() {
+	install -Dm644 mednafen_pce_fast_libretro.so "$pkgdir"/usr/lib/libretro/mednafen_pce_fast_libretro.so
+}
+sha512sums="
+ded42a260f5bcad8e36af8f011df7d39c0cee6d25059d7643d73aef349d4b94c79c14e24fdf06fb349b385bbe67958dea4fe9ed24c97bc922c51aebe23500c9b  libretro-mednafen-pce-fast-2de1ce1c3f237b161c126c54ba407990bb86d1e9.tar.gz
+"

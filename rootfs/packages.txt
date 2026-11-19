@@ -116,3 +116,5 @@ libretro-fbalpha2012-cps1
 libretro-fbalpha2012-cps2
 libretro-fbalpha2012-neogeo
 libretro-pcsx-rearmed
+# PC Engine / TurboGrafx-16 and PCE-CD (game-experience-tuning D8)
+libretro-mednafen-pce-fast
