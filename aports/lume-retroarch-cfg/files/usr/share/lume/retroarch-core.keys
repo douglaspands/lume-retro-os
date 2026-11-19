@@ -1,8 +1,13 @@
 # Lume Retro OS: RetroArch keys for the runs of one core, read by the frontend script
-# (frontends/retroarch). One line per key: <core> <key>=<value>, where <core> is the name of
-# the libretro file without _libretro.so, or "*" for every core. They count for that run only,
-# after the fixed keys of retroarch-lume.cfg and retroarch-<board>.cfg, and the user's value
-# comes back when the run ends (the same way as the launcher's --lume-set).
+# (frontends/retroarch). One line per key: <who> <key>=<value>. <who> is one of, in this order
+# of priority (the last one that applies wins):
+#   *               every core, every console
+#   <core>          that core on every console (the libretro file name without _libretro.so)
+#   <board>:*       every core on that console (<board> is /etc/lume/board: ga36, r36s, vm)
+#   <board>:<core>  that core on that console
+# A line for another console, or for a console that does not exist, is ignored. The keys count
+# for that run only, after the fixed keys of retroarch-lume.cfg and retroarch-<board>.cfg, and
+# the user's value comes back when the run ends (the same way as the launcher's --lume-set).
 
 # Every game (device-fixes 9.9, the user, 2026-11-18): the second barrier of the Quick Menu
 # lock (lume_menu_lock, patch 0013). Should the main menu ever show during a game, it has only

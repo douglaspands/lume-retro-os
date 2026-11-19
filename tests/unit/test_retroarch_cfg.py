@@ -1,6 +1,7 @@
 """Fixed RetroArch configuration (retroarch-lume.cfg = system name, not a theme name)."""
 
 import re
+import shutil
 import subprocess
 
 from lume_tool.paths import REPO_ROOT
@@ -377,6 +378,68 @@ def test_core_keys_count_for_that_core_only_and_go_back(tmp_path):
     keys = (SHARE / "retroarch-core.keys").read_text()
     assert "pcsx_rearmed video_threaded=false" in keys
     assert not any(ord(c) > 127 for c in keys)
+
+
+def _share_with_keys(tmp_path, keys: str):
+    share = tmp_path / "share"
+    shutil.copytree(SHARE, share)
+    (share / "retroarch-core.keys").write_text(keys)
+    return {"LUME_SHARE": str(share)}
+
+
+CONSOLE_KEYS = """# test keys
+* video_threaded=all
+pcsx_rearmed video_threaded=core
+ga36:* video_threaded=ga36_all
+ga36:pcsx_rearmed video_threaded=ga36_core
+ga36:* content_show_settings=ga36_only
+foo:* content_show_settings=unknown_console
+ga36:snes video_threaded=ga36_other_core
+"""
+PSX = ("-L", "/usr/lib/libretro/pcsx_rearmed_libretro.so", "/storage/roms/psx/x.chd")
+SNES = ("-L", "/usr/lib/libretro/snes_libretro.so", "/storage/roms/snes/x.sfc")
+
+
+def test_console_keys_priority_is_star_core_board_star_board_core(tmp_path):
+    env = _share_with_keys(tmp_path, CONSOLE_KEYS)
+    out, _, _ = _frontend(tmp_path, "ga36", "", args=PSX, env_extra=env)
+    assert 'during: video_threaded = "ga36_core"' in out
+    assert 'during: content_show_settings = "ga36_only"' in out
+    # without the board:core line the board:* one beats the core and "*"
+    out, _, _ = _frontend(tmp_path, "ga36", "", args=("-L", "/x/other_libretro.so", "g"), env_extra=env)
+    assert 'during: video_threaded = "ga36_all"' in out
+    # a line of another core of the same console is not applied
+    out, _, _ = _frontend(tmp_path, "ga36", "", args=PSX, env_extra=env)
+    assert "ga36_other_core" not in out
+
+
+def test_console_only_keys_do_not_apply_on_other_consoles(tmp_path):
+    env = _share_with_keys(tmp_path, CONSOLE_KEYS)
+    out, cfg, _ = _frontend(tmp_path, "r36s", "", args=PSX, env_extra=env)
+    assert 'during: video_threaded = "core"' in out
+    assert "content_show_settings" not in out and "ga36_" not in out
+    out, _, _ = _frontend(tmp_path, "r36s", "", args=SNES, env_extra=env)
+    assert 'during: video_threaded = "all"' in out
+    # unknown console in the board file: only "*" and the core lines count
+    out, _, _ = _frontend(tmp_path, "vm", "", args=PSX, env_extra=env)
+    assert 'during: video_threaded = "core"' in out and "ga36_" not in out
+
+
+def test_console_keys_user_value_comes_back_once(tmp_path):
+    env = _share_with_keys(tmp_path, CONSOLE_KEYS)
+    _, cfg, _ = _frontend(tmp_path, "ga36", 'content_show_settings = "true"\n',
+                          args=PSX, env_extra=env)
+    lines = cfg.splitlines()
+    # the user's own key is back; the board's fixed key (not the run's) is back for the other
+    assert 'content_show_settings = "true"' in lines and 'video_threaded = "true"' in lines
+    assert sum(1 for line in lines if line.startswith("video_threaded")) == 1
+    assert not (tmp_path / "card/restore.cfg").exists()
+
+
+def test_shipped_core_keys_keep_pcsx_rearmed_threaded_off_on_both_consoles(tmp_path):
+    for board in ("ga36", "r36s"):
+        out, _, _ = _frontend(tmp_path, board, "", args=PSX)
+        assert 'during: video_threaded = "false"' in out
 
 
 MENU_LOCK_HIDDEN = {
