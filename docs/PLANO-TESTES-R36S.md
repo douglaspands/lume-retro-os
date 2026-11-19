@@ -64,7 +64,7 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
 - R5: `drm-engine-*` só com `profiling=1`, arquivo `root 0644` → C3 feito (regra
   `90-lume-gpu-profiling.rules`, conferida no aparelho: `root:video rw-rw-r--`). O RK817 só tem
   `current_avg`/`voltage_avg` (carregando: positivo) → C6 feito, com testes. Sem Yama no kernel.
-  Falta o sinal da corrente descarregando.
+  Descarregando: `current_avg` negativo (-228 mA na tela inicial, 3,79 V).
 - R1 (parte automática): `mem_sleep` = `s2idle [deep]`; 10 de 10 em `freeze` e 10 de 10 em
   `mem` pelo alarme do RTC, nenhum despertar antes da hora (fora do carregador). Faltam: o
   despertar pelo botão, o carregador ligado durante a suspensão e a corrente suspenso
