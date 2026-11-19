@@ -1250,7 +1250,7 @@ fn card_panel_without_history_says_never() {
     assert!(cv.has_text("Last optimization") && cv.has_text("Last check"));
     assert_eq!(cv.texts.iter().filter(|(t, _)| t == "never").count(), 2);
     assert!(cv.has_text("Optimize now") && cv.has_text("Check on next boot"));
-    assert!(!cv.has_text("✓ Scheduled") && !cv.has_text("Optimizing…"));
+    assert!(!cv.has_text("Scheduled") && !cv.has_text("Optimizing…"));
 }
 
 #[test]
@@ -1302,7 +1302,9 @@ fn card_trim_request_and_every_state() {
     std::thread::sleep(Duration::from_millis(1000));
     assert!(a.handle(Ev::Tick));
     let cv = draw_texts(&mut a);
-    assert!(cv.has_text("✓ 1.3 GB freed") && cv.has_text("boot 152") && !cv.has_text("Optimizing…"));
+    // the ✓ is drawn, never sent to the font (it has none: a box on the R36S, 2026-11-19)
+    assert!(cv.has_text("1.3 GB freed") && cv.has_text("boot 152") && !cv.has_text("Optimizing…"));
+    assert!(!cv.texts.iter().any(|(t, _)| t.contains('✓')));
     // fail: the card's message, in red outside the focus
     fs::remove_file(run.join("trim")).ok();
     press(&mut a, Action::A);
@@ -1338,7 +1340,7 @@ fn card_check_request_is_written_shown_and_cancelled_by_a_again() {
     press(&mut a, Action::Down);
     press(&mut a, Action::A);
     assert!(run.join("check-next-boot").is_file(), "A writes the request");
-    assert!(draw_texts(&mut a).has_text("✓ Scheduled"));
+    assert!(draw_texts(&mut a).has_text("Scheduled"));
     // the service picked it up: the request file went, the marker came
     fs::remove_file(run.join("check-next-boot")).unwrap();
     let m = c.root.join("storage/system/card");
@@ -1347,13 +1349,13 @@ fn card_check_request_is_written_shown_and_cancelled_by_a_again() {
     // A again cancels: the marker is deleted and the line is idle
     press(&mut a, Action::A);
     assert!(!m.join("check-next-boot").exists() && !run.join("check-next-boot").exists());
-    assert!(!draw_texts(&mut a).has_text("✓ Scheduled"));
+    assert!(!draw_texts(&mut a).has_text("Scheduled"));
     // a pending marker from an earlier boot shows when the panel opens
     fs::write(m.join("check-next-boot"), "152\n").unwrap();
     press(&mut a, Action::B); // out of the panel
     press(&mut a, Action::Up);
     press(&mut a, Action::Down);
-    assert!(draw_texts(&mut a).has_text("✓ Scheduled"));
+    assert!(draw_texts(&mut a).has_text("Scheduled"));
 }
 
 #[test]

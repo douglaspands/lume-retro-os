@@ -2926,15 +2926,28 @@ impl<S: SystemAdapter> App<S> {
             let fg = th.color(if pill { "sel_fg" } else { "fg" });
             let label_fg = if muted_label && !pill { th.color("muted") } else { fg };
             let ty = r.y + pad_y;
-            let vw = value.map_or(0, |v| c.text_width(v, px));
+            // a value that starts with ✓ ("✓ Scheduled", "✓ 1.3 GB freed"): the font has no
+            // ✓ (it showed as a box on the R36S, 2026-11-19), so it is drawn like the list's
+            let (tick, value) = match value.and_then(|v| v.strip_prefix('✓')) {
+                Some(rest) => (true, Some(rest.trim_start())),
+                None => (false, value),
+            };
+            let d = (px * 0.8).round() as i32;
+            let tw = value.map_or(0, |v| c.text_width(v, px));
+            let gap = if tw > 0 { e(0.3) } else { 0 };
+            let vw = tw + if tick { d + gap } else { 0 };
             c.text(text, r.x + pad_x, ty, px, label_fg, Align::Left, r.w - 2 * pad_x - vw - e(0.5));
             if let Some(v) = value {
-                c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, vw + 1);
+                c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, tw + 1);
+            }
+            if tick {
+                if let Some((t, _)) = me.symbol(c, "@check") {
+                    c.draw_mask(t, Rect::new(r.right() - pad_x - tw - gap - d, r.y + (r.h - d) / 2, d, d), fg);
+                }
             }
             if check && value.is_none() {
                 // the ✓, drawn (the font has none), the text's size
                 if let Some((t, _)) = me.symbol(c, "@check") {
-                    let d = (px * 0.8).round() as i32;
                     c.draw_mask(t, Rect::new(r.right() - pad_x - d, r.y + (r.h - d) / 2, d, d), fg);
                 }
             }
