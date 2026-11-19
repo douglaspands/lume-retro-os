@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Kinhank K36, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/k36/rk3326-k36-linux.dtb
  * SHA-256: 314b258d45dc4338a5c8f655324c99dd52e55bf870e600dfd551cf794980af8f
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

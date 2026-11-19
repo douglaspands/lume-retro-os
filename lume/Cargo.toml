@@ -3,10 +3,11 @@
 #   lume-index  scan, gamelist.xml diff, binary index, thumbnails
 #   lume-ui     the interface (SDL2 behind the Canvas trait)
 #   lume-run    the supervisor that runs a game and brings the interface back
+#   lume-menu   the Lume menu over a game, drawn by the system (lume-hud-actions D14)
 [workspace]
 # MSRV-aware: the lock keeps crate versions that build with the rust-version below
 resolver = "3"
-members = ["lume-core", "lume-index", "lume-ui", "lume-run"]
+members = ["lume-core", "lume-index", "lume-ui", "lume-run", "lume-menu"]
 
 [workspace.package]
 version = "0.1.0"

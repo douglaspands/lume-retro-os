@@ -2,9 +2,22 @@
 # frontend script, which writes the fixed keys before every run and restores the keys the
 # launcher sets for one run only. Quit: the network command QUIT (saves the SRAM), then
 # cgroup.kill after the timeout.
+#
+# The Fn chords and the Lume menu over the game (lume-hud-actions D3, D10): every action is a
+# network command of RetroArch (127.0.0.1:55355); the pause asks GET_STATUS first and toggles
+# only a running game. overlay: RetroArch draws the status bar and the chord hint (patch 0012).
 [runner]
 id = "retroarch"
 kind = "libretro"
-exec = ["/usr/libexec/r36os/frontends/retroarch", "-L", "{core_path}", "{rom}"]
+exec = ["/usr/libexec/lume/frontends/retroarch", "-L", "{core_path}", "{rom}"]
 quit = "retroarch-cmd"
 timeout = 3
+overlay = "retroarch"
+
+[runner.actions]
+pause = "retroarch-pause"
+app_menu = "retroarch-cmd:MENU_TOGGLE"
+reset = "retroarch-cmd:RESET"
+save_state = "retroarch-cmd:SAVE_STATE"
+load_state = "retroarch-cmd:LOAD_STATE"
+screenshot = "retroarch-cmd:SCREENSHOT"

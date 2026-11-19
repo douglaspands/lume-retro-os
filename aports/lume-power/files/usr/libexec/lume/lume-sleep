@@ -1,0 +1,530 @@
+#!/bin/sh
+# lume-sleep (openspec device-fixes D11, task 8.3): suspend and power off by the power button.
+# The protocol is frozen in task 3.2: docs/LAUNCHER.md ("Protocolo do sono") and
+# lume/lume-core/src/sleep.rs; the input daemon (aports/lume-input/input.c) mirrors it.
+#
+#   lume-sleep run                    the service (OpenRC lume-sleep, root, after the frontend):
+#                                     creates the request folder and waits in inotifyd on it,
+#                                     blocked in the kernel while idle (no loop, no timer)
+#   lume-sleep <event> <dir> <name>   the inotifyd handler; inotifyd waits for it, so the
+#                                     requests run one at a time
+#
+# A `suspend` request, in this order (each step that fails logs `sleep FAIL <step>: <reason>`
+# and the sequence goes on):
+#   1. status `suspending <seq>`, phase `suspend <seq>`; lume-input relays it to its clients
+#      (lume-run pauses the game, which also closes the sound stream, D9 7.3; lume-ui stops
+#      drawing) and answers in `clients` within 2 s; this waits for it up to 3 s
+#   2. sound: nothing to do (D9, 7.3: the paused game already closed the PCM, and the kernel
+#      powers the DAPM down on suspend)
+#   3. clock: `lume-clock save` when the image has it (device-fixes 9.1, D15)
+#   4. sync (the card is not remounted: the console comes back to the same point, D2)
+#   5. backlight 0, the level remembered
+#   6. Wi-Fi radio off, only when it was on (NetworkManager, nmcli)
+#   7. governor: `suspend` to the FIFO of lume-power (device-fixes 8.6 adds the scenario; an
+#      older lume-power ignores the message)
+#   8. USB gadget unbound from the UDC, the name remembered (J1 on the GA36: without it the
+#      musb never comes back after freeze and the PC loses the console)
+#   8b. wakeup sources (task 8.1): each `nowake <device folder under /sys>` line of the console
+#      file whose power/wakeup is `enabled` is set to `disabled`, so only the power button
+#      wakes the console (the charger plug, the battery and the RTC alarm do not)
+#   9. the mode of the console (/usr/share/lume/sleep/<board>.conf: freeze, or mem = `deep`
+#      to mem_sleep first); `sleep OK suspend <mode>`, status `suspended <seq> <mode>`, and the
+#      write to /sys/power/state, where the console sleeps until the power button
+# Back (or after a refusal of the kernel: `sleep FAIL suspend <mode>: <reason>`, with the same
+# steps undone, so the screen is on again), backwards: the wakeup sources enabled again, the
+# gadget bound again in the background ~1 s later, governor `resume`, Wi-Fi on, backlight level back; then status `resuming`, phase
+# `resume <seq>` (lume-input drops the queued input and relays it), status `awake` and
+# `sleep OK resume after <s>`. A `suspend` within 1 s of the wake is the press that woke the
+# console: dropped. A request made during a sequence is dropped too (kernel log only).
+#
+# A `poweroff` request (the button held 2 s): status `poweroff`, `sleep OK poweroff: power
+# button held`, then SIGUSR1 to the session (/run/frontend.pid): the session ends the frontend
+# (lume-run quits the game politely) and runs its power_off, the path of the Power off item
+# (persist flush, the clock, sync, lume-logd stopped, ROMS remounted read-only, poweroff). With
+# no session, or one that did not power off within 30 s, this runs `poweroff` itself (the
+# shutdown runlevel, with its own read-only remount).
+#
+# Environment for the tests: SL_LIBDIR, SL_RUN, LUME_SLEEP_DIR, LUME_SLEEP_CONF, SL_SYS,
+# SL_GROUP, SL_OWNER (uid trusted for `clients`), SL_KMSG, SL_WAIT (tenths of a second),
+# SL_STEP, SL_GUARD (centiseconds), SL_USB_DELAY, SL_POWEROFF, SL_POWEROFF_WAIT,
+# SL_SESSION_PID, SL_CLOCK, SL_NMCLI, SL_SYNC, SL_TIMEOUT, SL_POWER_FIFO, SL_UPTIME, SL_SELF,
+# SL_TRACE (one line per step and per sysfs write), BOARD_FILE, LOGS_RAM.
+
+SL_LIBDIR=${SL_LIBDIR:-/usr/libexec/lume}
+# lib.sh creates /run/lume when sourced (silenced for the tests, which have no /run access)
+. "$SL_LIBDIR/lib.sh" 2>/dev/null
+. "$SL_LIBDIR/logs.sh"
+
+SL_RUN=${SL_RUN:-/run/lume}
+SL_DIR=${LUME_SLEEP_DIR:-$SL_RUN/sleep}
+SL_CONF=${LUME_SLEEP_CONF:-/usr/share/lume/sleep}
+SL_SYS=${SL_SYS:-/sys}
+SL_GROUP=${SL_GROUP:-game}
+SL_OWNER=${SL_OWNER:-0}
+SL_KMSG=${SL_KMSG:-/dev/kmsg}
+# the wait for lume-input's `clients` (3 s, lume_core::sleep::SERVICE_WAIT) in steps of 0.1 s
+SL_WAIT=${SL_WAIT:-30}
+SL_STEP=${SL_STEP:-0.1}
+# the wake guard (1 s, WAKE_GUARD) in centiseconds of uptime
+SL_GUARD=${SL_GUARD:-100}
+SL_USB_DELAY=${SL_USB_DELAY:-1}
+SL_POWEROFF=${SL_POWEROFF:-poweroff}
+SL_POWEROFF_WAIT=${SL_POWEROFF_WAIT:-30}
+SL_SESSION_PID=${SL_SESSION_PID:-/run/frontend.pid}
+SL_CLOCK=${SL_CLOCK:-lume-clock}
+SL_NMCLI=${SL_NMCLI:-nmcli}
+SL_SYNC=${SL_SYNC:-sync}
+SL_TIMEOUT=${SL_TIMEOUT:-timeout}
+SL_POWER_FIFO=${SL_POWER_FIFO:-$SL_RUN/power}
+SL_UPTIME=${SL_UPTIME:-/proc/uptime}
+SL_SELF=${SL_SELF:-$0}
+SL_TRACE=${SL_TRACE:-}
+SL_UDC_FILE=$SL_SYS/kernel/config/usb_gadget/lume/UDC
+# private state, outside the folder the game group writes to (root only)
+SL_SEQ_FILE=$SL_RUN/sleep.seq
+SL_STATUS_FILE=$SL_RUN/sleep.status
+SL_AWAKE_FILE=$SL_RUN/sleep.awake
+# the background rebind of the gadget: its pid and the UDC name it writes back
+SL_USB_PID=$SL_RUN/sleep.usb.pid
+SL_USB_NAME=$SL_RUN/sleep.usb
+
+# --- small helpers ---------------------------------------------------------------------------
+
+sl_kmsg() {
+	echo "<5>lume-sleep: $*" >"$SL_KMSG" 2>/dev/null
+	return 0
+}
+
+sl_trace() {
+	[ -z "$SL_TRACE" ] || echo "$*" >>"$SL_TRACE"
+	return 0
+}
+
+# sl_event <OK|FAIL> <detail>
+sl_event() {
+	event sleep "$1" "$2"
+}
+
+# sl_reason <text>: the last line of a command's error output without the "sh: " prefixes and
+# the file name, in SL_ERR (the part after the last ": ")
+sl_reason() {
+	local l last=
+	while IFS= read -r l; do
+		[ -z "$l" ] || last=$l
+	done <<EOF
+$1
+EOF
+	SL_ERR=${last##*: }
+	[ -n "$SL_ERR" ] || SL_ERR=${2:-failed}
+}
+
+# sl_write <file> <value>: one sysfs write; on failure the reason is in SL_ERR
+sl_write() {
+	local out
+	sl_trace "write ${1#"$SL_SYS"/} $2"
+	if out=$({ printf '%s\n' "$2" >"$1"; } 2>&1); then
+		return 0
+	fi
+	sl_reason "$out" "write error"
+	return 1
+}
+
+# sl_put <name> <line>: an own file of the folder, written by rename from a temporary file in
+# the private run directory (never a path the game group can plant a link on)
+sl_put() {
+	printf '%s\n' "$2" >"$SL_RUN/.sleep.$1.tmp" && mv -f "$SL_RUN/.sleep.$1.tmp" "$SL_DIR/$1"
+}
+
+# sl_status <status line>: the private copy (what the admission reads) and the published one
+sl_status() {
+	printf '%s\n' "$*" >"$SL_STATUS_FILE"
+	sl_put status "$*"
+}
+
+sl_phase() {
+	sl_trace "phase $*"
+	sl_put phase "$*"
+}
+
+# uptime in centiseconds -> SL_UP (it counts the time suspended)
+sl_uptime() {
+	local u
+	read -r u _ <"$SL_UPTIME"
+	SL_UP=$((${u%.*} * 100 + 1${u#*.} - 100))
+}
+
+# the mode of this console -> SL_MODE (lume_core::sleep::parse_mode_conf: the last valid
+# `mode freeze|mem` line wins; no file, no line or a bad value: freeze)
+sl_mode() {
+	local l b
+	SL_MODE=freeze
+	b=$(board)
+	[ -r "$SL_CONF/${b:-none}.conf" ] || return 0
+	set -f
+	while IFS= read -r l; do
+		l=${l%%#*}
+		# shellcheck disable=SC2086
+		set -- $l
+		[ "$#" = 2 ] && [ "$1" = mode ] || continue
+		case $2 in
+		freeze | mem) SL_MODE=$2 ;;
+		esac
+	done <"$SL_CONF/$b.conf"
+	set +f
+}
+
+# sl_run_cmd <step> <command...>: a command with a deadline (it must never hold the
+# suspension); on failure the reason is in SL_ERR
+sl_run_cmd() {
+	local out rc
+	shift
+	sl_trace "run $*"
+	out=$($SL_TIMEOUT 5 "$@" 2>&1 </dev/null)
+	rc=$?
+	[ "$rc" != 0 ] || return 0
+	sl_reason "$out" "exit $rc"
+	return 1
+}
+
+# sl_power <message>: one line to the FIFO of lume-power (opened read-write: never blocks)
+sl_power() {
+	[ -p "$SL_POWER_FIFO" ] || {
+		SL_ERR="power service not running"
+		return 1
+	}
+	sl_trace "power $1"
+	{ printf '%s\n' "$1" >&4; } 4<>"$SL_POWER_FIFO" 2>/dev/null || {
+		SL_ERR="write to $SL_POWER_FIFO failed"
+		return 1
+	}
+}
+
+# --- 1. the clients --------------------------------------------------------------------------
+
+# sl_clients <seq>: waits for `clients` of this sequence, written by root (lume-input)
+sl_clients() {
+	local n=0 l f=$SL_DIR/clients
+	while [ "$n" -lt "$SL_WAIT" ]; do
+		if [ -f "$f" ] && [ "$(stat -c %u "$f" 2>/dev/null)" = "$SL_OWNER" ]; then
+			l=
+			read -r l <"$f"
+			case $l in
+			"suspend $1 ok "*)
+				sl_trace "clients $l"
+				return 0
+				;;
+			"suspend $1 timeout "*)
+				sl_trace "clients $l"
+				sl_event FAIL "clients: ${l#"suspend $1 timeout "} answered within 2s"
+				return 0
+				;;
+			esac
+		fi
+		sleep "$SL_STEP"
+		n=$((n + 1))
+	done
+	sl_trace "clients none"
+	sl_event FAIL "clients: lume-input did not answer within 3s"
+}
+
+# --- 3 to 8: the steps and their undo --------------------------------------------------------
+
+sl_steps_down() {
+	local d l n
+	# clock (9.1): skipped silently when the image has no lume-clock
+	if command -v "$SL_CLOCK" >/dev/null 2>&1; then
+		sl_run_cmd clock "$SL_CLOCK" save || sl_event FAIL "clock: $SL_ERR"
+	fi
+	# sync
+	sl_run_cmd sync "$SL_SYNC" || sl_event FAIL "sync: $SL_ERR"
+	# backlight
+	SL_BL= SL_BL_LEVEL=
+	for d in "$SL_SYS"/class/backlight/*; do
+		[ -e "$d/brightness" ] || continue
+		l=
+		read -r l <"$d/brightness" 2>/dev/null
+		if [ -n "$l" ] && [ "$l" != 0 ]; then
+			if sl_write "$d/brightness" 0; then
+				SL_BL=$d SL_BL_LEVEL=$l
+			else
+				sl_event FAIL "backlight: $SL_ERR"
+			fi
+		fi
+		break
+	done
+	# Wi-Fi: only a radio that is on, and only with NetworkManager answering
+	SL_WIFI=
+	if command -v "$SL_NMCLI" >/dev/null 2>&1; then
+		l=$($SL_TIMEOUT 5 "$SL_NMCLI" radio wifi 2>/dev/null </dev/null)
+		if [ "$l" = enabled ]; then
+			if sl_run_cmd wifi "$SL_NMCLI" radio wifi off; then
+				SL_WIFI=1
+			else
+				sl_event FAIL "wifi: $SL_ERR"
+			fi
+		fi
+	fi
+	# governor
+	SL_GOV=
+	if sl_power suspend; then
+		SL_GOV=1
+	else
+		sl_event FAIL "governor: $SL_ERR"
+	fi
+	# USB gadget: a rebind of the last wake still waiting is cancelled (the gadget is still
+	# unbound and its name is in the file)
+	SL_UDC=
+	if [ -r "$SL_USB_PID" ]; then
+		read -r n <"$SL_USB_PID"
+		[ -z "$n" ] || kill "$n" 2>/dev/null
+		read -r SL_UDC <"$SL_USB_NAME" 2>/dev/null
+		rm -f "$SL_USB_PID" "$SL_USB_NAME"
+	fi
+	if [ -e "$SL_UDC_FILE" ]; then
+		l=
+		read -r l <"$SL_UDC_FILE" 2>/dev/null
+		if [ -n "$l" ]; then
+			if sl_write "$SL_UDC_FILE" ""; then
+				SL_UDC=$l
+			else
+				sl_event FAIL "usb: unbind failed ($SL_ERR)"
+			fi
+		fi
+	fi
+	sl_nowake_down
+}
+
+# 8b. the wakeup sources that must not wake the console (task 8.1, D11). The console file
+# names them as `nowake <device folder>`, relative to /sys, shell patterns allowed (the R36S
+# RTC is rk808-rtc.<n>.auto). Only the sysfs switch is used: the drivers of these devices
+# arm their interrupt as a wakeup only when power/wakeup is enabled (axp20x_usb_power,
+# rtc-sun6i, rtc-rk808), and a power supply with it disabled has no wakeup source left for
+# power_supply_changed() to hold. A folder that is missing is skipped; one already disabled
+# is left alone (and not enabled on the way back). The power key is never listed: on the GA36
+# the axp20x-pek driver makes itself a wakeup source, on the R36S the RK817 interrupt line
+# wakes through `wakeup-source` on the PMIC node (the DTS).
+sl_nowake_down() {
+	local l v f b
+	SL_NOWAKE=
+	b=$(board)
+	[ -r "$SL_CONF/${b:-none}.conf" ] || return 0
+	while IFS= read -r l; do
+		l=${l%%#*}
+		set -f
+		# shellcheck disable=SC2086
+		set -- $l
+		set +f
+		[ "$#" = 2 ] && [ "$1" = nowake ] || continue
+		case $2 in
+		/* | *..*)
+			sl_event FAIL "wakeup: refused path $2"
+			continue
+			;;
+		esac
+		# shellcheck disable=SC2086
+		for f in "$SL_SYS"/$2/power/wakeup; do
+			[ -f "$f" ] || continue
+			v=
+			read -r v <"$f" 2>/dev/null
+			[ "$v" = enabled ] || continue
+			if sl_write "$f" disabled; then
+				SL_NOWAKE="$SL_NOWAKE $f"
+			else
+				sl_event FAIL "wakeup: ${f#"$SL_SYS"/} not disabled ($SL_ERR)"
+			fi
+		done
+	done <"$SL_CONF/$b.conf"
+}
+
+sl_nowake_up() {
+	local f
+	set -f
+	for f in $SL_NOWAKE; do
+		sl_write "$f" enabled || sl_event FAIL "wakeup: ${f#"$SL_SYS"/} not enabled again ($SL_ERR)"
+	done
+	set +f
+}
+
+# the gadget bound again, in the background ~1 s after the wake (it never delays the screen)
+sl_usb_rebind() {
+	[ -n "$SL_UDC" ] || return 0
+	printf '%s\n' "$SL_UDC" >"$SL_USB_NAME"
+	(
+		sleep "$SL_USB_DELAY"
+		if sl_write "$SL_UDC_FILE" "$SL_UDC"; then
+			sl_trace "usb rebound $SL_UDC"
+		else
+			sl_event FAIL "usb: UDC not rebound ($SL_ERR)"
+		fi
+		rm -f "$SL_USB_PID" "$SL_USB_NAME"
+	) </dev/null >/dev/null 2>&1 &
+	echo "$!" >"$SL_USB_PID"
+}
+
+sl_steps_up() {
+	sl_nowake_up
+	sl_usb_rebind
+	if [ -n "$SL_GOV" ]; then
+		sl_power resume || sl_event FAIL "governor: $SL_ERR"
+	fi
+	if [ -n "$SL_WIFI" ]; then
+		sl_run_cmd wifi "$SL_NMCLI" radio wifi on || sl_event FAIL "wifi: $SL_ERR"
+	fi
+	if [ -n "$SL_BL" ]; then
+		sl_write "$SL_BL/brightness" "$SL_BL_LEVEL" || sl_event FAIL "backlight: $SL_ERR"
+	fi
+}
+
+# --- the requests ----------------------------------------------------------------------------
+
+sl_current() {
+	SL_CUR=
+	read -r SL_CUR <"$SL_STATUS_FILE" 2>/dev/null
+	SL_CUR=${SL_CUR:-awake}
+}
+
+sl_suspend() {
+	local seq t0 why=
+	sl_current
+	case $SL_CUR in
+	awake) ;;
+	*)
+		sl_kmsg "suspend request dropped: busy ($SL_CUR)"
+		return 0
+		;;
+	esac
+	if [ -r "$SL_AWAKE_FILE" ]; then
+		read -r t0 <"$SL_AWAKE_FILE"
+		sl_uptime
+		if [ -n "$t0" ] && [ $((SL_UP - t0)) -lt "$SL_GUARD" ]; then
+			sl_kmsg "suspend request dropped: the press that woke the console"
+			return 0
+		fi
+	fi
+	seq=0
+	read -r seq <"$SL_SEQ_FILE" 2>/dev/null
+	seq=$((${seq:-0} + 1))
+	echo "$seq" >"$SL_SEQ_FILE"
+
+	# 1. the clients
+	sl_status "suspending $seq"
+	rm -f "$SL_DIR/clients"
+	sl_phase "suspend $seq"
+	sl_clients "$seq"
+	# 2. sound: nothing (D9, 7.3)
+	# 3 to 8
+	sl_steps_down
+	# 9. the kernel
+	sl_mode
+	if [ -e "$SL_DIR/poweroff" ]; then
+		# the button held meanwhile: no suspension, the power off runs next
+		why="cancelled: power off requested"
+		sl_kmsg "suspend $why"
+	elif [ "$SL_MODE" = mem ] && ! sl_write "$SL_SYS/power/mem_sleep" deep; then
+		why="write /sys/power/mem_sleep deep failed ($SL_ERR)"
+	else
+		sl_status "suspended $seq $SL_MODE"
+		sl_event OK "suspend $SL_MODE"
+		sl_uptime
+		t0=$SL_UP
+		sl_write "$SL_SYS/power/state" "$SL_MODE" || why="write /sys/power/state failed ($SL_ERR)"
+	fi
+	# back: the steps backwards
+	sl_status "resuming $seq"
+	sl_steps_up
+	sl_phase "resume $seq"
+	sl_status awake
+	if [ -n "$why" ]; then
+		case $why in
+		cancelled*) ;;
+		*) sl_event FAIL "suspend $SL_MODE: $why" ;;
+		esac
+	else
+		sl_uptime
+		echo "$SL_UP" >"$SL_AWAKE_FILE"
+		sl_event OK "resume after $(((SL_UP - t0) / 100))"
+	fi
+	# a suspend request made during the sequence (the Suspend item, a second tap) is dropped
+	if [ -f "$SL_DIR/suspend" ]; then
+		rm -f "$SL_DIR/suspend"
+		sl_kmsg "suspend request dropped: busy (suspending $seq)"
+	fi
+}
+
+sl_poweroff() {
+	local pid=
+	sl_current
+	if [ "$SL_CUR" = poweroff ]; then
+		sl_kmsg "poweroff request dropped: busy (poweroff)"
+		return 0
+	fi
+	sl_status poweroff
+	sl_event OK "poweroff: power button held"
+	read -r pid <"$SL_SESSION_PID" 2>/dev/null
+	if [ -n "$pid" ] && kill -USR1 "$pid" 2>/dev/null; then
+		sl_trace "session $pid"
+		sl_kmsg "power button held: the session powers off"
+		# a session that does not power off (frontend hung) still ends in a power off
+		(
+			sleep "$SL_POWEROFF_WAIT"
+			sl_kmsg "the session did not power off within ${SL_POWEROFF_WAIT}s: powering off"
+			sl_trace "poweroff fallback"
+			$SL_POWEROFF
+		) </dev/null >/dev/null 2>&1 &
+		return 0
+	fi
+	sl_trace "poweroff direct"
+	sl_kmsg "power button held: no session, powering off"
+	$SL_POWEROFF </dev/null >/dev/null 2>&1
+}
+
+# sl_handle <event> <name>: one inotifyd event in the folder
+sl_handle() {
+	local name=$2 shown
+	case $1 in
+	w | y) ;;
+	*) return 0 ;;
+	esac
+	# own files, lume-input's and hidden names are not requests
+	case $name in
+	'' | phase | clients | status | .*) return 0 ;;
+	esac
+	[ -f "$SL_DIR/$name" ] || return 0
+	rm -f "$SL_DIR/$name"
+	case $name in
+	suspend) sl_suspend ;;
+	poweroff) sl_poweroff ;;
+	*)
+		# tr before cut: cut ends its line with a newline, which tr would turn into a '?'
+		shown=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '?' | cut -c1-32)
+		sl_event FAIL "refused request: $shown"
+		;;
+	esac
+}
+
+sl_service() {
+	local l f
+	mkdir -p "$SL_RUN" "$SL_DIR"
+	chown "0:$SL_GROUP" "$SL_DIR" 2>/dev/null || sl_kmsg "cannot give $SL_DIR to the group $SL_GROUP"
+	chmod 1770 "$SL_DIR"
+	# a phase left at `suspend` by a service that died would keep lume-input holding its clients
+	l=
+	read -r l <"$SL_DIR/phase" 2>/dev/null
+	case $l in
+	"suspend "*) sl_phase "resume ${l#suspend }" ;;
+	esac
+	rm -f "$SL_DIR/clients" "$SL_USB_PID" "$SL_USB_NAME"
+	sl_status awake
+	# requests made before the service came up
+	for f in "$SL_DIR"/*; do
+		[ -f "$f" ] && sl_handle w "${f##*/}"
+	done
+	# w: file closed after writing (the requests are created empty), y: moved in
+	exec inotifyd "$SL_SELF" "$SL_DIR:wy"
+}
+
+case ${1:-} in
+run) sl_service ;;
+*) sl_handle "${1:-}" "${3:-}" ;;
+esac
+exit 0

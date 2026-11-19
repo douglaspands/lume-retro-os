@@ -1,10 +1,11 @@
 import re
+import subprocess
 
 import pytest
 
-from r36os.packages import local_aports
-from r36os.paths import REPO_ROOT
-from r36os.targets import get_target
+from lume_tool.packages import local_aports
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import get_target
 
 FBALPHA = {
     "cps1": "5542c1848ef81e92db311193b01dc349bc29d7cc",
@@ -51,3 +52,41 @@ def test_fbalpha2012_aport(board):
     assert "/usr/share/licenses/$pkgname/license.txt" in package
     for t in ("vm", "r36s", "ga36"):
         assert name in local_aports(get_target(t))
+
+
+def _build_env(name: str, carch: str) -> str:
+    """Source the APKBUILD for CARCH with a stub make; return the CFLAGS make sees."""
+    apkbuild = REPO_ROOT / "aports" / name / "APKBUILD"
+    script = (
+        'CFLAGS="-Os -fstack-clash-protection"\n'
+        'make() { printf "%s\\n" "$CFLAGS"; }\n'
+        'cmake() { printf "%s\\n" "$CFLAGS"; }\n'
+        '. "$1"\n'
+        "build\n"
+    )
+    out = subprocess.run(["sh", "-c", script, "sh", str(apkbuild)],
+                         env={"CARCH": carch, "PATH": "/usr/bin:/bin"},
+                         capture_output=True, text=True, check=True)
+    return out.stdout.splitlines()[0]
+
+
+@pytest.mark.parametrize("carch,marm", [("armv7", True), ("aarch64", False), ("x86_64", False)])
+def test_picodrive_arm_mode_on_armv7(carch, marm):
+    # device-fixes D14 / P-30: picodrive stores handlers as (addr >> 1) in its memory maps,
+    # so on armv7 it must be built in ARM mode (Thumb pointers are odd); only on armv7
+    cflags = _build_env("libretro-picodrive", carch).split()
+    assert ("-marm" in cflags) is marm
+    assert "-mthumb" not in cflags
+    # the distro flags still reach the build (environment, not a make override)
+    assert cflags[:2] == ["-Os", "-fstack-clash-protection"]
+    text = _apkbuild("libretro-picodrive")
+    # passed through the environment: a make command-line CFLAGS would drop the
+    # Makefile's own CFLAGS += lines
+    assert re.search(r'^\tCFLAGS="\$CFLAGS \$_cflags" make -f Makefile\.libretro$', text, re.M)
+    assert int(re.search(r"^pkgrel=(\d+)$", text, re.M).group(1)) >= 1
+
+
+def test_ppsspp_arm_mode_on_armv7():
+    # same reason and same pattern as picodrive (the JIT calls C functions in ARM mode)
+    assert "-marm" in _build_env("libretro-ppsspp", "armv7").split()
+    assert "-marm" not in _build_env("libretro-ppsspp", "aarch64").split()

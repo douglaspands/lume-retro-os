@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lume-launcher · sobre o jogo</title>
+  <link rel="stylesheet" href="base.css">
+  <style>
+    /* lume-hud-actions 1.3: as telas do sistema sobre um jogo (D10, D13, D6).
+       Régua a 640x480: 1em = 16 px. As medidas desta página viram as constantes do widget
+       do RetroArch (patch 0012) e estão na tabela de docs/lume-launcher/design-das-telas.md. */
+    #game { position: absolute; inset: 0; overflow: hidden; image-rendering: pixelated;
+      background: linear-gradient(#5c94fc 0 62%, #7ccf5a 62% 70%, #c8743c 70%); }
+    #game i { position: absolute; display: block; }
+    /* barra de status (D6): faixa no topo, fundo preto a 60%, sem mudar a imagem do jogo */
+    #hud { position: absolute; left: 0; right: 0; top: 0; height: 1.75em; padding: 0 .5em; display: none;
+      align-items: center; background: #0009; color: var(--fg); font-size: 1em; white-space: nowrap;
+      font-variant-numeric: tabular-nums; z-index: 8; }   /* acima do fundo do menu */
+    #hud.on { display: flex; }
+    /* dica dos acordes (D13): painel no centro, sem escurecer o jogo (ele continua rodando) */
+    #hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none;
+      background: var(--panel-bg); border-radius: var(--radius-panel); border-top: .1875em solid var(--accent);
+      padding: 1em; z-index: 6; }
+    #hint.on { display: grid; grid-template-columns: auto auto; column-gap: 1.25em; row-gap: 0; }
+    #hint b, #hint span { line-height: 2.25em; font-size: 1.1em; white-space: nowrap; }
+    #hint b { color: var(--accent); font-weight: 700; }
+    /* menu do Lume (D10): o jogo escurecido (pausado) e o painel da família do menu do jogo */
+    #lmenu { position: absolute; inset: 0; display: none; place-items: center; background: var(--overlay); z-index: 7; }
+    #lmenu.on { display: grid; }
+    #lmenu .panel { min-width: 18.75em; max-width: calc(100% - 2em); background: var(--panel-bg-opaque);
+      border-radius: var(--radius-panel); padding: 0 .5em 1.25em; }
+    #lmenu h2 { font-size: var(--fs-m); font-weight: 600; line-height: 2.6em; padding: 0 .75em;
+      border-bottom: 1px solid color-mix(in srgb, var(--muted) 35%, transparent); margin-bottom: .4em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #lmenu .opt { line-height: 1.6em; }
+    #lmenu .opt.warn .lt { color: #ff8a80; }
+    #lmenu .opt.sel.warn .lt { color: inherit; }
+    .row-btns { display: flex; gap: .5em; padding: 0 .25em; }
+    .row-btns .opt { flex: 1; justify-content: center; }
+    #lmenu .hints { position: absolute; left: 0; right: 0; bottom: .3em; }
+    /* ?limpo: só a tela de 640x480, para a captura da régua */
+    body.limpo #tools, body.limpo #themedesc { display: none; }
+    body.limpo #fit { padding: 0; }
+    body.limpo #stage { border-radius: 0; box-shadow: none; }
+  </style>
+</head>
+<body>
+  <div id="tools">
+    <b style="color:#fff;letter-spacing:.04em">sobre o jogo</b>
+    <label>Tema <select id="theme"></select></label>
+    <label>Idioma <select id="lang"><option value="pt">pt</option><option value="en">en</option><option value="es">es</option></select></label>
+    <label>Tela <select id="view">
+      <option value="menu">Menu do Lume (toque no Fn)</option>
+      <option value="confirm">Confirmação (Encerrar)</option>
+      <option value="confirm-reset">Confirmação (Reiniciar)</option>
+      <option value="silent">App sem resposta</option>
+      <option value="native">Port (sem Reiniciar nem menu do app)</option>
+      <option value="hint">Dica dos acordes (segurar o Fn)</option>
+      <option value="hud">Barra de status (Fn+X)</option>
+      <option value="hud-charging">Barra carregando</option>
+      <option value="game">Só o jogo</option>
+    </select></label>
+    <label><input type="checkbox" id="withhud"> Barra junto</label>
+  </div>
+  <div id="themedesc">Telas do sistema sobre um jogo (lume-hud-actions 1.3). 640x480; ↑↓ ←→ navegam, Enter = A, Esc = B, F1 = toque no Fn, segure F1 = dica.</div>
+  <div id="fit"><div id="box" style="position:relative">
+    <div id="stage" style="width:640px;height:480px;font-size:16px">
+      <div id="game"></div>
+      <div id="hud"></div>
+      <div id="hint"></div>
+      <div id="lmenu"><div class="panel"></div></div>
+    </div>
+  </div></div>
+
+  <script src="src/themes.js"></script>
+  <script src="temas/material-escuro.js"></script>
+  <script src="temas/material-claro.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    /* o tema Lume da imagem (themes/base.toml) é o DEFAULTS de src/themes.js */
+    Lume.themes.register({ id: 'lume', name: 'Lume (padrão da imagem)', description: 'Os tokens de themes/base.toml.', tokens: {} });
+    /* textos: os mesmos de lume_core::gametext (en, pt, es) */
+    const T = {
+      pt: { back: 'Voltar ao jogo', reset: 'Reiniciar', app: 'Menu do RetroArch', end: 'Encerrar jogo', force: 'Forçar fechamento',
+            askReset: 'Reiniciar o jogo?', askEnd: 'Encerrar o jogo?', no: 'Não', yes: 'Sim', silent: 'RetroArch não responde',
+            save: 'Salvar estado', load: 'Carregar estado', shot: 'Capturar a tela', bar: 'Barra de status', choose: 'Escolher', ret: 'Voltar' },
+      en: { back: 'Back to game', reset: 'Reset', app: 'RetroArch menu', end: 'End game', force: 'Force close',
+            askReset: 'Reset the game?', askEnd: 'End the game?', no: 'No', yes: 'Yes', silent: 'RetroArch is not responding',
+            save: 'Save state', load: 'Load state', shot: 'Screenshot', bar: 'Status bar', choose: 'Select', ret: 'Back' },
+      es: { back: 'Volver al juego', reset: 'Reiniciar', app: 'Menú de RetroArch', end: 'Salir del juego', force: 'Forzar cierre',
+            askReset: '¿Reiniciar el juego?', askEnd: '¿Salir del juego?', no: 'No', yes: 'Sí', silent: 'RetroArch no responde',
+            save: 'Guardar estado', load: 'Cargar estado', shot: 'Capturar la pantalla', bar: 'Barra de estado', choose: 'Elegir', ret: 'Volver' }
+    };
+    const $ = s => document.querySelector(s), stage = $('#stage');
+    const QS = new URLSearchParams(location.search);
+    const st = { theme: QS.get('tema') || 'lume', lang: QS.get('idioma') || 'pt', view: QS.get('tela') || 'menu', focus: 0, withHud: QS.has('barra') };
+    if (QS.has('limpo')) document.body.classList.add('limpo');
+    const t = k => T[st.lang][k];
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+    /* um "jogo" de exemplo desenhado com blocos (nenhuma arte de terceiros) */
+    const g = $('#game');
+    const blocks = [[60, 120, 70, 26, '#fff'], [90, 104, 40, 22, '#fff'], [420, 80, 90, 28, '#fff'], [450, 64, 44, 22, '#fff'],
+      [0, 330, 640, 8, '#2f7d1f'], [180, 236, 48, 48, '#e09030'], [228, 236, 48, 48, '#e09030'], [276, 236, 48, 48, '#e09030'],
+      [204, 252, 8, 8, '#000'], [520, 262, 64, 76, '#1f9a2f'], [512, 250, 80, 20, '#27b33a'], [96, 300, 24, 30, '#d02818'],
+      [92, 290, 32, 12, '#d02818'], [100, 306, 16, 10, '#f8c890']];
+    g.innerHTML = blocks.map(([x, y, w, h, c]) => `<i style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${c}"></i>`).join('');
+
+    /* grupos separados por "|" (o texto do LUME_HUD): rótulo na cor de destaque, divisória fina */
+    function hud(charging) {
+      const bat = charging ? 'BAT 74% + 0:50' : 'BAT 74% 1.9W 2:40';
+      return ['CPU 47% 1008MHz', 'GPU 62%', 'MEM 124/1006M sw 200M', '52°', bat].map(g => {
+        const [l, ...v] = g.split(' ');
+        return `<b style="color:var(--accent)">${l}</b>&nbsp;${v.join(' ')}`;
+      }).join('<i style="display:inline-block;width:1px;height:1em;margin:0 .55em;background:var(--muted);opacity:.6"></i>');
+    }
+    function items() {
+      if (st.view === 'native') return [t('back'), t('end')];
+      if (st.view === 'silent') return [t('back'), t('end'), t('force')];
+      return [t('back'), t('end'), t('reset'), t('app')];   // a ordem pedida pelo usuário (2026-11-17)
+    }
+    function render() {
+      Lume.themes.apply(stage, st.theme);
+      const v = st.view, onMenu = ['menu', 'confirm', 'confirm-reset', 'silent', 'native'].includes(v);
+      $('#hud').classList.toggle('on', v.startsWith('hud') || st.withHud);
+      $('#hud').innerHTML = hud(v === 'hud-charging');
+      $('#hint').classList.toggle('on', v === 'hint');
+      $('#hint').innerHTML = [['Fn+B', t('app')], ['Fn+R1', t('save')], ['Fn+L1', t('load')], ['Fn+Y', t('shot')],
+        ['Fn+X', t('bar')], ['Fn+Start', t('end')]].map(([b, n]) => `<b>${b}</b><span>${esc(n)}</span>`).join('');
+      $('#lmenu').classList.toggle('on', onMenu);
+      const p = $('#lmenu .panel'), hints = `<div class="hints"><span><b>A</b>${t('choose')}</span><span><b>B</b>${t('ret')}</span></div>`;
+      if (v.startsWith('confirm')) {
+        const q = v === 'confirm' ? t('askEnd') : t('askReset');
+        /* regra de toda confirmação (usuário, 2026-11-17): Sim em cima ou à esquerda, Não embaixo com o foco */
+        p.innerHTML = `<h2>${esc(q)}</h2>` + [t('yes'), t('no')].map((x, i) => `<div class="opt${i === Math.min(st.focus, 1) ? ' sel' : ''}"><span class="l"><span class="lt">${esc(x)}</span></span></div>`).join('');
+      } else if (onMenu) {
+        const it = items(), f = Math.min(st.focus, it.length - 1);
+        p.innerHTML = `<h2>${esc(v === 'silent' ? t('silent') : 'Exemplo de Jogo (Rev 1)')}</h2>` +
+          it.map((x, i) => `<div class="opt${i === f ? ' sel' : ''}${x === t('force') ? ' warn' : ''}"><span class="l"><span class="lt">${esc(x)}</span></span></div>`).join('');
+      }
+      $('#lmenu').insertAdjacentHTML('beforeend', '');
+      $('#lmenu .hints') && $('#lmenu .hints').remove();
+      if (onMenu) $('#lmenu').insertAdjacentHTML('beforeend', hints);
+      $('#theme').value = st.theme; $('#lang').value = st.lang; $('#view').value = st.view; $('#withhud').checked = st.withHud;
+    }
+    $('#theme').innerHTML = Lume.themes.list().map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+    $('#theme').onchange = e => { st.theme = e.target.value; render(); };
+    $('#lang').onchange = e => { st.lang = e.target.value; render(); };
+    $('#view').onchange = e => { st.view = e.target.value; st.focus = st.view === 'silent' ? 2 : st.view.startsWith('confirm') ? 1 : 0; render(); };
+    $('#withhud').onchange = e => { st.withHud = e.target.checked; render(); };
+    if (st.view === 'silent') st.focus = 2;
+    if (st.view.startsWith('confirm')) st.focus = 1;
+    if (QS.has('foco')) st.focus = parseInt(QS.get('foco'), 10) || 0;
+    /* teclado: o mesmo comportamento da máquina de estados do lume-run (menu.rs) */
+    let f1Down = 0, holdT = null, prevView = 'game';
+    addEventListener('keydown', e => {
+      if (e.key === 'F1') { e.preventDefault(); if (e.repeat) return; f1Down = Date.now();
+        holdT = setTimeout(() => { if (!['menu', 'confirm', 'confirm-reset', 'silent', 'native'].includes(st.view)) { prevView = st.view; st.view = 'hint'; render(); } }, 500); return; }
+      const menu = ['menu', 'silent', 'native'].includes(st.view), conf = st.view.startsWith('confirm');
+      const n = conf ? 2 : items().length;
+      if (e.key === 'ArrowUp' || (conf && e.key === 'ArrowLeft')) st.focus = Math.max(0, st.focus - 1);
+      else if (e.key === 'ArrowDown' || (conf && e.key === 'ArrowRight')) st.focus = Math.min(n - 1, st.focus + 1);
+      else if (e.key === 'Escape') { if (conf) { st.view = 'menu'; st.focus = 0; } else if (menu) st.view = 'game'; }
+      else if (e.key === 'Enter' && menu) {
+        const x = items()[st.focus];
+        if (x === t('end')) { st.view = 'confirm'; st.focus = 1; }
+        else if (x === t('reset')) { st.view = 'confirm-reset'; st.focus = 1; }
+        else st.view = 'game';
+      } else if (e.key === 'Enter' && conf) { st.view = st.focus ? 'menu' : 'game'; st.focus = 0; }
+      else return;
+      e.preventDefault(); render();
+    });
+    addEventListener('keyup', e => {
+      if (e.key !== 'F1') return;
+      clearTimeout(holdT);
+      if (st.view === 'hint') { st.view = prevView; render(); return; }
+      if (Date.now() - f1Down < 500) {
+        const open = ['menu', 'confirm', 'confirm-reset', 'silent', 'native'].includes(st.view);
+        st.view = open ? 'game' : 'menu'; st.focus = 0; render();
+      }
+    });
+    render();
+  })();
+  </script>
+</body>
+</html>

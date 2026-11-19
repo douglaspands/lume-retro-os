@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import manifests, pkglists, slots, stage_inputs
-from r36os.paths import REPO_ROOT
+from lume_tool import manifests, pkglists, slots, stage_inputs
+from lume_tool.paths import REPO_ROOT
 
 MiB = 2**20
 
@@ -31,7 +31,7 @@ PACKAGES = {
     "retroarch": ("1.22.2-r112", [("usr/bin", [("retroarch", b"ra")]),
                                   ("usr/share/retroarch", [("a.png", b"png")])]),
     "libretro-fceumm": ("0_git20241123-r0", [("usr/lib/libretro", [("fceumm.so", b"core")])]),
-    "lume-core": ("1.0-r3", [("usr/libexec/r36os", [("logd", b"logd")])]),
+    "lume-core": ("1.0-r3", [("usr/libexec/lume", [("logd", b"logd")])]),
     "mesa-egl": ("26.1.6-r0", [("usr/lib", [("libEGL.so.1", b"egl"),
                                             ("libEGL.so", b"libEGL.so.1")])]),
 }
@@ -148,7 +148,7 @@ def test_files_go_to_the_slot_of_their_owner(tmp_path):
     assert sp.files["./usr/bin/retroarch"] == "runtime"
     assert sp.files["./usr/lib/libretro/fceumm.so"] == "runtime"
     assert sp.files["./usr/lib/libEGL.so"] == "runtime"            # symlink, Z of target
-    assert sp.files["./usr/libexec/r36os/logd"] == "lume"
+    assert sp.files["./usr/libexec/lume/logd"] == "lume"
     # an owned empty directory stays with its owner (default group: base)
     assert sp.dirs["./var/empty"] == {"base"}
     assert sp.packages["lume"] == [("lume-core", "1.0-r3")]
@@ -208,7 +208,7 @@ def test_a_file_owned_by_two_groups_goes_to_lume(tmp_path):
     assert db.versions == {"a": "1-r0", "b": "1-r0"}
     # the same in a rootfs: busybox (base) and lume-core (lume) both list etc/inittab
     PACKAGES_TWO = dict(PACKAGES)
-    PACKAGES_TWO["lume-core"] = ("1.0-r3", [("usr/libexec/r36os", [("logd", b"logd")]),
+    PACKAGES_TWO["lume-core"] = ("1.0-r3", [("usr/libexec/lume", [("logd", b"logd")]),
                                             ("bin", [("busybox", b"bb")])])
     old = dict(PACKAGES)
     PACKAGES.clear()
@@ -250,12 +250,12 @@ def test_slots_toml_groups():
     groups = slots.load_groups()
     assert groups.default == "base"
     assert groups.group_of("retroarch") == "runtime"
-    assert groups.group_of("libretro-snes9x") == "runtime"     # the cores stay here (P-80)
+    assert groups.group_of("libretro-snes9x2005-plus") == "runtime"     # the cores stay here (P-80)
     assert groups.group_of("mesa-dri-gallium") == "runtime"
     assert groups.group_of("sdl2") == "runtime"
     assert groups.group_of("lume-launcher") == "lume"
     assert groups.group_of("lume-bootsel") == "lume"
-    assert groups.group_of("r36os-input") == "lume"
+    assert groups.group_of("lume-input") == "lume"
     assert groups.group_of("busybox") == "base"
     assert groups.group_of("musl") == "base"                    # not named: the default
     # every local aport goes to a named group
@@ -365,9 +365,9 @@ def test_slots_stage_inputs(tmp_path):
 
 
 def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
-    from r36os import build, rootfs, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, rootfs, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     out = tmp_path / "ga36"
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
@@ -404,13 +404,13 @@ def test_build_console_slots_skips_an_unchanged_rootfs(tmp_path, monkeypatch):
 
 
 def _level_setup(tmp_path, monkeypatch, pad_fast=0):
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     out = tmp_path / "ga36"
     monkeypatch.setattr(rootfs, "target_out", lambda target: out)
     out.mkdir()
     _rootfs(out / "rootfs.tar")
-    from r36os import kernel_packages
+    from lume_tool import kernel_packages
 
     # the modules slot comes from the published lume-modules (build-speed 7.3)
     _modules(kernel_packages.modules_image(out))
@@ -434,9 +434,9 @@ def _level_setup(tmp_path, monkeypatch, pad_fast=0):
 
 
 def test_fast_slots_are_not_reused_by_the_full_build_and_back(tmp_path, monkeypatch):
-    from r36os import build, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     levels = _level_setup(tmp_path, monkeypatch)
     v, timer = version.current(), StageTimer()
@@ -454,9 +454,9 @@ def test_fast_slots_are_not_reused_by_the_full_build_and_back(tmp_path, monkeypa
 
 
 def test_fast_slots_over_the_limit_fall_back_to_the_full_level(tmp_path, monkeypatch, capsys):
-    from r36os import build, version
-    from r36os.stages import StageTimer
-    from r36os.targets import TARGETS
+    from lume_tool import build, version
+    from lume_tool.stages import StageTimer
+    from lume_tool.targets import TARGETS
 
     monkeypatch.setattr(slots, "CONSOLE_SLOTS_LIMIT_MIB", 1)
     levels = _level_setup(tmp_path, monkeypatch, pad_fast=600_000)
@@ -472,7 +472,7 @@ def test_fast_slots_over_the_limit_fall_back_to_the_full_level(tmp_path, monkeyp
 
 
 def test_with_level_changes_only_the_zstd_level():
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     assert slots.with_level(rootfs.SQUASHFS_OPTIONS, 19) == rootfs.SQUASHFS_OPTIONS
     fast = slots.with_level(rootfs.SQUASHFS_OPTIONS, 3)
@@ -497,7 +497,7 @@ def test_only_the_slots_whose_content_changed_are_packed_again(tmp_path, monkeyp
     assert slots.rebuilt_slots(sdir) == ["base", "runtime", "lume"]
     # a new lume-core: its file and the apk database (no owner) are both in lume
     monkeypatch.setitem(PACKAGES, "lume-core",
-                        ("1.1-r0", [("usr/libexec/r36os", [("logd", b"new logd")])]))
+                        ("1.1-r0", [("usr/libexec/lume", [("logd", b"new logd")])]))
     again = slots.build_overlay_slots(_rootfs(tmp_path / "rootfs.tar", mtime=7), sdir, "-a",
                                       GROUPS, squash=_recording_squash(runs))
     assert runs[1:] == [["lume"]]
@@ -535,11 +535,11 @@ def test_other_options_pack_again_unless_a_fragment_build(tmp_path):
 def test_two_runs_give_the_same_squashfs(tmp_path):
     """The real mksquashfs (builder container): rootfs.tar made again with other times
     gives byte-identical slots, so a build without changes keeps the slot names."""
-    from r36os import rootfs
+    from lume_tool import rootfs
 
     if shutil.which("podman") is None:
         pytest.skip("no podman")
-    r = subprocess.run(["podman", "image", "exists", "localhost/r36os-builder:x86_64"])
+    r = subprocess.run(["podman", "image", "exists", "localhost/lume-builder:x86_64"])
     if r.returncode != 0:
         pytest.skip("no builder image")
     names = []

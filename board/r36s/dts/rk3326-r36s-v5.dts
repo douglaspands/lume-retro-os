@@ -176,7 +176,7 @@
 		};
 	};
 
-	/* 17 buttons, active low; r36os-input joins them with the sticks (lume-launcher D8) */
+	/* 17 buttons, active low; lume-input joins them with the sticks (lume-launcher D8) */
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -489,6 +489,13 @@
 		pinctrl-0 = <&pmic_int>, <&i2s1_2ch_mclk>;
 		#sound-dai-cells = <0>;
 		system-power-controller;
+		/*
+		 * Wake from suspension (device-fixes D11, task 8.1): the power key (rk805-pwrkey) is
+		 * an MFD cell without a DT node, so its wakeup lives here: the I2C core turns
+		 * wakeup-source into the PMIC interrupt (gpio0 PA7) as the wake IRQ of this client.
+		 * The only wakeup-source of the board: the gamepad gpio-keys and the sticks have
+		 * none, and the charger and RTC wakeup sources are switched off by lume-sleep.
+		 */
 		wakeup-source;
 
 		vcc1-supply = <&vccsys>;
@@ -832,7 +839,7 @@
 /*
  * OTG port (usb-device-access D1, measured 2026-11-13): the u2phy sees the ID pin but not
  * the VBUS of the OTG port, so the controller never gets a B-session for a PC. The role
- * switch overrides the session valid bits; the port is device by default and r36os-usb
+ * switch overrides the session valid bits; the port is device by default and lume-usb
  * sets host when the ID pin goes low (USB-HOST in the u2phy extcon).
  * Host role (usb-device-access D7): 5 V on the port from the RK817 OTG_SWITCH, as the
  * ROCKNIX DTS of the R36S does; without a consumer the kernel turned it off at 30 s.

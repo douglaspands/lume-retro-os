@@ -1,0 +1,2 @@
+# Experiment kernel (device-fixes 6.3, D12, P-95 E4); never in the default image.
+description = "E4: non-burst video with sync pulses (link in HS for the whole line), same clock and totals"

@@ -10,19 +10,19 @@ clona o projeto encontre tudo dentro dele, sem configuração escondida na máqu
 
 ### Requirement: Cache dentro do projeto
 Por padrão, o build MUST guardar o cache em `.cache/` na raiz do projeto. Quando
-`$R36OS_CACHE` estiver definida, o build MUST usar esse caminho no lugar do padrão, esteja ele
-dentro ou fora do projeto. O build MUST NOT usar `$XDG_CACHE_HOME/r36os` nem `~/.cache/r36os`.
+`$LUME_CACHE` estiver definida, o build MUST usar esse caminho no lugar do padrão, esteja ele
+dentro ou fora do projeto. O build MUST NOT usar `$XDG_CACHE_HOME/lume` nem `~/.cache/lume`.
 
 #### Scenario: Sem variável de ambiente
-- **WHEN** um build roda sem `$R36OS_CACHE` definida
+- **WHEN** um build roda sem `$LUME_CACHE` definida
 - **THEN** fontes, árvores de build, ccache e as demais pastas do cache são criadas em `<projeto>/.cache/`
 
 #### Scenario: Variável de ambiente definida
-- **WHEN** um build roda com `R36OS_CACHE=/outro/lugar`
+- **WHEN** um build roda com `LUME_CACHE=/outro/lugar`
 - **THEN** o cache é lido e escrito em `/outro/lugar`, e nada é criado em `<projeto>/.cache/`
 
 #### Scenario: Cache antigo não é usado
-- **WHEN** existe `~/.cache/r36os` com conteúdo e `$R36OS_CACHE` não está definida
+- **WHEN** existe `~/.cache/lume` com conteúdo e `$LUME_CACHE` não está definida
 - **THEN** o build ignora esse caminho e usa `<projeto>/.cache/`
 
 ### Requirement: Cache fora do git
@@ -51,12 +51,12 @@ suporte, o build MUST avisar numa linha e seguir normalmente.
 - **THEN** o build usa o diretório como está, sem tentar mudar atributos
 
 ### Requirement: Worktrees usam o cache do repositório principal
-Quando o build roda numa git worktree do projeto e `$R36OS_CACHE` não está definida, ele MUST
+Quando o build roda numa git worktree do projeto e `$LUME_CACHE` não está definida, ele MUST
 usar o `.cache/` do repositório principal, sem criar um `.cache/` na worktree. Fora de um
 repositório git, o build MUST usar o `.cache/` da própria pasta do projeto.
 
 #### Scenario: Build numa worktree
-- **WHEN** um build roda em `out/worktrees/<nome>` sem `$R36OS_CACHE`
+- **WHEN** um build roda em `out/worktrees/<nome>` sem `$LUME_CACHE`
 - **THEN** ele reaproveita as fontes e o ccache de `<repositório principal>/.cache/`, e `out/worktrees/<nome>/.cache/` não é criado
 
 #### Scenario: Projeto sem git

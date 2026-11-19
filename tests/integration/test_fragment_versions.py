@@ -9,20 +9,20 @@ import shutil
 
 import pytest
 
-from r36os import fragments, manifests, packages
-from r36os.container import Container, ensure_builder
-from r36os.paths import REPO_ROOT
-from r36os.targets import get_target
+from lume_tool import fragments, manifests, packages
+from lume_tool.container import Container, ensure_builder
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import get_target
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="no podman")
 
-NAME = "r36os-hello-arch"
+NAME = "lume-hello-arch"
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     aports = tmp_path / "aports"
     shutil.copytree(REPO_ROOT / "tests/fixtures/aports" / NAME, aports / NAME)
     builds = []
@@ -42,13 +42,13 @@ def _install(name: str) -> str:
     """`apk add --root` from the local repository, trusting only the local key."""
     vm = get_target("vm")
     c = Container(image=ensure_builder(vm), platform=vm.oci_platform,
-                  volumes={packages.out_dir() / "repo": "/repo/r36os",
+                  volumes={packages.out_dir() / "repo": "/repo/lume",
                            packages.keys_dir(): "/keys"})
     out = c.sh(
         "mkdir -p /t/etc/apk/keys\n"
         f"cp /keys/{packages.KEY_NAME}.rsa.pub /t/etc/apk/keys/\n"
         "apk add --root /t --initdb --no-network --arch x86_64 "
-        f"--repositories-file /dev/null --repository /repo/r36os {name}\n"
+        f"--repositories-file /dev/null --repository /repo/lume {name}\n"
         f"grep -A3 '^P:{name}$' /t/lib/apk/db/installed\n",
         capture_output=True, text=True)
     return out.stdout
@@ -97,17 +97,17 @@ def test_inputs_decide_the_build_and_content_decides_the_version(env, capsys):
 
 
 def test_noarch_fragment_skips_and_versions_in_every_arch(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     aports = REPO_ROOT / "tests/fixtures/aports"
-    apks = packages.build_noarch(["r36os-hello"], aports=aports)
-    assert [a.name for a in apks] == ["r36os-hello-1.0-r0.apk"]
+    apks = packages.build_noarch(["lume-hello"], aports=aports)
+    assert [a.name for a in apks] == ["lume-hello-1.0-r0.apk"]
     packages.publish_noarch(apks)
     for arch in packages.REPO_ARCHES:
-        h = packages.read_repo_hashes(arch).packages["r36os-hello"]
+        h = packages.read_repo_hashes(arch).packages["lume-hello"]
         assert h.version == "1.0-r0"
         assert fragments.apk_lume_content(packages.arch_repo_dir(arch) / h.file) == h.content
-    assert packages.build_noarch(["r36os-hello"], aports=aports) == []
-    assert packages.build_noarch(["r36os-hello"], aports=aports, force=True) == []
+    assert packages.build_noarch(["lume-hello"], aports=aports) == []
+    assert packages.build_noarch(["lume-hello"], aports=aports, force=True) == []
     assert manifests.read_hashes(packages.hashes_path("armv7"), "armv7").packages[
-        "r36os-hello"].version == "1.0-r0"
+        "lume-hello"].version == "1.0-r0"

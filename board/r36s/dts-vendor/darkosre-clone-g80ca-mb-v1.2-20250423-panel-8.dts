@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * G80CA-MB V1.2-20250423 Panel 8, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/clone/G80CA-MB V1.2-20250423 Panel 8/rk3326-r36s-linux.dtb
  * SHA-256: 891809d196d976df9653422a54e618d5860210caaf48f622b0ee30d5b2173924
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured

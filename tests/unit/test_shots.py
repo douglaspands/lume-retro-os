@@ -1,6 +1,6 @@
 import pytest
 
-from r36os import dev, shots
+from lume_tool import dev, shots
 
 
 def solid(w, h, rgb):

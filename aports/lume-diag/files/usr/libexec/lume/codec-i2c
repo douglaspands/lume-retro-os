@@ -1,0 +1,94 @@
+#!/bin/sh
+# codec-i2c: guarded access to the RK817 audio codec of the R36S over I2C (P-45; build phase
+# tool, leaves the final image with P-22). The RK817 is also the PMIC (CPU, DRAM and charger
+# rails), so writes are refused outside the codec range 0x12-0x4f; reads are free.
+#
+#   codec-i2c get <reg>              the register value (0xNN)
+#   codec-i2c set <reg> <value>      write, print the value read back (the chip may keep only
+#                                    some bits: status and self-clearing bits)
+#   codec-i2c try <reg> <value> [s]  write, wait s seconds (default 6), print the battery
+#                                    current, write the old value back
+#   codec-i2c dump                   every codec register, one "reg: value" per line
+#
+# The kernel driver owns the address (0x20), so i2c-tools runs with -f (force). The driver
+# keeps a register cache: a write here is not seen by it, and the next DAPM event may write
+# its own value again.
+#
+# Environment for the tests: I2CGET, I2CSET (the i2c-tools commands), I2C_BUS (default 0),
+# BATTERY (the power_supply folder of the battery).
+I2CGET=${I2CGET:-i2cget}
+I2CSET=${I2CSET:-i2cset}
+BUS=${I2C_BUS:-0}
+ADDR=0x20
+BATTERY=${BATTERY:-/sys/class/power_supply/rk817-battery}
+LO=18   # 0x12, RK817_CODEC_DTOP_VUCTL
+HI=79   # 0x4f, the last codec register
+
+die() {
+	echo "codec-i2c: $1" >&2
+	exit "${2:-1}"
+}
+
+# number <text>: decimal value of a 0xNN or decimal byte, empty when it is not one
+number() {
+	case "$1" in
+	0x[0-9a-fA-F] | 0x[0-9a-fA-F][0-9a-fA-F]) printf '%d' "$1" ;;
+	[0-9] | [0-9][0-9] | [0-9][0-9][0-9]) [ "$1" -le 255 ] && echo "$1" ;;
+	esac
+}
+
+reg_of() {  # <text> -> decimal register in the codec range, or die
+	local r
+	r=$(number "$1")
+	[ -n "$r" ] || die "bad register \`$1\`"
+	echo "$r"
+}
+
+get() {  # <decimal reg>
+	"$I2CGET" -f -y "$BUS" "$ADDR" "$(printf '0x%02x' "$1")" || die "read of $(printf '0x%02x' "$1") failed"
+}
+
+set_reg() {  # <decimal reg> <value text>
+	local v
+	if [ "$1" -lt "$LO" ] || [ "$1" -gt "$HI" ]; then
+		die "refused: $(printf '0x%02x' "$1") is outside the codec range 0x12-0x4f" 2
+	fi
+	v=$(number "$2")
+	[ -n "$v" ] || die "bad value \`$2\`"
+	"$I2CSET" -f -y "$BUS" "$ADDR" "$(printf '0x%02x' "$1")" "$(printf '0x%02x' "$v")" ||
+		die "write of $(printf '0x%02x' "$1") failed"
+	get "$1"
+}
+
+case "${1:-}" in
+get)
+	[ $# -eq 2 ] || die "usage: codec-i2c get <reg>"
+	r=$(reg_of "$2") || exit 1
+	get "$r"
+	;;
+set)
+	[ $# -eq 3 ] || die "usage: codec-i2c set <reg> <value>"
+	r=$(reg_of "$2") || exit 1
+	set_reg "$r" "$3"
+	;;
+try)
+	[ $# -ge 3 ] || die "usage: codec-i2c try <reg> <value> [seconds]"
+	r=$(reg_of "$2") || exit 1
+	old=$(get "$r") || exit 1
+	back=$(set_reg "$r" "$3") || exit $?
+	sleep "${4:-6}"
+	cur=$(cat "$BATTERY/current_avg" 2>/dev/null || cat "$BATTERY/current_now" 2>/dev/null)
+	set_reg "$r" "$old" >/dev/null
+	echo "reg $(printf '0x%02x' "$r"): was $old, wrote $3, read back $back, battery current ${cur:-?} uA, restored $(get "$r")"
+	;;
+dump)
+	r=$LO
+	while [ "$r" -le "$HI" ]; do
+		echo "$(printf '%02x' "$r"): $(get "$r")"
+		r=$((r + 1))
+	done
+	;;
+*)
+	die "usage: codec-i2c get <reg> | set <reg> <value> | try <reg> <value> [s] | dump"
+	;;
+esac

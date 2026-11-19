@@ -3,8 +3,8 @@
 # a imagem do kernel vai para a BOOT e os módulos entram direto no SYSTEM.
 # O controle serial é driver de kernel (kernel/patches/), sem daemon em userland.
 
-# Register access for the display freeze recovery (r36os-logd, task 9.8)
-r36os-devmem
+# Register access for the display freeze recovery (lume-logd, task 9.8)
+lume-devmem
 
 # Firmware of the USB Wi-Fi and Bluetooth dongles (usb-device-access D9, D10): Realtek rtw88
 # (RTL8821CU) and rtl8xxxu, Atheros ath9k_htc, Realtek Bluetooth (no MediaTek: 28 MiB).

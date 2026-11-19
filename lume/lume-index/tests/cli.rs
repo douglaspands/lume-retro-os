@@ -22,9 +22,9 @@ fn index(root: &Path, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_lume-index"))
         .args(args)
         .env("LUME_STORAGE", root.join("storage"))
-        .env("LUME_CATALOG", repo().join("rootfs/overlay/usr/share/r36os/systems.json"))
-        .env("LUME_SHARE", repo().join("rootfs/overlay/usr/share/lume"))
-        .env("R36OS_RUN", root.join("run"))
+        .env("LUME_CATALOG", repo().join("aports/lume-games/files/usr/share/lume/systems.json"))
+        .env("LUME_SHARE", repo().join("aports/lume-games/files/usr/share/lume"))
+        .env("LUME_RUN", root.join("run"))
         .output()
         .unwrap()
 }

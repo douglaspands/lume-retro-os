@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# Hardware summary (video, audio, gamepad, battery, ROMS) before the frontend.
+
+description="Hardware summary"
+
+depend() {
+	after udev-settle alsa seatd lume-persist lume-savesync
+	before frontend
+}
+
+start() {
+	ebegin "Hardware summary"
+	/usr/libexec/lume/hwsummary
+	eend 0
+}

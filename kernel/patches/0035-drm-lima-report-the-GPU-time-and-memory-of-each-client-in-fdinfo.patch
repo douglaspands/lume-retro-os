@@ -1,0 +1,271 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Douglas Panhota <douglaspands@gmail.com>
+Date: Tue, 17 Nov 2026 23:30:00 -0300
+Subject: [PATCH] drm/lima: report the GPU time and memory of each client in
+ fdinfo
+
+The status bar over a game (lume-hud-actions D6) shows the use of the
+GPU and the memory the game holds on it from the drm-* keys of the
+game's DRM file, as panfrost reports them on the R36S. lima reported
+nothing, so the GA36 bar could only show the GPU clock.
+
+Count, per DRM file, the time each job ran on the GP and on the PP
+pipe, from run_job to the done interrupt as the CPU sees it, and print
+it as drm-engine-gp and drm-engine-pp in fdinfo. The counters live in a
+small reference counted object: each task holds a reference, so a job
+still on the GPU when its file is closed adds its time to memory that
+is still there. A task that ends in error adds nothing.
+
+Print the memory keys too (drm_show_memory_stats): the buffer objects
+get a status callback (resident when backed by pages) and an rss one
+(a heap buffer counts only the part it grew to).
+
+
+diff --git a/drivers/gpu/drm/lima/lima_drv.c b/drivers/gpu/drm/lima/lima_drv.c
+index 65210ab..b1926ab 100644
+--- a/drivers/gpu/drm/lima/lima_drv.c
++++ b/drivers/gpu/drm/lima/lima_drv.c
+@@ -10,6 +10,7 @@
+ #include <drm/drm_ioctl.h>
+ #include <drm/drm_drv.h>
+ #include <drm/drm_prime.h>
++#include <drm/drm_print.h>
+ #include <drm/lima_drm.h>
+ 
+ #include "lima_device.h"
+@@ -209,6 +210,22 @@ static int lima_ioctl_ctx_free(struct drm_device *dev, void *data, struct drm_fi
+ 	return lima_ctx_free(&priv->ctx_mgr, args->id);
+ }
+ 
++struct lima_usage *lima_usage_get(struct lima_usage *usage)
++{
++	kref_get(&usage->refcnt);
++	return usage;
++}
++
++static void lima_usage_release(struct kref *ref)
++{
++	kfree(container_of(ref, struct lima_usage, refcnt));
++}
++
++void lima_usage_put(struct lima_usage *usage)
++{
++	kref_put(&usage->refcnt, lima_usage_release);
++}
++
+ static int lima_drm_driver_open(struct drm_device *dev, struct drm_file *file)
+ {
+ 	int err;
+@@ -219,10 +236,17 @@ static int lima_drm_driver_open(struct drm_device *dev, struct drm_file *file)
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
++	priv->usage = kzalloc(sizeof(*priv->usage), GFP_KERNEL);
++	if (!priv->usage) {
++		err = -ENOMEM;
++		goto err_out0;
++	}
++	kref_init(&priv->usage->refcnt);
++
+ 	priv->vm = lima_vm_create(ldev);
+ 	if (!priv->vm) {
+ 		err = -ENOMEM;
+-		goto err_out0;
++		goto err_out1;
+ 	}
+ 
+ 	lima_ctx_mgr_init(&priv->ctx_mgr);
+@@ -230,6 +254,8 @@ static int lima_drm_driver_open(struct drm_device *dev, struct drm_file *file)
+ 	file->driver_priv = priv;
+ 	return 0;
+ 
++err_out1:
++	lima_usage_put(priv->usage);
+ err_out0:
+ 	kfree(priv);
+ 	return err;
+@@ -241,9 +267,28 @@ static void lima_drm_driver_postclose(struct drm_device *dev, struct drm_file *f
+ 
+ 	lima_ctx_mgr_fini(&priv->ctx_mgr);
+ 	lima_vm_put(priv->vm);
++	lima_usage_put(priv->usage);
+ 	kfree(priv);
+ }
+ 
++/*
++ * drm-engine-gp and drm-engine-pp: the time the jobs of this file ran on each pipe, from
++ * run to done as the CPU sees it (the interrupt latency is included), the way panfrost
++ * reports it. Tools such as a status bar read the use of the GPU from it.
++ */
++static void lima_show_fdinfo(struct drm_printer *p, struct drm_file *file)
++{
++	struct lima_drm_priv *priv = file->driver_priv;
++
++	drm_printf(p, "drm-engine-gp:\t%llu ns\n",
++		   (u64)atomic64_read(&priv->usage->elapsed_ns[lima_pipe_gp]));
++	drm_printf(p, "drm-engine-pp:\t%llu ns\n",
++		   (u64)atomic64_read(&priv->usage->elapsed_ns[lima_pipe_pp]));
++
++	/* drm-total-memory, drm-resident-memory, ...: the buffers of this file */
++	drm_show_memory_stats(p, file);
++}
++
+ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
+ 	DRM_IOCTL_DEF_DRV(LIMA_GET_PARAM, lima_ioctl_get_param, DRM_RENDER_ALLOW),
+ 	DRM_IOCTL_DEF_DRV(LIMA_GEM_CREATE, lima_ioctl_gem_create, DRM_RENDER_ALLOW),
+@@ -254,7 +299,11 @@ static const struct drm_ioctl_desc lima_drm_driver_ioctls[] = {
+ 	DRM_IOCTL_DEF_DRV(LIMA_CTX_FREE, lima_ioctl_ctx_free, DRM_RENDER_ALLOW),
+ };
+ 
+-DEFINE_DRM_GEM_FOPS(lima_drm_driver_fops);
++static const struct file_operations lima_drm_driver_fops = {
++	.owner = THIS_MODULE,
++	DRM_GEM_FOPS,
++	.show_fdinfo = drm_show_fdinfo,
++};
+ 
+ /*
+  * Changelog:
+@@ -269,6 +318,7 @@ static const struct drm_driver lima_drm_driver = {
+ 	.ioctls             = lima_drm_driver_ioctls,
+ 	.num_ioctls         = ARRAY_SIZE(lima_drm_driver_ioctls),
+ 	.fops               = &lima_drm_driver_fops,
++	.show_fdinfo        = lima_show_fdinfo,
+ 	.name               = "lima",
+ 	.desc               = "lima DRM",
+ 	.major              = 1,
+diff --git a/drivers/gpu/drm/lima/lima_drv.h b/drivers/gpu/drm/lima/lima_drv.h
+index 6706c19..917d092 100644
+--- a/drivers/gpu/drm/lima/lima_drv.h
++++ b/drivers/gpu/drm/lima/lima_drv.h
+@@ -4,6 +4,8 @@
+ #ifndef __LIMA_DRV_H__
+ #define __LIMA_DRV_H__
+ 
++#include <linux/atomic.h>
++#include <linux/kref.h>
+ #include <drm/drm_file.h>
+ 
+ #include "lima_ctx.h"
+@@ -20,9 +22,22 @@ struct lima_sched_task;
+ 
+ struct drm_lima_gem_submit_bo;
+ 
++/*
++ * GPU time of one DRM file per pipe, for the drm-engine-* keys of fdinfo. Its own reference
++ * count: a task still on the GPU when the file is closed adds its time to a live object.
++ */
++struct lima_usage {
++	struct kref refcnt;
++	atomic64_t elapsed_ns[lima_pipe_num];
++};
++
++struct lima_usage *lima_usage_get(struct lima_usage *usage);
++void lima_usage_put(struct lima_usage *usage);
++
+ struct lima_drm_priv {
+ 	struct lima_vm *vm;
+ 	struct lima_ctx_mgr ctx_mgr;
++	struct lima_usage *usage;
+ };
+ 
+ struct lima_submit {
+diff --git a/drivers/gpu/drm/lima/lima_gem.c b/drivers/gpu/drm/lima/lima_gem.c
+index 9722b84..9a7374c 100644
+--- a/drivers/gpu/drm/lima/lima_gem.c
++++ b/drivers/gpu/drm/lima/lima_gem.c
+@@ -208,8 +208,30 @@ static int lima_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma)
+ 	return drm_gem_shmem_mmap(&bo->base, vma);
+ }
+ 
++/* for the drm-*-memory keys of fdinfo: a buffer with pages is resident */
++static enum drm_gem_object_status lima_gem_status(struct drm_gem_object *obj)
++{
++	struct lima_bo *bo = to_lima_bo(obj);
++
++	if (drm_gem_is_imported(obj) || bo->base.pages)
++		return DRM_GEM_OBJECT_RESIDENT;
++	return 0;
++}
++
++/* a heap buffer grows on demand: only the part already backed by pages counts */
++static size_t lima_gem_rss(struct drm_gem_object *obj)
++{
++	struct lima_bo *bo = to_lima_bo(obj);
++
++	if (bo->heap_size)
++		return bo->base.pages ? bo->heap_size : 0;
++	return bo->base.pages ? obj->size : 0;
++}
++
+ static const struct drm_gem_object_funcs lima_gem_funcs = {
+ 	.free = lima_gem_free_object,
++	.status = lima_gem_status,
++	.rss = lima_gem_rss,
+ 	.open = lima_gem_object_open,
+ 	.close = lima_gem_object_close,
+ 	.print_info = drm_gem_shmem_object_print_info,
+@@ -345,6 +367,8 @@ int lima_gem_submit(struct drm_file *file, struct lima_submit *submit)
+ 	if (err)
+ 		goto err_out1;
+ 
++	submit->task->usage = lima_usage_get(priv->usage);
++
+ 	err = lima_gem_add_deps(file, submit);
+ 	if (err)
+ 		goto err_out2;
+diff --git a/drivers/gpu/drm/lima/lima_sched.c b/drivers/gpu/drm/lima/lima_sched.c
+index 739e8c6..5e3052a 100644
+--- a/drivers/gpu/drm/lima/lima_sched.c
++++ b/drivers/gpu/drm/lima/lima_sched.c
+@@ -153,6 +153,9 @@ void lima_sched_task_fini(struct lima_sched_task *task)
+ 	}
+ 
+ 	lima_vm_put(task->vm);
++
++	if (task->usage)
++		lima_usage_put(task->usage);
+ }
+ 
+ int lima_sched_context_init(struct lima_sched_pipe *pipe,
+@@ -263,6 +266,7 @@ static struct dma_fence *lima_sched_run_job(struct drm_sched_job *job)
+ 	trace_lima_task_run(task);
+ 
+ 	pipe->error = false;
++	task->start = ktime_get();
+ 	pipe->task_run(pipe, task);
+ 
+ 	return task->fence;
+@@ -552,6 +556,9 @@ void lima_sched_pipe_task_done(struct lima_sched_pipe *pipe)
+ 			drm_sched_fault(&pipe->base);
+ 	} else {
+ 		pipe->task_fini(pipe);
++		if (task->usage)
++			atomic64_add(ktime_to_ns(ktime_sub(ktime_get(), task->start)),
++				     &task->usage->elapsed_ns[pipe - ldev->pipe]);
+ 		dma_fence_signal(task->fence);
+ 
+ 		lima_pm_idle(ldev);
+diff --git a/drivers/gpu/drm/lima/lima_sched.h b/drivers/gpu/drm/lima/lima_sched.h
+index 1a08faf..2808b28 100644
+--- a/drivers/gpu/drm/lima/lima_sched.h
++++ b/drivers/gpu/drm/lima/lima_sched.h
+@@ -10,6 +10,7 @@
+ 
+ struct lima_device;
+ struct lima_vm;
++struct lima_usage;
+ 
+ struct lima_sched_error_task {
+ 	struct list_head list;
+@@ -31,6 +32,10 @@ struct lima_sched_task {
+ 
+ 	/* pipe fence */
+ 	struct dma_fence *fence;
++
++	/* GPU time accounting of the submitting file (fdinfo) */
++	struct lima_usage *usage;
++	ktime_t start;
+ };
+ 
+ struct lima_sched_context {

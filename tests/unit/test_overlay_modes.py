@@ -4,14 +4,14 @@ import os
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 OVERLAY = REPO_ROOT / "rootfs/overlay"
 # the noarch fragments (lume-*) ship their files at the image paths; the package keeps the git modes
 FRAGMENT_TREES = sorted((REPO_ROOT / "aports").glob("lume-*/files"))
 EXECUTABLES = sorted(
     p for tree in (OVERLAY, *FRAGMENT_TREES)
-    for d in ("etc/init.d", "usr/libexec/r36os", "usr/libexec/r36os/frontends", "usr/bin")
+    for d in ("etc/init.d", "usr/libexec/lume", "usr/libexec/lume/frontends", "usr/bin")
     for p in (tree / d).glob("*")
     if p.is_file() and p.suffix != ".sh"  # *.sh are libraries (lib.sh, logs.sh)
 )

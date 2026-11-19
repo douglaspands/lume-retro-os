@@ -7,9 +7,9 @@ Motivação em `proposal.md`; requisitos nos deltas `specs/game-launcher` e
 
 Estado atual que o desenho reaproveita:
 
-- **Eventos do Fn**: a change `lume-hud-actions` (D13) faz o `r36os-input` decidir os gestos e
+- **Eventos do Fn**: a change `lume-hud-actions` (D13) faz o `lume-input` decidir os gestos e
   mandar `fn_tap`, `fn_hold <tabela>` e `fn_release` a todos os clientes de
-  `/run/r36os/input.sock`. Com o launcher na tela, o `lume-ui` recebe e ignora esses eventos;
+  `/run/lume/input.sock`. Com o launcher na tela, o `lume-ui` recebe e ignora esses eventos;
   esta change passa a usá-los. **Pré-requisito:** a `lume-hud-actions` mesclada.
 - **Socket no `lume-ui`**: `lume/lume-ui/src/input.rs:293-340` já mantém uma thread que lê o
   socket (`volume`, `brightness`) e manda eventos ao laço principal (`Ev::Volume`,
@@ -20,7 +20,7 @@ Estado atual que o desenho reaproveita:
 - **Desligar hoje**: `SetRow::Power` na lista das Configurações (`app.rs:1067`, `1318`) abre
   `Overlay::Confirm`; confirmado, o `lume-ui` sai com 0 (`main.rs:214`, `_exit` por causa do
   P-71), o `lume-run` sai com 0 (`lume-run/src/main.rs:5`), e o `session`
-  (`aports/lume-core/files/usr/libexec/r36os/session:139-145`) grava (`persist flush`, `sync`)
+  (`aports/lume-core/files/usr/libexec/lume/session:139-145`) grava (`persist flush`, `sync`)
   e chama `poweroff`. Códigos 64 e 65 são do `lume-run` (abrir jogo, menu do RetroArch);
   qualquer outro código conta como falha no `session`.
 - **Ícones do Dock**: `app.rs:1570` pinta o tile com `icon_bg`/`icon_fg` (ou `icon_sel_*` no
@@ -40,11 +40,15 @@ Estado atual que o desenho reaproveita:
 - Cores por console sem trazer logotipo de fabricante na imagem.
 
 **Non-Goals:**
-- Mudar os gestos do Fn ou o `r36os-input` (são da `lume-hud-actions`).
+- Mudar os gestos do Fn ou o `lume-input` (são da `lume-hud-actions`).
 - Um menu do sistema dentro do jogo (é o menu do Lume, da `lume-hud-actions`).
 - Wi-Fi, Bluetooth, tema Lume novo, miniaturas e wallpaper (P-66, P-67, P-13, P-17).
 
 ## Decisions
+
+> **2026-11-18 (decisão do usuário):** D1 a D4 passaram para a change `device-fixes` (D19 de
+> lá), com o Suspender no menu do sistema e o RetroArch fora das Configurações. Ficam aqui só
+> como histórico; esta change implementa D5 (só o Dock com as cores), D6, D7 e D8.
 
 ### D1. Menu do sistema como camada própria no `lume-ui`
 
@@ -158,7 +162,7 @@ As provas da P-70 e da P-71 viram as janelas desta change, com o build que já t
 
 - **J1, GA36**: as telas contra o protótipo (Dock com as cores, grade, busca, menu do jogo,
   opções do console, Configurações sem Desligar, Sistema com a temperatura, menu do sistema,
-  dica), capturas pelo `r36os-shot`; Fn+Vol (teto no nível 7, linha branca à esquerda); a
+  dica), capturas pelo `lume-shot`; Fn+Vol (teto no nível 7, linha branca à esquerda); a
   linha de volume e brilho sobre um jogo do RetroArch; tempo até o primeiro quadro de um jogo;
   Desligar (fecha a P-71 no GA36) e Reiniciar, com o `shutdown OK previous clean` no boot
   seguinte.

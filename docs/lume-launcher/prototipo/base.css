@@ -36,8 +36,24 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 /* bateria horizontal: ícone desenhado com currentColor, na cor do texto principal do tema (branco no escuro) */
 .batt { display: inline-flex; align-items: center; gap: .35em; color: var(--fg); }
 .batt svg { height: .95em; width: auto; display: block; }
+.batt span { font-variant-numeric: tabular-nums; }      /* digits keep their width: the text does not shift when the state changes */
 .net { display: inline-flex; align-items: center; gap: .5em; color: var(--fg); font-weight: 700; }
 .net svg { height: .9em; width: auto; display: block; }
+/* launcher-adjustments 3.1 · clock (P-102): 24 h, drawn in every header; the stage class clk-a|b|c picks the one position.
+   A = in the right group, before the battery; B = first on the left; C = centred (absolute, same y as the header content). */
+.topbar, .ghead { position: relative; }
+.topbar .l { display: flex; gap: .8em; align-items: center; }
+.clk { display: none; color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clk-a .clk.a, .clk-b .clk.b, .clk-c .clk.c { display: inline-flex; }
+.clk:empty { display: none !important; }
+.clk.c { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ghead > .clk { font-size: calc(var(--fs-s) / 1.75); }
+#s-set .ghead > .clk { font-size: calc(var(--fs-s) / 1.4); }
+.clk-c .ghead .hl, .clk-c .ghead .fpath { max-width: calc(50% - 3.2em); }
+.dtgrp { display: flex; align-items: center; justify-content: space-between; margin: .25em 0; }
+.dtv { display: flex; align-items: center; gap: .15em; font-size: 1.5em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fld { padding: .02em .22em; border-radius: var(--radius-item); }
+.fld.sel { background: var(--sel-bg); color: var(--sel-fg); }
 .hints { margin-top: auto; display: flex; gap: 1.2em; justify-content: center; align-items: center; padding: .35em .8em; font-size: var(--fs-s); color: var(--muted); }
 .hints b { display: inline-grid; place-items: center; min-width: 1.45em; height: 1.45em; padding: 0 .25em; border-radius: 50%; background: var(--hint-bg); color: var(--hint-fg); margin-right: .35em; font-size: .85em; }
 
@@ -87,6 +103,7 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 #o-view.on { display: block; }
 #o-view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 #o-view .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: .6em 1em .4em; font-size: var(--fs-s); color: #fff; background: linear-gradient(transparent, #000d); display: flex; justify-content: space-between; gap: 1em; }
+#gcount { padding: 0 1em; text-align: right; font-size: var(--fs-s); line-height: 1.2; color: var(--muted); font-variant-numeric: tabular-nums; }
 #gtitle, #stitle { padding: .15em 1em; text-align: center; font-size: var(--fs-m); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #empty { flex: 1; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 1.5em; font-size: var(--fs-m); }
 
@@ -116,6 +133,23 @@ body { background: #0b0b0f; color: #ddd; font-family: system-ui, sans-serif; dis
 .row { display: flex; justify-content: space-between; flex-wrap: wrap; column-gap: .6em; padding: .12em .3em; border-radius: var(--radius-item); }
 .bar { height: .55em; border-radius: 1em; background: color-mix(in srgb, var(--muted) 30%, transparent); overflow: hidden; margin: .15em 0 .35em; }
 .bar i { display: block; height: 100%; background: var(--accent); }
+/* device-fixes 4.1: Card actions, brightness line on the left edge (no limit dot: dropped by the user, 2026-11-18) */
+.row.act { margin-top: .15em; }
+.row .st { color: var(--muted); }
+.row.sel .st { color: inherit; }
+.row .st.bad { color: #ff8a80; }
+.row.sel .st.bad { color: inherit; }
+#o-edge { position: absolute; left: .7em; top: 50%; transform: translateY(-50%); z-index: 35; display: none; flex-direction: column; align-items: center; gap: .4em; padding: .5em .6em; border-radius: var(--radius-panel); background: var(--panel-bg-opaque); border: var(--panel-border); }
+#o-edge.on { display: flex; }
+#o-edge .en { font-size: var(--fs-s); font-weight: 700; font-variant-numeric: tabular-nums; }
+.etrack { position: relative; width: .7em; height: 12em; border-radius: 1em; background: color-mix(in srgb, var(--muted) 30%, transparent); }
+.etrack i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); border-radius: 1em; }
+/* Fn system menu (D19, 4.1) and the hint shown while Fn is held */
+#o-sys { z-index: 37; }
+#o-sys .sheet.nar { max-width: 20em; width: auto; min-width: 16em; }
+#o-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 36; display: none; flex-direction: column; gap: .35em; padding: .7em 1.1em; border-radius: var(--radius-panel); background: var(--panel-bg-opaque); border: var(--panel-border); font-size: var(--fs-m); white-space: nowrap; }
+#o-hint.on { display: flex; }
+#o-hint b { color: var(--accent); }
 .big { font-size: 1.6em; font-weight: 700; line-height: 1.1; }
 .note { font-size: .9em; color: var(--muted); margin-top: .5em; }
 

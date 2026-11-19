@@ -1,0 +1,28 @@
+From: Lume Retro OS
+Subject: [PATCH] udev joypad: open the pad read-only when it cannot be written
+
+The pads of the consoles are read-only for the games (device-fixes D16,
+P-87): the user that runs the games is in the input group and could inject
+events by writing to an evdev node, so lume-input's virtual gamepad and the
+built-in controls are 0640. Upstream opens every pad with O_RDWR (for the
+force feedback writes) and gives up when that fails, so RetroArch saw no pad
+at all and no game read the buttons.
+
+When O_RDWR fails, try O_RDONLY: the pad works, only the force feedback (a
+write) is lost, and the virtual gamepad has none.
+
+--- a/input/drivers_joypad/udev_joypad.c
++++ b/input/drivers_joypad/udev_joypad.c
+@@ -129,8 +129,12 @@
+    unsigned long evbit[NBITS(EV_MAX)]   = {0};
+    unsigned long keybit[NBITS(KEY_MAX)] = {0};
+    unsigned long absbit[NBITS(ABS_MAX)] = {0};
+    int fd = open(path, O_RDWR | O_NONBLOCK);
+
++   /* Lume: a read-only pad (no write for the games) still works,
++    * without force feedback */
++   if (fd < 0)
++      fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0)
+       return fd;
+

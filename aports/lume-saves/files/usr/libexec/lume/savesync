@@ -1,0 +1,12 @@
+#!/bin/sh
+# Makes sure finished saves and save states are on the card (D7): for every file closed
+# after a write (or moved in) under /storage/saves or /storage/states, runs `sync -f` on it.
+# Waits on inotifyd with no process while nothing changes (watch_tree, game-governor D20).
+# SAVESYNC_LIBEXEC, SAVESYNC_STORAGE and SAVESYNC_MOUNT only change for the tests.
+LIBEXEC=${SAVESYNC_LIBEXEC:-/usr/libexec/lume}
+STORAGE=${SAVESYNC_STORAGE:-/storage}
+. "${SAVESYNC_LIBSH:-$LIBEXEC/lib.sh}"
+mountpoint -q "${SAVESYNC_MOUNT:-$STORAGE}" || exit 0
+mkdir -p "$STORAGE/saves" "$STORAGE/states"
+WATCH_NAME=savesync
+watch_tree "$LIBEXEC/savesync-event" wyn "$STORAGE/saves" "$STORAGE/states"

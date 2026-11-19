@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# sync -f em cada save e save state concluído em /storage/saves e /storage/states.
+
+description="Save and state synchronization"
+command=/usr/libexec/lume/savesync
+command_background=yes
+pidfile=/run/lume-savesync.pid
+
+depend() {
+	need localmount
+	before frontend
+}

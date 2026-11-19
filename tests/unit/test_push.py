@@ -1,4 +1,4 @@
-"""usb-device-access task 5.2: `r36os push` against a fake console that answers the ssh
+"""usb-device-access task 5.2: `lume push` against a fake console that answers the ssh
 commands, keeps BOOT, the staging folder on ROMS and the GA36 boot sector, and records the
 order of the steps."""
 
@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from r36os import cli, push
+from lume_tool import cli, push
 
 BUILD = "20261114-100000"
 
@@ -52,7 +52,7 @@ class FakeConsole:
                  gone_after=1, back_after=40, boot_ok_after=50, booted_build=None,
                  send_seconds=30, loops=None, cut_at=None, damaged_on_boot=None):
         self.clock = clock or Clock()
-        self.fragments = None           # name -> version of the lume-*/r36os-* apk packages
+        self.fragments = None           # name -> version of the lume-* apk packages
         self.boot_n, self.rebooted_at = boot_n, None
         self.gone_after, self.back_after = gone_after, back_after
         self.boot_ok_after, self.booted_build = boot_ok_after, booted_build
@@ -80,7 +80,7 @@ class FakeConsole:
 
     # --- the initramfs (initramfs/lib/slots.sh): SLOTS, else SLOTS.old, else SYSTEM ---
     def usable_set(self, path):
-        from r36os import manifests
+        from lume_tool import manifests
         c = path.split("/")[0]
         if path not in self.boot:
             return None
@@ -126,7 +126,7 @@ class FakeConsole:
         on_boot = self.usable_set(f"{board}/SLOTS")
         head = f"{board}\n{on_boot.build if on_boot else '-'}\n"
         if f"{board}/SLOTS" in self.boot and on_boot is None:
-            from r36os import manifests
+            from lume_tool import manifests
             try:
                 head = (f"{board}\n"
                         f"{manifests.parse_slots(self.boot[f'{board}/SLOTS'].decode()).build}\n")
@@ -283,8 +283,8 @@ class FakeConsole:
 
 @pytest.fixture
 def build(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     d = tmp_path / "out/images/console" / BUILD
     d.mkdir(parents=True)
     order = [p for p in sorted(NEW) if p != "VERSION"] + ["VERSION"]
@@ -456,6 +456,19 @@ def test_swap_commands_keep_only_the_running_files_as_old(build, tmp_path):
     assert "r36s/SYSTEM.old" not in c.boot
 
 
+def test_probe_build_line_is_always_one_line(tmp_path):
+    # GA36, 2026-11-19: a FAT repair left /boot/VERSION empty; the build line printed nothing,
+    # every later line moved up one and the push died on int('/dev/mmcblk0')
+    import subprocess
+    line = push._PROBE.strip().splitlines()[0].replace("/boot/VERSION", str(tmp_path / "VERSION"))
+    for text, want in (("", "-"), ("Lume\nbuild: 20261119-164004\n", "20261119-164004")):
+        (tmp_path / "VERSION").write_text(text)
+        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True).stdout
+        assert out == f"{want}\n"
+    (tmp_path / "VERSION").unlink()
+    assert subprocess.run(["sh", "-c", line], capture_output=True, text=True).stdout == "-\n"
+
+
 def test_old_files_of_an_earlier_push_are_ignored_and_deleted(build, tmp_path):
     # push-boot-swap D2: after the reboot nothing holds the .old open; it is not compared
     # with the build nor sent, and it goes before the copy
@@ -496,7 +509,7 @@ def test_lost_clusters_are_warned_and_the_push_goes_on(build, tmp_path, lost, wa
         assert len(warnings) == 1
         assert "290 MiB in lost clusters" in warnings[0]
         assert "fsck.vfat -a" in warnings[0] and "FSCK*.REC" in warnings[0]
-        assert "r36os flash --update" in warnings[0]
+        assert "lume flash --update" in warnings[0]
     else:
         assert not warnings
 
@@ -722,9 +735,9 @@ def test_ssh_drops_a_dead_connection_and_a_hung_probe_is_no_answer(monkeypatch):
 # --- push --hot (build-speed D11, task 5.1) -------------------------------------------------
 
 HOT_VERSION = "1.0-r3"
-HOT_FILES = {"usr/libexec/r36os/session": b"#!/bin/sh\necho new session\n",
+HOT_FILES = {"usr/libexec/lume/session": b"#!/bin/sh\necho new session\n",
              "etc/init.d/frontend": b"#!/sbin/openrc-run\n",
-             "etc/init.d/r36os-logd": b"#!/sbin/openrc-run\n"}
+             "etc/init.d/lume-logd": b"#!/sbin/openrc-run\n"}
 
 
 class FakeHotConsole:
@@ -732,7 +745,7 @@ class FakeHotConsole:
     service restarts; records every command in order."""
 
     def __init__(self, machine="armv7l", overlay=True, ram_free=20 << 20,
-                 running=("frontend", "r36os-logd"), failing=()):
+                 running=("frontend", "lume-logd"), failing=()):
         self.machine, self.overlay, self.ram_free = machine, overlay, ram_free
         self.running, self.failing = set(running), set(failing)
         self.cmds = []
@@ -761,11 +774,11 @@ class FakeHotConsole:
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     """out/repo/<arch>/ with lume-core published (noarch: the same file in every arch)."""
-    from r36os import manifests
+    from lume_tool import manifests
     from tests.unit.test_fragments import make_apk
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     for arch in ("armv7", "aarch64", "x86_64"):
         d = tmp_path / "out/repo" / arch
         name = f"lume-core-{HOT_VERSION}.apk"
@@ -776,7 +789,7 @@ def repo(tmp_path, monkeypatch):
 
 
 def hot(console, tmp_path, fragment="lume-core", aports=None):
-    from r36os import push_hot
+    from lume_tool import push_hot
 
     lines = []
     rc = push_hot.push_hot(fragment, console, out=lines.append,
@@ -795,12 +808,12 @@ def test_hot_extracts_the_files_logs_the_event_and_restarts_the_services(repo, t
     assert all(not pax for _, pax in console.root.values())
     probe, extract, event, restart = console.cmds
     assert extract == "tar -xf - -C /"
-    assert event == (". /usr/libexec/r36os/lib.sh && . /usr/libexec/r36os/logs.sh && "
+    assert event == (". /usr/libexec/lume/lib.sh && . /usr/libexec/lume/logs.sh && "
                      f"event push OK hot lume-core {HOT_VERSION} && {{ logs_flush; true; }}")
-    assert restart.startswith("for s in frontend r36os-logd; do")
+    assert restart.startswith("for s in frontend lume-logd; do")
     assert f"event:   push OK hot lume-core {HOT_VERSION}" in lines
     assert any("restarts the launcher session" in ln for ln in lines)
-    assert "restart: frontend" in lines and "restart: r36os-logd" in lines
+    assert "restart: frontend" in lines and "restart: lume-logd" in lines
     assert lines[-1] == f"ok: lume-core {HOT_VERSION} is live until the next reboot"
     # nothing touches BOOT, the card's SYSTEM or apk
     assert not any("/boot" in c or "apk add" in c or "reboot" in c for c in console.cmds)
@@ -817,19 +830,19 @@ def test_hot_restarts_what_lume_restart_lists_and_leaves_stopped_services(repo, 
     aports = tmp_path / "aports"
     (aports / "lume-core").mkdir(parents=True)
     (aports / "lume-core/APKBUILD").write_text(
-        'pkgname=lume-core\n_lume_restart="r36os-logd lume-extra"\n')
-    console = FakeHotConsole(running=("r36os-logd",))
+        'pkgname=lume-core\n_lume_restart="lume-logd lume-extra"\n')
+    console = FakeHotConsole(running=("lume-logd",))
     rc, lines = hot(console, tmp_path, aports=aports)
-    assert rc == 0 and console.cmds[-1].startswith("for s in r36os-logd lume-extra; do")
+    assert rc == 0 and console.cmds[-1].startswith("for s in lume-logd lume-extra; do")
     assert "restart: lume-extra not running, left stopped" in lines
     assert not any("launcher session" in ln for ln in lines)
 
 
 def test_hot_reports_a_failed_restart_with_a_fail_event(repo, tmp_path):
-    console = FakeHotConsole(failing=("r36os-logd",))
-    with pytest.raises(push.PushError, match="restart of r36os-logd failed"):
+    console = FakeHotConsole(failing=("lume-logd",))
+    with pytest.raises(push.PushError, match="restart of lume-logd failed"):
         hot(console, tmp_path)
-    assert f"event push FAIL hot lume-core {HOT_VERSION} restart r36os-logd" in console.cmds[-1]
+    assert f"event push FAIL hot lume-core {HOT_VERSION} restart lume-logd" in console.cmds[-1]
 
 
 @pytest.mark.parametrize("fragment,why", [
@@ -843,11 +856,11 @@ def test_hot_refuses_kernel_modules_and_foreign_packages_before_ssh(fragment, wh
     console = FakeHotConsole()
     with pytest.raises(push.PushError, match=why) as e:
         hot(console, tmp_path, fragment)
-    assert "r36os push" in str(e.value) and console.cmds == []
+    assert "lume push" in str(e.value) and console.cmds == []
 
 
 def test_hot_refuses_the_base_slot(tmp_path, monkeypatch):
-    from r36os import push_hot
+    from lume_tool import push_hot
 
     slots = tmp_path / "slots.toml"
     slots.write_text('[base]\npackages = ["lume-base-files"]\n')
@@ -860,7 +873,7 @@ def test_hot_refuses_the_base_slot(tmp_path, monkeypatch):
 
 
 def test_hot_refuses_a_fragment_that_ships_boot_files(repo, tmp_path):
-    from r36os import manifests
+    from lume_tool import manifests
     from tests.unit.test_fragments import make_apk
 
     name = "lume-odd-1.0-r0.apk"
@@ -895,7 +908,7 @@ def test_hot_checks_the_room_of_the_ram_layer_before_writing(repo, tmp_path):
 def test_hot_reads_the_ram_layer_free_space_from_the_root(repo, tmp_path):
     # /rw lives in the initramfs and is gone after switch_root: `df /` reports the overlay's
     # upper layer (GA36, 2026-11-17)
-    from r36os import push_hot
+    from lume_tool import push_hot
 
     assert "df -Pk / " in push_hot._PROBE and "df -Pk /rw" not in push_hot._PROBE
 
@@ -929,7 +942,7 @@ B, C, D = "20261117-100000", "20261117-110000", "20261117-120000"
 
 def slot_set(console, build_id, contents):
     """BOOT path -> bytes of a console's set: <console>/SLOTS and its slot files."""
-    from r36os import manifests
+    from lume_tool import manifests
 
     ss = manifests.SlotSet(build=build_id, console=console, slots=tuple(
         manifests.Slot(name=n, sha256=sha(d), size=len(d)) for n, d in contents.items()))
@@ -961,8 +974,8 @@ def slot_file_of(files, console, name):
 @pytest.fixture
 def builds(tmp_path, monkeypatch):
     """Builds B, C (GA36 lume changed) and D (changed again) archived with their objects."""
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     objects = tmp_path / "out/images/objects"
     objects.mkdir(parents=True)
     made = {B: slot_boot(B), C: slot_boot(C, ga=contents("ga36", lume="ga36 lume C")),
@@ -1058,7 +1071,7 @@ def test_running_system_is_kept_when_the_slots_did_not_mount(builds):
     assert "ga36/SYSTEM" in c.boot and "ga36/modules" in c.boot
     assert "r36s/SYSTEM" not in c.boot and "r36s/modules" not in c.boot
     assert "note: ga36/SYSTEM kept: the console runs from it (its slot set did not mount, " \
-        "see `r36os dev log`)" in out
+        "see `lume dev log`)" in out
 
 
 def test_normal_push_of_a_changed_slot_cleans_the_set_before_the_previous(builds):
@@ -1260,13 +1273,13 @@ def test_a_push_whose_console_fell_back_to_slots_old_fails(builds):
 # --- fragment versions after the boot (build-speed task 8.2) ---------------------------------
 
 E = "20261117-130000"
-SENT = {"lume-core": "1.0-r5", "lume-diag": "1.0-r2", "r36os-logd": "1.0-r1"}
+SENT = {"lume-core": "1.0-r5", "lume-diag": "1.0-r2", "lume-logd": "1.0-r1"}
 
 
 def build_with_packages(tmp_path):
     """Build E archived with its objects; the GA36 lume slot carries the fragments SENT (and
     a package that is not a fragment)."""
-    from r36os import manifests
+    from lume_tool import manifests
 
     files = slot_boot(E)
     lume = b"ga36 lume E"
@@ -1302,7 +1315,7 @@ def test_fragment_mismatches_name_both_versions():
     assert got == ["the console runs lume-core 1.0-r4, the push sent 1.0-r5"]
     got = push.fragment_mismatches(SENT, {"lume-core": "1.0-r5"})
     assert got == ["the console has no lume-diag, the push sent 1.0-r2",
-                   "the console has no r36os-logd, the push sent 1.0-r1"]
+                   "the console has no lume-logd, the push sent 1.0-r1"]
 
 
 def test_push_confirms_the_fragments_installed_after_the_boot(builds, tmp_path):
@@ -1385,7 +1398,7 @@ def test_dry_run_of_the_running_build_has_nothing_to_send(builds):
 
 
 def test_package_changes_by_slot():
-    from r36os import manifests
+    from lume_tool import manifests
 
     def ss(lume, runtime):
         return manifests.SlotSet(build=B, console="ga36", slots=(
@@ -1402,6 +1415,6 @@ def test_package_changes_by_slot():
 
 
 def test_cli_dry_run_is_not_for_hot():
-    from r36os import cli
+    from lume_tool import cli
 
     assert cli.main(["push", "--hot", "lume-core", "--dry-run"]) == 2

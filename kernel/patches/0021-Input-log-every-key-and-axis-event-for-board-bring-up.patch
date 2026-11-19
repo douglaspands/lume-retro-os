@@ -7,7 +7,7 @@ BRING-UP ONLY, not for a product: drop it once the R36S V5 gamepad works.
 
 On the R36S V5 no button, stick or volume key reaches RetroArch, and the
 path has three steps: the drivers (gpio-keys, adc-joystick), the user
-space merger r36os-padmerge (which grabs both and feeds a uinput device)
+space merger lume-padmerge (which grabs both and feeds a uinput device)
 and RetroArch. The old evbug handler is gone from mainline, and a handler
 would not see the events of a grabbed device anyway.
 

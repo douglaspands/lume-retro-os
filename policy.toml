@@ -67,6 +67,16 @@ allow = [
     # commits on the feature branch without a prompt (user, 2026-11-15); push still asks
     "git add",
     "git commit",
+    # steps of the console and vm recipes below (user, 2026-11-17: option 2, recipes instead
+    # of allowing any script): reading the screen, pressing buttons, the test scripts and a
+    # checked copy; `lume dev sh` (any command as root on the console) still asks
+    ".venv/bin/lume dev shot",
+    ".venv/bin/lume dev keys",
+    ".venv/bin/lume dev run",
+    ".venv/bin/lume dev wait",
+    ".venv/bin/lume dev log",
+    # only reached by an rm that rm_free exempted from the ask below (inside ./cache/)
+    "rm",
 ]
 
 # "Ask forte": operações sensíveis que sempre exigem confirmação explícita do usuário
@@ -94,6 +104,11 @@ ask = [
     "systemctl enable",
     "systemctl disable",
 ]
+
+# Pastas de rascunho onde `rm` não pergunta (pedido do usuário, 2026-11-18): todo alvo do rm
+# precisa ficar dentro delas, nunca a própria pasta (`..` e links resolvidos). Só ./cache/
+# (rascunho do projeto, fora do git); a ./.cache/ do build continua perguntando.
+rm_free = ["cache"]
 
 # Wrappers que ocultam o comando real (sempre ask forte)
 wrappers = ["env", "xargs", "sh", "bash", "zsh", "nohup", "timeout", "nice", "exec", "eval", "command", "busybox"]
@@ -267,7 +282,7 @@ reason = "Volumes pesados e bancos de dados devem consultar o usuário para uso 
 # max_file_kb = 4096
 
 # Reference material for the R36S/GA36 bring-up (outside git). The patched kernel tree is
-# .cache/src/linux-<version>-<patches digest> (the build cache, ignored by git); `r36os clean`
+# .cache/src/linux-<version>-<patches digest> (the build cache, ignored by git); `lume clean`
 # removes old trees, so the wildcard matches a single tree. Only the display/DSI/PHY drivers and the Rockchip
 # PX30/RK3326 device trees are indexed, never var/ (test ROMs).
 [index.reference]
@@ -381,6 +396,49 @@ base_url = "https://raw.githubusercontent.com/libretro/RetroArch/{version}/{path
 # description = "o que a receita faz"
 # params = ["alvo"]
 # steps = ["git status -s -b", "rg -n {alvo} src"]
+
+# Console over the USB cable and the test vm (user, 2026-11-17). Steps: .venv/bin/python
+# (allowed) running the versioned helpers of scripts/dev/, and the `lume dev` actions allowed
+# above. Paths with spaces do not fit a step: copy them to the workspace first.
+[recipes.console-put]
+description = "Copia um arquivo para o console pelo cabo, faz sync e confere o sha256 (remoto: console:/caminho)"
+params = ["local", "remoto"]
+steps = [".venv/bin/python scripts/dev/put.py {local} {remoto}"]
+
+[recipes.vm-put]
+description = "Copia um arquivo para a vm (ssh 127.0.0.1:2222), faz sync e confere o sha256 (remoto: console:/caminho)"
+params = ["local", "remoto"]
+steps = [".venv/bin/python scripts/dev/put.py {local} {remoto} 127.0.0.1:2222"]
+
+[recipes.console-shot]
+description = "Captura a tela do console pelo cabo num PNG"
+params = ["saida"]
+steps = [".venv/bin/lume dev shot {saida}"]
+
+[recipes.console-keys]
+description = "Aperta botões do console pelo cabo (ex.: fn+start, a,down*3)"
+params = ["teclas"]
+steps = [".venv/bin/lume dev keys {teclas}"]
+
+[recipes.console-run]
+description = "Roda um roteiro de teste do console (tests/device/scripts/<nome>.toml ou caminho)"
+params = ["roteiro"]
+steps = [".venv/bin/lume dev run {roteiro}"]
+
+[recipes.vm-shot]
+description = "Captura a tela da vm pelo QMP em cache/tmp/shots/vm/<nome>.png"
+params = ["nome"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py shot {nome}"]
+
+[recipes.vm-keys]
+description = "Aperta teclas juntas na vm pelo QMP (qcodes: f1, f1+w, down, x, z, ret)"
+params = ["teclas"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py keys {teclas}"]
+
+[recipes.vm-holdshot]
+description = "Segura uma tecla 3 s na vm e captura a tela no meio (a dica do Fn)"
+params = ["nome", "tecla"]
+steps = [".venv/bin/python scripts/dev/vm_qmp.py holdshot {nome} {tecla}"]
 
 # ctx:section metrics
 # [metrics]

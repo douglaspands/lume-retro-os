@@ -1,0 +1,15 @@
+#!/bin/sh
+# Correct the clock by NTP when a network comes up (device-fixes D15). Optional: lume-clock
+# does nothing when the image has no ntpd, and an unreachable server leaves the clock as it is.
+# $1 interface, $2 action. The cable network (usb0) has no internet and is skipped.
+case "$2" in
+up | dhcp4-change) ;;
+*) exit 0 ;;
+esac
+case "$1" in
+lo | usb*) exit 0 ;;
+esac
+[ -x /usr/bin/lume-clock ] || exit 0
+# in the background: the dispatcher must not wait for the network round trip
+/usr/bin/lume-clock ntp >/dev/null 2>&1 &
+exit 0

@@ -3,12 +3,12 @@
 import re
 import subprocess
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
-CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/retroarch-lume.cfg").read_text()
+CFG = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-lume.cfg").read_text()
 
 
-FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os/factory/retroarch/retroarch.cfg").read_text()
+FACTORY = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/factory/retroarch/retroarch.cfg").read_text()
 
 
 def _keys(text):
@@ -45,6 +45,21 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
         "wifi_driver", "bluetooth_driver",
         # the launcher has its own recents (lume-launcher 15.1)
         "history_list_enable", "content_runtime_log", "content_runtime_log_aggregate",
+        # the pictures of the save states and of Fn+Y (lume-hud-actions D5, D9)
+        "savestate_thumbnail_enable", "video_gpu_screenshot", "auto_screenshot_filename",
+        # V-Sync on at every start (user, 2026-11-17; P-25, P-91)
+        "video_vsync",
+        # RetroArch's own pop-ups stay off: the console speaks through Lume (device-fixes 9.8)
+        "notification_show_autoconfig", "notification_show_autoconfig_fails",
+        "notification_show_cheats_applied", "notification_show_patch_applied",
+        "notification_show_remap_load", "notification_show_config_override_load",
+        "notification_show_set_initial_disk", "notification_show_disk_control",
+        "notification_show_save_state", "notification_show_fast_forward",
+        "notification_show_screenshot", "notification_show_refresh_rate",
+        "notification_show_netplay_extra",
+        # a game of the launcher keeps the menu in the Quick Menu (patch 0013), and "Close
+        # Content" there ends RetroArch, back to the game list (device-fixes 9.9; P-101 unlocks)
+        "lume_menu_lock", "quit_on_close_content",
     }
     assert _keys(CFG) == fixed
     # a key is either fixed or a user default, never both
@@ -54,14 +69,14 @@ def test_fixed_config_holds_only_what_keeps_the_system_working():
 def test_only_the_installed_cores_info_files_are_read():
     # 15.1: RetroArch reads every info file on each start; the image keeps only the ones of
     # the installed cores and points RetroArch there
-    assert 'libretro_info_path = "/usr/share/r36os/libretro-info"' in CFG
+    assert 'libretro_info_path = "/usr/share/lume/libretro-info"' in CFG
     configure = (REPO_ROOT / "rootfs/configure.sh").read_text()
     assert "for so in /usr/lib/libretro/*_libretro.so; do" in configure
-    assert "cp \"$info\" /usr/share/r36os/libretro-info/" in configure
+    assert "cp \"$info\" /usr/share/lume/libretro-info/" in configure
 
 
 def test_user_tunable_defaults_are_in_the_factory_config():
-    for key in ("menu_driver", "menu_pause_libretro", "video_vsync", "video_threaded",
+    for key in ("menu_driver", "menu_pause_libretro", "video_threaded",
                 "input_player1_b", "input_player1_a", "input_menu_toggle"):
         assert key in _keys(FACTORY), key
         assert key not in _keys(CFG), key
@@ -134,23 +149,33 @@ def test_no_quit_combo_and_menu_pauses():
     # shutting down asks for confirmation by default (patch 0002: the menu item has to be
     # selected twice); the self-test turns it off for itself because it quits with QUIT
     assert 'quit_press_twice = "true"' in CFG
-    selftest_init = (REPO_ROOT / "aports/lume-diag/files/etc/init.d/r36os-selftest").read_text()
+    selftest_init = (REPO_ROOT / "aports/lume-diag/files/etc/init.d/lume-selftest").read_text()
     assert 'quit_press_twice = \\"false\\"' in selftest_init or 'quit_press_twice = "false"' in selftest_init
 
 
-SHARE = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/r36os"
-FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch"
+SHARE = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume"
+FRONTEND = REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/frontends/retroarch"
 
 
 def test_volume_buttons_belong_to_the_input_daemon():
-    # lume-launcher D8: r36os-input grabs KEY_VOLUMEUP/DOWN and changes the system mixer in
+    # lume-launcher D8: lume-input grabs KEY_VOLUMEUP/DOWN and changes the system mixer in
     # any program, so RetroArch has no volume binding of the distro (fixed or factory)
     assert "input_volume" not in _keys(FACTORY)
     assert "input_volume" not in CFG
-    # the menu still opens from Fn through the autoconfig (BTN_MODE), on both consoles
+    # lume-hud-actions D9: the Fn never reaches RetroArch (lume-input keeps it as the system
+    # button), so no autoconfig binds the menu to it; Start + Select is the game's
     for pad in ("R36S Gamepad.cfg", "GA36-MB Gamepad.cfg"):
         auto = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/libretro/autoconfig/udev" / pad).read_text()
-        assert re.search(r'^input_menu_toggle_btn = "\d+"$', auto, re.M), pad
+        assert "input_menu_toggle_btn" not in auto, pad
+    assert 'input_menu_toggle_gamepad_combo = "0"' in CFG
+
+
+def test_pictures_of_states_and_screenshots_are_fixed():
+    # lume-hud-actions D5, D9: a picture with every save state (not only on new cards), and
+    # Fn+Y saves the core's picture (no widgets) under a dated name
+    for line in ('savestate_thumbnail_enable = "true"', 'video_gpu_screenshot = "false"',
+                 'auto_screenshot_filename = "true"', 'screenshot_directory = "/storage/screenshots"'):
+        assert line in CFG, line
 
 
 def test_ga36_has_no_keyboard_enable_hotkey():
@@ -158,8 +183,12 @@ def test_ga36_has_no_keyboard_enable_hotkey():
     # keyboard keys) until it is held; the GA36 has no keyboard. The VM keeps right Shift.
     assert 'input_enable_hotkey = "rshift"' in CFG
     ga36 = (SHARE / "retroarch-ga36.cfg").read_text()
-    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey", "video_refresh_rate"]
+    assert re.findall(r"^(\w+) = ", ga36, re.M) == ["input_enable_hotkey", "video_refresh_rate",
+                                                    "video_threaded"]
     assert 'input_enable_hotkey = "nul"' in ga36
+    # P-93: on the 55.69 Hz panel the video thread brings the page flips from 42-48 to 54-55
+    assert 'video_threaded = "true"' in ga36
+    assert 'video_threaded = "true"' in (SHARE / "retroarch-r36s.cfg").read_text()
     assert not (SHARE / "retroarch-vm.cfg").exists()
 
 
@@ -213,7 +242,7 @@ echo "$@"
 echo "defaults=$LUME_RETROARCH_DEFAULTS"
 echo "quit=$LUME_RETROARCH_QUIT"
 cfg=$(echo "$@" | sed 's/.*--config \\([^ ]*\\).*/\\1/')
-grep -E '^(aspect_ratio_index|state_slot) ' "$cfg" | sed 's/^/during: /'
+grep -E '^(aspect_ratio_index|state_slot|video_threaded|content_show_settings|menu_show_load_core) ' "$cfg" | sed 's/^/during: /'
 # what RetroArch does with -e: the slot becomes the current one, saved with the config
 case " $* " in *" -e "*) echo 'state_slot = "3"' >> "$cfg" ;; esac
 [ -n "$FAKE_DIE" ] && kill -KILL $PPID
@@ -243,8 +272,8 @@ def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: s
     if extra is not None:
         extra_file.write_text(extra)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
-           "BOARD_FILE": str(board_file), "R36OS_SHARE": str(SHARE),
-           "R36OS_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
+           "BOARD_FILE": str(board_file), "LUME_SHARE": str(SHARE),
+           "LUME_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
            **(env_extra or {})}
     r = subprocess.run(["sh", str(FRONTEND), *args], env=env, capture_output=True, text=True,
                        check=check)
@@ -325,11 +354,78 @@ def test_run_only_keys_go_back_after_a_kill(tmp_path):
     user = 'aspect_ratio_index = "22"\nstate_slot = "1"\n'
     _frontend(tmp_path, "ga36", user, args=RUN_ARGS, env_extra={"FAKE_DIE": "1"}, check=False)
     restore = (tmp_path / "card/restore.cfg").read_text().splitlines()
-    assert restore == ['aspect_ratio_index = "22"', 'state_slot = "1"']
+    # then the keys every game hides (retroarch-core.keys "*"), which this user never set
+    assert restore[:2] == ['aspect_ratio_index = "22"', 'state_slot = "1"']
+    assert restore[2:] == [f"#unset {k}" for k in MENU_LOCK_HIDDEN]
     out, cfg, _ = _frontend(tmp_path, "ga36")
     assert 'during: aspect_ratio_index = "22"' in out and 'during: state_slot = "1"' in out
     assert cfg.count("aspect_ratio_index") == 1 and cfg.count("state_slot") == 1
     assert not (tmp_path / "card/restore.cfg").exists()
+
+
+def test_core_keys_count_for_that_core_only_and_go_back(tmp_path):
+    # retroarch-core.keys (game-governor, 2026-11-18): the PlayStation core keeps the video
+    # in the main thread (a crash after a resolution change with the video thread)
+    psx = ("-L", "/usr/lib/libretro/pcsx_rearmed_libretro.so", "/storage/roms/psx/x.chd")
+    out, cfg, _ = _frontend(tmp_path, "ga36", "", args=psx)
+    assert 'during: video_threaded = "false"' in out
+    assert 'video_threaded = "true"' in cfg.splitlines()         # the board's value comes back
+    assert not (tmp_path / "card/restore.cfg").exists()
+    snes = ("-L", "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/x.sfc")
+    out, cfg, _ = _frontend(tmp_path, "ga36", "", args=snes)
+    assert 'during: video_threaded = "true"' in out
+    keys = (SHARE / "retroarch-core.keys").read_text()
+    assert "pcsx_rearmed video_threaded=false" in keys
+    assert not any(ord(c) > 127 for c in keys)
+
+
+MENU_LOCK_HIDDEN = {
+    "menu_show_load_core": "false", "menu_show_load_content": "false",
+    "menu_show_online_updater": "false", "menu_show_information": "false",
+    "menu_show_configurations": "false", "menu_show_help": "false",
+    "menu_show_restart_retroarch": "false", "menu_show_quit_retroarch": "false",
+    "content_show_settings": "false", "content_show_history": "false",
+    "content_show_favorites": "false", "content_show_images": "false",
+    "content_show_music": "false", "content_show_video": "false",
+    "content_show_netplay": "false", "content_show_add_entry": "0",
+    "content_show_explore": "false", "content_show_contentless_cores": "0",
+    "content_show_playlists": "false", "content_show_playlist_tabs": "false",
+}
+
+
+def test_game_menu_is_locked_to_the_quick_menu():
+    # device-fixes 9.9 (the user, 2026-11-18): during a game only the Quick Menu (patch 0013),
+    # and its "Close Content" ends RetroArch when the game came on the command line (2 = CLI)
+    assert 'lume_menu_lock = "true"' in CFG
+    assert 'quit_on_close_content = "2"' in CFG
+    # the second barrier: every game run hides the main-menu items and the sidebar tabs
+    keys = (SHARE / "retroarch-core.keys").read_text()
+    every = dict(kv.split("=", 1) for kv in re.findall(r"^\* (\S+)$", keys, re.M))
+    assert every == MENU_LOCK_HIDDEN
+    # user settings stay out of the fixed and factory configs (the menu without a game)
+    assert not set(MENU_LOCK_HIDDEN) & (_keys(CFG) | _keys(FACTORY))
+
+
+def test_game_runs_hide_the_main_menu_and_the_menu_alone_keeps_it(tmp_path):
+    # the "*" keys count for a game run (-L) and the user's values come back after it
+    game = ("-L", "/usr/lib/libretro/snes9x2005_plus_libretro.so", "/storage/roms/snes/x.sfc")
+    out, cfg, _ = _frontend(tmp_path, "ga36", 'content_show_settings = "true"\n', args=game,
+                            env_extra={"LUME_LAUNCHER": "1"})
+    assert 'during: content_show_settings = "false"' in out
+    assert 'during: menu_show_load_core = "false"' in out
+    lines = cfg.splitlines()
+    assert 'content_show_settings = "true"' in lines
+    assert not [line for line in lines if line.startswith("menu_show_load_core")]
+    assert not (tmp_path / "card/restore.cfg").exists()
+    # launcher Settings > RetroArch menu: no -L, nothing hidden
+    out, cfg, _ = _frontend(tmp_path, "ga36", env_extra={"LUME_LAUNCHER": "1"})
+    assert 'during: content_show_settings = "true"' in out
+    assert "menu_show_load_core" not in out
+    # a core of its own keeps its keys along with the "*" ones
+    psx = ("-L", "/usr/lib/libretro/pcsx_rearmed_libretro.so", "/storage/roms/psx/x.chd")
+    out, _, _ = _frontend(tmp_path, "ga36", args=psx)
+    assert 'during: video_threaded = "false"' in out
+    assert 'during: content_show_settings = "false"' in out
 
 
 def test_without_launcher_keys_nothing_changes(tmp_path):
@@ -339,6 +435,28 @@ def test_without_launcher_keys_nothing_changes(tmp_path):
     # opened by the launcher: RetroArch is told that quitting goes back to it (patch 0010)
     out, _, _ = _frontend(tmp_path, "ga36", env_extra={"LUME_LAUNCHER": "1"})
     assert "quit=launcher" in out.splitlines()
+
+
+def test_start_select_opens_the_menu_only_as_the_reserve_frontend(tmp_path):
+    # lume-hud-actions D9: under the launcher Start + Select is the game's (lume-run opens the
+    # menu with Fn+B); as the reserve frontend nothing else could open it in a game
+    _, cfg, _ = _frontend(tmp_path, "ga36", "", env_extra={"LUME_LAUNCHER": "1"})
+    assert 'input_menu_toggle_gamepad_combo = "0"' in cfg.splitlines()
+    _, cfg, _ = _frontend(tmp_path, "ga36")
+    lines = cfg.splitlines()
+    assert 'input_menu_toggle_gamepad_combo = "4"' in lines
+    assert sum(1 for line in lines if line.startswith("input_menu_toggle_gamepad_combo")) == 1
+
+
+def test_no_retroarch_screens_around_a_game_of_the_launcher(tmp_path):
+    # the user (2026-11-17): no load animation with the system and the game name, no "press
+    # again to quit"; lume-run sends one QUIT. The reserve frontend keeps the confirmation
+    _, cfg, _ = _frontend(tmp_path, "ga36", "", env_extra={"LUME_LAUNCHER": "1"})
+    lines = cfg.splitlines()
+    assert 'menu_show_load_content_animation = "false"' in lines
+    assert 'quit_press_twice = "false"' in lines and 'quit_press_twice = "true"' not in lines
+    _, cfg, _ = _frontend(tmp_path, "ga36")
+    assert 'quit_press_twice = "true"' in cfg.splitlines()
 
 
 def test_menu_has_no_transparency():

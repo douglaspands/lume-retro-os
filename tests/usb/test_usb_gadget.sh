@@ -5,7 +5,7 @@
 # rmdir and umtprd that log what they are asked to do.
 set -u
 cd "$(dirname "$0")/../.."
-GADGET_SH="busybox sh aports/lume-usb/files/usr/libexec/r36os/usb-gadget"
+GADGET_SH="busybox sh aports/lume-usb/files/usr/libexec/lume/usb-gadget"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -69,7 +69,7 @@ export BOARD_FILE="$W/board" CONFIGFS="$W/cfg" UDC_CLASS="$W/udc" FFS_DIR="$W/ff
 	UMTPRD="$W/bin/umtprd" UMTPRD_CONF="$W/umtprd.conf" USB_RUN="$W/run" \
 	SOC0_DIR="$W/soc0" MMC_DEVICE="$W/mmc" GAME_UID=1000 GAME_GID=1000 \
 	MOUNT="$W/bin/mount" UMOUNT="$W/bin/umount" MOUNTPOINT="$W/bin/mountpoint" \
-	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/r36os" \
+	RMDIR="$W/bin/rmdir" KMSG="$W/kmsg" USB_LIBDIR="$PWD/aports/lume-core/files/usr/libexec/lume" \
 	LOGS_RAM="$W/logs" NET_CLASS="$W/net" IP="$W/bin/ip" UDHCPD="$W/bin/udhcpd" \
 	DROPBEAR="$W/bin/dropbear"
 EV="$W/logs/events.pending"
@@ -98,7 +98,7 @@ check "start: then the gadget is bound to the UDC" '[ "$(cat $G/UDC)" = musb-hdr
 check "start: logged in English" 'printf "%s\n" "$out" | grep -qx "usb: gadget \"Lume GA36\" bound to musb-hdrc.2.auto (MTP, NCM), serial 0x1a2b3c4d"'
 pid=$(cat "$W/run/umtprd.pid")
 check "start: umtprd keeps running" 'kill -0 "$pid" 2>/dev/null'
-check "start: umtprd output reaches the kernel log and umtprd.log" 'grep -qx "r36os-usb: umtprd: \[uMTPrd - Info\] uMTP Responder" $W/kmsg && grep -q "uMTP Responder" $W/run/umtprd.log'
+check "start: umtprd output reaches the kernel log and umtprd.log" 'grep -qx "lume-usb: umtprd: \[uMTPrd - Info\] uMTP Responder" $W/kmsg && grep -q "uMTP Responder" $W/run/umtprd.log'
 
 ### umtprd configuration (3.3): only ROMS, with the frontend user, FunctionFS endpoints
 C="$W/umtprd.conf"
@@ -123,7 +123,7 @@ check "stop: a second stop is harmless" '[ $rc = 0 ]'
 out=$(UMTPRD="$W/bin/umtprd-broken" READY_TRIES=5 $GADGET_SH start); rc=$?
 check "broken umtprd: start fails and says why" '[ $rc = 1 ] && printf "%s\n" "$out" | grep -q "^usb: ERROR: umtprd exited before writing its descriptors"'
 check "broken umtprd: its own error reaches the log" 'printf "%s\n" "$out" | grep -qx "usb: umtprd: uMTPrd: cannot open the configuration file"'
-check "umtprd is found by name (Alpine installs /bin/umtprd)" 'grep -qx "UMTPRD=\${UMTPRD:-umtprd}" aports/lume-usb/files/usr/libexec/r36os/usb-gadget'
+check "umtprd is found by name (Alpine installs /bin/umtprd)" 'grep -qx "UMTPRD=\${UMTPRD:-umtprd}" aports/lume-usb/files/usr/libexec/lume/usb-gadget'
 check "broken umtprd: nothing left bound or built" '[ ! -e "$G" ] && grep -qx "umount $W/ffs" "$LOG"'
 
 ### R36S: the SoC serial number when the kernel gives one
@@ -138,7 +138,7 @@ $GADGET_SH stop >/dev/null
 mkdir -p "$W/role/ff300000.usb-role-switch" "$W/extcon/extcon0"
 echo none > "$W/role/ff300000.usb-role-switch/role"
 printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
-export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1
+export ROLE_CLASS="$W/role" EXTCON_CLASS="$W/extcon" POLL=0.1 POLL_IDLE=0.2 ROLE_RESCAN=2
 $GADGET_SH run > "$W/run.out" 2>&1 &
 RUN=$!
 i=0; while [ ! -s "$G/UDC" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
@@ -213,6 +213,142 @@ sleep 0.8
 check "ssh: a new link starts udhcpd and dropbear again" 'grep -q "^udhcpd " "$LOG" && grep -q "^dropbear " "$LOG"'
 kill -TERM $RUN; wait $RUN
 check "run: TERM with the link up stops everything" '[ ! -e "$G" ] && [ ! -e "$W/run/udhcpd.pid" ]'
+
+### task 9.6: the network follows the UDC state, not VBUS (GA36 J1: VBUS 0 for ~5 s with the cable in)
+mkdir -p "$W/power/axp20x-usb"
+echo USB > "$W/power/axp20x-usb/type"
+echo 1 > "$W/power/axp20x-usb/online"
+echo 1 > "$W/net/usb0/carrier"
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+sleep 1
+check "vbus: UDC configured brings the network up" 'grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+: > "$LOG"
+echo 0 > "$W/power/axp20x-usb/online"
+echo 0 > "$W/net/usb0/carrier"
+sleep 0.8
+check "vbus: VBUS 0 with the UDC configured does not take the network down" '! grep -q "ip addr flush" "$LOG" && ! grep -q " usb OK network: down on usb0$" $EV'
+check "vbus: the glitch is logged once as an event" '[ "$(grep -c " usb OK vbus glitch: axp20x-usb:0 while the UDC is configured, network kept$" $EV)" = 1 ]'
+echo 1 > "$W/power/axp20x-usb/online"
+sleep 0.5
+check "vbus: VBUS back is logged" 'grep -q " usb OK vbus glitch over: " $EV'
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.5
+check "udc: leaving configured takes the network down" 'grep -qx "ip addr flush dev usb0" "$LOG" && grep -q " usb OK network: down on usb0$" $EV'
+: > "$LOG"
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+sleep 0.8
+check "udc: back to configured brings the network up again, even with the carrier at 0" 'grep -qx "ip link set usb0 up" "$LOG" && grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG" && grep -q "^udhcpd " "$LOG" && grep -q "^dropbear " "$LOG"'
+kill -TERM $RUN; wait $RUN
+rm -f "$W/udc/musb-hdrc.2.auto/state"
+
+### game-governor 7.1 (D20): the loop reads without processes and waits on its FIFO
+now_cs() { read -r u _ </proc/uptime; echo $((${u%.*} * 100 + 1${u#*.} - 100)); }
+# until_cs <centiseconds> <condition>: polls every 0.1 s, fails at the deadline
+until_cs() {
+	local end=$(($(now_cs) + $1))
+	while ! eval "$2"; do
+		[ "$(now_cs)" -ge "$end" ] && return 1
+		sleep 0.1
+	done
+}
+echo 1 > "$W/power/axp20x-usb/online"
+echo 1 > "$W/net/usb0/carrier"
+
+# the real rhythm (1 s while the UDC state changes, 2 s without change): a cable pulled after
+# a long quiet time is seen within 2 s
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" POLL=1 POLL_IDLE=2 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 500 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+sleep 4
+echo "not attached" > "$W/udc/musb-hdrc.2.auto/state"
+t0=$(now_cs)
+until_cs 400 'grep -q " usb OK network: down on usb0$" "$EV"'
+dt=$(($(now_cs) - t0))
+check "rhythm: a UDC state change is seen within 2 s while idle (took ${dt} cs)" '[ $dt -le 230 ]'
+kill -TERM $RUN; wait $RUN
+
+# the UDC goes away and comes back under another name: it is looked up again
+echo configured > "$W/udc/musb-hdrc.2.auto/state"
+rm -f "$EV"; : > "$LOG"
+POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+mv "$W/udc/musb-hdrc.2.auto" "$W/udc-away"
+echo 0 > "$W/net/usb0/carrier"
+until_cs 200 'grep -q " usb OK network: down on usb0$" "$EV"'
+check "udc gone: the carrier decides again (network down)" 'grep -q " usb OK network: down on usb0$" "$EV"'
+: > "$LOG"
+mv "$W/udc-away" "$W/udc/musb-hdrc.3.auto"
+until_cs 200 'grep -q "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+check "udc back under a new name: found again, its configured state brings the network up" 'grep -qx "ip addr replace 10.55.0.1/30 dev usb0" "$LOG"'
+kill -TERM $RUN; wait $RUN
+rm -rf "$W/udc/"*; mkdir -p "$W/udc/musb-hdrc.2.auto"
+
+# R36S: the role switch goes away and comes back: looked up again and set from the ID pin
+rm -rf "$W/role/"*; mkdir -p "$W/role/ff300000.usb-role-switch"
+echo none > "$W/role/ff300000.usb-role-switch/role"
+printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
+$GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ "$(cat $W/role/ff300000.usb-role-switch/role)" = device ]'
+rm -rf "$W/role/ff300000.usb-role-switch"
+sleep 0.4
+mkdir -p "$W/role/ff300001.usb-role-switch"
+echo none > "$W/role/ff300001.usb-role-switch/role"
+printf 'USB=0\nUSB-HOST=1\n' > "$W/extcon/extcon0/state"
+until_cs 200 '[ "$(cat $W/role/ff300001.usb-role-switch/role)" = host ]'
+check "role: a new role switch is found and follows the ID pin" '[ "$(cat $W/role/ff300001.usb-role-switch/role)" = host ]'
+kill -TERM $RUN; wait $RUN
+rm -rf "$W/role/"*
+printf 'USB=0\nUSB-HOST=0\n' > "$W/extcon/extcon0/state"
+
+# stop and TERM do not wait for the round to end (POLL_IDLE of 5 s)
+POLL_IDLE=5 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ -p "$W/run/wake" ] && [ -s "$G/UDC" ]'
+sleep 4
+t0=$(now_cs)
+$GADGET_SH stop > /dev/null
+dt=$(($(now_cs) - t0))
+check "stop: wakes the loop through its FIFO, which removes the gadget and exits (took ${dt} cs)" '[ $dt -lt 150 ] && ! kill -0 $RUN 2>/dev/null && [ ! -e "$G" ] && [ ! -e "$W/run/wake" ]'
+wait $RUN
+POLL_IDLE=5 $GADGET_SH run > "$W/run.out" 2>&1 &
+RUN=$!
+until_cs 300 '[ -p "$W/run/wake" ] && [ -s "$G/UDC" ]'
+sleep 4
+t0=$(now_cs)
+kill -TERM $RUN; wait $RUN; rc=$?
+dt=$(($(now_cs) - t0))
+check "TERM: the loop leaves the wait at once (took ${dt} cs)" '[ $rc = 0 ] && [ $dt -lt 150 ] && [ ! -e "$G" ]'
+
+# processes: none per round with everything still (cable in, network up, VBUS read). PIDs are
+# handed out one after the other inside the container's own PID namespace, so the PID of a
+# probe before and after 10 rounds counts every process started in between.
+if [ -f /run/.containerenv ] || [ -f /.dockerenv ]; then
+	printf '#!/bin/sh\nsleep 0.3\ntouch "$FFS_DIR/ep0" "$FFS_DIR/ep1" "$FFS_DIR/ep2" "$FFS_DIR/ep3"\nexec sleep 100000\n' > "$W/bin/umtprd-quiet"
+	printf '#!/bin/sh\nexec sleep 100000\n' > "$W/bin/serve-quiet"
+	chmod +x "$W/bin/umtprd-quiet" "$W/bin/serve-quiet"
+	echo configured > "$W/udc/musb-hdrc.2.auto/state"
+	rm -f "$EV"; : > "$LOG"
+	UMTPRD="$W/bin/umtprd-quiet" UDHCPD="$W/bin/serve-quiet" DROPBEAR="$W/bin/serve-quiet" \
+		POWER_CLASS="$W/power" $GADGET_SH run > "$W/run.out" 2>&1 &
+	RUN=$!
+	until_cs 300 'grep -q " usb OK network: up on usb0" "$EV" 2>/dev/null'
+	sleep 1.5   # past the fast rounds after the change
+	: & p0=$!
+	sleep 2.2   # 10 rounds of POLL_IDLE=0.2
+	: & p1=$!
+	n=$((p1 - p0 - 2))   # minus the sleep and the second probe
+	check "processes: none started by 10 still rounds (saw $n)" '[ $n = 0 ]'
+	kill -TERM $RUN; wait $RUN
+else
+	echo "SKIP processes: needs the PID namespace of the builder container"
+fi
 
 rm -rf "$W"
 echo "failures: $FAILS"

@@ -5,14 +5,14 @@ import os
 
 import pytest
 
-from r36os import clean, kernel
+from lume_tool import clean, kernel
 
 
 @pytest.fixture
 def fake_build(tmp_path, monkeypatch):
     """build_kernel with the container, the source tree and the cache faked; returns the
     calls (volumes and script of each container run)."""
-    from r36os import container, jobs
+    from lume_tool import container, jobs
 
     cache = tmp_path / "cache"
     monkeypatch.setattr(kernel, "cache_dir", lambda: cache)
@@ -52,9 +52,9 @@ def test_build_folder_is_fixed_per_architecture(fake_build, tmp_path, monkeypatc
 
 
 def test_clean_build_starts_from_an_empty_build_folder(fake_build, tmp_path, monkeypatch):
-    # build-speed 7.4: `r36os build --clean` gives the clean kernel the incremental one is
+    # build-speed 7.4: `lume build --clean` gives the clean kernel the incremental one is
     # compared with
-    from r36os import stage_inputs
+    from lume_tool import stage_inputs
 
     cache, _ = fake_build
     old = cache / "kbuild" / "armv7" / "drivers" / "x.o"
@@ -106,7 +106,7 @@ def test_initramfs_is_staged_by_content(fake_build, tmp_path):
     (src / "initramfs.cpio").write_bytes(b"one")
     kernel.build_kernel("ga36", tmp_path / "out", initramfs_dir=src)
     staged = _guest(calls[0]["volumes"], "/initramfs")
-    assert staged == cache / "kbuild" / "armv7" / "r36os-initramfs"
+    assert staged == cache / "kbuild" / "armv7" / "lume-initramfs"
     cpio = staged / "initramfs.cpio"
     assert cpio.read_bytes() == b"one"
     os.utime(cpio, (1_000_000, 1_000_000))

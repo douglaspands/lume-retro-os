@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * R36S-Y02 2024-12-18, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/r36s/R36S-Y02 2024-12-18/rk3326-r36s-linux.dtb
  * SHA-256: 63d1ed40c6fb686d53b4c284c1d86a418d5297bf45e5d5fb0f080e633fbbd1b6
  * Note: power: LDO_REG9 not declared by the source: no voltage set, left on

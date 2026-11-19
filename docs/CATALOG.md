@@ -1,12 +1,12 @@
 # Catálogo de sistemas (`systems.json`)
 
-`/usr/share/r36os/systems.json` é a fonte única dos sistemas do Lume Retro OS. Dele
+`/usr/share/lume/systems.json` é a fonte única dos sistemas do Lume Retro OS. Dele
 saem as pastas da partição `ROMS`, as listas de jogos do RetroArch, os sistemas e emuladores
 do lume-launcher e o `LEIA-ME.txt`. Qualquer frontend deve ler este arquivo em vez de manter
 uma lista própria.
 
-Fonte no repositório: `rootfs/overlay/usr/share/r36os/systems.json`.
-Validação: `r36os.catalog.validate()`, chamada no início do build do rootfs (um erro para o
+Fonte no repositório: `rootfs/overlay/usr/share/lume/systems.json`.
+Validação: `lume_tool.catalog.validate()`, chamada no início do build do rootfs (um erro para o
 build), com os testes em `tests/unit/test_catalog.py`.
 
 ## Esquema (versão 3)
@@ -44,17 +44,24 @@ Regras:
 - Sistema de arcade (com `romset`) não pode ter `core_by_arch`: o cartão único leva a mesma
   pasta de romsets aos dois consoles, e um romset só funciona no core da versão dele. O
   validador recusa o catálogo que quebrar a regra.
+- **Por enquanto, os mesmos cores nos dois consoles** (decisão do usuário, 2026-11-19): todo
+  `core_by_arch` está vazio, e o GA36 (armv7) e o R36S (aarch64) abrem cada sistema no mesmo
+  core. Com a evolução, cada console pode seguir o próprio caminho pelo `core_by_arch`, medido
+  no aparelho (P-24). O teste `test_same_cores_on_both_consoles_for_now` guarda a regra até
+  essa decisão mudar. Master System, Mega Drive e Sega CD usavam o `picodrive` no armv7 por
+  desempenho no A33; agora usam o `genesis_plus_gx` nos dois, com o `picodrive` como
+  alternativo (a velocidade no GA36 fica para a J2 dele).
 
 ## Emuladores do launcher
 
-A lista de emuladores de um sistema numa arquitetura (`r36os.catalog.emulators()`, e a mesma
+A lista de emuladores de um sistema numa arquitetura (`lume_tool.catalog.emulators()`, e a mesma
 regra no `lume-core`) tem o primeiro item como padrão:
 
 1. os cores do RetroArch, pelo runner `retroarch`: o core padrão da arquitetura, depois `core`
    e os `alt_cores`, sem repetir;
 2. os itens de `emulators`, na ordem.
 
-Assim os cores ficam num lugar só, e o `r36os-playlists` continua lendo `core`. O validador
+Assim os cores ficam num lugar só, e o `lume-playlists` continua lendo `core`. O validador
 recusa:
 
 - runner citado que não está em `/usr/share/lume/runners.d/` (o build para);

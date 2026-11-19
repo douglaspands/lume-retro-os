@@ -7,10 +7,10 @@ Define a gravação segura de imagens nos cartões de memória via ferramenta de
 ## Requirements
 
 ### Requirement: Ejeção segura do dispositivo pós-gravação
-O comando `r36os flash` MUST suportar o argumento opcional `--eject`. Quando `--eject` for especificado, após a escrita e a verificação SHA256 dos blocos gravados, a ferramenta MUST desmontar eventuais partições do dispositivo e solicitar a desconexão/ejeção segura ao sistema operacional através de `udisksctl power-off -b <dispositivo>` (com fallback para `eject <dispositivo>`).
+O comando `lume flash` MUST suportar o argumento opcional `--eject`. Quando `--eject` for especificado, após a escrita e a verificação SHA256 dos blocos gravados, a ferramenta MUST desmontar eventuais partições do dispositivo e solicitar a desconexão/ejeção segura ao sistema operacional através de `udisksctl power-off -b <dispositivo>` (com fallback para `eject <dispositivo>`).
 
 #### Scenario: Gravação com flag --eject
-- **WHEN** o usuário executa `r36os flash <alvo> <dispositivo> --eject` (com ou sem `--update`)
+- **WHEN** o usuário executa `lume flash <alvo> <dispositivo> --eject` (com ou sem `--update`)
 - **THEN** a gravação e a validação SHA256 são concluídas com sucesso e o dispositivo é ejetado/desligado com segurança antes do término do comando
 
 ### Requirement: Uma imagem por alvo a partir da mesma base
@@ -58,7 +58,7 @@ O sistema de arquivos raiz de cada sistema MUST ser entregue como arquivos squas
 - **THEN** o boot monta o `SYSTEM` como antes
 
 ### Requirement: Bootloader na área reservada
-Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`R36OS_GA36_FACTORY`) e a do R36S (`R36OS_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na área do GA36, o build MUST NOT alterar a FAT interna nem o env do U-Boot de fábrica. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19, P-34 e P-43).
+Na imagem `console`, o build MUST montar a área de 128 MiB antes da `BOOT` a partir das áreas de fábrica dos dois consoles, lidas de cópias dos cartões originais e conferidas por SHA256, fora do git: a do GA36 (`LUME_GA36_FACTORY`) e a do R36S (`LUME_R36S_FACTORY`). No setor 172032 MUST ir a imagem de boot Android do painel 1 do GA36. Na área do GA36, o build MUST NOT alterar a FAT interna nem o env do U-Boot de fábrica. Na VM, MUST gravar um bootloader que leia o `extlinux.conf`. O U-Boot mainline dos consoles fica para depois (P-19, P-34 e P-43).
 
 #### Scenario: Bootloader do GA36
 - **WHEN** a imagem `console` é gerada
@@ -76,10 +76,10 @@ O build MUST rodar dentro de containers rootless e não instalar nada no host se
 - **THEN** o manifesto de pacotes e versões das duas imagens é idêntico
 
 ### Requirement: Tamanho mínimo do cartão
-A imagem MUST caber em um cartão de 4 GB, deixando ao menos 2 GB para a partição de jogos, criada pelo `r36os flash` com todo o resto do cartão (ou no primeiro boot, se faltar).
+A imagem MUST caber em um cartão de 4 GB, deixando ao menos 2 GB para a partição de jogos, criada pelo `lume flash` com todo o resto do cartão (ou no primeiro boot, se faltar).
 
 #### Scenario: Cartão de 4 GB
-- **WHEN** a imagem é gravada em um cartão de 4 GB com `r36os flash --full`
+- **WHEN** a imagem é gravada em um cartão de 4 GB com `lume flash --full`
 - **THEN** a partição de jogos tem pelo menos 2 GB livres
 
 ### Requirement: Cartão único para os dois consoles
@@ -112,14 +112,14 @@ O build MUST garantir que nenhuma região usada pela cadeia de boot de um consol
 - **THEN** o build confere que as regiões do R36S (do setor 64 ao fim do `idbloader` e as do `uboot.img` e do `trust.img`) caem em setores vazios da área do GA36 ou nos setores 64 a 277, e falha listando os setores em conflito se não caírem
 
 ### Requirement: Atualização de cartões para a imagem única
-Um cartão gravado antes com a imagem `console` MUST aceitar `r36os flash console <dispositivo> --update`, que grava só a área de boot e a `BOOT`, sem tocar no setor 0 nem na `ROMS`. Um cartão gravado com a imagem `ga36` antiga (`BOOT` de 1 GiB) MUST ser recusado pelo `--update`, com a mensagem de gravação completa.
+Um cartão gravado antes com a imagem `console` MUST aceitar `lume flash console <dispositivo> --update`, que grava só a área de boot e a `BOOT`, sem tocar no setor 0 nem na `ROMS`. Um cartão gravado com a imagem `ga36` antiga (`BOOT` de 1 GiB) MUST ser recusado pelo `--update`, com a mensagem de gravação completa.
 
 #### Scenario: Cartão da imagem console
-- **WHEN** o usuário roda `r36os flash console <dispositivo> --update` num cartão gravado antes com a imagem `console`
+- **WHEN** o usuário roda `lume flash console <dispositivo> --update` num cartão gravado antes com a imagem `console`
 - **THEN** a gravação é aceita, a `ROMS` fica intacta e o cartão inicia no GA36 e no R36S
 
 #### Scenario: Cartão antigo do GA36
-- **WHEN** o usuário roda `r36os flash console <dispositivo> --update` num cartão gravado antes com a imagem `ga36`, de `BOOT` com 1 GiB
+- **WHEN** o usuário roda `lume flash console <dispositivo> --update` num cartão gravado antes com a imagem `ga36`, de `BOOT` com 1 GiB
 - **THEN** o comando recusa a gravação e explica que o cartão precisa de uma gravação completa
 
 #### Scenario: Cartão de outro layout
@@ -127,7 +127,7 @@ Um cartão gravado antes com a imagem `console` MUST aceitar `r36os flash consol
 - **THEN** o comando recusa a gravação e explica que o cartão precisa de uma gravação completa
 
 ### Requirement: Atualização pelo cabo USB
-O `r36os push` MUST atualizar a `BOOT` de um console ligado pela porta OTG, pelo acesso root
+O `lume push` MUST atualizar a `BOOT` de um console ligado pela porta OTG, pelo acesso root
 do cabo: enviar o build para uma área temporária, conferir o SHA256 de cada arquivo no
 próprio console, trocar os arquivos só depois de todos conferidos e reiniciar. Da área de
 boot antes da `BOOT`, só a imagem de boot do GA36 no setor 172032 MAY ser regravada, e
@@ -137,7 +137,7 @@ imagem de módulos do console), para que nenhum espaço da `BOOT` se perca e a `
 somente leitura antes do reboot.
 
 #### Scenario: Atualização conferida
-- **WHEN** o usuário roda `r36os push` com um console ligado e acessível por SSH
+- **WHEN** o usuário roda `lume push` com um console ligado e acessível por SSH
 - **THEN** os arquivos da `BOOT` no cartão passam a ter o SHA256 do build, o console reinicia e o próximo boot registra a versão nova no `events.log`
 
 #### Scenario: Kernel novo no GA36
@@ -149,7 +149,7 @@ somente leitura antes do reboot.
 - **THEN** nenhum arquivo da `BOOT` é trocado, o console não reinicia e o comando termina com erro nomeando o arquivo
 
 #### Scenario: Console fora do cabo
-- **WHEN** o usuário roda `r36os push` e o console não responde pela rede USB (desligado, cabo na porta de carga ou adaptador OTG na porta)
+- **WHEN** o usuário roda `lume push` e o console não responde pela rede USB (desligado, cabo na porta de carga ou adaptador OTG na porta)
 - **THEN** o comando termina com erro antes de enviar qualquer arquivo e diz para ligar o console com o cabo na porta OTG
 
 #### Scenario: Bateria baixa
@@ -170,7 +170,7 @@ somente leitura antes do reboot.
 
 #### Scenario: Clusters perdidos avisados
 - **WHEN** o espaço usado da `BOOT` passa em mais de 32 MB o que os arquivos dela ocupam
-- **THEN** o `push` mostra um aviso com o tamanho perdido e as duas formas de recuperar pelo PC (`fsck.vfat -a` com os `FSCK*.REC` apagados, ou `r36os flash --update`), e segue com a atualização
+- **THEN** o `push` mostra um aviso com o tamanho perdido e as duas formas de recuperar pelo PC (`fsck.vfat -a` com os `FSCK*.REC` apagados, ou `lume flash --update`), e segue com a atualização
 
 #### Scenario: Corte de energia no meio da troca do SYSTEM
 - **WHEN** o console inicia com a `BOOT` sem o `<console>/SYSTEM` (ou sem a imagem de módulos) e com o `<arquivo>.old` correspondente
@@ -188,7 +188,7 @@ Na imagem `console`, os módulos do kernel de cada console MUST ficar num arquiv
 - **THEN** o `SYSTEM` dos dois consoles tem o mesmo SHA256 nos dois builds, e só o kernel, a imagem de módulos e, no GA36, as imagens de boot dos painéis daquele console mudam
 
 #### Scenario: Atualização pelo cabo de um kernel novo
-- **WHEN** o `r36os push` envia um build que só mudou o kernel do console ligado
+- **WHEN** o `lume push` envia um build que só mudou o kernel do console ligado
 - **THEN** ele manda o kernel, a imagem de módulos e o `VERSION` (e, no GA36, a imagem de boot do painel 1), sem mandar nenhum `SYSTEM`
 
 #### Scenario: Limite da BOOT com os arquivos de módulos

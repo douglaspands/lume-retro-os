@@ -1,0 +1,147 @@
+From: Lume Retro OS
+Subject: [PATCH] menu: lume_menu_lock keeps a game of the launcher in the Quick Menu
+
+During a game the console's user reaches RetroArch's Quick Menu (Fn+B or the
+"RetroArch menu" item of the Lume menu, both the MENU_TOGGLE network command
+of lume-run), never the main menu, its sidebar tabs or the settings: the game
+ends only by "Close Content" (device-fixes 9.9). A Lume setting will unlock
+the rest later (P-101), so the lock is a config key:
+
+  lume_menu_lock   off by default (upstream behaviour); the distro's fixed
+                   config (retroarch-lume.cfg) turns it on
+
+It holds only while content given on the command line runs (the lume-launcher
+starts every game with -L <core> <rom>; GLOB_FLG_LAUNCHED_FROM_CLI). The
+RetroArch menu opened without a game (the launcher's Settings) is not locked,
+and content loaded from that menu clears the flag, so that path stays as
+upstream.
+
+  generic_menu_entry_action  Back (MENU_ACTION_CANCEL) at the root of the
+                             Quick Menu (stack: main menu + Quick Menu) closes
+                             the menu and resumes the game (CMD_EVENT_RESUME,
+                             what the "Resume" item does) instead of popping to
+                             the main menu. Every driver ends here; Ozone hands
+                             Back on at that depth (only a stack of one goes to
+                             its sidebar), after closing a fullscreen picture.
+  runloop_check_state        the main menu never stays on screen: if anything
+                             brings the stack down to one list while locked,
+                             the Quick Menu is pushed back in the same frame
+                             (RARCH_MENU_CTL_SET_PENDING_QUICK_MENU, the path
+                             upstream uses when content starts). The menu
+                             already opens there: content from the command
+                             line leaves the Quick Menu pending.
+
+"Close Content" ends the game and RetroArch with it when the content came from
+the command line (quit_on_close_content = 2 in the fixed config), so lume-run
+gets the game list back.
+
+diff --git a/configuration.c b/configuration.c
+index 9bcab96..6093d38 100644
+--- a/configuration.c
++++ b/configuration.c
+@@ -2068,6 +2068,8 @@ static struct config_bool_setting *populate_settings_bool(
+    SETTING_BOOL("menu_show_shutdown",            &settings->bools.menu_show_shutdown, true, DEFAULT_MENU_SHOW_SHUTDOWN, false);
+    SETTING_BOOL("menu_show_online_updater",      &settings->bools.menu_show_online_updater, true, DEFAULT_MENU_SHOW_ONLINE_UPDATER, false);
+    SETTING_BOOL("menu_show_core_updater",        &settings->bools.menu_show_core_updater, true, DEFAULT_MENU_SHOW_CORE_UPDATER, false);
++   /* Lume: off upstream-wise; the distro's fixed config turns it on */
++   SETTING_BOOL("lume_menu_lock",                &settings->bools.lume_menu_lock, true, false, false);
+ #if 0
+ /* Thumbnailpack removal */
+    SETTING_BOOL("menu_show_legacy_thumbnail_updater", &settings->bools.menu_show_legacy_thumbnail_updater, true, DEFAULT_MENU_SHOW_LEGACY_THUMBNAIL_UPDATER, false);
+diff --git a/configuration.h b/configuration.h
+index 77ee6da..82e44f7 100644
+--- a/configuration.h
++++ b/configuration.h
+@@ -802,6 +802,8 @@ typedef struct settings
+       bool menu_show_core_manager_steam;
+ #endif
+       bool menu_show_core_updater;
++      /* Lume: a game of the launcher keeps the menu in its Quick Menu */
++      bool lume_menu_lock;
+       bool menu_show_load_core;
+       bool menu_show_load_content;
+       bool menu_show_load_disc;
+diff --git a/menu/menu_driver.c b/menu/menu_driver.c
+index a4b23c1..b191298 100644
+--- a/menu/menu_driver.c
++++ b/menu/menu_driver.c
+@@ -7890,6 +7890,19 @@ int generic_menu_entry_action(
+          action_cycle_thumbnail(action);
+          break;
+       case MENU_ACTION_CANCEL:
++         /* Lume: locked, Back at the root of the Quick Menu (or below it)
++          * closes the menu and resumes the game, as its "Resume" item
++          * does, instead of going up to the main menu */
++         if (     menu_stack
++               && menu_stack->size <= 2
++               && menu_lume_locked()
++               && (     menu_stack->size < 2
++                   ||   string_is_equal(menu_stack->list[1].label,
++                           msg_hash_to_str(MENU_ENUM_LABEL_CONTENT_SETTINGS))))
++         {
++            command_event(CMD_EVENT_RESUME, NULL);
++            break;
++         }
+          if (cbs && cbs->action_cancel)
+             ret = cbs->action_cancel(entry->path,
+                   entry->label, entry->type, i);
+@@ -8360,6 +8373,24 @@ bool menu_is_running_quick_menu(void)
+           || string_is_equal(entry.label, "state_slot");
+ }
+ 
++/* Lume: during a game of the lume-launcher (content given on the command
++ * line, GLOB_FLG_LAUNCHED_FROM_CLI) the menu is the Quick Menu only: Back at
++ * its root resumes the game (generic_menu_entry_action) and the main menu is
++ * never left on screen (runloop.c). Content loaded from the menu itself (the
++ * RetroArch menu opened without a game) clears the flag, so that path stays
++ * as upstream. */
++bool menu_lume_locked(void)
++{
++   settings_t *settings = config_get_ptr();
++   global_t   *global   = global_get_ptr();
++
++   return      settings->bools.lume_menu_lock
++         &&    global
++         &&   (global->flags & GLOB_FLG_LAUNCHED_FROM_CLI)
++         &&   (runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING)
++         &&   !retroarch_ctl(RARCH_CTL_IS_DUMMY_CORE, NULL);
++}
++
+ #ifdef HAVE_RUNAHEAD
+ /**
+  * menu_update_runahead_mode
+diff --git a/menu/menu_driver.h b/menu/menu_driver.h
+index 21d958b..a259217 100644
+--- a/menu/menu_driver.h
++++ b/menu/menu_driver.h
+@@ -740,6 +740,10 @@ size_t menu_update_fullscreen_thumbnail_label(
+ 
+ bool menu_is_running_quick_menu(void);
+ 
++/* Lume: true while lume_menu_lock holds the menu in the Quick Menu (a game
++ * started from the command line, by the lume-launcher, is running) */
++bool menu_lume_locked(void);
++
+ bool menu_input_key_bind_set_mode(
+       enum menu_input_binds_ctl_state state, void *data);
+ 
+diff --git a/runloop.c b/runloop.c
+index 810b871..b144939 100644
+--- a/runloop.c
++++ b/runloop.c
+@@ -6140,6 +6140,15 @@ static enum runloop_state_enum runloop_check_state(
+ 
+       /* Iterate the menu driver for one frame. */
+ 
++      /* Lume: locked to the Quick Menu (menu_lume_locked), the main menu
++       * never stays on screen: whatever brought the menu stack down to it,
++       * the Quick Menu goes back on top in this frame */
++      if (     !(menu_st->flags & MENU_ST_FLAG_PENDING_QUICK_MENU)
++            &&   menu_st->entries.list
++            &&   MENU_LIST_GET_STACK_SIZE(menu_st->entries.list, 0) <= 1
++            &&   menu_lume_locked())
++         menu_driver_ctl(RARCH_MENU_CTL_SET_PENDING_QUICK_MENU, NULL);
++
+       /* If the user had requested that the Quick Menu
+        * be spawned during the previous frame, do this now
+        * and exit the function to go to the next frame. */

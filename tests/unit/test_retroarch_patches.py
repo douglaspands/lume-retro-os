@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from r36os.paths import REPO_ROOT, cache_dir
+from lume_tool.paths import REPO_ROOT, cache_dir
 
 APORT = REPO_ROOT / "aports/retroarch"
 APKBUILD = (APORT / "APKBUILD").read_text()
@@ -18,12 +18,23 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0003-alsa-bounded-write-wait.patch", "0004-status-frame-count.patch",
            "0005-volume-percent-steps.patch", "0006-reset-to-distro-defaults.patch",
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
-           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch"]
+           "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch",
+           "0012-lume-hud-hint-menu.patch", "0013-lume-menu-lock.patch",
+           "0014-alsa-close-the-stream-while-paused.patch",
+           "0015-udev-joypad-read-only-fallback.patch"]
+
+
+def test_a_read_only_pad_is_still_opened():
+    # 0015 (device-fixes D16, 2026-11-18): the pads are 0640 for the games; upstream opened
+    # them only with O_RDWR and saw no pad at all, so no game read the buttons
+    text = (APORT / "0015-udev-joypad-read-only-fallback.patch").read_text()
+    assert "+      fd = open(path, O_RDONLY | O_NONBLOCK);" in text
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
            "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c",
-           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h"]
+           "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h", "menu/menu_driver.c",
+           "menu/menu_driver.h", "input/drivers_joypad/udev_joypad.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():
@@ -131,6 +142,75 @@ def test_patches_apply_in_order_to_the_pristine_source(tmp_path: Path):
     assert "&gfx_widget_lume_level," in (tmp_path / "gfx/gfx_widgets.c").read_text()
     assert "extern const gfx_widget_t gfx_widget_lume_level;" in (tmp_path / "gfx/gfx_widgets.h").read_text()
     assert "#define LUME_LEVEL_DURATION 1500" in widget
+    # 0012 (lume-hud-actions D8): the bar, the hint and the menu, registered commands and one
+    # graphics widget that hides 3 s after the last command
+    h = (tmp_path / "command.h").read_text()
+    for name, fn in (("LUME_HUD", "command_lume_hud"), ("LUME_HINT", "command_lume_hint"),
+                     ("LUME_MENU", "command_lume_menu")):
+        assert re.search(rf'\{{ "{name}", +{fn},', h), name
+    assert "gfx_widget_lume_show(GFX_WIDGET_LUME_MENU, arg);" in command
+    assert "&gfx_widget_lume," in (tmp_path / "gfx/gfx_widgets.c").read_text()
+    assert "#define LUME_WIDGET_TIMEOUT 3000" in widget
+    # "-" hides, so lume-run never sends a bare command (RetroArch reads past its end)
+    assert 'string_is_equal(text, "-")' in widget
+    # 0013 (device-fixes 9.9): lume_menu_lock is a registered key, off upstream-wise; locked
+    # (a game of the command line), Back at the Quick Menu root resumes the game and the main
+    # menu never stays on screen
+    cfg = (tmp_path / "configuration.c").read_text()
+    assert ('SETTING_BOOL("lume_menu_lock",                &settings->bools.lume_menu_lock, '
+            'true, false, false);') in cfg
+    assert "bool lume_menu_lock;" in (tmp_path / "configuration.h").read_text()
+    assert "bool menu_lume_locked(void);" in (tmp_path / "menu/menu_driver.h").read_text()
+    drv = (tmp_path / "menu/menu_driver.c").read_text()
+    locked = drv.split("bool menu_lume_locked(void)\n{", 1)[1].split("\n}\n", 1)[0]
+    for cond in ("settings->bools.lume_menu_lock", "GLOB_FLG_LAUNCHED_FROM_CLI",
+                 "RUNLOOP_FLAG_CORE_RUNNING", "RARCH_CTL_IS_DUMMY_CORE"):
+        assert cond in locked, cond
+    cancel = drv.split("int generic_menu_entry_action(", 1)[1].split("case MENU_ACTION_CANCEL:", 1)[1]
+    cancel = cancel.split("case MENU_ACTION_OK:", 1)[0]
+    assert cancel.index("menu_lume_locked()") < cancel.index("command_event(CMD_EVENT_RESUME, NULL);")
+    assert cancel.index("command_event(CMD_EVENT_RESUME, NULL);") < cancel.index("cbs->action_cancel(")
+    assert "MENU_ENUM_LABEL_CONTENT_SETTINGS" in cancel
+    loop = (tmp_path / "runloop.c").read_text()
+    barrier = loop.split("/* Iterate the menu driver for one frame. */", 1)[1]
+    assert barrier.index("menu_lume_locked()") < barrier.index(
+        "if (menu_st->flags & MENU_ST_FLAG_PENDING_QUICK_MENU)")
+    assert "menu_driver_ctl(RARCH_MENU_CTL_SET_PENDING_QUICK_MENU, NULL);" in barrier[:800]
+    # 0014 (device-fixes 7.3, D9): stopped, the ALSA driver closes the stream (never pauses
+    # it); a start opens nothing; the first write opens it again; pausing the game stops it
+    stop = alsa.split("static bool alsa_stop(void *data)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert "alsa_free_pcm(alsa->pcm);" in stop and "alsa->pcm = NULL;" in stop
+    assert "snd_pcm_pause(" not in alsa.split("typedef struct alsa\n", 1)[1]  # mic code is above
+    start = alsa.split("static bool alsa_start(void *data, bool is_shutdown)\n{", 1)[1]
+    start = start.split("\n}\n", 1)[0]
+    assert "alsa_init_pcm" not in start and "alsa_reopen" not in start
+    write = alsa.split("static ssize_t alsa_write(void *data, const void *buf_, size_t len)\n{", 1)[1]
+    write = write.split("\n}\n", 1)[0]
+    assert write.index("if (!alsa->pcm && !alsa_reopen(alsa))") < write.index("snd_pcm_writei")
+    # the frame size is read after the reopen, from the stream it opened
+    assert write.index("alsa_reopen(alsa)") < write.index("BYTES_TO_FRAMES(len")
+    reopen = alsa.split("static bool alsa_reopen(alsa_t *alsa)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert "alsa->device, SND_PCM_STREAM_PLAYBACK" in reopen and "alsa->latency" in reopen
+    avail = alsa.split("static size_t alsa_write_avail(void *data)\n{", 1)[1].split("\n}\n", 1)[0]
+    assert avail.index("if (!alsa->pcm)") < avail.index("snd_pcm_avail(")
+    assert "free(alsa->device);" in alsa
+    pause = loop.split("void runloop_pause_checks(void)\n{", 1)[1].split("\n}\n", 1)[0]
+    paused, resumed = pause.split("\n   if (is_paused)\n   {", 1)[1].split("\n   else\n", 1)
+    assert "audio_driver_stop();" in paused
+    assert "audio_driver_start" not in resumed                 # the first write opens it
+
+
+@pytest.mark.skipif(not SRC.exists(), reason="needs the cached RetroArch tarball")
+def test_menu_lock_keys_exist_in_the_pinned_source():
+    # device-fixes 9.9: every key of the lock and of its second barrier (the "*" lines of
+    # retroarch-core.keys) is a config key of RetroArch 1.22.2, so none is silently ignored
+    keys = (REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-core.keys").read_text()
+    names = re.findall(r"^\* (\w+)=", keys, re.M) + ["quit_on_close_content"]
+    assert len(names) == 21
+    with tarfile.open(SRC) as tar:
+        cfg = tar.extractfile("RetroArch-1.22.2/configuration.c").read().decode()
+    for name in names:
+        assert re.search(rf'SETTING_(BOOL|UINT)\("{name}",', cfg), name
 
 
 def test_quit_label_patch_keeps_the_three_languages():
@@ -140,7 +220,7 @@ def test_quit_label_patch_keeps_the_three_languages():
                   "go back to the game list", "vuelve a la lista de juegos"):
         assert words in text, words
     # the frontend script sets the variable only when the launcher opens RetroArch
-    script = (REPO_ROOT / "aports/lume-core/files/usr/libexec/r36os/frontends/retroarch").read_text()
+    script = (REPO_ROOT / "aports/lume-core/files/usr/libexec/lume/frontends/retroarch").read_text()
     assert "LUME_RETROARCH_QUIT=launcher" in script
 
 
@@ -165,6 +245,36 @@ def test_volume_curve_steps_and_cap():
     assert db == 0
     assert round(db_to_level(press(12.0, up=False))) == 95   # an old +12 dB joins the grid
     assert round(db_to_level(press(-29.5, up=True))) == 25    # -29.5 dB is ~18% -> 20% -> 25%
+
+
+def test_alsa_close_patch_touches_only_the_driver_and_the_pause():
+    text = (APORT / "0014-alsa-close-the-stream-while-paused.patch").read_text()
+    assert re.findall(r"^\+\+\+ b/(\S+)", text, re.M) == ["audio/drivers/alsa.c", "runloop.c"]
+    assert "-      int ret = snd_pcm_pause(alsa->pcm, 1);" in text
+    assert "snd_pcm_pause(" not in "".join(ln for ln in text.splitlines(True) if ln.startswith("+"))
+    assert "[ALSA] Stream closed while stopped." in text and "[ALSA] Stream opened again." in text
+
+
+KERNEL = cache_dir() / "src/linux-6.18.62/sound/soc"
+
+
+@pytest.mark.skipif(not (KERNEL / "soc-pcm.c").exists(), reason="needs the cached kernel source")
+def test_dapm_powers_down_only_when_the_stream_is_freed():
+    # The premise of 0014 (D9): ASoC powers the playback path down (with the speaker
+    # amplifier) only when the hardware parameters are freed (hw_free or close), never on a
+    # trigger (pause, drop, underrun). The GA36 codec components skip the power-down delay
+    # (off at once); the R36S codec (rk817) keeps it (pmdown_time, 5 s by default).
+    pcm = (KERNEL / "soc-pcm.c").read_text()
+    clean = pcm.split("static int soc_pcm_hw_clean(", 1)[1].split("\n}\n", 1)[0]
+    assert "snd_soc_dapm_stream_stop(rtd, substream->stream);" in clean
+    assert pcm.count("snd_soc_dapm_stream_stop(") == 1
+    trigger = pcm.split("static int soc_pcm_trigger(", 1)[1].split("\n}\n", 1)[0]
+    assert "dapm" not in trigger
+    assert "static int pmdown_time = 5000;" in (KERNEL / "soc-core.c").read_text()
+    for name in ("sunxi/sun8i-codec.c", "sunxi/sun8i-codec-analog.c", "sunxi/sun4i-i2s.c",
+                 "codecs/simple-amplifier.c"):
+        assert "use_pmdown_time" not in (KERNEL / name).read_text(), name
+    assert ".use_pmdown_time = 1," in (KERNEL / "codecs/rk817_codec.c").read_text()
 
 
 def test_alsa_patch_only_bounds_the_playback_wait():

@@ -1,7 +1,7 @@
 """Console image (r36s-single-card, tasks 5.2 and 5.3): our MBR, the boot area of both
 consoles, the GA36 Android boot image and the BOOT with one folder per console.
 
-Requires out/console/console.img (uv run r36os build console).
+Requires out/console/console.img (uv run lume build console).
 """
 
 import hashlib
@@ -11,11 +11,11 @@ import subprocess
 
 import pytest
 
-from r36os import bootimg, manifests, r36s_vendor, vendor
-from r36os.container import Container, ensure_builder
-from r36os.image import boot_start
-from r36os.rootfs import target_out
-from r36os.targets import get_image, get_target
+from lume_tool import bootimg, manifests, r36s_vendor, vendor
+from lume_tool.container import Container, ensure_builder
+from lume_tool.image import boot_start
+from lume_tool.rootfs import target_out
+from lume_tool.targets import get_image, get_target
 
 OUT = target_out(get_image("console"))
 GA36 = target_out(get_target("ga36"))

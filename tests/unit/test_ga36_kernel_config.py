@@ -1,6 +1,6 @@
 """GA36 kernel config (task 9.4): board/ga36/kernel.config and the generated .config.
 
-The final .config (out/ga36/kernel/config) only exists after `r36os build console`; without
+The final .config (out/ga36/kernel/config) only exists after `lume build console`; without
 it the tests that depend on it are skipped.
 """
 
@@ -8,8 +8,8 @@ import re
 
 import pytest
 
-from r36os.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
+from lume_tool.paths import REPO_ROOT, out_dir
 
 FRAGMENT = (REPO_ROOT / "board/ga36/kernel.config").read_text()
 BUILT = out_dir() / "ga36/kernel/config"
@@ -29,9 +29,28 @@ def test_fragment_enables_own_drivers_builtin():
 
 
 def test_fragment_keeps_mainline_cpufreq_and_thermal():
-    # kernel default governor and mainline OPPs/thermal: the fragment does not touch them
-    assert not re.search(r"CPU_FREQ_DEFAULT_GOV|CPU_FREQ_GOV_|THERMAL_DEFAULT_GOV", FRAGMENT)
+    # kernel default governors (schedutil, step_wise) and mainline OPPs/thermal: the
+    # fragment never picks a default, set or unset
+    assert not re.search(r"CPU_FREQ_DEFAULT_GOV|THERMAL_DEFAULT_GOV", FRAGMENT)
     assert KERNEL_TARGETS["ga36"][2] == "sunxi_defconfig"
+
+
+def test_fragment_adds_the_game_governor_cpufreq_governors():
+    # game-governor D10: ondemand and conservative for the profile candidates; D12: the
+    # load controller writes scaling_setspeed under userspace. Built in, never modules.
+    opts = _options(FRAGMENT)
+    for o in ("CONFIG_CPU_FREQ_GOV_ONDEMAND", "CONFIG_CPU_FREQ_GOV_CONSERVATIVE",
+              "CONFIG_CPU_FREQ_GOV_USERSPACE"):
+        assert opts.get(o) == "y", o
+    # no other CPU_FREQ_GOV_* option is set or unset by the fragment
+    govs = set(re.findall(r"^#? ?(CONFIG_CPU_FREQ_GOV_\w+)", FRAGMENT, re.M))
+    assert govs == {"CONFIG_CPU_FREQ_GOV_ONDEMAND", "CONFIG_CPU_FREQ_GOV_CONSERVATIVE",
+                    "CONFIG_CPU_FREQ_GOV_USERSPACE"}
+
+
+def test_fragment_enables_cpufreq_stats():
+    # game-governor D5: the measurements read stats/time_in_state per clock.
+    assert _options(FRAGMENT).get("CONFIG_CPU_FREQ_STAT") == "y"
 
 
 def test_fragment_enables_thermal_sensor_and_gpu_cooling():
@@ -40,6 +59,17 @@ def test_fragment_enables_thermal_sensor_and_gpu_cooling():
     opts = _options(FRAGMENT)
     assert opts.get("CONFIG_SUN4I_GPADC") == "y"
     assert opts.get("CONFIG_DEVFREQ_THERMAL") == "y"
+
+
+def test_fragment_reserves_64_mib_of_cma():
+    # device-fixes 9.14: the A33 display has no IOMMU and 16 MiB (the Kconfig default) ran
+    # out with a GPU game on the screen; set in the fragment only, never on the command line
+    # (CMDLINE_FORCE) nor as a DTS node
+    assert _options(FRAGMENT).get("CONFIG_CMA_SIZE_MBYTES") == "64"
+    assert "cma=" not in _options(FRAGMENT)["CONFIG_CMDLINE"]
+    assert "CMA_SIZE_SEL" not in FRAGMENT and "CMA_SIZE_PERCENTAGE" not in FRAGMENT
+    dts = (REPO_ROOT / "board/ga36/dts/sun8i-a33-ga36-mb-v1.2.dtsi").read_text()
+    assert "linux,cma" not in dts
 
 
 def test_fragment_enables_kexec_and_the_selection_keys():
@@ -121,8 +151,22 @@ def test_boot_screen_is_the_same_on_both_consoles():
     assert "CONFIG_LOGO" in _off(FRAGMENT) and "CONFIG_LOGO" in _off(r36s)
 
 
+SLEEP_OPTIONS = ("CONFIG_SUSPEND", "CONFIG_PM_SLEEP", "CONFIG_PM", "CONFIG_PM_SLEEP_SMP")
+
+
+def test_suspension_needs_no_option_of_its_own():
+    # device-fixes D11, task 8.1: the J1 (2.3) suspended the GA36 in s2idle with the
+    # sunxi_defconfig as it is and woke it 10 of 10 times by the power key (INPUT_AXP20X_PEK,
+    # built in there). The fragment neither turns those off nor picks a sleep mode, and
+    # autosleep stays off (lume-sleep alone decides when the console sleeps).
+    for opt in SLEEP_OPTIONS + ("CONFIG_INPUT_AXP20X_PEK", "CONFIG_AXP20X_POWER",
+                                "CONFIG_BATTERY_AXP20X", "CONFIG_RTC_DRV_SUN6I"):
+        assert opt not in _off(FRAGMENT) and opt not in _options(FRAGMENT), opt
+    assert not re.search(r"PM_AUTOSLEEP|PM_WAKELOCKS|SUSPEND_SKIP_SYNC|MEM_SLEEP", FRAGMENT)
+
+
 def test_build_checks_the_options_that_stay_off():
-    from r36os.kernel import _KERNEL_SCRIPT
+    from lume_tool.kernel import _KERNEL_SCRIPT
     assert "must stay off" in _KERNEL_SCRIPT
 
 
@@ -133,9 +177,9 @@ def test_fragment_gives_the_overlay_upper_layer_xattrs():
 
 
 def test_kernel_image_does_not_carry_the_build_time_or_machine():
-    # the same inputs must give the same zImage/Image, or `r36os push` resends it every
+    # the same inputs must give the same zImage/Image, or `lume push` resends it every
     # time (the R36S Image changed between two builds that only touched the GA36)
-    from r36os.kernel import _KERNEL_SCRIPT, build_stamp, kernel_inputs
+    from lume_tool.kernel import _KERNEL_SCRIPT, build_stamp, kernel_inputs
     for v in ('KBUILD_BUILD_TIMESTAMP="{stamp}"', "KBUILD_BUILD_VERSION=1",
               "KBUILD_BUILD_USER=lume", "KBUILD_BUILD_HOST=lume"):
         assert v in _KERNEL_SCRIPT, v
@@ -145,7 +189,7 @@ def test_kernel_image_does_not_carry_the_build_time_or_machine():
 
 def test_build_stamp_is_the_kernel_release_date_and_ignores_git(monkeypatch):
     import subprocess
-    from r36os import kernel
+    from lume_tool import kernel
     # same value for both consoles, and no git call at all
     def no_git(*a, **k):
         raise AssertionError("build_stamp must not run git")
@@ -162,7 +206,7 @@ def test_build_stamp_is_the_kernel_release_date_and_ignores_git(monkeypatch):
 
 
 def test_initramfs_files_have_a_fixed_mtime():
-    from r36os.initramfs import _PACK
+    from lume_tool.initramfs import _PACK
     assert _PACK.index("touch -h -d @0") < _PACK.index("cpio -o")
     # newc carries inode numbers: two identical stages gave different archives without it
     assert "--reproducible" in _PACK
@@ -191,3 +235,29 @@ def test_built_config():
     assert dtbs == ["sun8i-a33-ga36-mb-v1.2-panel1.dtb", "sun8i-a33-ga36-mb-v1.2-panel2.dtb"]
     # no warnings in the build (those in our own drivers already fail it)
     assert "warning:" not in (kdir / "build-warnings.log").read_text()
+
+
+GA36_DTBS = ("sun8i-a33-ga36-mb-v1.2-panel1.dtb", "sun8i-a33-ga36-mb-v1.2-panel2.dtb")
+
+
+@pytest.mark.parametrize("name", GA36_DTBS)
+def test_built_dtb_starts_the_backlight_at_level_7(name):
+    # device-fixes 9.16: the kernel lights the GA36 at level 7 (70), not the factory 8, until
+    # the initramfs applies the saved brightness; from level 7 up this GA36 can show a broken
+    # picture (P-95). These two trees are every candidate lume-bootsel has on the GA36.
+    from lume_tool import fdt
+    dtb = BUILT.parent / "dtbs" / name
+    if not dtb.exists():
+        pytest.skip("GA36 kernel not built yet")
+    root = fdt.parse(dtb.read_bytes())
+    found = [n for n in _walk(root) if "pwm-backlight" in n.strings("compatible")]
+    assert len(found) == 1
+    bl = found[0]
+    assert bl.cells("brightness-levels") == list(range(0, 101, 10))
+    assert bl.cells("default-brightness-level") == [7]
+
+
+def _walk(node):
+    yield node
+    for child in node.children.values():
+        yield from _walk(child)

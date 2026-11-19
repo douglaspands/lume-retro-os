@@ -1,0 +1,22 @@
+description = "Compares the launcher reference screens (tests/device/shots/screens.toml). Goes to the launcher home (Dock on Favorites) first and leaves it there."
+consoles = ["ga36", "r36s"]
+
+[[step]]
+name = "go to the home"
+type = "home"
+
+[[step]]
+name = "home screen"
+type = "shot"
+screen = "home"
+
+[[step]]
+name = "settings screen"
+type = "shot"
+screen = "settings"
+
+# B leaves Settings for the Dock (focus stays on the gear, the last tile); Right wraps to Favorites
+[[step]]
+name = "back to the home"
+type = "keys"
+sequence = "b*4,wait:300,right"

@@ -4,7 +4,7 @@
 # dropbearkey and chpasswd.
 set -u
 cd "$(dirname "$0")/../.."
-SSH_WIFI="busybox sh aports/lume-net/files/usr/libexec/r36os/ssh-wifi"
+SSH_WIFI="busybox sh aports/lume-net/files/usr/libexec/lume/ssh-wifi"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -15,14 +15,14 @@ LOG="$W/cmd.log"
 cat > "$W/bin/ip" <<EOF
 #!/bin/sh
 for a; do dev=\$a; done
-[ -f "$W/addr.\$dev" ] && echo "3: \$dev    inet \$(cat "$W/addr.\$dev")/24 brd 192.168.1.255 scope global wlan0"
+[ -f "$W/addr.\$dev" ] && read -r a < "$W/addr.\$dev" && echo "3: \$dev    inet \$a/24 brd 192.168.1.255 scope global wlan0"
 exit 0
 EOF
 # dropbear: logs its arguments, serves until killed
 cat > "$W/bin/dropbear" <<EOF
 #!/bin/sh
 echo "dropbear \$*" >> "$LOG"
-while :; do sleep 1; done
+exec sleep 100000
 EOF
 cat > "$W/bin/dropbearkey" <<EOF
 #!/bin/sh
@@ -126,6 +126,47 @@ check "watch starts it" 'running'
 kill "$svc"
 sleep 0.5
 check "TERM stops it" '! running'
+
+### game-governor 7.2 (D20): a look every 5 s, with no process while off or with the Wi-Fi down
+check "rhythm: a look every 5 s by default" 'grep -qx "INTERVAL=\${INTERVAL:-5}" aports/lume-net/files/usr/libexec/lume/ssh-wifi'
+# a line on its FIFO applies at once, without waiting for the round
+echo 'ssh_wifi = false' > "$SETTINGS"
+INTERVAL=5 $SSH_WIFI watch > /dev/null &
+svc=$!
+i=0; while [ ! -p "$W/run/ssh-wifi.wake" ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+sleep 0.3
+echo 'ssh_wifi = true' > "$SETTINGS"
+{ echo apply >&4; } 4<>"$W/run/ssh-wifi.wake"
+sleep 0.5
+check "wake: a line on the FIFO applies at once" 'running'
+kill "$svc"; wait "$svc"
+check "wake: TERM removes the FIFO" '[ ! -e "$W/run/ssh-wifi.wake" ]'
+
+# processes in 10 rounds: none while off, none with the Wi-Fi down, only ip while on and up
+count() {  # settings-line -> processes started by 10 rounds of the loop
+	echo "$1" > "$SETTINGS"
+	INTERVAL=0.2 $SSH_WIFI watch > /dev/null &
+	svc=$!
+	sleep 1
+	: & p0=$!
+	sleep 2.2
+	: & p1=$!
+	kill "$svc"; wait "$svc"
+	N=$((p1 - p0 - 2))
+}
+if [ -f /run/.containerenv ] || [ -f /.dockerenv ]; then
+	count 'ssh_wifi = false'
+	check "off: no process in 10 rounds (saw $N)" '[ $N = 0 ]'
+	echo down > "$W/net/wlan0/operstate"
+	count 'ssh_wifi = true'
+	check "Wi-Fi down: no process in 10 rounds (saw $N)" '[ $N = 0 ]'
+	echo up > "$W/net/wlan0/operstate"
+	echo "ssh-ed25519 AAAA test" > "$KEYS"
+	count ' ssh_wifi = true '
+	check "on and serving: only the ip of each round (saw $N for ~11 rounds)" '[ $N -ge 9 ] && [ $N -le 12 ]'
+else
+	echo "SKIP processes: needs the PID namespace of the builder container"
+fi
 
 rm -rf "$W"
 [ "$FAILS" = 0 ] && echo "ssh-wifi: all passed"

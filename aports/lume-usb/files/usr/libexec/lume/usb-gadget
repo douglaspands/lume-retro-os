@@ -1,0 +1,654 @@
+#!/bin/sh
+# USB device role of the OTG port (usb-device-access D2, D3): the "Lume" gadget.
+#
+# usb-gadget start: builds the gadget in configfs with two functions, ffs.mtp (MTP through
+# FunctionFS, served by umtprd from /storage, the ROMS) and ncm.usb0 (the USB network),
+# starts umtprd and binds the gadget to the UDC of the OTG port only after umtprd wrote its
+# descriptors (FunctionFS refuses to bind before). Without a UDC (the vm) it does nothing.
+# usb-gadget stop: unbinds the gadget, stops umtprd and removes everything it created.
+#
+# usb-gadget run: start, then follow the port until TERM, then stop (the lume-usb service
+# under supervise-daemon).
+#
+# The port role (D1) comes from the ID pin: the gadget stays bound and enumerates only
+# when a PC is on the port while no OTG adapter pulls ID low. On the GA36 the MUSB follows
+# the ID pin by itself; on the R36S the dwc2 role switch is device by default, so run sets
+# host while the PHY reports USB-HOST=1 (ID low) and device otherwise.
+#
+# USB network (D5): when the PC brings the NCM link up, the console takes 10.55.0.1/30 and
+# udhcpd hands out 10.55.0.2 only, with no router and no DNS, so the PC keeps its own
+# route and DNS. Root over that network (D4): dropbear, root with no password, no
+# forwarding, listening on 10.55.0.1 only. Both stop when the link goes down.
+#
+# Every message also goes to the kernel log (KMSG), so the logd trace keeps it; port,
+# network and login changes are usb events of events.log (logs.sh).
+#
+# Environment for the tests: BOARD_FILE, CONFIGFS (default /sys/kernel/config), UDC_CLASS
+# (default /sys/class/udc), FFS_DIR (default /dev/ffs-mtp), UMTPRD, UMTPRD_CONF, USB_RUN
+# (pid files), SOC0_DIR, MMC_DEVICE (card with the serial number), GAME_UID, GAME_GID,
+# MOUNT, UMOUNT, MOUNTPOINT, RMDIR, KMSG, READY_TRIES (tenths of a second waiting for
+# umtprd), ROLE_CLASS (default /sys/class/usb_role), EXTCON_CLASS (default
+# /sys/class/extcon), POLL (seconds between two looks at the port while the UDC state
+# changes), POLL_IDLE (seconds between two looks with nothing changing), USB_LIBDIR (lib.sh and
+# logs.sh), LOGS_RAM, NET_CLASS (default /sys/class/net), POWER_CLASS (default /sys/class/power_supply), IP, UDHCPD, DROPBEAR, RC_SERVICE.
+BOARD_FILE=${BOARD_FILE:-/etc/lume/board}
+CONFIGFS=${CONFIGFS:-/sys/kernel/config}
+UDC_CLASS=${UDC_CLASS:-/sys/class/udc}
+FFS_DIR=${FFS_DIR:-/dev/ffs-mtp}
+# by name: the Alpine package installs /bin/umtprd (GA36 boot 26 died on /usr/bin/umtprd)
+UMTPRD=${UMTPRD:-umtprd}
+UMTPRD_CONF=${UMTPRD_CONF:-/etc/umtprd/umtprd.conf}
+USB_RUN=${USB_RUN:-/run/lume/usb}
+SOC0_DIR=${SOC0_DIR:-/sys/devices/soc0}
+MMC_DEVICE=${MMC_DEVICE:-/sys/block/mmcblk0/device}
+MOUNT=${MOUNT:-mount}
+UMOUNT=${UMOUNT:-umount}
+MOUNTPOINT=${MOUNTPOINT:-mountpoint}
+RMDIR=${RMDIR:-rmdir}
+KMSG=${KMSG:-/dev/kmsg}
+READY_TRIES=${READY_TRIES:-50}
+ROLE_CLASS=${ROLE_CLASS:-/sys/class/usb_role}
+EXTCON_CLASS=${EXTCON_CLASS:-/sys/class/extcon}
+POLL=${POLL:-1}
+POLL_IDLE=${POLL_IDLE:-2}
+NET_CLASS=${NET_CLASS:-/sys/class/net}
+POWER_CLASS=${POWER_CLASS:-/sys/class/power_supply}
+IP=${IP:-ip}
+UDHCPD=${UDHCPD:-udhcpd}
+DROPBEAR=${DROPBEAR:-dropbear}
+RC_SERVICE=${RC_SERVICE:-rc-service}
+
+. "${USB_LIBDIR:-/usr/libexec/lume}/lib.sh"
+. "${USB_LIBDIR:-/usr/libexec/lume}/logs.sh"
+
+# USB network (D5): a /30 with the console and the PC only
+CONSOLE_ADDR=10.55.0.1
+PC_ADDR=10.55.0.2
+NETMASK=255.255.255.252
+
+# USB IDs: Linux Foundation multifunction composite gadget (test IDs of the configfs
+# guides; a VID/PID of our own is an open question of the design)
+VENDOR_ID=0x1d6b
+PRODUCT_ID=0x0104
+MANUFACTURER="Lume Retro OS"
+GADGET=$CONFIGFS/usb_gadget/lume
+STORAGE=/storage
+
+say() {
+	echo "usb: $1"
+	[ -w "$KMSG" ] && echo "lume-usb: $1" >> "$KMSG" 2>/dev/null
+	return 0
+}
+
+# first UDC of the system (the OTG controller; the consoles have only one)
+udc_name() {
+	local d
+	for d in "$UDC_CLASS"/*; do
+		[ -e "$d" ] && { echo "${d##*/}"; return 0; }
+	done
+	return 1
+}
+
+# "Lume GA36", "Lume R36S"
+product_name() {
+	local b
+	b=$(cat "$BOARD_FILE" 2>/dev/null)
+	echo "Lume $(echo "${b:-console}" | tr '[:lower:]' '[:upper:]')"
+}
+
+# The same serial number on every boot: the SoC serial when the kernel gives one (R36S),
+# else the serial of the card (the A33 has no soc0), else 0
+serial_number() {
+	local s=""
+	[ -r "$SOC0_DIR/serial_number" ] && s=$(tr -cd '[:alnum:]' < "$SOC0_DIR/serial_number")
+	case "$s" in *[!0]*) echo "$s"; return 0 ;; esac
+	[ -r "$MMC_DEVICE/serial" ] && s=$(tr -cd '[:alnum:]' < "$MMC_DEVICE/serial")
+	case "$s" in *[!0]*) echo "$s"; return 0 ;; esac
+	echo 0
+}
+
+# Fixed MAC addresses from the serial number (locally administered), so the PC sees the
+# same network interface on every boot: 02:... on the console, 06:... on the PC side
+mac() {  # prefix serial
+	local h
+	h=$(printf '%s' "$2" | md5sum | cut -c1-10)
+	echo "$1:$(echo "$h" | sed 's/\(..\)/\1:/g; s/:$//')"
+}
+
+game_id() {  # -u|-g
+	id "$1" game 2>/dev/null || echo 1000
+}
+
+# umtprd configuration (D3): one storage "ROMS" on /storage with the frontend's user, so
+# files copied from the PC belong to it; nothing outside /storage (BOOT is not exported)
+write_umtprd_conf() {  # product serial
+	mkdir -p "$(dirname "$UMTPRD_CONF")"
+	cat > "$UMTPRD_CONF" <<EOF
+# Generated by /usr/libexec/lume/usb-gadget at every start (usb-device-access D3).
+loop_on_disconnect 1
+storage "$STORAGE" "ROMS" "rw,uid=${GAME_UID:-$(game_id -u)},gid=${GAME_GID:-$(game_id -g)}"
+manufacturer "$MANUFACTURER"
+product "$1"
+serial "$2"
+firmware_version "1"
+interface "MTP"
+usb_vendor_id $VENDOR_ID
+usb_product_id $PRODUCT_ID
+usb_class 0x6
+usb_subclass 0x1
+usb_protocol 0x1
+usb_dev_version 0x3008
+usb_functionfs_mode 0x1
+usb_dev_path "$FFS_DIR/ep0"
+usb_epin_path "$FFS_DIR/ep1"
+usb_epout_path "$FFS_DIR/ep2"
+usb_epint_path "$FFS_DIR/ep3"
+usb_max_packet_size 0x200
+EOF
+}
+
+build_gadget() {  # product serial
+	local c="$GADGET/configs/c.1"
+	mkdir -p "$GADGET/strings/0x409" "$c/strings/0x409" \
+		"$GADGET/functions/ffs.mtp" "$GADGET/functions/ncm.usb0"
+	echo "$VENDOR_ID" > "$GADGET/idVendor"
+	echo "$PRODUCT_ID" > "$GADGET/idProduct"
+	echo 0x0100 > "$GADGET/bcdDevice"
+	echo 0x0200 > "$GADGET/bcdUSB"
+	echo "$MANUFACTURER" > "$GADGET/strings/0x409/manufacturer"
+	echo "$1" > "$GADGET/strings/0x409/product"
+	echo "$2" > "$GADGET/strings/0x409/serialnumber"
+	echo "MTP + NCM" > "$c/strings/0x409/configuration"
+	mac 02 "$2" > "$GADGET/functions/ncm.usb0/dev_addr"
+	mac 06 "$2" > "$GADGET/functions/ncm.usb0/host_addr"
+	ln -s "$GADGET/functions/ffs.mtp" "$c/ffs.mtp"
+	ln -s "$GADGET/functions/ncm.usb0" "$c/ncm.usb0"
+}
+
+# network interface of the NCM function: its name once the gadget is bound ("usb0")
+ncm_ifname() {
+	local n
+	n=$(cat "$GADGET/functions/ncm.usb0/ifname" 2>/dev/null)
+	case "$n" in ''|*[!a-z0-9]*) n=usb0 ;; esac
+	echo "$n"
+}
+
+write_udhcpd_conf() {  # interface
+	cat > "$USB_RUN/udhcpd.conf" <<EOF
+# Generated by /usr/libexec/lume/usb-gadget (usb-device-access D5): one address for the
+# PC, no router and no DNS, so the PC keeps its own route and DNS.
+interface $1
+start $PC_ADDR
+end $PC_ADDR
+max_leases 1
+lease_file $USB_RUN/udhcpd.leases
+pidfile $USB_RUN/udhcpd.pid
+option subnet $NETMASK
+option lease 86400
+EOF
+	: > "$USB_RUN/udhcpd.leases"
+}
+
+# dropbear log lines (stderr, -E) -> one usb event per login accepted or refused
+ssh_log() {
+	local l
+	while IFS= read -r l; do
+		case "$l" in
+		*"uth succeeded "*)
+			event usb OK "ssh: login accepted: ${l#*uth succeeded }" ;;
+		*"Exit before auth"*)
+			event usb FAIL "ssh: login refused: ${l#*Exit before auth }" ;;
+		esac
+	done
+}
+
+# Root over the USB network (D4, decided 2026-11-13): open, root with its empty password
+# (-B), on 10.55.0.1 only, no forwarding (-j -k). Only someone holding the console and a
+# cable reaches it, and that person can take the card out anyway. The host key is made by
+# dropbear at the first login (-R) in /etc/dropbear, which is RAM: a new one every boot.
+ssh_start() {
+	rm -f "$USB_RUN/dropbear.fifo"
+	mkfifo "$USB_RUN/dropbear.fifo"
+	ssh_log < "$USB_RUN/dropbear.fifo" > /dev/null 2>&1 &
+	mkdir -p /etc/dropbear 2>/dev/null
+	"$DROPBEAR" -F -E -R -B -j -k -p "$CONSOLE_ADDR:22" 2> "$USB_RUN/dropbear.fifo" &
+	echo $! > "$USB_RUN/dropbear.pid"
+	say "ssh on $CONSOLE_ADDR:22 (root, no password, USB cable only)"
+}
+
+stop_pid() {  # name
+	local pid
+	pid=$(cat "$USB_RUN/$1.pid" 2>/dev/null)
+	[ -n "$pid" ] && kill "$pid" 2>/dev/null
+	rm -f "$USB_RUN/$1.pid"
+}
+
+NET_UP=0
+net_up() {  # interface
+	$IP addr replace "$CONSOLE_ADDR/30" dev "$1"
+	if ! command -v "$UDHCPD" >/dev/null 2>&1; then
+		# Alpine has udhcpd in busybox-extras, not in busybox
+		event usb FAIL "network: no $UDHCPD, the PC gets no address (set it to $PC_ADDR/30 by hand)"
+	fi
+	write_udhcpd_conf "$1"
+	"$UDHCPD" -f "$USB_RUN/udhcpd.conf" > /dev/null 2>&1 &
+	echo $! > "$USB_RUN/udhcpd.pid"
+	NET_UP=1
+	event usb OK "network: up on $1 (console $CONSOLE_ADDR, PC $PC_ADDR)"
+	ssh_start
+}
+
+net_down() {  # interface
+	[ "$NET_UP" = 1 ] || return 0
+	stop_pid dropbear
+	stop_pid udhcpd
+	rm -f "$USB_RUN/dropbear.fifo"
+	$IP addr flush dev "$1" 2>/dev/null
+	NET_UP=0
+	event usb OK "network: down on $1"
+}
+
+# --- the watch loop (game-governor D20): no process per round ---------------------------
+# Inside the loop every file is read with the read builtin and matched with case; the UDC,
+# the role file, the extcon with the ID pin and the USB power supply are looked up once and
+# again only when they go away. A process is started only when something changes.
+# Each shell step costs: on the GA36 idle (lowest clock) a function call or a read of sysfs
+# is ~0.1-0.2 ms at 720 MHz and several times that at the lowest clock (measured 2026-11-19:
+# 15 ms per round before the short path). A still round therefore reads only the UDC state
+# and VBUS, from paths kept in variables, with no function nesting.
+
+# UDC name in USB_UDC, kept while its directory exists; fails without one
+USB_UDC=""
+udc_find() {
+	local d
+	[ -n "$USB_UDC" ] && [ -e "$UDC_CLASS/$USB_UDC" ] && return 0
+	USB_UDC=""
+	for d in "$UDC_CLASS"/*; do
+		[ -e "$d" ] && { USB_UDC=${d##*/}; return 0; }
+	done
+	return 1
+}
+
+# state of the UDC in USB_ST ("configured" while a PC has the gadget configured);
+# USB_HAS_ST=1 when there is a UDC with a state to read. The state file is read straight
+# from USB_STATE_FILE; the UDC is looked up again only when that read fails.
+USB_ST="" USB_HAS_ST=0 USB_STATE_FILE=/nonexistent
+udc_read_state() {
+	USB_HAS_ST=0
+	if ! read -r USB_ST 2>/dev/null <"$USB_STATE_FILE"; then
+		USB_ST=""
+		udc_find || return 0
+		USB_STATE_FILE=$UDC_CLASS/$USB_UDC/state
+		read -r USB_ST 2>/dev/null <"$USB_STATE_FILE" || USB_ST=""
+	fi
+	[ -n "$USB_ST" ] && USB_HAS_ST=1
+	return 0
+}
+
+# first USB power supply in USB_PS, kept while it exists
+USB_PS=""
+ps_find() {
+	local d t
+	[ -n "$USB_PS" ] && [ -e "$POWER_CLASS/$USB_PS/online" ] && return 0
+	USB_PS=""
+	for d in "$POWER_CLASS"/*; do
+		t=""
+		[ -r "$d/type" ] && read -r t 2>/dev/null <"$d/type"
+		[ "$t" = USB ] && [ -e "$d/online" ] && { USB_PS=${d##*/}; return 0; }
+	done
+	return 1
+}
+
+# VBUS as the PMIC reports it (online of the USB power supply) in USB_VBUS: "name:1",
+# "name:0", or nothing when there is none. Not reliable alone (GA36 J1: 0 for ~5 s with the
+# cable in and the UDC configured, 1 for 76 s without a cable), so it only gets logged,
+# never decides.
+USB_VBUS="" USB_PS_ONLINE=/nonexistent
+vbus_online() {
+	local v=""
+	USB_VBUS=""
+	if ! read -r v 2>/dev/null <"$USB_PS_ONLINE"; then
+		v=""
+		ps_find || return 0
+		USB_PS_ONLINE=$POWER_CLASS/$USB_PS/online
+		read -r v 2>/dev/null <"$USB_PS_ONLINE" || v=""
+	fi
+	[ -n "$v" ] && USB_VBUS="$USB_PS:$v"
+	return 0
+}
+
+# VBUS 0 with the UDC configured: a glitch of the PMIC reading, not a cable out; logged once
+# when it starts and once when it ends
+vbus_watch() {
+	vbus_online
+	case "$USB_VBUS" in
+	*:1*|"") [ "$VBUS_GLITCH" = 1 ] && { VBUS_GLITCH=0; event usb OK "vbus glitch over: $USB_VBUS, the UDC stayed configured"; } ;;
+	*) [ "$VBUS_GLITCH" = 0 ] && { VBUS_GLITCH=1; event usb OK "vbus glitch: $USB_VBUS while the UDC is configured, network kept"; } ;;
+	esac
+	return 0
+}
+
+# The network follows the UDC state, not VBUS: up while the UDC is "configured", down when
+# it leaves that state. Every return to "configured" after leaving it brings the network up
+# again from scratch (address, udhcpd, dropbear), since the PC may have re-enumerated while
+# the old state was kept. Without a UDC state file (the tests of the carrier) the carrier
+# of the NCM interface decides, as before.
+NET_UDC_LAST=""
+VBUS_GLITCH=0
+net_watch() {
+	local n=$USB_IF carrier="" st=$USB_ST
+	if [ "$USB_HAS_ST" = 1 ]; then
+		if [ "$st" = configured ]; then
+			[ -e "$NET_CLASS/$n" ] || return 0
+			if [ "$NET_UP" = 0 ]; then
+				$IP link set "$n" up 2>/dev/null
+				net_up "$n"
+			fi
+			vbus_watch
+		else
+			VBUS_GLITCH=0
+			[ "$NET_UP" = 1 ] && net_down "$n"
+		fi
+		NET_UDC_LAST=$st
+		return 0
+	fi
+	[ -e "$NET_CLASS/$n" ] || return 0
+	[ -r "$NET_CLASS/$n/carrier" ] && read -r carrier 2>/dev/null <"$NET_CLASS/$n/carrier"
+	if [ "$carrier" = 1 ] && [ "$NET_UP" = 0 ]; then
+		net_up "$n"
+	elif [ "$carrier" != 1 ] && [ "$NET_UP" = 1 ]; then
+		net_down "$n"
+	fi
+	return 0
+}
+
+cmd_start() {
+	local udc product serial i pid
+	udc=$(udc_name) || { say "no USB device controller, nothing to do"; return 0; }
+	[ -d "$GADGET" ] && cmd_stop >/dev/null
+	product=$(product_name)
+	serial=$(serial_number)
+	$MOUNTPOINT -q "$CONFIGFS" || $MOUNT -t configfs none "$CONFIGFS" || return 1
+	build_gadget "$product" "$serial"
+	mkdir -p "$FFS_DIR" "$USB_RUN"
+	$MOUNT -t functionfs mtp "$FFS_DIR" || { say "ERROR: cannot mount functionfs"; cmd_stop >/dev/null; return 1; }
+	write_umtprd_conf "$product" "$serial"
+	# umtprd's own words go to the kernel log line by line (the logd trace keeps them on
+	# the card) and to umtprd.log: the MTP side can only be debugged from there
+	: > "$USB_RUN/umtprd.log"
+	rm -f "$USB_RUN/umtprd.fifo"
+	mkfifo "$USB_RUN/umtprd.fifo"
+	# the reader must not hold the script's stdout (it lives as long as umtprd)
+	while IFS= read -r l; do
+		echo "$l" >> "$USB_RUN/umtprd.log"
+		say "umtprd: $l"
+	done < "$USB_RUN/umtprd.fifo" > /dev/null 2>&1 &
+	"$UMTPRD" > "$USB_RUN/umtprd.fifo" 2>&1 &
+	pid=$!
+	echo "$pid" > "$USB_RUN/umtprd.pid"
+	# FunctionFS: the UDC can be bound only after umtprd wrote its descriptors, which
+	# creates the endpoint files
+	i=0
+	while [ ! -e "$FFS_DIR/ep1" ]; do
+		if [ $i -ge "$READY_TRIES" ] || ! kill -0 "$pid" 2>/dev/null; then
+			if kill -0 "$pid" 2>/dev/null; then
+				say "ERROR: umtprd not ready after $((READY_TRIES / 10)) s (no $FFS_DIR/ep1), gadget not bound"
+			else
+				say "ERROR: umtprd exited before writing its descriptors, gadget not bound"
+			fi
+			# its last words on the service output too (the kernel log has them all)
+			sleep 0.2
+			tail -n 5 "$USB_RUN/umtprd.log" 2>/dev/null | while IFS= read -r l; do echo "usb: umtprd: $l"; done
+			cmd_stop >/dev/null
+			return 1
+		fi
+		sleep 0.1
+		i=$((i + 1))
+	done
+	echo "$udc" > "$GADGET/UDC"
+	# the NCM interface exists once bound; up, so the carrier follows the PC
+	$IP link set "$(ncm_ifname)" up 2>/dev/null
+	say "gadget \"$product\" bound to $udc (MTP, NCM), serial $serial"
+}
+
+cmd_stop() {
+	local c="$GADGET/configs/c.1" f pid
+	net_down "$(ncm_ifname)"
+	stop_pid dropbear
+	stop_pid udhcpd
+	[ -e "$GADGET/UDC" ] && echo "" > "$GADGET/UDC" 2>/dev/null
+	pid=$(cat "$USB_RUN/umtprd.pid" 2>/dev/null)
+	if [ -n "$pid" ]; then
+		kill "$pid" 2>/dev/null
+		wait "$pid" 2>/dev/null
+		rm -f "$USB_RUN/umtprd.pid"
+	fi
+	rm -f "$USB_RUN/umtprd.fifo"
+	$MOUNTPOINT -q "$FFS_DIR" 2>/dev/null && $UMOUNT "$FFS_DIR"
+	[ -d "$GADGET" ] || return 0
+	# configfs: links first, then the directories from the inside out
+	for f in "$c/ffs.mtp" "$c/ncm.usb0"; do [ -L "$f" ] && rm -f "$f"; done
+	for f in "$c/strings/0x409" "$c" "$GADGET/functions/ffs.mtp" \
+		"$GADGET/functions/ncm.usb0" "$GADGET/strings/0x409" "$GADGET"; do
+		[ -d "$f" ] && $RMDIR "$f"
+	done
+	say "gadget removed"
+	return 0
+}
+
+# role file of the USB role switch (R36S) in USB_ROLE_FILE; none on the GA36. Without one,
+# it is looked for again only every ROLE_RESCAN rounds.
+USB_ROLE_FILE="" USB_ROLE_WAIT=0
+ROLE_RESCAN=${ROLE_RESCAN:-16}
+role_find() {
+	local f
+	[ -n "$USB_ROLE_FILE" ] && [ -e "$USB_ROLE_FILE" ] && return 0
+	USB_ROLE_FILE=""
+	if [ "$USB_ROLE_WAIT" -gt 0 ]; then
+		USB_ROLE_WAIT=$((USB_ROLE_WAIT - 1))
+		return 1
+	fi
+	USB_ROLE_WAIT=$ROLE_RESCAN
+	for f in "$ROLE_CLASS"/*/role; do
+		[ -e "$f" ] && { USB_ROLE_FILE=$f; ROLE_LAST=""; return 0; }
+	done
+	return 1
+}
+
+# state file of the PHY extcon that reports the ID pin (a USB-HOST= line) in USB_ID_FILE
+USB_ID_FILE=""
+id_find() {
+	local f l
+	[ -n "$USB_ID_FILE" ] && [ -e "$USB_ID_FILE" ] && return 0
+	USB_ID_FILE=""
+	for f in "$EXTCON_CLASS"/*/state; do
+		[ -r "$f" ] || continue
+		while IFS= read -r l; do
+			case $l in USB-HOST=*) USB_ID_FILE=$f; return 0 ;; esac
+		done 2>/dev/null <"$f"
+	done
+	return 1
+}
+
+# ID pin low (OTG adapter): the PHY extcon with USB-HOST=1
+id_low() {
+	local l
+	id_find || return 1
+	while IFS= read -r l; do
+		case $l in USB-HOST=1) return 0 ;; esac
+	done 2>/dev/null <"$USB_ID_FILE"
+	return 1
+}
+
+ROLE_LAST=""
+role_watch() {
+	local sw want
+	role_find || return 0
+	sw=$USB_ROLE_FILE
+	if id_low; then want=host; else want=device; fi
+	[ "$want" = "$ROLE_LAST" ] && return 0
+	if echo "$want" > "$sw" 2>/dev/null; then
+		ROLE_LAST=$want
+		if [ "$want" = host ]; then
+			say "port role host (ID pin low: OTG adapter)"
+		else
+			say "port role device (ID pin high)"
+		fi
+	fi
+	return 0
+}
+
+# The PC let go of the gadget (UDC state leaves "configured": cable out or MTP closed):
+# games copied by MTP are now on the card, so the launcher's game lists are scanned again
+# (lume-launcher D4). The first look only records the state.
+PC_LAST=""
+pc_watch() {
+	local st=$USB_ST
+	[ "$USB_HAS_ST" = 1 ] || return 0
+	if [ "$PC_LAST" = configured ] && [ "$st" != configured ]; then
+		say "PC disconnected ($st): rescanning the game lists"
+		$RC_SERVICE lume-index restart >/dev/null 2>&1 || say "lume-index not restarted"
+	fi
+	PC_LAST=$st
+	return 0
+}
+
+# seconds (1, 2, 0.1, 0.25) -> centiseconds in USB_CS
+to_cs() {
+	local i=${1%%.*} f=""
+	case $1 in *.*) f=${1#*.} ;; esac
+	f=${f}00
+	f=${f%"${f#??}"}
+	USB_CS=$((${i:-0} * 100 + 1$f - 100))
+}
+
+# uptime in centiseconds in USB_UP
+uptime_cs() {
+	local u
+	read -r u _ </proc/uptime
+	USB_UP=$((${u%.*} * 100 + 1${u#*.} - 100))
+}
+
+# The wait between two rounds: read -t on a FIFO of our own, opened read-write (the open
+# never blocks and the loop is always a writer, so it never sees an end of file). A line on
+# it wakes the loop at once: "stop" from `usb-gadget stop`, anything else from the tests.
+USB_FIFO=$USB_RUN/wake
+USB_FIFO_OK=0
+usb_open_fifo() {
+	USB_FIFO_OK=0
+	rm -f "$USB_FIFO"
+	mkfifo -m 0600 "$USB_FIFO" 2>/dev/null || return 1
+	exec 3<>"$USB_FIFO" || return 1
+	USB_FIFO_OK=1
+}
+
+USB_MSG=""
+usb_wait() {  # seconds
+	USB_MSG=""
+	if [ "$USB_FIFO_OK" = 1 ]; then
+		read -t "$1" -r USB_MSG <&3
+		return 0
+	fi
+	sleep "$1" &
+	wait $!
+}
+
+# The FIFO never ends (the loop holds it read-write), but if the read ever came back at once
+# the loop would spin. Every 32 rounds the time they took is compared with the waits asked
+# (USB_ASKED, centiseconds, rounds woken by a message not counted): under half means the
+# FIFO broke; it is opened again, or the loop waits with sleep.
+USB_ROUNDS=0 USB_ASKED=0 USB_T0=0
+usb_guard() {
+	uptime_cs
+	if [ "$USB_ASKED" -gt 0 ] && [ $((USB_UP - USB_T0)) -lt $((USB_ASKED / 2)) ]; then
+		say "ERROR: the wake FIFO failed, reopening it"
+		usb_open_fifo
+	fi
+	USB_T0=$USB_UP USB_ROUNDS=0 USB_ASKED=0
+}
+
+# One look at the port. USB_FAST counts the rounds left at POLL: some after the UDC state
+# changed, and while the network waits for its interface; otherwise the next look is POLL_IDLE.
+# Short path: the same UDC state as the last round and nothing waiting (the network up while
+# configured) only reads VBUS (logged) and the ID pin.
+USB_ST_PREV="" USB_FAST=3
+usb_tick() {
+	udc_read_state
+	role_watch
+	if [ "$USB_HAS_ST" = 1 ] && [ "$USB_ST" = "$USB_ST_PREV" ]; then
+		if [ "$USB_ST" != configured ]; then
+			return 0
+		elif [ "$NET_UP" = 1 ]; then
+			vbus_watch
+			return 0
+		fi
+	fi
+	net_watch
+	pc_watch
+	if [ "$USB_ST" != "$USB_ST_PREV" ]; then
+		USB_FAST=3
+		USB_ST_PREV=$USB_ST
+	elif [ "$USB_ST" = configured ] && [ "$NET_UP" = 0 ]; then
+		USB_FAST=1
+	fi
+}
+
+usb_quit() {
+	cmd_stop
+	rm -f "$USB_FIFO" "$USB_RUN/run.pid"
+	exit 0
+}
+
+cmd_run() {
+	local fast_cs idle_cs
+	cmd_start || exit 1
+	trap 'usb_quit' TERM INT
+	USB_IF=$(ncm_ifname)
+	mkdir -p "$USB_RUN"
+	echo $$ >"$USB_RUN/run.pid"
+	usb_open_fifo || say "ERROR: no wake FIFO in $USB_RUN, waiting with sleep"
+	to_cs "$POLL"
+	fast_cs=$USB_CS
+	to_cs "$POLL_IDLE"
+	idle_cs=$USB_CS
+	uptime_cs
+	USB_T0=$USB_UP
+	while :; do
+		usb_tick
+		if [ "$USB_FAST" -gt 0 ]; then
+			USB_FAST=$((USB_FAST - 1))
+			usb_wait "$POLL"
+			[ -n "$USB_MSG" ] || USB_ASKED=$((USB_ASKED + fast_cs))
+		else
+			usb_wait "$POLL_IDLE"
+			[ -n "$USB_MSG" ] || USB_ASKED=$((USB_ASKED + idle_cs))
+		fi
+		[ "$USB_MSG" = stop ] && usb_quit
+		USB_ROUNDS=$((USB_ROUNDS + 1))
+		[ "$USB_ROUNDS" -ge 32 ] && usb_guard
+	done
+}
+
+# stop: with the run loop alive, wake it through its FIFO so it removes the gadget and
+# exits; otherwise remove the gadget here
+cmd_stop_request() {
+	local pid="" i=0
+	[ -r "$USB_RUN/run.pid" ] && read -r pid 2>/dev/null <"$USB_RUN/run.pid"
+	if [ -n "$pid" ] && [ "$pid" != $$ ] && [ -p "$USB_FIFO" ] && kill -0 "$pid" 2>/dev/null; then
+		{ printf 'stop\n' >&4; } 4<>"$USB_FIFO"
+		while kill -0 "$pid" 2>/dev/null && [ $i -lt 50 ]; do
+			sleep 0.1
+			i=$((i + 1))
+		done
+		kill -0 "$pid" 2>/dev/null || return 0
+		say "ERROR: the run loop did not stop in 5 s, removing the gadget here"
+	fi
+	cmd_stop
+}
+
+case "$1" in
+start) cmd_start ;;
+stop) cmd_stop_request ;;
+run) cmd_run ;;
+*) echo "usage: $0 start|stop|run" >&2; exit 2 ;;
+esac

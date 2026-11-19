@@ -3,17 +3,17 @@
 # ships them as they are.
 #
 # noarch: built once in the x86_64 builder and published as the same .apk for every
-# architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
+# architecture (lume build, packages.build_noarch). No ELF file may be added to files/.
 pkgname=lume-launcher-data
 pkgver=1.0
-pkgrel=0
+pkgrel=1
 pkgdesc="Launcher data: translations, themes and the theme template"
 url="https://example.invalid"
 arch="noarch"
 license="GPL-2.0-or-later"
 depends="lume-core"
 options="!check" # tested on the host (tests/unit and the shell suites)
-# services `r36os push --hot` restarts when they are running (empty: none)
+# services `lume push --hot` restarts when they are running (empty: none)
 _lume_restart=""
 builddir="$srcdir"
 

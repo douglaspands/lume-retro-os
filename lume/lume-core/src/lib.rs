@@ -5,12 +5,19 @@
 //! share.
 
 pub mod atomic;
+pub mod cardreq;
 pub mod catalog;
 pub mod events;
+pub mod gametext;
+pub mod input;
 pub mod log;
 pub mod options;
 pub mod paths;
+pub mod power;
+pub mod powerconf;
+pub mod powerstate;
 pub mod runner;
 pub mod settings;
+pub mod sleep;
 pub mod states;
 pub mod text;

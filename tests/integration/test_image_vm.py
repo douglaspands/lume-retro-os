@@ -1,6 +1,6 @@
 """Tarefa 4.4: layout da imagem vm (MBR, BOOT FAT32 em 16 MiB) e conteúdo da BOOT.
 
-Requer out/vm/vm.img (uv run r36os build vm).
+Requer out/vm/vm.img (uv run lume build vm).
 """
 
 import shutil
@@ -8,9 +8,9 @@ import subprocess
 
 import pytest
 
-from r36os.container import Container, ensure_builder
-from r36os.rootfs import target_out
-from r36os.targets import get_target
+from lume_tool.container import Container, ensure_builder
+from lume_tool.rootfs import target_out
+from lume_tool.targets import get_target
 
 VM = get_target("vm")
 IMG = target_out(VM) / "vm.img"

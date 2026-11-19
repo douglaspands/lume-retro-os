@@ -15,21 +15,21 @@ Alpine), o bootloader (SYSLINUX) e os drivers (virtio).
 ## Gerar a imagem
 
 ```
-uv run r36os build vm
+uv run lume build vm
 ```
 
 Saída em `out/vm/`: `vm.img` (imagem do cartão, 1040 MiB), `SYSTEM`, `initramfs`,
 `manifest.txt` (pacotes e versões) e `kernel/`. O cache (chave do abuild, fontes,
-ccache) fica em `.cache/`, na raiz do projeto (ou em `$R36OS_CACHE`).
+ccache) fica em `.cache/`, na raiz do projeto (ou em `$LUME_CACHE`).
 
 ## Rodar
 
 ```
-uv run r36os vm              # janela 640x480 com virgl e áudio do host
-uv run r36os vm --headless   # sem janela: console serial no terminal
-uv run r36os vm --roms ~/Jogos   # jogos de uma pasta do PC, somente leitura
-uv run r36os vm --gamepad /dev/input/by-id/usb-...-event-joystick   # controle específico
-uv run r36os vm --no-gamepad     # não repassa nenhum controle do PC
+uv run lume vm              # janela 640x480 com virgl e áudio do host
+uv run lume vm --headless   # sem janela: console serial no terminal
+uv run lume vm --roms ~/Jogos   # jogos de uma pasta do PC, somente leitura
+uv run lume vm --gamepad /dev/input/by-id/usb-...-event-joystick   # controle específico
+uv run lume vm --no-gamepad     # não repassa nenhum controle do PC
 ```
 
 **Controles do PC:** sem `--gamepad`, os controles em `/dev/input/by-id/*-event-joystick`
@@ -38,7 +38,7 @@ que o seu usuário consegue abrir e capturar são repassados à VM automaticamen
 
 **Jogos do PC (`--roms DIR`, ou `--share DIR`):** a pasta é exportada por virtio-9p,
 somente leitura, e aparece em `/mnt/host` na VM. Se ela tiver as pastas dos sistemas
-(`nes/`, `snes/`, …) ou uma pasta `roms/` com elas, o serviço `r36os-hostshare` a usa
+(`nes/`, `snes/`, …) ou uma pasta `roms/` com elas, o serviço `lume-hostshare` a usa
 como `/storage/roms`, e `bios/` dela como `/storage/bios`, antes de gerar as listas de
 jogos. Saves e estados continuam no disco descartável da VM. A VM nunca altera a pasta.
 
@@ -70,11 +70,11 @@ um jogo pausa o jogo. Ctrl+Alt+G libera o mouse da janela do QEMU.
 ## Teste de aceitação
 
 ```
-uv run r36os test-vm          # --keep mantém o disco da VM em .cache/vm/test.img
+uv run lume test-vm          # --keep mantém o disco da VM em .cache/vm/test.img
 ```
 
-O teste sobe a VM sem tela com `r36os.selftest=1` e um segundo disco FAT (`TESTDATA`)
-com as ROMs de teste geradas pelo build. O serviço `r36os-selftest` roda dentro da VM,
+O teste sobe a VM sem tela com `lume.selftest=1` e um segundo disco FAT (`TESTDATA`)
+com as ROMs de teste geradas pelo build. O serviço `lume-selftest` roda dentro da VM,
 fase por fase (um boot por fase), e imprime na serial:
 
 ```

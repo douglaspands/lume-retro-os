@@ -1,0 +1,42 @@
+Subject: [PATCH] drm/panel: ga36mb-jd9366: experiment, ~60 Hz by the porches
+
+Experiment kernel of device-fixes 6.3 (D13, P-25), never in the default image.
+
+Keeps the link of today: 29.7 MHz is the 356.4 MHz pll-mipi (297 x 6 / 5) the
+default 30 MHz request already gets, divided by 12. The horizontal front porch goes
+from 280 to 196 pixels (htotal 956): 29700000 / (956 x 518) = 59.975 Hz. Vertical
+timing unchanged (vtotal 518 cannot shrink much: 480 visible lines).
+---
+diff --git a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+--- a/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
++++ b/drivers/gpu/drm/panel/panel-ga36mb-jd9366.c
+@@ -194,12 +194,17 @@
+  * vsync 6. In the Allwinner counting hbp/vbp include the sync, so the back porch is
+  * hbp - hsync and the front porch is the rest.
+  */
++/*
++ * Experiment ~60 Hz by the porches (device-fixes 6.3, D13): 29.7 MHz is the
++ * pll-mipi of today (297 MHz x 6 / 5 = 356.4 MHz) divided by 12; front porch 196
++ * (htotal 956): 29700000 / (956 x 518) = 59.975 Hz.
++ */
+ static const struct drm_display_mode jd9366_mode = {
+-	.clock = 30000,
++	.clock = 29700,
+ 	.hdisplay = 640,
+-	.hsync_start = 640 + 280,
+-	.hsync_end = 640 + 280 + 40,
+-	.htotal = 1040,
++	.hsync_start = 640 + 196,
++	.hsync_end = 640 + 196 + 40,
++	.htotal = 956,
+ 	.vdisplay = 480,
+ 	.vsync_start = 480 + 26,
+ 	.vsync_end = 480 + 26 + 6,
+@@ -450,6 +455,7 @@
+ 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
+ 			  MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
+ 	ctx->panel.prepare_prev_first = true;
++	dev_info(dev, "experiment kernel 60hz-porch: 29.7 MHz pixel clock, htotal 956, 59.975 Hz\n");
+ 
+ 	ret = jd9366_check_bus(ctx, dsi);
+ 	if (ret < 0) {

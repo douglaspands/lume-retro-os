@@ -8,7 +8,7 @@ Any access to the Btrfs No-COW volume (~/data) keeps asking (docs/ctx/MELHORIAS.
 import importlib.util
 import os
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 spec = importlib.util.spec_from_file_location("guardrail", REPO_ROOT / "scripts/guardrail.py")
 guardrail = importlib.util.module_from_spec(spec)

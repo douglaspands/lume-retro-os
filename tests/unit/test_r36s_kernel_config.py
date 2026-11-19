@@ -1,7 +1,7 @@
 """R36S kernel config (task 4.1 of r36s-single-card): board/r36s/kernel.config and the
 generated .config.
 
-The final .config (out/r36s/kernel/config) only exists after `r36os build console`;
+The final .config (out/r36s/kernel/config) only exists after `lume build console`;
 without it the tests that depend on it are skipped.
 """
 
@@ -9,9 +9,9 @@ import re
 
 import pytest
 
-from r36os import bootarea, build
-from r36os.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
-from r36os.paths import REPO_ROOT, out_dir
+from lume_tool import bootarea, build
+from lume_tool.kernel import KERNEL_TARGETS, OWN_DRIVER_FILES
+from lume_tool.paths import REPO_ROOT, out_dir
 
 BOARD = REPO_ROOT / "board/r36s"
 FRAGMENT = (BOARD / "kernel.config").read_text()
@@ -88,11 +88,26 @@ def test_kernel_cmdline_and_boot_options():
     opts = _options(FRAGMENT)
     assert opts["CONFIG_CMDLINE_FORCE"] == "y"
     assert opts["CONFIG_INITRAMFS_SOURCE"] == '"/initramfs/initramfs.cpio"'
-    assert opts["CONFIG_LOCALVERSION"] == '"-r36os"'
+    assert opts["CONFIG_LOCALVERSION"] == '"-lume"'
 
 
 def test_fragment_keeps_mainline_cpufreq_and_thermal():
     assert not re.search(r"CPU_FREQ_DEFAULT_GOV|CPU_FREQ_GOV_|THERMAL_DEFAULT_GOV", FRAGMENT)
+
+
+def test_suspension_keeps_the_defconfig():
+    # device-fixes D11, task 8.1: s2idle and mem come from the arm64 defconfig (SUSPEND,
+    # PM_SLEEP, PSCI); the power key driver (INPUT_RK805_PWRKEY, a module there, loaded by
+    # udev) and the RK817 RTC and charger stay on. Whether mem works is the R36S J1 (2.3):
+    # until then the fragment adds nothing for it and autosleep stays off.
+    from tests.unit.test_ga36_kernel_config import SLEEP_OPTIONS
+
+    off = set(re.findall(r"^# (CONFIG_\w+) is not set$", FRAGMENT, re.M))
+    for opt in SLEEP_OPTIONS + ("CONFIG_INPUT_RK805_PWRKEY", "CONFIG_ARM_PSCI_CPUIDLE"):
+        assert opt not in off and opt not in _options(FRAGMENT), opt
+    for opt in ("CONFIG_CHARGER_RK817", "CONFIG_RTC_DRV_RK808"):
+        assert _options(FRAGMENT).get(opt) == "y", opt
+    assert not re.search(r"PM_AUTOSLEEP|PM_WAKELOCKS|SUSPEND_SKIP_SYNC|MEM_SLEEP", FRAGMENT)
 
 
 @pytest.mark.skipif(not BUILT.exists(), reason="R36S kernel not built yet")

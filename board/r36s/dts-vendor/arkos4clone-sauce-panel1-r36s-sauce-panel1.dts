@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole R36S Soy Sauce Panel 1, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/sauce panel1/rk3326-r36s-sauce-panel1-linux.dtb
  * SHA-256: add589349611ef6a319fc34f60717418afb288103720b948ef981f43a8969460
  * Note: speaker gain: source spk-volume 3 ignored, the native safe value is used

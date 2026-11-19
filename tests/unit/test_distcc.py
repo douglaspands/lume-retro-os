@@ -2,15 +2,15 @@
 
 from contextlib import contextmanager
 
-from r36os import distcc, packages
-from r36os.heat import BUILD_LABEL
-from r36os.targets import get_target
+from lume_tool import distcc, packages
+from lume_tool.heat import BUILD_LABEL
+from lume_tool.targets import get_target
 
 
 def test_selected_reads_names_and_all_from_the_environment():
     assert distcc.selected({}) == set()
-    assert distcc.selected({"R36OS_DISTCC": "a, b,,c"}) == {"a", "b", "c"}
-    assert distcc.selected({"R36OS_DISTCC": "all"}) == {"all"}
+    assert distcc.selected({"LUME_DISTCC": "a, b,,c"}) == {"a", "b", "c"}
+    assert distcc.selected({"LUME_DISTCC": "all"}) == {"all"}
 
 
 def test_only_emulated_architectures_use_distcc():
@@ -44,7 +44,7 @@ def test_distccd_is_low_priority_loopback_only_and_paused_by_the_heat_guard():
     assert argv[argv.index("--allow") + 1] == "127.0.0.1"
     assert argv[argv.index("--port") + 1] == "3632"
     assert argv[argv.index("--jobs") + 1] == "4"
-    assert "localhost/r36os-distcc:armv7" in argv
+    assert "localhost/lume-distcc:armv7" in argv
 
 
 def test_remote_compiles_counts_the_ok_jobs():
@@ -61,10 +61,10 @@ def test_gcc_pin_names_a_commit_and_a_version():
 
 
 def test_abuild_container_gets_distcc_env_and_its_own_ccache(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_JOBS", "3")
-    monkeypatch.delenv("R36OS_CCACHE", raising=False)
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_JOBS", "3")
+    monkeypatch.delenv("LUME_CCACHE", raising=False)
     monkeypatch.setattr(packages, "ensure_builder", lambda t: "b")
     ga36 = get_target("ga36")
     plain = packages._container(ga36, tmp_path)
@@ -73,7 +73,7 @@ def test_abuild_container_gets_distcc_env_and_its_own_ccache(tmp_path, monkeypat
     c = packages._container(ga36, tmp_path, distcc=True)
     assert c.env["DISTCC_HOSTS"] == "127.0.0.1:3632/3"
     assert c.volumes[tmp_path / "cache" / "ccache" / "armv7-distcc"] == "/cache/ccache"
-    monkeypatch.setenv("R36OS_CCACHE", "0")
+    monkeypatch.setenv("LUME_CCACHE", "0")
     assert packages._container(ga36, tmp_path).env["CCACHE_DISABLE"] == "1"
 
 
@@ -94,7 +94,7 @@ def test_build_packages_runs_distccd_only_around_the_chosen_packages(tmp_path, m
         yield
         calls.append(("distccd-stop", arch))
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     monkeypatch.setattr(packages, "_container",
                         lambda t, a, cargo_target=False, distcc=False, repodest=None:
                         FakeContainer(distcc))
@@ -108,12 +108,12 @@ def test_build_packages_runs_distccd_only_around_the_chosen_packages(tmp_path, m
         (aports / n / "APKBUILD").write_text(f"pkgname={n}\npkgver=1\npkgrel=0\n")
     ga36 = get_target("ga36")
 
-    monkeypatch.delenv("R36OS_DISTCC", raising=False)
+    monkeypatch.delenv("LUME_DISTCC", raising=False)
     packages.build_packages(ga36, ["a", "core"], aports=aports)
     assert [c[:2] for c in calls] == [("sh", False)] * 2  # unchanged without the variable
 
     calls.clear()
-    monkeypatch.setenv("R36OS_DISTCC", "core")
+    monkeypatch.setenv("LUME_DISTCC", "core")
     packages.build_packages(ga36, ["a", "core"], aports=aports)
     assert [c[:2] for c in calls] == [
         ("sh", False), ("distccd-start", "armv7"), ("sh", True), ("distccd-stop", "armv7")]

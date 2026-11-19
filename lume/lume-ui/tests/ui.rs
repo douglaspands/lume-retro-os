@@ -49,19 +49,19 @@ fn card(name: &str, snes_games: usize, covers: bool) -> Card {
     fs::write(roms.join("snes/gamelist.xml"), gl).unwrap();
     fs::create_dir_all(roms.join("ports")).unwrap();
     fs::write(roms.join("ports/Tool.sh"), "echo").unwrap();
-    let catalog = Catalog::load(&repo().join("rootfs/overlay/usr/share/r36os/systems.json")).unwrap();
+    let catalog = Catalog::load(&repo().join("aports/lume-games/files/usr/share/lume/systems.json")).unwrap();
     let ctx = lume_index::Ctx { storage: root.join("storage"), catalog: catalog.clone(), tile: lume_index::DEFAULT_TILE };
     for (_, r) in lume_index::update_all(&ctx, &[], false, |_, _, _| {}) {
         r.unwrap();
     }
-    let (runners, _) = lume_core::runner::load(&[repo().join("rootfs/overlay/usr/share/lume/runners.d")], false);
+    let (runners, _) = lume_core::runner::load(&[repo().join("aports/lume-games/files/usr/share/lume/runners.d")], false);
     Card { root, catalog, runners }
 }
 
 fn app(c: &Card, sys: FakeSystem) -> App<FakeSystem> {
     let p = Paths {
         storage: c.root.join("storage"),
-        share: repo().join("rootfs/overlay/usr/share/lume"),
+        share: repo().join("aports/lume-launcher-data/files/usr/share/lume"),
         cores: "/usr/lib/libretro".into(),
         runtime: c.root.join("run"),
         ra_cfg: c.root.join("home/.config/retroarch/retroarch.cfg"),
@@ -127,6 +127,43 @@ fn no_frame_without_an_event() {
         a.handle(Ev::Tick);
         assert_eq!(a.wait(), None);
     }
+}
+
+#[test]
+fn suspend_stops_drawing_answers_with_its_sequence_and_resume_redraws_once() {
+    use lume_core::sleep::Notice;
+    let c = card("sleep", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    let frames = canvas.frames;
+    let focus = a.dock_focus;
+
+    // suspend: no frame, the answer is queued with the same sequence
+    assert!(!a.handle(Ev::Sleep(Notice::Suspend(4))));
+    assert_eq!(a.suspend_reply.take(), Some(4));
+    assert!(a.sleeping);
+    assert_eq!(a.wait(), None);
+    assert_eq!(a.idle_wait(), None);
+
+    // between suspend and resume nothing asks for a frame and the input does nothing
+    for ev in [Ev::Input(Action::Right, false), Ev::Tick, Ev::Volume(30), Ev::Brightness(30), Ev::FnTap] {
+        assert!(!a.handle(ev));
+    }
+    assert!(!a.handle(Ev::Battery(50, false)), "data events update the state without a frame");
+    assert_eq!(a.dock_focus, focus);
+    assert_eq!(a.suspend_reply, None);
+    assert_eq!(canvas.frames, frames);
+
+    // resume: one redraw of the current screen, no answer
+    assert!(a.handle(Ev::Sleep(Notice::Resume(4))));
+    assert!(!a.sleeping);
+    assert_eq!(a.suspend_reply, None);
+    a.draw(&mut canvas);
+    assert_eq!(canvas.frames, frames + 1);
+    assert!(!a.handle(Ev::Sleep(Notice::Resume(4))), "a second resume has nothing to redraw");
+    // the input works again
+    assert!(a.handle(Ev::Input(Action::Right, false)));
 }
 
 #[test]
@@ -400,7 +437,7 @@ fn ssh_over_wifi_switch_in_the_wifi_panel() {
     a.draw(&mut cv);
     assert!(cv.has_text("On") && cv.has_text("ssh console@192.168.1.20") && cv.has_text("Code") && cv.has_text("—"));
     assert_eq!(a.wait(), Some(Duration::from_millis(1000)));
-    // the code on the card (made by r36os-ssh-wifi): shown as it is; nothing wakes the loop now
+    // the code on the card (made by lume-ssh-wifi): shown as it is; nothing wakes the loop now
     let code_file = c.root.join("storage/system/ssh/wifi-code");
     fs::create_dir_all(code_file.parent().unwrap()).unwrap();
     fs::write(&code_file, "7K4M-9Q2X\n").unwrap();
@@ -439,7 +476,7 @@ fn ssh_codes_use_the_alphabet() {
 
 #[test]
 fn level_colors_follow_the_theme_for_the_line_over_a_game() {
-    // r36os-input reads them to draw the same lines over a game (RetroArch LUME_LEVEL)
+    // lume-input reads them to draw the same lines over a game (RetroArch LUME_LEVEL)
     let c = card("levelcolors", 3, false);
     let mut a = app(&c, FakeSystem::default());
     let path = c.root.join("storage/system/lume/level-colors");
@@ -605,6 +642,29 @@ fn settings_panel_text_is_one_size_on_every_item() {
 }
 
 #[test]
+fn the_settings_brightness_row_saves_the_level_and_the_volume_row_does_not() {
+    // device-fixes 9.15: the user's brightness goes to the card; the volume has its own file
+    let c = card("brisave", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let rows = a.set_rows();
+    a.settings_focus = rows.iter().position(|r| *r == SetRow::Volume).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert_eq!((a.sys.vol, a.sys.saved_bri), (55, None), "the volume row saves no brightness");
+    press(&mut a, Action::B);
+    a.settings_focus = rows.iter().position(|r| *r == SetRow::Brightness).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert_eq!((a.sys.bri, a.sys.saved_bri), (85, Some(85)));
+    press(&mut a, Action::Left);
+    assert_eq!((a.sys.bri, a.sys.saved_bri), (80, Some(80)));
+    // nothing about the levels is written to settings.toml any more
+    assert!(!card_settings_written(&c) || !fs::read_to_string(c.root.join("storage/system/lume/settings.toml")).unwrap().contains("brightness"));
+}
+
+#[test]
 fn settings_panel_takes_the_focus() {
     let c = card("panelfocus", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
@@ -750,21 +810,380 @@ fn game_menu_sheet_matches_the_prototype_ruler() {
     assert!(cv.texts.iter().any(|(t, r)| *t == a.lib.systems[1].abbr && r.x < 220));
 }
 
+// ---- the system menu of the Fn button (device-fixes 9.11, D19) ----
+
+fn fn_tap(a: &mut App<FakeSystem>) {
+    assert!(a.handle(Ev::FnTap));
+}
+
+/// The sheet of the system menu: the panel_bg fill that is not the whole width.
+fn panel(a: &App<FakeSystem>, cv: &FakeCanvas, min_w: i32) -> lume_ui::canvas::Rect {
+    cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > min_w).map(|(r, _)| *r).expect("sheet")
+}
+
 #[test]
-fn power_off_is_a_sheet_with_cancel_first() {
-    let c = card("powersheet", 3, false);
+fn system_menu_over_the_grid_and_back_on_the_same_game() {
+    let c = card("sys-grid", 12, false);
     let mut a = app(&c, FakeSystem::default());
-    go_dock(&mut a, DockItem::Settings);
+    go_dock(&mut a, DockItem::System(1));
     press(&mut a, Action::A);
-    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::Power).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    let name = a.focused_name().unwrap();
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && cv.has_text("Settings") && cv.has_text("Suspend") && cv.has_text("Restart") && cv.has_text("Power off"));
+    // the buttons go to the menu, not to the grid: Down moves the menu's focus
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Right);
+    assert_eq!(a.focused_name().unwrap(), name);
+    // another tap closes it; the grid is as it was
+    fn_tap(&mut a);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("System menu"));
+    // B closes it too
+    fn_tap(&mut a);
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+}
+
+#[test]
+fn system_menu_over_an_open_sheet_keeps_it() {
+    let c = card("sys-sheet", 3, true);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::A); // the game sheet
+    assert!(a.overlay_open());
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && cv.has_text("Start game"), "both layers are drawn");
+    fn_tap(&mut a);
+    assert!(a.overlay_open(), "the sheet stays open under the menu");
+    // the sheet takes the buttons again
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+}
+
+#[test]
+fn system_menu_focus_starts_on_settings_and_wraps() {
+    let c = card("sys-focus", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    fn_tap(&mut a);
+    // A on the first item opens the Settings
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    // up from Settings wraps to Power off: its confirmation opens
+    let mut b = app(&c, FakeSystem::default());
+    fn_tap(&mut b);
+    press(&mut b, Action::Up);
+    press(&mut b, Action::A);
+    let mut cv = FakeCanvas::new(640, 480);
+    b.draw(&mut cv);
+    assert!(cv.has_text("The device will be turned off."));
+}
+
+#[test]
+fn restart_and_power_off_confirmations_default_to_cancel_and_only_up_down_change_it() {
+    let c = card("sys-confirm", 3, false);
+    // (the item index, the exit code the action gives, the question)
+    for (downs, exit, ask) in [(2, Exit::Restart, "The device will restart."), (3, Exit::Shutdown, "The device will be turned off.")] {
+        let mut a = app(&c, FakeSystem::default());
+        fn_tap(&mut a);
+        for _ in 0..downs {
+            press(&mut a, Action::Down);
+        }
+        press(&mut a, Action::A);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text(ask) && cv.has_text("Cancel"));
+        // the focus starts on Cancel: A does nothing and the menu is back
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None);
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text("System menu"), "Cancel goes back to the menu");
+        // reopen: left and right change nothing, A still cancels
+        press(&mut a, Action::A);
+        press(&mut a, Action::Left);
+        press(&mut a, Action::Right);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None);
+        // reopen: Up picks the action (left/right again do nothing), Down gets back to Cancel
+        press(&mut a, Action::A);
+        press(&mut a, Action::Up);
+        press(&mut a, Action::Down);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, None, "Down went back to Cancel");
+        press(&mut a, Action::A);
+        press(&mut a, Action::Up);
+        press(&mut a, Action::Left);
+        press(&mut a, Action::Right);
+        press(&mut a, Action::A);
+        assert_eq!(a.exit, Some(exit));
+    }
+    assert_eq!(Exit::Restart as i32, 66);
+    assert_eq!(Exit::Shutdown as i32, 0);
+}
+
+#[test]
+fn confirmation_has_the_action_above_cancel_and_matches_the_prototype_ruler() {
+    let c = card("sys-confirm-ruler", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::Down);
     press(&mut a, Action::A);
     let mut cv = FakeCanvas::new(640, 480);
     a.draw(&mut cv);
-    assert!(cv.has_text("The device will be turned off.") && cv.has_text("Cancel"));
-    // no cover column: the body starts 14.4 inside the sheet
-    let sheet = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
-    let cancel = cv.texts.iter().find(|(t, _)| t == "Cancel").unwrap().1;
-    assert!((cancel.x - (sheet.x + 14 + 16)).abs() <= 1, "{cancel:?}");
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // the sheet 576 x 177.7 at (32, 151.2)
+    let sheet = panel(&a, &cv, 500);
+    assert!(near(sheet.x, 32.0) && near(sheet.y, 151.2) && near(sheet.w, 576.0) && near(sheet.h, 177.7), "{sheet:?}");
+    let t = |s: &str| cv.texts.iter().find(|(x, _)| x == s).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+    let (action, cancel) = (t("Restart"), t("Cancel"));
+    assert!(action.y < cancel.y);
+    // the rows 39.2 tall from 236.1: the action, then Cancel (the focused pill) at 275.3
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.w > 500).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 46.4) && near(pill.y, 275.3) && near(pill.w, 547.2) && near(pill.h, 39.2), "{pill:?}");
+    assert!(near(action.y, 236.1 + 7.6) && near(cancel.y, 275.3 + 7.6), "{action:?} {cancel:?}");
+}
+
+#[test]
+fn system_menu_sheet_matches_the_prototype_ruler() {
+    let c = card("sys-ruler", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    // the table was measured in Portuguese
+    a.settings.language = "pt".into();
+    a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), "pt");
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // the sheet 259.6 x 220.5 at (190.2, 129.7)
+    // (the last one drawn: the Dock's icons come before the sheet)
+    let sheet = cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 200 && r.h > 200).map(|(r, _)| *r).expect("sheet");
+    assert!(near(sheet.x, 190.2) && near(sheet.y, 129.7) && near(sheet.w, 259.6) && near(sheet.h, 220.5), "{sheet:?}");
+    // the first item in focus (the pill) 230.8 x 39.2 at (204.6, 179.1)
+    let pill = cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("sel_bg") && r.w > 100).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 204.6) && near(pill.y, 179.1) && near(pill.w, 230.8) && near(pill.h, 39.2), "{pill:?}");
+    // the items every 39.2 (Suspend, Restart, Power off at 218.3, 257.5, 296.7 + the 7.6 of the text)
+    let items: Vec<(String, i32)> = ["Configurações", "Suspender", "Reiniciar", "Desligar"]
+        .iter()
+        .map(|s| (s.to_string(), cv.texts.iter().filter(|(t, r)| t == s && r.x > 200 && r.y > 170).map(|(_, r)| r.y).min().unwrap_or_else(|| panic!("{s}"))))
+        .collect();
+    for (i, (s, y)) in items.iter().enumerate() {
+        assert!(near(*y, 179.1 + i as f32 * 39.2 + 7.6), "{s} at {y}");
+    }
+}
+
+// ---- the Fn hold hint (device-fixes 9.13, D19) ----
+
+fn hold_table() -> Vec<lume_core::input::HoldEntry> {
+    ["B=app_menu", "Vol=brightness", "Start=quit"]
+        .iter()
+        .map(|p| {
+            let (b, a) = p.split_once('=').unwrap();
+            lume_core::input::HoldEntry { button: b.into(), action: a.into() }
+        })
+        .collect()
+}
+
+fn lang_app(c: &Card, lang: &str) -> App<FakeSystem> {
+    let mut a = app(c, FakeSystem::default());
+    a.settings.language = lang.into();
+    a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), lang);
+    a
+}
+
+fn hint_panel(a: &App<FakeSystem>, cv: &FakeCanvas) -> Option<lume_ui::canvas::Rect> {
+    cv.fills.iter().rev().find(|(r, col)| *col == a.theme.color("panel_bg_opaque") && r.w > 300 && r.h < 120).map(|(r, _)| *r)
+}
+
+#[test]
+fn hold_hint_matches_the_prototype_ruler_in_pt_and_es() {
+    let near = |v: i32, b: f32| (v as f32 - b).abs() <= 1.0;
+    // The prototype's widths (pt 352.5, es 358.3; rows 303.2) come from the browser's font; the
+    // bundled one is wider, so the width is checked as the widest row plus the 1.1 em paddings
+    // (24.64 px each side) and the panel centred. Heights, y and the paddings are font-free.
+    for (lang, tap, bri) in [("pt", "(toque): Menu do sistema", ": Brilho"), ("es", "(toque): Menú del sistema", ": Brillo")] {
+        let c = card("hold-ruler", 3, false);
+        let mut a = lang_app(&c, lang);
+        assert!(a.handle(Ev::FnHold(hold_table())));
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        let p = hint_panel(&a, &cv).expect("hint panel");
+        assert!(near(p.y, 193.4) && near(p.h, 93.2), "{lang} {p:?}");
+        assert!(((p.x + p.w / 2) - 320).abs() <= 1, "centred {p:?}");
+        // the two rows at y 209.1 and 243.9 (27 high, 22.4 px text: the text top 2.3 below), x 168.4
+        let text = |s: &str| cv.texts.iter().find(|(t, r)| t == s && r.y >= p.y && r.y < p.bottom()).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+        let (fn1, t1, fn2, t2) = (text("Fn"), text(tap), text("Fn+Vol"), text(bri));
+        assert!(near(fn1.x, p.x as f32 + 24.64) && near(fn2.x, p.x as f32 + 24.64), "{fn1:?} {fn2:?}");
+        assert!(near(fn1.y, 209.1 + 2.3) && near(t1.y, 209.1 + 2.3) && near(fn2.y, 243.9 + 2.3) && near(t2.y, 243.9 + 2.3));
+        // the panel is the widest row (the first here) plus the paddings
+        assert!(near(p.w, (t1.right() - fn1.x) as f32 + 49.28), "{p:?} {fn1:?} {t1:?}");
+        assert!(t1.x > fn1.x + fn1.w - 1 && t2.x >= fn2.x + fn2.w - 1);
+    }
+}
+
+#[test]
+fn hold_hint_shows_the_two_items_and_hides_on_release_without_opening_the_menu() {
+    let c = card("hold-release", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Fn") && cv.has_text("(tap): System menu") && cv.has_text("Fn+Vol") && cv.has_text(": Brightness"));
+    assert!(!cv.has_text("System menu"), "no menu");
+    assert!(a.handle(Ev::FnRelease), "the hint needs a frame to go");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Fn+Vol") && hint_panel(&a, &cv).is_none());
+    assert!(!cv.has_text("System menu") && !cv.has_text("Suspend"), "the release is not a tap");
+    // a release without a hint changes nothing
+    assert!(!a.handle(Ev::FnRelease));
+}
+
+#[test]
+fn hold_hint_lists_only_the_chords_the_launcher_handles() {
+    let c = card("hold-chords", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(vec![])));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(hint_panel(&a, &cv).is_some() && !cv.has_text("Fn+Vol"));
+}
+
+#[test]
+fn hold_hint_hides_on_brightness() {
+    let c = card("hold-bri", 3, false);
+    let mut a = lang_app(&c, "en");
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    assert!(a.handle(Ev::Brightness(40)));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Fn+Vol") && hint_panel(&a, &cv).is_none());
+}
+
+#[test]
+fn hold_hint_is_ignored_with_the_system_menu_open_and_goes_when_it_opens() {
+    let c = card("hold-menu", 3, false);
+    let mut a = lang_app(&c, "en");
+    fn_tap(&mut a);
+    assert!(!a.handle(Ev::FnHold(hold_table())));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && !cv.has_text("Fn+Vol"));
+    fn_tap(&mut a);
+    // a hint that is up when the menu opens (a tap event while held) goes away
+    assert!(a.handle(Ev::FnHold(hold_table())));
+    fn_tap(&mut a);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("System menu") && !cv.has_text("Fn+Vol"));
+}
+
+#[test]
+fn suspend_item_writes_the_request_without_a_confirmation_and_closes_the_menu() {
+    let c = card("sys-suspend", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let dir = c.root.join("sleep");
+    fs::create_dir_all(&dir).unwrap();
+    a.sleep_dir = dir.clone();
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert!(dir.join("suspend").is_file());
+    assert_eq!(a.exit, None);
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("System menu"), "the menu closed");
+    // a second one while the first waits makes nothing new and does not fail
+    fn_tap(&mut a);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert!(dir.join("suspend").is_file());
+}
+
+#[test]
+fn settings_from_the_menu_and_b_back_to_the_grid_and_to_a_sheet() {
+    let c = card("sys-settings", 12, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::System(1));
+    press(&mut a, Action::A);
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Down);
+    let name = a.focused_name().unwrap();
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    assert_eq!(a.settings_focus, 0);
+    // B on the list: back to the grid, on the same game
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert_eq!(a.focused_name().unwrap(), name);
+    // with a game sheet open: it comes back open
+    press(&mut a, Action::A);
+    assert!(a.overlay_open());
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    assert!(!a.overlay_open(), "the sheet waits behind the Settings");
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Grid);
+    assert!(a.overlay_open());
+    press(&mut a, Action::B);
+    assert!(!a.overlay_open());
+    // from the Dock, B goes to the Dock as before
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Dock);
+    fn_tap(&mut a);
+    press(&mut a, Action::A);
+    assert_eq!(a.screen, Screen::Settings);
+    press(&mut a, Action::B);
+    assert_eq!(a.screen, Screen::Dock);
+}
+
+#[test]
+fn settings_lose_power_suspend_and_retroarch_and_wrap_at_games() {
+    let c = card("sys-setrows", 3, false);
+    let a = app(&c, FakeSystem::default());
+    assert_eq!(a.set_rows().last(), Some(&SetRow::Games));
+    let mut a = app(&c, FakeSystem { wifi: true, bluetooth: true, ..Default::default() });
+    assert_eq!(&a.set_rows()[..2], [SetRow::Wifi, SetRow::Bluetooth]);
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let n = a.set_rows().len();
+    assert_eq!(a.set_rows()[n - 1], SetRow::Games);
+    // down on Games goes to the first item; up on the first goes to Games
+    a.settings_focus = n - 1;
+    press(&mut a, Action::Down);
+    assert_eq!(a.settings_focus, 0);
+    press(&mut a, Action::Up);
+    assert_eq!(a.settings_focus, n - 1);
+    // no text of the removed items on any row of the list
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(!cv.has_text("Power off") && !cv.has_text("Suspend") && !cv.has_text("RetroArch"));
+}
+
+#[test]
+fn dock_footer_shows_the_fn_hint_after_navigate_and_select() {
+    let c = card("sys-hint", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let t = |s: &str| cv.texts.iter().find(|(x, _)| x == s).map(|(_, r)| *r).unwrap_or_else(|| panic!("{s}"));
+    let (nav, sel, menu) = (t("Navigate"), t("Select"), t("Menu"));
+    assert!(nav.x < sel.x && sel.x < menu.x, "the third hint, after ◀▶ and A");
+    assert!((menu.y - 448).abs() <= 2 && menu.y == sel.y, "{menu:?} {sel:?}");
+    assert!(cv.has_text("Fn"));
 }
 
 #[test]
@@ -792,6 +1211,208 @@ fn games_item_holds_update_lists() {
     assert!(cv.has_text("Update") && !cv.has_text("Navigate"), "one line: no ▲▼ hint");
     press(&mut a, Action::A);
     assert!(a.start_update && a.updating.is_some());
+}
+
+/// The Settings on the Card item with its panel entered (focus on "Optimize now"), the
+/// service's folders inside the test card.
+fn open_card(c: &Card, free: Option<u64>) -> App<FakeSystem> {
+    let mut a = app(c, FakeSystem { free, ..Default::default() });
+    a.card_run = c.root.join("cardrun");
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    while a.set_rows()[a.settings_focus] != SetRow::Card {
+        press(&mut a, Action::Down);
+    }
+    a
+}
+
+fn draw_texts(a: &mut App<FakeSystem>) -> FakeCanvas {
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    cv
+}
+
+#[test]
+fn card_item_sits_between_system_and_games() {
+    let c = card("card-order", 3, false);
+    let a = app(&c, FakeSystem::default());
+    let rows = a.set_rows();
+    let i = rows.iter().position(|r| *r == SetRow::Card).unwrap();
+    assert_eq!((rows[i - 1], rows[i + 1]), (SetRow::System, SetRow::Games));
+}
+
+#[test]
+fn card_panel_without_history_says_never() {
+    let c = card("card-never", 3, false);
+    let mut a = open_card(&c, Some(58_400_000_000));
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Free space") && cv.has_text("58.4 GB"));
+    assert!(cv.has_text("Last optimization") && cv.has_text("Last check"));
+    assert_eq!(cv.texts.iter().filter(|(t, _)| t == "never").count(), 2);
+    assert!(cv.has_text("Optimize now") && cv.has_text("Check on next boot"));
+    assert!(!cv.has_text("Scheduled") && !cv.has_text("Optimizing…"));
+}
+
+#[test]
+fn card_panel_with_history_shows_the_boot_numbers() {
+    let c = card("card-history", 3, false);
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("last-trim"), "150\n").unwrap();
+    fs::write(m.join("last-check"), "140\n").unwrap();
+    let mut a = open_card(&c, None);
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("boot 150") && cv.has_text("boot 140") && !cv.has_text("never"));
+    // free space unreadable: a dash
+    assert!(cv.has_text("—"));
+    // garbage reads as never
+    fs::write(m.join("last-trim"), "junk").unwrap();
+    let mut a = open_card(&c, None);
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("never") && cv.has_text("boot 140") && !cv.has_text("boot 150"));
+}
+
+#[test]
+fn card_trim_request_and_every_state() {
+    let c = card("card-trim", 3, false);
+    let mut a = open_card(&c, Some(1_000_000_000));
+    let run = c.root.join("cardrun");
+    press(&mut a, Action::A); // enter the panel
+    assert!(!run.join("trim").exists(), "entering writes nothing");
+    // a stale answer of an earlier run is dropped when the request is written
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("status"), "ok 5\n").unwrap();
+    press(&mut a, Action::A);
+    assert!(run.join("trim").is_file() && !run.join("status").exists(), "A writes the trim request");
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Optimizing…"));
+    // a second A while it runs writes nothing more
+    fs::remove_file(run.join("trim")).unwrap();
+    press(&mut a, Action::A);
+    assert!(!run.join("trim").exists());
+    // the service answers: running, then ok with the size (polled once a second)
+    fs::write(run.join("status"), "running\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    a.handle(Ev::Tick);
+    assert!(draw_texts(&mut a).has_text("Optimizing…"));
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("last-trim"), "152\n").unwrap();
+    fs::write(run.join("status"), "ok 1288490188\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(a.handle(Ev::Tick));
+    let cv = draw_texts(&mut a);
+    // the ✓ is drawn, never sent to the font (it has none: a box on the R36S, 2026-11-19)
+    assert!(cv.has_text("1.3 GB freed") && cv.has_text("boot 152") && !cv.has_text("Optimizing…"));
+    assert!(!cv.texts.iter().any(|(t, _)| t.contains('✓')));
+    // fail: the card's message, in red outside the focus
+    fs::remove_file(run.join("trim")).ok();
+    press(&mut a, Action::A);
+    fs::write(run.join("status"), "fail not supported\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(a.handle(Ev::Tick));
+    press(&mut a, Action::Down); // the focus leaves the line
+    let cv = draw_texts(&mut a);
+    assert!(cv.has_text("Card not supported"));
+    // leaving the item drops the state: back, it reads idle
+    press(&mut a, Action::B); // out of the panel
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Down);
+    assert!(!draw_texts(&mut a).has_text("Card not supported"));
+}
+
+#[test]
+fn card_running_trim_is_seen_when_the_panel_opens() {
+    let c = card("card-already", 3, false);
+    let run = c.root.join("cardrun");
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("status"), "running\n").unwrap();
+    let mut a = open_card(&c, None);
+    assert!(draw_texts(&mut a).has_text("Optimizing…"));
+}
+
+#[test]
+fn card_check_request_is_written_shown_and_cancelled_by_a_again() {
+    let c = card("card-check", 3, false);
+    let mut a = open_card(&c, None);
+    let run = c.root.join("cardrun");
+    press(&mut a, Action::A);
+    press(&mut a, Action::Down);
+    press(&mut a, Action::A);
+    assert!(run.join("check-next-boot").is_file(), "A writes the request");
+    assert!(draw_texts(&mut a).has_text("Scheduled"));
+    // the service picked it up: the request file went, the marker came
+    fs::remove_file(run.join("check-next-boot")).unwrap();
+    let m = c.root.join("storage/system/card");
+    fs::create_dir_all(&m).unwrap();
+    fs::write(m.join("check-next-boot"), "152\n").unwrap();
+    // A again cancels: the marker is deleted and the line is idle
+    press(&mut a, Action::A);
+    assert!(!m.join("check-next-boot").exists() && !run.join("check-next-boot").exists());
+    assert!(!draw_texts(&mut a).has_text("Scheduled"));
+    // a pending marker from an earlier boot shows when the panel opens
+    fs::write(m.join("check-next-boot"), "152\n").unwrap();
+    press(&mut a, Action::B); // out of the panel
+    press(&mut a, Action::Up);
+    press(&mut a, Action::Down);
+    assert!(draw_texts(&mut a).has_text("Scheduled"));
+}
+
+#[test]
+fn card_status_is_polled_only_while_the_trim_runs_and_the_panel_is_open() {
+    let c = card("card-poll", 3, false);
+    let mut a = open_card(&c, None);
+    let run = c.root.join("cardrun");
+    // idle: nothing wakes the loop
+    assert_eq!(a.wait(), None);
+    press(&mut a, Action::A);
+    press(&mut a, Action::A);
+    assert!(run.join("trim").is_file());
+    // running and open: once a second
+    assert_eq!(a.wait(), Some(Duration::from_millis(1000)));
+    // the panel closes (B, then another item): the polling stops
+    press(&mut a, Action::B);
+    press(&mut a, Action::Down);
+    assert_eq!(a.wait(), None);
+    fs::write(run.join("status"), "ok 1\n").unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(!a.handle(Ev::Tick), "no reading while away");
+    // back on the item: the TRIM is over, idle again, nothing to poll
+    press(&mut a, Action::Up);
+    assert_eq!(a.wait(), None);
+}
+
+/// The Card panel against the prototype's table (task 4.1) at 640x480, in the layout of the
+/// other panels (lines like the list's items, panel from 49.6): x 298.6, 311.0 wide, title
+/// 19.2 px, info rows and the two actions every 28.3 from 37.5 under the panel's top, the
+/// pill 26.7 tall, the text 16.8 px at +13.44/+3.36.
+#[test]
+fn card_matches_the_prototype_ruler() {
+    let c = card("card-ruler", 3, false);
+    let mut a = open_card(&c, Some(58_400_000_000));
+    press(&mut a, Action::A); // the pill on "Optimize now"
+    let cv = draw_texts(&mut a);
+    let near = |a: i32, b: f32| (a as f32 - b).abs() <= 1.0;
+    let text = |s: &str| cv.texts.iter().filter(|(t, _)| t == s).map(|(_, r)| *r).collect::<Vec<_>>();
+    let top = 49.6;
+    let panel = cv.fills.iter().find(|(r, col)| *col == a.theme.color("panel_bg") && r.w > 300).map(|(r, _)| *r).unwrap();
+    assert!(near(panel.x, 284.2) && near(panel.y, top) && near(panel.w, 339.8) && near(panel.bottom(), 435.3), "panel {panel:?}");
+    let title = text("Card").into_iter().find(|r| r.x > 280).unwrap();
+    assert!(near(title.x, 298.6) && near(title.y, top + 9.6) && near(title.h, 19.2), "title {title:?}");
+    let first = top + 37.5;
+    for (i, label) in ["Free space", "Last optimization", "Last check", "Optimize now", "Check on next boot"].into_iter().enumerate() {
+        let t = text(label).into_iter().find(|r| r.x > 280).unwrap_or_else(|| panic!("{label}"));
+        // (the pitch is 1.769 em = 28.304 px, the text inset 0.21 em rounded to 3 px)
+        let y = first + i as f32 * 28.304;
+        assert!(near(t.x, 298.6 + 13.44) && near(t.y, y + 3.0) && near(t.h, 16.8), "{label} {t:?}");
+    }
+    // the focused action: the pill of the same measures as the other panels' lines
+    let pill = cv.fills.iter().find(|(r, col)| *col == a.theme.color("sel_bg") && r.x > 280).map(|(r, _)| *r).unwrap();
+    assert!(near(pill.x, 298.6) && near(pill.y, first + 3.0 * 28.3) && near(pill.w, 311.0) && near(pill.h, 26.7), "pill {pill:?}");
+    // the values end at the same inset on the right
+    let free = text("58.4 GB")[0];
+    assert!(near(free.right(), 298.6 + 311.0 - 13.44), "value {free:?}");
+    assert!(cv.has_text("Select") && cv.has_text("Navigate") && cv.has_text("Back"));
 }
 
 #[test]
@@ -1073,7 +1694,7 @@ fn favorites_and_recents() {
 }
 
 #[test]
-fn settings_adapters_language_and_power() {
+fn settings_adapters_and_language() {
     let c = card("settings", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
     assert!(!a.set_rows().contains(&SetRow::Wifi) && !a.set_rows().contains(&SetRow::Bluetooth));
@@ -1114,15 +1735,19 @@ fn settings_adapters_language_and_power() {
     press(&mut a, Action::Left);
     assert_eq!(a.sys.vol, 45);
     press(&mut a, Action::B);
-    // Power off: Cancel first
-    a.settings_focus = a.set_rows().len() - 1;
-    press(&mut a, Action::A);
-    press(&mut a, Action::A);
     assert_eq!(a.exit, None);
+}
+
+#[test]
+fn settings_list_ignores_left() {
+    let c = card("confirm-nav", 3, false);
+    let mut a = app(&c, FakeSystem::default());
+    go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
-    press(&mut a, Action::Right);
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, Some(Exit::Shutdown));
+    // in the list, Left does not change the item or enter the panel
+    let f = a.settings_focus;
+    press(&mut a, Action::Left);
+    assert_eq!(a.settings_focus, f);
 }
 
 #[test]
@@ -1220,18 +1845,14 @@ fn save_states_show_their_picture() {
 }
 
 #[test]
-fn retroarch_item_opens_the_menu_with_code_65() {
+fn settings_come_back_with_the_levels_read() {
     let c = card("ramenu", 3, false);
     let mut a = app(&c, FakeSystem::default());
     go_dock(&mut a, DockItem::Settings);
     press(&mut a, Action::A);
-    a.settings_focus = a.set_rows().iter().position(|r| *r == SetRow::RetroArch).unwrap();
-    press(&mut a, Action::A);
-    assert_eq!(a.exit, Some(Exit::RetroArch));
-    assert!(fs::read_to_string(c.root.join("run/launch")).unwrap().starts_with("kind=menu\n"));
     a.current_state().save(&a.runtime).unwrap();
-    // back from the menu: the Settings again, with the volume and brightness read (not "—",
-    // seen on the GA36 on 2026-11-14)
+    // back from a restart of the launcher: the Settings again, with the volume and brightness
+    // read (not "—", seen on the GA36 on 2026-11-14)
     let mut b = app(&c, FakeSystem { vol: 60, bri: 70, ..Default::default() });
     assert_eq!(b.screen, Screen::Settings);
     // the panel of each level shows it
@@ -1324,6 +1945,207 @@ fn cover_cache_stays_under_its_ceiling() {
     // what the cache let go was given back to the backend
     assert!(canvas.live_textures as usize * 128 * 96 * 2 <= cap);
     assert!(canvas.textures > (cap / (128 * 96 * 2)) as u32);
+}
+
+/// A power FIFO for the app to write to, and its reader (non-blocking).
+fn power_fifo(c: &Card) -> (PathBuf, fs::File) {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let p = c.root.join("power-fifo");
+    let cp = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(cp.as_ptr(), 0o660) }, 0);
+    let rd = fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&p).unwrap();
+    (p, rd)
+}
+
+fn drain(rd: &mut fs::File) -> String {
+    use std::io::Read;
+    let mut s = String::new();
+    let _ = rd.read_to_string(&mut s); // WouldBlock once the pipe is empty
+    s
+}
+
+#[test]
+fn idle_dims_without_saving_and_the_first_button_is_consumed() {
+    let c = card("idle", 3, false);
+    let (fifo, mut rd) = power_fifo(&c);
+    let mut a = app(&c, FakeSystem { bri: 80, ..Default::default() });
+    a.power_fifo = fifo;
+    // default: 120 s, one wake-up at the end of the timer; the screen itself asks for none
+    let d = a.idle_wait().expect("idle timer");
+    assert!(d <= Duration::from_secs(120) && d > Duration::from_secs(100), "{d:?}");
+    assert_eq!(a.wait(), None);
+    // before the time is up a Tick does nothing and draws nothing
+    assert!(!a.handle(Ev::Tick));
+    assert!(!a.idle && a.sys.bri == 80);
+    // the first screen and the return from the idle state tell the service `menu`
+    a.announce_menu();
+    assert_eq!(drain(&mut rd), "menu\n");
+    // time up: dimmed to 10%, `idle` sent, the saved brightness untouched, no more timer
+    a.idle_after = Some(Duration::ZERO);
+    a.handle(Ev::Tick);
+    assert!(a.idle);
+    assert_eq!(a.sys.bri, 10);
+    assert_eq!(a.sys.saved_bri, None, "the dimming is never saved");
+    assert!(!card_settings_written(&c), "no settings file written");
+    assert_eq!(drain(&mut rd), "idle\n");
+    assert_eq!(a.idle_wait(), None);
+    // the first button brings the light back, tells `menu` and does nothing else
+    let focus = a.dock_focus;
+    assert!(!a.handle(Ev::Input(Action::Right, false)));
+    assert_eq!(a.dock_focus, focus, "the button is consumed");
+    assert!(!a.idle);
+    assert_eq!(a.sys.bri, 80);
+    assert_eq!(drain(&mut rd), "menu\n");
+    // the next button works, and restarts the timer
+    a.idle_after = Some(Duration::from_secs(120));
+    press(&mut a, Action::Right);
+    assert_ne!(a.dock_focus, focus);
+    assert!(a.idle_wait().unwrap() > Duration::from_secs(100));
+    // a user brightness below 10% is kept as it is
+    a.sys.bri = 4;
+    a.idle_after = Some(Duration::ZERO);
+    a.handle(Ev::Tick);
+    assert_eq!(a.sys.bri, 4);
+    // the Fn + volume brightness key is a first button too (the daemon already moved the light)
+    a.sys.bri = 15;
+    assert!(!a.handle(Ev::Brightness(15)));
+    assert!(!a.idle);
+    assert_eq!(a.sys.bri, 4, "the user's level is put back");
+    assert_eq!(a.brightness_bar, None, "and the key does nothing else");
+    let _ = drain(&mut rd);
+    // `idle after=0` switches it off
+    a.idle_after = None;
+    assert_eq!(a.idle_wait(), None);
+    a.handle(Ev::Tick);
+    assert!(!a.idle);
+}
+
+fn card_settings_written(c: &Card) -> bool {
+    c.root.join("storage/system/lume/settings.toml").exists()
+}
+
+#[test]
+fn idle_timeout_comes_from_the_state_then_power_conf_then_120() {
+    let d = std::env::temp_dir().join(format!("lume-ui-idlecfg-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(&d).unwrap();
+    let (state, conf) = (d.join("power.state"), d.join("power.conf"));
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (120, 5));
+    fs::write(&conf, "idle after=45\nbattery warn=8 critical=3\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (45, 8));
+    fs::write(&conf, "idle after=0\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (0, 5));
+    // the service's merged state wins
+    fs::write(&state, "idle card after=300\nbattery card warn=10 critical=4\n").unwrap();
+    assert_eq!(lume_ui::app::idle_config(&state, &conf), (300, 10));
+    let _ = fs::remove_dir_all(&d);
+}
+
+#[test]
+fn low_battery_warning_once_per_discharge() {
+    let c = card("lowbat", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((50, false)), ..Default::default() });
+    assert_eq!(a.warn_level, 5);
+    let mut canvas = FakeCanvas::new(640, 480);
+    a.draw(&mut canvas);
+    assert!(!canvas.texts.iter().any(|(t, _)| t.starts_with("Low battery")));
+    // above the level: nothing
+    a.handle(Ev::Battery(6, false));
+    assert_eq!(a.wait(), None, "no toast at 6%");
+    // at the level while discharging: the toast, 4 s, with the level
+    assert!(a.handle(Ev::Battery(5, false)));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 5%"), "{:?}", cv.texts);
+    let wait = a.wait().expect("toast timer");
+    assert!(wait > Duration::from_millis(3500) && wait <= Duration::from_secs(4), "{wait:?}");
+    // once: the next readings of the same discharge show nothing new
+    a.handle(Ev::Tick);
+    assert!(a.handle(Ev::Battery(4, false)), "the level changed: a frame");
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.texts.iter().any(|(t, _)| t == "Low battery 5%"), "still the first toast, not a second one");
+    assert!(!cv.texts.iter().any(|(t, _)| t == "Low battery 4%"));
+    // charging arms it again; the next discharge at the level warns again
+    assert!(a.handle(Ev::Battery(4, true)));
+    a.handle(Ev::Battery(4, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 4%"), "{:?}", cv.texts);
+    // a level above the limit arms it too
+    a.handle(Ev::Battery(30, false));
+    a.handle(Ev::Battery(5, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    assert!(cv.has_text("Low battery 5%"));
+    // the service's level
+    let mut b = app(&c, FakeSystem { batt: Some((9, false)), ..Default::default() });
+    b.warn_level = 10;
+    b.handle(Ev::Battery(9, false));
+    let mut cv = FakeCanvas::new(640, 480);
+    b.draw(&mut cv);
+    assert!(cv.has_text("Low battery 9%"));
+    // starting already low shows it from the first frame; charging does not
+    let d = app(&c, FakeSystem { batt: Some((3, false)), ..Default::default() });
+    assert!(d.wait().is_some());
+    let e = app(&c, FakeSystem { batt: Some((3, true)), ..Default::default() });
+    assert_eq!(e.wait(), None);
+}
+
+#[test]
+fn low_battery_texts_in_every_language() {
+    let c = card("lowbat-lang", 3, false);
+    for (lang, text) in [("pt", "Bateria fraca 5%"), ("es", "Batería baja 5%"), ("en", "Low battery 5%")] {
+        let mut a = app(&c, FakeSystem { batt: Some((50, false)), ..Default::default() });
+        a.settings.language = lang.into();
+        a.texts = lume_ui::i18n::Texts::load(&repo().join("aports/lume-launcher-data/files/usr/share/lume/i18n"), lang);
+        a.handle(Ev::Battery(5, false));
+        let mut cv = FakeCanvas::new(640, 480);
+        a.draw(&mut cv);
+        assert!(cv.has_text(text), "{lang}: {:?}", cv.texts);
+    }
+}
+
+/// The charge mark against the prototype measured at 640x480 (2026-11-17, design-das-telas.md):
+/// the bolt 9.5 x 11.5 px at (13.6, 3.4) from the icon's origin, in the text color with a halo
+/// in the background color; none when discharging or full; the percent and the icon keep
+/// their width. One pixel of rounding allowed.
+#[test]
+fn charge_mark_matches_the_prototype_ruler() {
+    let c = card("bolt", 3, false);
+    let mut a = app(&c, FakeSystem { batt: Some((82, true)), ..Default::default() });
+    let (fg, bg) = (a.theme.color("fg"), a.theme.color("bg"));
+    let mut cv = FakeCanvas::new(640, 480);
+    a.draw(&mut cv);
+    let body = cv.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > 500).map(|(r, _)| *r).max_by_key(|r| r.w * r.h).unwrap();
+    let inside = |r: &lume_ui::canvas::Rect| r.x > body.x && r.right() < body.right() && r.y > body.y && r.bottom() < body.bottom();
+    let bolt = cv.fills.iter().filter(|(r, col)| *col == fg && inside(r) && r.h > 9 && r.w < 12).map(|(r, _)| *r).next().expect("the bolt");
+    // the icon's origin is the body's left edge less 0.2 unit (1 unit = 19.2 * 0.95 / 14 px)
+    let u = 19.2 * 0.95 / 14.0;
+    let (ox, oy) = (body.x as f32 - 0.2 * u, body.y as f32 - 0.2 * u);
+    let near = |a: f32, b: f32| (a - b).abs() <= 1.0;
+    assert!(near(bolt.x as f32 - ox, 13.6) && near(bolt.y as f32 - oy, 3.4), "{bolt:?} body {body:?}");
+    assert!(near(bolt.w as f32, 9.5) && near(bolt.h as f32, 11.5), "{bolt:?}");
+    // the halo: the background color around it, a little larger (1.1 unit stroke)
+    let halo = cv.fills.iter().filter(|(r, col)| *col == bg && inside(r) && r.w > bolt.w && r.h > bolt.h && r.w < 14).map(|(r, _)| *r).last().expect("the halo");
+    assert!(halo.x < bolt.x && halo.y < bolt.y && halo.right() > bolt.right() && halo.bottom() > bolt.bottom(), "{halo:?} around {bolt:?}");
+    assert!(near(halo.w as f32 - bolt.w as f32, 1.1 * u) && near(halo.h as f32 - bolt.h as f32, 1.1 * u), "{halo:?}");
+    let pct = cv.texts.iter().find(|(t, _)| t == "82%").unwrap().1;
+    // discharging and full: no bolt, and the text and the icon stay where they were
+    for charging in [false] {
+        a.battery = Some((82, charging));
+        let mut cv2 = FakeCanvas::new(640, 480);
+        a.draw(&mut cv2);
+        assert_eq!(cv2.texts.iter().find(|(t, _)| t == "82%").unwrap().1, pct, "the text does not move");
+        let b2 = cv2.fills.iter().filter(|(r, col)| *col == fg && r.y < 40 && r.x > 500).map(|(r, _)| *r).max_by_key(|r| r.w * r.h).unwrap();
+        assert_eq!(b2, body, "the icon does not move");
+        assert!(!cv2.fills.iter().any(|(r, col)| *col == fg && inside(r) && r.h > 9 && r.w < 12), "no bolt");
+    }
+    a.battery = Some((100, false));
+    let mut cv3 = FakeCanvas::new(640, 480);
+    a.draw(&mut cv3);
+    assert!(!cv3.fills.iter().any(|(r, col)| *col == fg && r.w < 12 && r.h > 9 && r.y < 40 && r.x > 500 && r.w > 8), "full: no bolt");
 }
 
 #[test]

@@ -6,10 +6,10 @@ Validado no aparelho em 2026-11-11 (imagens `20261111-002830` a `20261111-134121
 ## 1. Gerar e gravar
 
 ```sh
-uv run r36os build console                         # 1ª vez: R36OS_GA36_FACTORY e R36OS_R36S_FACTORY com as cópias dos cartões originais (README)
-uv run r36os flash console /dev/sdX --full --eject # cartão novo: imagem + ROMS no resto do cartão
-uv run r36os flash console /dev/sdX --update --eject   # atualizar: preserva jogos, saves e ajustes
-uv run r36os eject /dev/sdX                     # ejetar depois de copiar jogos (sem senha)
+uv run lume build console                         # 1ª vez: LUME_GA36_FACTORY e LUME_R36S_FACTORY com as cópias dos cartões originais (README)
+uv run lume flash console /dev/sdX --full --eject # cartão novo: imagem + ROMS no resto do cartão
+uv run lume flash console /dev/sdX --update --eject   # atualizar: preserva jogos, saves e ajustes
+uv run lume eject /dev/sdX                     # ejetar depois de copiar jogos (sem senha)
 ```
 
 - O `--full` cria a `ROMS` (exFAT) já com as pastas e a configuração de fábrica: dá para
@@ -22,8 +22,9 @@ uv run r36os eject /dev/sdX                     # ejetar depois de copiar jogos 
 
 - O kernel sobe pelo bootloader do fabricante (área de 128 MiB) e mostra as mensagens na
   tela; o menu do RetroArch aparece em cerca de 20 s.
-- O primeiro boot só verifica a `ROMS` (`roms OK checked: clean` no `events.log`). Se ela
-  não existir, é criada com o resto do cartão.
+- O primeiro boot só lê as marcas da `ROMS` (`roms OK clean: check skipped (flags 0x0000)` no
+  `events.log`; com o volume sujo, `roms OK dirty: checked: ...`). Se ela não existir, é criada
+  com o resto do cartão.
 - **Serial (opcional):** `ttyS1`, 115200 baud, a mesma velocidade do bootloader ao kernel.
 
 ## 3. A partição `BOOT`
@@ -109,7 +110,7 @@ build do `ga36/SYSTEM`.
 ## 4. Controle
 
 O driver do kernel junta os botões e os dois analógicos num único "GA36-MB Gamepad". O
-daemon de entrada `r36os-input` (perfil `/usr/share/r36os/input/ga36.conf`, change
+daemon de entrada `lume-input` (perfil `/usr/share/lume/input/ga36.conf`, change
 `lume-launcher`, D8) captura esse dispositivo e os botões de volume (LRADC) com exclusividade e
 publica um controle virtual com o **mesmo nome**, então a autoconfiguração do RetroArch
 (`/usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg`) não muda: A, B, X, Y, L1, R1, L2,
@@ -123,7 +124,7 @@ RetroArch só o dispositivo do kernel (`BUS_HOST`); o virtual é `BUS_VIRTUAL`.
   programa.
 - No menu, A confirma e B volta.
 
-`r36os-input --list` mostra os dispositivos de entrada e o barramento de cada um.
+`lume-input --list` mostra os dispositivos de entrada e o barramento de cada um.
 
 ## Pelo cabo USB
 
@@ -133,12 +134,12 @@ aparece no PC como **"Lume GA36"** (fabricante "Lume Retro OS"), com duas funç�
 - **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
 - **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
   `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
-  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
-  `README.md`). Para o dia a dia use o `r36os dev` (esperar, comando, tela, botões, log e
+  senha, só por esse cabo) e `uv run lume push` (atualização sem tirar o cartão; ver o
+  `README.md`). Para o dia a dia use o `lume dev` (esperar, comando, tela, botões, log e
   autoteste, em [BUILD.md](BUILD.md)); o ssh direto fica para o que ele não cobre. O cartão
   vai de um console ao outro e só um deles fica no PC; ambos respondem em `10.55.0.1`, e
-  `r36os dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `r36os push --hot
-  <fragmento>` e `r36os dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
+  `lume dev check --console ga36` recusa o R36S. Testar do PC sem reboot: `lume push --hot
+  <fragmento>` e `lume dev watch <fragmento>` (só na RAM; ver "Testar no console pelo cabo"
   em [BUILD.md](BUILD.md)).
 
 **Como funciona no GA36:** o papel da porta vem só do pino ID (PH8): sem adaptador, o MUSB
@@ -155,7 +156,7 @@ e se um carregador na DC também acende o `axp20x-usb` (as duas entradas podem s
   o estado do gadget (`udc=…:configured` com o PC ligado);
 - no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
   `ssh: login accepted`;
-- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` e `umtprd:` (a saída do servidor MTP).
+- no `boot/boot-<n>.log`, as mensagens `lume-usb:` e `umtprd:` (a saída do servidor MTP).
 
 ### Guia rápido pelo cabo (sem precisar de ajuda)
 
@@ -178,8 +179,8 @@ Se o `lsusb` não mostra nada: o console terminou de ligar? O cabo está na port
 transmite dados (muitos só carregam)? Teste outro cabo ou outra porta do PC.
 
 **2. Entrar no console:** `lume` (shell de root). Um comando só: `lume <comando>`. O
-equivalente do `r36os dev` (um comando por chamada, sem apelido): `.venv/bin/r36os dev sh
-<comando>`; `.venv/bin/r36os dev wait` espera o console responder; `.venv/bin/r36os dev
+equivalente do `lume dev` (um comando por chamada, sem apelido): `.venv/bin/lume dev sh
+<comando>`; `.venv/bin/lume dev wait` espera o console responder; `.venv/bin/lume dev
 check --console ga36` roda o autoteste.
 
 | Para quê | Comando |
@@ -188,10 +189,10 @@ check --console ga36` roda o autoteste.
 | Versão do build | `lume cat /boot/VERSION` |
 | Log do kernel | `lume dmesg` (ou `lume dmesg \| tail -n 30`) |
 | Eventos do sistema | `lume cat /storage/logs/events.log` |
-| Log do boot atual e seus eventos | `.venv/bin/r36os dev log` |
-| Saída do servidor MTP | `lume cat /run/r36os/usb/umtprd.log` |
+| Log do boot atual e seus eventos | `.venv/bin/lume dev log` |
+| Saída do servidor MTP | `lume cat /run/lume/usb/umtprd.log` |
 | Processos | `lume ps` |
-| Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- r36os-usb restart` |
+| Reiniciar o USB (gadget, MTP, rede e ssh) | `lume start-stop-daemon -S -b -x /sbin/rc-service -- lume-usb restart` |
 | Reiniciar o console | `lume reboot` |
 
 - O restart do USB derruba a rede do cabo por uns 2 s, e o ssh volta sozinho. Ele precisa
@@ -219,7 +220,7 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
   information"): reinicie o USB do console (tabela acima) e monte de novo. O ssh continua
   sendo o caminho garantido para ler `logs/`, porque não depende do MTP.
 - Para copiar sem MTP, use o ssh. O console não tem `scp`, `sftp` nem `rsync`, então o
-  arquivo vai pela entrada do comando (é assim que o `r36os push` envia o build):
+  arquivo vai pela entrada do comando (é assim que o `lume push` envia o build):
 
   ```sh
   lume 'cat > /storage/roms/<sistema>/jogo.zip' < jogo.zip                  # PC -> console
@@ -227,7 +228,7 @@ gio mount -u mtp://Lume_Retro_OS_Lume_GA36_<serial>/ # desmontar
   sha256sum jogo.zip ; lume sha256sum /storage/roms/<sistema>/jogo.zip     # conferir
   ```
 
-**4. Atualizar o console:** `uv run r36os push --build <carimbo>` (ver o `README.md`). Depois
+**4. Atualizar o console:** `uv run lume push --build <carimbo>` (ver o `README.md`). Depois
 do reboot o `push` espera o console voltar e confere o boot novo (número do boot, build do
 `/boot/VERSION` e `boot OK completed` no `events.log`), terminando em `ok: boot N completed
 with build X (...)`; `--no-wait` só reinicia. Detalhes em [BUILD.md](BUILD.md).
@@ -239,8 +240,8 @@ endereço (o `udhcpd` vem no `busybox-extras`, que faltava; corrigido no build s
 **Módulos do kernel fora do `SYSTEM` (change `kernel-modules-image`, 2026-11-14):**
 - Primeiro `push` com o build `20261114-013857`, saindo do `20261114-002340`: mandou os dois
   `SYSTEM` (agora sem módulos), os kernels e `ga36/modules` e `r36s/modules`, ~650 MB em
-  376 s. No boot seguinte, `/lib/modules/6.18.62-r36os/modules.dep` existe, o log de boot tem
-  `lume: modules: ga36/modules (6.18.62-r36os)`, o `bluetooth` sobe no boot e o
+  376 s. No boot seguinte, `/lib/modules/6.18.62-lume/modules.dep` existe, o log de boot tem
+  `lume: modules: ga36/modules (6.18.62-lume)`, o `bluetooth` sobe no boot e o
   `modprobe uhid` carrega e descarrega. O `zram` é embutido no kernel (`CONFIG_ZRAM=y`) e não
   aparece no `lsmod`; o `zram0` fica ativo como swap.
 - Mudança só de kernel (build `20261114-022015`, `CONFIG_DUMMY=m` temporário no
@@ -264,7 +265,7 @@ perde o nome, a `BOOT` volta a somente leitura antes do reboot e nenhum cluster 
 espaço perdido (de `push` antigos ou de um corte de energia), o `push` avisa com
 `warning: BOOT has <N> MiB in lost clusters` e segue; a recuperação é pelo PC, com o cartão
 no leitor: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
-`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
+`lume flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old` e
 o log tem `ERROR: BOOT has no ga36/SYSTEM; using ga36/SYSTEM.old from the previous build`.
 
 
@@ -319,17 +320,17 @@ recebe o uid (os dois são 1000).
 
 ### Ver a tela e apertar botões pelo cabo
 
-- **Tela:** `r36os-shot /tmp/s.png` (pacote `r36os-input`) grava a imagem do que está na tela,
+- **Tela:** `lume-shot /tmp/s.png` (pacote `lume-input`) grava a imagem do que está na tela,
   lida do DRM; serve para o lume, o menu do RetroArch e os jogos. Do PC, um comando só faz o
   caminho todo (captura, `cat` pelo ssh e verificação do PNG):
-  `.venv/bin/r36os dev shot cache/tmp/tela.png`. Para comparar com a referência do GA36:
-  `.venv/bin/r36os dev shot --compare home` (ver [BUILD.md](BUILD.md)).
-- **Botões pelo cabo:** `.venv/bin/r36os dev keys 'a,down*3,wait:500,fn+start'` (o texto
+  `.venv/bin/lume dev shot cache/tmp/tela.png`. Para comparar com a referência do GA36:
+  `.venv/bin/lume dev shot --compare home` (ver [BUILD.md](BUILD.md)).
+- **Botões pelo cabo:** `.venv/bin/lume dev keys 'a,down*3,wait:500,fn+start'` (o texto
   abaixo explica o que ele faz por dentro).
 - **Botões:** escrever `struct input_event` de 32 bits (16 bytes: dois `long` de tempo, tipo,
   código e valor, seguidos de um `EV_SYN`) num nó de entrada. No `/dev/input/event3` (o
-  controle virtual do `r36os-input`) chegam ao lume e ao RetroArch. Combinações do
-  `r36os-input` (Fn+Start) vão no `/dev/input/event2` (o controle do kernel) e numa escrita só:
+  controle virtual do `lume-input`) chegam ao lume e ao RetroArch. Combinações do
+  `lume-input` (Fn+Start) vão no `/dev/input/event2` (o controle do kernel) e numa escrita só:
   o driver relê o estado real dos botões em poucos ms e solta o botão injetado.
 
 ### Medidas do lume-launcher (2026-11-14, build `20261114-143705`, boot 46)
@@ -341,8 +342,230 @@ recebe o uid (os dois são 1000).
   de antes. Do aperto de Fn+Start até a grade, 1,70–1,78 s, dos quais 0,85–0,90 s são o
   RetroArch fechando.
 - **Parado na grade:** `lume-ui` com 0,1% de um núcleo e 59 MB de RSS; o menu do RetroArch
-  parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `r36os-input` (500 KB) sem CPU.
+  parado, 73% e 79 MB. No jogo, `lume-run` (696 KB) e `lume-input` (500 KB) sem CPU.
   Detalhes em [orcamento-de-performance.md](lume-launcher/orcamento-de-performance.md).
+
+### Janela J1 da `lume-hud-actions` (2026-11-17, build atual, boot 168)
+
+**Fontes da barra de status (tarefa 4.1):**
+
+| Campo | GA36 (AXP223, `lima`) |
+|---|---|
+| Uso da GPU por cliente (`drm-engine-*` no `fdinfo`) | **não existe**: o `lima` do kernel 6.18 não tem `show_fdinfo` (o `fdinfo` dos fds do `renderD128` e do `card1` só traz `pos`, `flags`, `mnt_id`, `ino`) |
+| devfreq da GPU (`/sys/class/devfreq/1c40000.gpu`) | `simple_ondemand`, 144/240/384 MHz, `cur_freq` e `trans_stat` legíveis; `load` vazio |
+| `status` | `Charging` com o cabo USB, `Discharging` sem ele |
+| `current_now` | positivo carregando (+100 a +346 mA), **negativo** descarregando (−371 a −390 mA num jogo LÖVE) |
+| `voltage_now` | 4,25 V carregando a 100%; 4,18 a 4,17 V descarregando |
+| `charge_now`, `charge_full` | ausentes |
+| `charge_full_design` | 3000000 (3000 mAh) |
+| `capacity` | 100 durante toda a prova |
+
+**Menu pelo sistema (tarefa 4.6, D14):** passou nos três casos, com o programa de prova
+rodando como `game` (o mesmo usuário do `lume-run`), sem `setcap`; o kernel não tem o Yama.
+O usuário viu o retângulo sobre o último quadro e a volta normal do jogo, sem tela preta nem
+quadro trocado, nos três:
+
+| Caso | Pausa | Formato do quadro | Retângulo na tela em | Volta |
+|---|---|---|---|---|
+| RetroArch num jogo | `PAUSE_TOGGLE` (PLAYING → PAUSED) | XRGB8888 640x480 | 239 ms | quadro do jogo na 1ª tentativa, despausado |
+| RetroArch travado de propósito (`SIGSTOP` antes) | sem resposta ao `GET_STATUS` em 1 s | XRGB8888 | 1143 ms (1 s de espera + 0,14 s) | quadro do jogo na 1ª tentativa |
+| Jogo LÖVE | só o `SIGSTOP` | ARGB8888 | 79 a 86 ms | quadro do jogo na 1ª tentativa |
+
+O fd do DRM duplicado pelo `pidfd_getfd` é o `card0` (`sun4i-drm`) do jogo; o `GETFB2` entrega
+o handle do plano primário (33, CRTC 49) porque o fd é o mesmo arquivo aberto, master. O
+`SETPLANE` nunca deu `EBUSY`. **Regra achada:** tudo o que o desenho cria vive no arquivo
+aberto da aplicação; sem `RMFB`, `DESTROY_DUMB` e `GEM_CLOSE` ao fechar, os buffers ficam até o
+jogo acabar, e a CMA acabou na terceira rodada (`CREATE_DUMB: Out of memory`).
+
+### Governor por gargalo da `game-governor` (2026-11-18, builds `20261118-005049` a `-011308`, boots 180 a 182)
+
+Medido pelo cabo, com o console no carregador (a corrente da bateria não vale nestas provas) e
+os jogos abertos pelo `lume dev run` e deixados rodando (telas de título e demonstração; no GBA,
+uma corrida com os karts da IA). Só números por sistema; nenhum nome de jogo.
+
+**Sinais do controlador no kernel real:** o `fdinfo` dos arquivos do DRM do jogo traz
+`drm-page-flips` no `card0` (`sun4i-drm`, patch 0036) e `drm-engine-gp`/`drm-engine-pp` no
+`renderD128` (`lima`, patch 0035); o mesmo cliente aparece em dois ou três fds com o mesmo
+`drm-client-id` (contado uma vez). O `GET_STATUS` do RetroArch dá o ritmo do core (patch 0004).
+
+**O gargalo dos jogos simples (P-93):** o painel faz 55,7 vblanks/s. Com o vídeo na thread
+principal do RetroArch, o core rodava na velocidade certa, mas poucas trocas de quadro chegavam
+ao painel, com a CPU e a GPU quase paradas, e nenhum clock mudava isso:
+
+| Caso (vídeo na thread principal) | Core (quadros/s) | Trocas no painel/s | Thread principal | GPU (`pp`) |
+|---|---|---|---|---|
+| NES, padrão do kernel | 60,3 | 42 | ~10% | 8% (144 MHz) |
+| NES, GPU travada em 384 MHz | — | 43 | — | 5% |
+| NES, GPU 384 MHz e CPU em `performance` | — | 47 | — | 5% |
+| NES, `video_vsync` desligado | — | 43 | — | 4% |
+| CPS-1, controlador ou padrão do kernel | 59,7 | 45 a 48 | 52% (1008 MHz) | 6 a 9% |
+| GBA, perfil `gba` (1008 MHz) | 59,7 | 47 | 45% | 8% |
+
+Com `video_threaded = "true"` (agora fixo no `retroarch-ga36.cfg`):
+
+| Caso (vídeo em thread) | Core | Trocas no painel/s | Clock que o controlador escolheu |
+|---|---|---|---|
+| NES | 60,3 | 54,4 | CPU 720 MHz, GPU 144 MHz |
+| CPS-1 | 59,8 | 54,3 a 54,6 | CPU 816 a 1008 MHz, GPU 144 MHz |
+| CPS-1 com a barra de status ligada | 59,7 | 53,2 | CPU 1008 MHz |
+| SNES (`snes9x2005_plus` do upstream) | 60,1 | 54,4 | CPU 816 MHz |
+| GBA, tela de título, perfil `game` (sem o piso de 1008) | 59,7 | 55,1 | CPU 648 MHz |
+| GBA, corrida, perfil `game` | 59,8 | 55,1 | CPU 912 MHz (thread em 67%) |
+
+**Provas do controlador e dos ajustes:** o controlador marca `sync` a perda de quadros com a CPU
+e a GPU ociosas (não sobe clock por ela) e desce o que sobra (linha
+`power OK controller: cpu: 1008000=3.0s 912000=6.0s 816000=9.0s 720000=35.7s gpu: ... 144000000=43.8s up=0 down=5 ... sync=1`
+num jogo de NES); com a primeira versão (queda abaixo de 95% numa janela só) ele oscilava no
+CPS-1 com o vídeo em thread (`up=14 down=14`), corrigido com 90% e duas janelas (`up=0` na
+prova seguinte). Perfil por jogo: uma linha `game <chave>` no `power.conf` com
+`gpu_min=gpu_max=384000000`, `lume-power reload` e o jogo aberto de novo: `current gpulock`, GPU
+travada em 384 MHz pela mão e a CPU no controlador (720 MHz), na velocidade cheia. Fn+Start
+encerra um jogo normal (`end=quit-combo`) e um congelado de propósito com `SIGSTOP`
+(`end=killed`, volta ao menu). O `snes9x2005_plus` novo abre e roda a 60,1.
+
+**Custo no launcher parado (60 s, P-60):** o `logd` barato (1.2) com os filhos gastou 5,5 a 7,3%
+de um núcleo (era ~30%; a meta de 1% ainda não foi alcançada). A thread `sugov:0` do `schedutil`
+gastava **30%** com o `rate_limit_us` padrão do kernel (366 µs); com 50 ms, 6,9%; 100 ms, 4,4%;
+200 ms, 2,8%. O `ga36.conf` passou a usar 100 ms no menu e 200 ms no launcher parado.
+
+**DRAM (P-23):** o retrato mostra `PLL_DDR1` com sigma-delta ligado e o clock efetivo de 540 MHz
+(controlador a 270 MHz), sem variação.
+
+**Provas à mão do usuário (2026-11-18, J3):** o menu do sistema (Fn) abre durante um jogo com o
+vídeo em thread; a marca de carga aparece e some ao ligar e desligar o carregador; os jogos de
+CPS-1 e de GBA que tinham queda rodam lisos no perfil com o controlador por gargalo. As provas
+com a bateria acabando de verdade (aviso e desligamento) ficaram para o P-98, por decisão do
+usuário.
+
+### `device-fixes` (2026-11-18)
+
+**J1 (build `20261118-104230`, nomes antigos):** resultados no `design.md` da change (D6, D9,
+D10, D11, D12, D15) e no P-95. Em resumo:
+- read-ahead sem ganho claro (~21 MB/s; no máximo 5%);
+- `Headphone` limpo até 63, sem chiado em silêncio;
+- o fone corta o alto-falante por chave mecânica, sem detecção;
+- suspensão `freeze` 10 de 10 pelo botão, com o gadget USB solto e religado em volta;
+- RTC sobrevive a um desligamento de 6 min;
+- **P-95 reproduzido a ~66 °C** (falha de temporização, não da luz de fundo).
+
+**J0 (1.5), build `20261118-143150`, primeiro `lume push` depois da troca de nomes:**
+- **Compilação e envio:** o build levou 1h26min (todos os pacotes armv7 e o kernel; o
+  `out/repo` foi reassinado com a chave `lume.rsa`, 167 pacotes). O `push` antigo lia
+  `/etc/lume/board`, ausente num console com os nomes velhos; passou a ler também o caminho
+  antigo. O envio levou 3m41s e o boot 38 s.
+- **Boot 193:** subiu até o menu com o kernel `6.18.62-lume`, o `frontend` em 20,5 s, a ROMS
+  limpa e o `kernel OK no error messages`.
+- **Nomes:** `rc-status` só com serviços `lume-*`; nenhum nome antigo nos runlevels nem no
+  `inittab`; `/etc/lume` e `/run/lume` no lugar.
+- **Cartão:** nenhum caminho do cartão precisou de migração (nenhum evento
+  `persist OK migrated`); a indexação viu os mesmos 60 jogos.
+- **`lume-index`:** aparece `crashed` no `rc-status` porque a varredura termina e o processo
+  sai (o OpenRC espera um daemon). É cosmético e anterior à troca.
+
+**Brilho desde o boot (9.16, código; falta a prova no aparelho, J2):** o device tree dos dois
+painéis acende a luz de fundo no nível 7 (`default-brightness-level`, antes o 8 de fábrica;
+do 7 para cima este GA36 pode mostrar a imagem quebrada, P-95) e o initramfs aplica o brilho
+salvo (`ROMS/system/display/brightness`) logo depois de montar a ROMS, sem esperar nada; o
+`lume-input` reaplica ao subir. Ver "Brilho salvo" em [LAUNCHER.md](LAUNCHER.md).
+
+### Avaliação do coletor de logs e dos laços em segundo plano (2026-11-19, build `20261119-164004`)
+
+Pedida pelo usuário para a `game-governor` 1.2 (P-60). Ticks próprios e dos filhos em
+`/proc/<pid>/stat`, 60 s por medida:
+
+| Processo | Launcher parado | Jogo de SNES |
+|---|---|---|
+| `lume-logd` (o coletor em C) | 0,85% de um núcleo (0,35 + 0,50 dos filhos) | 0,94% (0,31 + 0,63) |
+| `usb-gadget` (`lume-usb`) | — | **5,08%** (0,68 + 4,40) |
+| `persist`, `savesync`, `ssh-wifi` | — | 0,51%, 0,49%, 0,43% |
+| `lume-powerctl` | — | 0,38% |
+| `sugov:0` (`schedutil`) | 2,85% | — (governor `userspace` no jogo) |
+
+O coletor cumpre a meta de 1% (os 5,5 a 7,3% de 2026-11-18 eram do coletor anterior em shell).
+O sistema cria ~930 processos por minuto parado; quem os cria são os laços em shell de 1 s
+(`usb-gadget`, `persist`, `savesync`, `ssh-wifi`), que leem o sysfs com `$(cat ...)` e dormem
+com o `sleep` externo: P-112.
+
+**Também visto:** o `logd` sobe antes do fuso ser aplicado (`lume-persist`) e grava em UTC até o
+boot seguinte, enquanto o `lume-run` grava na hora local (P-112 cita, a corrigir junto).
+
+### Laços sem processo por volta (`game-governor` 7.6, D20; 2026-11-19, builds `20261119-183440` e `-184744`, boots 219 e 220)
+
+Medido pelo cabo com o `tests/device/loops_cost.sh` (60 e 120 s; o contador `processes` de
+`/proc/stat` lido sem processo entre as duas fotos; a CPU de cada laço pelo
+`se.sum_exec_runtime` de `/proc/<pid>/sched`, o tempo exato: os ticks cobram 10 ms inteiros a
+um laço que acorda no tick do relógio):
+
+| | Antes (build `20261119-164004`) | Depois, launcher parado | Depois, jogo de SNES |
+|---|---|---|---|
+| Processos novos no sistema | 945 por minuto | **24 por minuto** | 24 por minuto |
+| Laços (`usb-gadget`, `persist`, `savesync`, `ssh-wifi`), % de um núcleo | 12,5% (ticks) | **0,78%** (0,73% em 120 s) | **0,17%** |
+| `usb-gadget` | 8,4% (1,1 + 7,3 dos filhos) | 0,41% | 0,09% |
+| `ssh-wifi` (opção desligada) | 1,1% | 0,24% | 0,05% |
+| `persist`, `savesync` | 1,5%, 1,6% | 0,05%, 0,07% | 0,01%, 0,02% |
+| `lume-logd` com os filhos | 0,7% | 0,95% em 120 s (0,51 + 0,44 dos filhos; em janelas de 60 s, 0,7 a 1,1%, conforme caem uma ou duas descargas) | 0,6% (0,29 + 0,31) |
+
+**Achado:** sem processo nenhum, a primeira versão ainda gastava 1,26% parada. O shell do
+busybox custa ~0,1 a 0,2 ms por chamada de função ou leitura do sysfs a 720 MHz, e o laço acorda
+com a CPU no clock mais baixo: ~15 ms por volta do `usb-gadget`. A volta parada passou a ler só
+o estado do UDC e o VBUS, de caminhos guardados; a guarda do FIFO olha o relógio a cada 32 voltas
+e a procura do role switch (que o GA36 não tem) a cada 16.
+
+**Funções conferidas no aparelho:** a rede e o SSH pelo cabo voltam depois dos dois reboots do
+`push`; o cabo tirado e posto de volta pelo usuário (boot 220): `network: down` e
+`device: disconnected` ao tirar, `network: up` 6 s depois de pôr e o SSH aceito 5 s depois, sem
+nada à mão; os eventos do `lume-logd` (as linhas `otg`) já saem na hora local desde o boot (7.3); um save de teste de nome neutro em `saves/` aparece no `savesync.log` em menos de 2 s (o
+jogo de SNES medido não grava save ao fechar); uma mudança de teste na configuração do RetroArch
+chega ao `ROMS/system/retroarch/` depois do debounce, e a remoção também; o `inotifyd` do
+`persist` é refeito quando o RetroArch cria uma pasta no jogo.
+
+### Kernels de experimento (`device-fixes` 6.3, P-95 e P-25)
+
+Variantes do kernel que **nunca entram na imagem padrão**, em `kernel/variants/ga36/<nome>/`
+(patches aplicados depois de `kernel/patches/`, um `board.dtsi` opcional incluído no fim de
+cada DTS e o `variant.toml`). O build compila no mesmo tree e na mesma pasta de build do
+padrão, mas grava em `out/ga36/variants/<nome>/`, não publica nada em `out/repo` e arquiva
+um build que o `latest` **não** aponta: só o kernel, os DTBs (no `e1`), o `VERSION` (com a
+linha `kernel variant: ga36 <nome> (base <build>)`) e as imagens de boot dos painéis mudam
+em relação ao build base. Um patch de variante só pode mexer em driver embutido no kernel
+(`panel-ga36mb-jd9366.c`, `sun6i_mipi_dsi.c`); os módulos continuam os do padrão. No log de
+boot, cada uma se anuncia com `experiment kernel <nome>: …`.
+
+| Variante | O que muda | Link por via | Quadro |
+|---|---|---|---|
+| (padrão) | modo de 30 MHz pedido; o `pll-mipi` só chega a 297 × 6 / 5 = 356,4 MHz | 356,4 Mbit/s | 29,7 MHz / (1040 × 518) = **55,13 Hz** reais (o `retroarch-ga36.cfg` diz 55,69, falta medir) |
+| `e4-slow` | pixel de 27,5 MHz (`pll-mipi` 297 × 10 / 9 = 330 MHz exatos), totais de fábrica | 330 (−7,4%) | 51,05 Hz |
+| `e4-nonburst` | vídeo sem rajada com pulsos de sincronia (link em HS na linha toda) | 356,4 | 55,13 Hz |
+| `e4-eotp` | pacote EoT depois de cada transmissão HS (`lcd_dsi_eotp = 1` da fábrica) | 356,4 | 55,13 Hz |
+| `60hz` | pixel de 32,175 MHz (297 × 13 / 10 = 386,1 MHz exatos), front porch 275 (`htotal` 1035) | 386,1 (+8,3%) | 60,013 Hz |
+| `60hz-porch` | link de hoje (29,7 MHz), front porch 196 (`htotal` 956) | 356,4 | 59,975 Hz |
+| `e1` | só o DTB: DCDC1 (`vcc-io` e, pelo `dc1sw`, o painel) a 3,3 V | 356,4 | 55,13 Hz |
+
+**Na janela (J2a), com o console no cabo e a bateria acima de 20%:**
+
+```sh
+uv run lume build --console ga36 kernel                    # o controle (padrão), vira o latest
+uv run lume build --console ga36 kernel --variant e4-nonburst
+uv run lume push --console ga36 --build <id impresso pelo build da variante>
+# só nas variantes que mudam o quadro (e4-slow, 60hz, 60hz-porch), a cada boot:
+uv run lume dev sh --console ga36 'echo video_refresh_rate = \"60.013430\" > /run/lume/retroarch-extra.cfg'
+uv run lume push --console ga36                            # desfaz: volta ao latest (padrão)
+```
+
+O build da variante imprime o id, o comando de envio, o de desfazer e, quando o quadro muda,
+a taxa do RetroArch (também no `variant.toml`). O `SLOTS.old` não desfaz um kernel: ele é o
+conjunto anterior da raiz; quem volta o kernel é o `push` do `latest`, que manda de novo o
+`ga36/zImage` e a imagem do setor 172032. **Se a variante não der imagem**, o console
+continua respondendo pelo cabo (o painel não tem relação com o USB): `lume push --console
+ga36`. **Se nem o cabo responder**, gravar pelo PC a imagem do painel 1 do build base no setor
+172032 (ver "À mão" na seção 3.1, conferindo o SHA256 depois: leitor `14cd:125d`) e depois
+`lume push`.
+
+**Riscos não verificados:** o JD9366 não tem datasheet aqui (faixa de pixel clock e de
+tensão); o `pll-mipi` a 330 e a 386,1 MHz não foi medido (hoje roda a 356,4); no `e1`, os
+limites do microcontrolador do controle e de outros chips nas linhas PB/PF/PG/PH a 3,3 V são
+desconhecidos (o A33-OLinuXino roda o DCDC1 a 3,3 V no mainline). Só o painel 1 existe neste
+aparelho: o painel 2 fica sem prova.
 
 ## 5. Checklist de conferência
 

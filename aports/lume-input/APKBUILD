@@ -1,0 +1,63 @@
+# Lume Retro OS: the input daemon (lume-launcher D8; it grew out of lume-padmerge). Grabs
+# the built-in controls of the console, publishes one virtual gamepad under the name the
+# RetroArch autoconfig knows, turns Fn+Start into "quit" for the launcher and handles the
+# volume buttons. One profile per board in /usr/share/lume/input/. The power button: a tap
+# asks lume-sleep to suspend, held 2 s to power off, and the sleep notices go to the clients
+# (device-fixes D11).
+# Also lume-shot (lume-launcher D12): a PNG of the screen through DRM, used over the cable,
+# and lume-evrec (virtual-gamepad D2): record and replay the virtual gamepad, as root.
+pkgname=lume-input
+pkgver=1.0
+pkgrel=12
+pkgdesc="Built-in controls of the console: one gamepad, Fn+Start and volume (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+depends="openrc alsa-utils"
+# linux/input.h, linux/uinput.h and the DRM uapi headers; zlib for the PNG of lume-shot
+makedepends="linux-headers zlib-dev"
+options="!check" # tested on the host (tests/unit/test_lume_input.py, test_lume_shot.py,
+                 # test_lume_evrec.py)
+replaces="lume-padmerge"
+provides="lume-padmerge=$pkgver-r$pkgrel"
+source="input.c
+	volume.h
+	shot.c
+	evrec.c
+	lume-input.initd
+	61-lume-input.rules
+	ga36.conf
+	r36s.conf
+	vm.conf
+	"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-input input.c
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-shot shot.c -lz
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-evrec evrec.c
+}
+
+package() {
+	install -Dm755 lume-input "$pkgdir"/usr/bin/lume-input
+	install -Dm755 lume-shot "$pkgdir"/usr/bin/lume-shot
+	install -Dm755 lume-evrec "$pkgdir"/usr/bin/lume-evrec
+	install -Dm755 "$srcdir"/lume-input.initd "$pkgdir"/etc/init.d/lume-input
+	install -Dm644 "$srcdir"/61-lume-input.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/61-lume-input.rules
+	for p in ga36 r36s vm; do
+		install -Dm644 "$srcdir"/$p.conf "$pkgdir"/usr/share/lume/input/$p.conf
+	done
+}
+
+sha512sums="
+0bef9f3ece9ce78fbad0153c37b253ad24d72897c7324d1907ddce9efc4a8991c26826fd51b0908b66303bac5b97a0d1bbc9ece2097d0cc47e3dd530123cd9bf  input.c
+1622154353154fbed72118232160443429b7c64b09b5af812860a01664996a482691295b5fb65d303a3db62907bb7306960119b64d300291c5cb4c0c02ab3fbb  volume.h
+e447e4b14314e8b6579bda892f515f241b043407343ef066b1e868fb21812a28b1be634eae449f8d7d0999babcd7c0274bd2f0c607f0434da3a56a069d225f03  shot.c
+49c57e09ae31616cf2f0dfc104d892e5fea36c82444d2a32a6fca492a55cb42f5b0308c10ed792016d27c00c3972717db358410363344d2c94e3fa3267c113cf  evrec.c
+f6c6211de265ddc9564e9090cf128adeca596515bd5d242aa4297cbde16ec76784642b480dabdb13fc17fe6ff80a54b7846241f76d0919d244ed4eb06c84d5c0  lume-input.initd
+d86f1dd592ea901c5b8df0ec2ef7490954427279709c7be5d6bcb1e0a487ba95cbb7eecf0b7281eb78149dfa81f2447bcd4b1cfcf90f5446b68fd627ba256098  61-lume-input.rules
+fefd3125401aa12a704c55e75d6d6dc42e65c58b78a1fea16000f3f36d9569135f9160ddf07d6588c07d24d2a518e1f4f68373fa7ba92e6edf7448ac2e37e78a  ga36.conf
+46eecf85ae3d22a87b118b13e8267ed3986922e8e0fd6da297b137973b974575f91826fba76e8e7875994d638087e30f9902d560213cad0e2df73c7acb177c9d  r36s.conf
+535c52e9d8f1ae514073b8590e12380d8e49974d4354326153526c8dd333f2d208edc9e66289d364288ff33669230e3d2a586937fe446a96e9a16db77c038727  vm.conf
+"

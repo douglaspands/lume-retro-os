@@ -120,21 +120,98 @@ create_p2() {
 
 format_roms() { mkfs.exfat -L ROMS "$1" >/dev/null; }
 
+# VolumeFlags of the exFAT boot sector of the partition that starts at sector $2, in decimal
+# (device-fixes D1): 2 bytes, little-endian, at offset 106. Bit 1 (0x0002) is VolumeDirty:
+# the kernel sets it on mount and clears it on unmount or remount, so it stays set after a
+# power cut. Bit 2 (0x0004) is MediaFailure. Same mould as fs_type_at: one sector read.
+volume_flags() {
+	set -- $(dd if="$1" bs=$SECTOR skip="$2" count=1 2>/dev/null | dd bs=1 skip=106 count=2 2>/dev/null | hexdump -v -e '/1 "%u "')
+	[ $# = 2 ] || return 1
+	echo $(( $1 + $2 * 256 ))
+}
+
+# The flags for the log: "0x0002 VolumeDirty", "0x0000".
+flags_text() {
+	local t
+	t=$(printf '0x%04x' "$1")
+	[ $(( $1 & 2 )) = 0 ] || t="$t VolumeDirty"
+	[ $(( $1 & 4 )) = 0 ] || t="$t MediaFailure"
+	echo "$t"
+}
+
+# Check and repair of ROMS. $1: why it runs (dirty | requested), $2: the flags for the log,
+# $3: the partition. One line "ROMS <why>: checked: <result> (flags <flags>)", which lume-logd
+# turns into the event "roms OK <why>: checked: ..."; no "(flags ...)" when $2 is empty.
 # fsck.exfat -p: 0 = clean, 1 = errors corrected, others = errors left.
 check_roms() {
-	local out rc=0
-	out=$(fsck.exfat -p "$1" 2>&1) || rc=$?
+	local why="$1" flags="${2:+ (flags $2)}" out rc=0
+	out=$(fsck.exfat -p "$3" 2>&1) || rc=$?
 	case $rc in
-	0) log "ROMS checked: clean" ;;
-	1) log "ROMS checked: errors corrected" ;;
-	*) log "ROMS checked: uncorrected errors (code $rc)"; echo "$out" | while read -r l; do log "  $l"; done ;;
+	0) log "ROMS $why: checked: clean$flags" ;;
+	1) log "ROMS $why: checked: errors corrected$flags" ;;
+	*) log "ROMS $why: checked: uncorrected errors (code $rc)$flags"; echo "$out" | while read -r l; do log "  $l"; done ;;
 	esac
 	return 0
 }
 
-# Prepare the games partition. Print "ok" if ROMS can be mounted.
+# Number of the boot that is starting, for ROMS mounted at $1: lume-logd numbers it later in
+# this boot as ROMS/logs/.boot + 1 (logd start), so the same number is computed here.
+roms_boot_n() {
+	local prev
+	prev=$(tr -cd '0-9' < "$1/logs/.boot" 2>/dev/null)
+	prev=${prev#"${prev%%[!0]*}"}   # no leading zeros: "08" is no octal number
+	echo $(( ${prev:-0} + 1 ))
+}
+
+# The check request of the user (device-fixes D3, contract in docs/LAUNCHER.md):
+# ROMS/system/card/check-next-boot, seen only once ROMS is mounted at $2. With a request:
+# unmount, check the partition of disk $1, mount again with the command $3, then delete the
+# request and write ROMS/system/card/last-check with the number of this boot. A volume
+# already checked in this boot ($4 = checked: it was dirty) is not checked twice. Without a
+# request this is one file test. Fails only when ROMS could not be mounted again (the
+# request then stays for the next boot).
+roms_request() {
+	local disk="$1" mnt="$2" mountcmd="$3" dir="$2/system/card"
+	[ -e "$dir/check-next-boot" ] || return 0
+	if [ "$4" = checked ]; then
+		log "ROMS requested: checked: by the dirty volume check of this boot"
+	elif ! umount "$mnt"; then
+		log "ERROR: failed to unmount ROMS for the requested check; the request stays for the next boot"
+		return 0
+	else
+		with_part "$disk" 2 check_roms requested ""
+		"$mountcmd" || return 1
+	fi
+	rm -f "$dir/check-next-boot"
+	roms_boot_n "$mnt" > "$dir/last-check.tmp" && mv -f "$dir/last-check.tmp" "$dir/last-check"
+	return 0
+}
+
+# The ROMS lines of this start survive a restart of the kernel in the same boot (kexec, or
+# the reboot into a new boot image on the GA36): the next start has a new kernel log, and
+# lume-logd reads only that one. Saved on ROMS at $1 right before it is unmounted, each line
+# with the suffix $2; the next start logs them again (roms_carry_replay) and deletes the file.
+ROMS_CARRY=system/card/.restart-log
+roms_carry_save() {  # mnt suffix
+	mkdir -p "$1/${ROMS_CARRY%/*}"
+	dmesg | sed -n "s/.*lume: \(ROMS [a-z]*: .*\)/\1 $2/p" > "$1/$ROMS_CARRY"
+}
+roms_carry_replay() {  # mnt
+	local l
+	[ -f "$1/$ROMS_CARRY" ] || return 0
+	while IFS= read -r l; do
+		[ -n "$l" ] && log "$l"
+	done < "$1/$ROMS_CARRY"
+	rm -f "$1/$ROMS_CARRY"
+}
+# The restart failed and this start goes on: its lines are already in its own log.
+roms_carry_drop() { rm -f "$1/$ROMS_CARRY"; }
+
+# Prepare the games partition. Print "ok" if ROMS can be mounted, "ok checked" when it was
+# also checked now (a dirty volume), so a check request found after the mount needs no
+# second check (roms_request).
 setup_storage() {
-	local disk="$1" action
+	local disk="$1" action flags
 	action=$(decide_p2 "$disk")
 	case "$action" in
 	create)
@@ -147,14 +224,25 @@ setup_storage() {
 		fi
 		;;
 	check)
-		with_part "$disk" 2 check_roms
-		echo ok
+		# device-fixes D1: the check only on a volume left dirty (power cut, crash) or
+		# with a media failure; a clean volume costs this one read
+		if ! flags=$(volume_flags "$disk" "$(part_field "$disk" 2 start)"); then
+			log "ERROR: ROMS volume flags unreadable; checking the partition"
+			with_part "$disk" 2 check_roms dirty unreadable
+			echo ok checked
+		elif [ $(( flags & 6 )) != 0 ]; then
+			with_part "$disk" 2 check_roms dirty "$(flags_text "$flags")"
+			echo ok checked
+		else
+			log "ROMS clean: check skipped (flags $(flags_text "$flags"))"
+			echo ok
+		fi
 		;;
 	foreign)
 		log "ERROR: partition 2 exists but is not exFAT; nothing formatted. Continuing without ROMS."
 		;;
 	usbc)
-		log "ERROR: the first sector of partition 2 holds a USB command block (\"USBC\") instead of exFAT data: the card was corrupted by a faulty USB card reader on the PC. Nothing formatted; continuing without ROMS. Use another card reader, then repair the partition with fsck.exfat or write the card again (r36os flash --full)."
+		log "ERROR: the first sector of partition 2 holds a USB command block (\"USBC\") instead of exFAT data: the card was corrupted by a faulty USB card reader on the PC. Nothing formatted; continuing without ROMS. Use another card reader, then repair the partition with fsck.exfat or write the card again (lume flash --full)."
 		;;
 	nospace)
 		log "ERROR: no free space for ROMS partition"

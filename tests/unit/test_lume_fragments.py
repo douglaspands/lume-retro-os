@@ -4,18 +4,18 @@ import re
 
 import pytest
 
-from r36os import fragments as frag
-from r36os import packages
-from r36os.paths import REPO_ROOT
+from lume_tool import fragments as frag
+from lume_tool import packages
+from lume_tool.paths import REPO_ROOT
 
 FRAGMENTS = ("lume-usb", "lume-net", "lume-audio", "lume-saves", "lume-diag", "lume-power",
              "lume-games", "lume-launcher-data", "lume-retroarch-cfg", "lume-shaders")
 
 # services that `push --hot` restarts (empty: applied at the next boot or not restartable)
 RESTART = {
-    "lume-usb": "", "lume-net": "bluetooth r36os-hostshare", "lume-audio": "r36os-mixer r36os-jack",
-    "lume-saves": "r36os-persist r36os-savesync", "lume-diag": "", "lume-power": "",
-    "lume-games": "lume-index r36os-playlists", "lume-launcher-data": "",
+    "lume-usb": "", "lume-net": "bluetooth lume-hostshare", "lume-audio": "lume-mixer lume-jack",
+    "lume-saves": "lume-persist lume-savesync lume-card", "lume-diag": "", "lume-power": "",
+    "lume-games": "lume-index lume-playlists", "lume-launcher-data": "",
     "lume-retroarch-cfg": "", "lume-shaders": "",
 }
 
@@ -59,7 +59,9 @@ def test_a_fragment_is_built_after_the_fragment_it_depends_on(tmp_path):
 def test_image_installs_every_fragment():
     names = {line.split("#")[0].strip() for line in
              (REPO_ROOT / "rootfs/packages.txt").read_text().splitlines()}
-    assert set(FRAGMENTS) <= names
+    # lume-shaders is built but stays out of the image until P-89 (user, 2026-11-17)
+    assert set(FRAGMENTS) - {"lume-shaders"} <= names
+    assert "lume-shaders" not in names
 
 
 def test_overlay_keeps_only_what_the_build_generates():

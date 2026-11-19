@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from r36os import archive, cli, fragment_build as fb, image, manifests, slots, version
-from r36os.targets import IMAGES
+from lume_tool import archive, cli, fragment_build as fb, image, manifests, slots, version
+from lume_tool.targets import IMAGES
 
 GROUPS = slots.Groups(patterns={"runtime": ("retroarch", "libretro-*", "mesa", "mesa-*"),
-                                "lume": ("lume-*", "r36os-*"), "base": ()},
+                                "lume": ("lume-*",), "base": ()},
                       default="base")
 
 
@@ -25,7 +25,7 @@ APORTS = {a.name: a for a in [
     _aport("lume-theme", "noarch", deps=["lume-core"]),
     _aport("lume-launcher", "x86_64 armv7 aarch64", deps=["cargo", "sdl2-dev"]),
     _aport("lume-bootsel", "all", deps=["linux-headers"]),
-    _aport("r36os-devmem", "armv7"),
+    _aport("lume-devmem", "armv7"),
     _aport("mesa", "x86_64", subs=["mesa-dev", "mesa-egl"]),
     _aport("libretro-common", "all", subs=["libretro-common-dev"]),
     _aport("libretro-a", "all", deps=["libretro-common-dev", "linux-headers"]),
@@ -50,9 +50,9 @@ def test_noarch_fragment_reaches_both_consoles_and_only_the_lume_slot():
 
 
 def test_arch_fragment_reaches_only_the_consoles_of_its_arch():
-    p = plan(["r36os-devmem"])                       # arch="armv7": the GA36 only
+    p = plan(["lume-devmem"])                       # arch="armv7": the GA36 only
     assert p.consoles == ("ga36",)
-    assert p.packages == {"ga36": ("r36os-devmem",)}
+    assert p.packages == {"ga36": ("lume-devmem",)}
     assert p.noarch == ()
     assert any(line.startswith("  r36s: unchanged") for line in p.lines())
 
@@ -80,8 +80,8 @@ def test_console_option_restricts_the_plan():
     assert p.consoles == ("r36s",)
     assert p.packages == {"r36s": ("libretro-a",)}       # libretro-b skips aarch64
     assert p.noarch == ("lume-core", "lume-theme")
-    with pytest.raises(fb.FragmentPlanError, match="r36os-devmem is not built for the r36s"):
-        plan(["r36os-devmem"], console="r36s")
+    with pytest.raises(fb.FragmentPlanError, match="lume-devmem is not built for the r36s"):
+        plan(["lume-devmem"], console="r36s")
     with pytest.raises(fb.FragmentPlanError, match="--console vm"):
         plan(["lume-core"], console="vm")
 
@@ -91,6 +91,20 @@ def test_initramfs_fragment_redoes_stage_1():
     assert p.stage1 == ("ga36", "r36s")
     assert "initramfs and kernel again" in "\n".join(p.lines())
     assert plan(["lume-launcher"]).stage1 == ()
+
+
+def test_kernel_fragment_redoes_only_stage_1_of_the_console_asked():
+    # the user (2026-11-17): a driver or a kernel patch without the whole image
+    p = plan(["kernel"], console="ga36")
+    assert p.consoles == ("ga36",)
+    assert p.packages == {"ga36": ()} and p.noarch == ()
+    assert p.stage1 == ("ga36",)
+    assert any(line.startswith("  r36s: unchanged") for line in p.lines())
+    # both consoles without --console; the package names work as aliases
+    assert plan(["lume-kernel"]).stage1 == ("ga36", "r36s")
+    # with a package of that console: both in one build
+    p = plan(["kernel", "lume-devmem"], console="ga36")
+    assert p.packages == {"ga36": ("lume-devmem",)} and p.stage1 == ("ga36",)
 
 
 def test_stage1_fragments_are_the_ones_the_initramfs_installs():
@@ -135,8 +149,8 @@ def test_plan_of_the_real_aports():
                                   ["build", "--all", "--console", "r36s"],
                                   ["build", "no-such-fragment"]])
 def test_cli_refuses_before_creating_anything(tmp_path, monkeypatch, capsys, argv):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     assert cli.main(argv) == 2
     assert capsys.readouterr().err.startswith("error: ")
     assert list(tmp_path.iterdir()) == []
@@ -163,7 +177,7 @@ def _file(path: Path, data: bytes) -> Path:
 
 def _layers(tmp_path):
     outs = {}
-    from r36os import kernel_packages
+    from lume_tool import kernel_packages
 
     for board, kernel in (("ga36", "zImage"), ("r36s", "Image")):
         out = tmp_path / board
@@ -183,9 +197,9 @@ def _layers(tmp_path):
 
 @pytest.fixture
 def console_set(tmp_path, monkeypatch):
-    from r36os import r36s_vendor
+    from lume_tool import r36s_vendor
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     outs = _layers(tmp_path)
     factory = {"factory.bin": _file(tmp_path / "factory/factory.bin", b"factory")}
     monkeypatch.setattr(r36s_vendor, "factory_boot_files", lambda: factory)
@@ -227,14 +241,14 @@ def test_console_set_lists_every_boot_file_and_stores_the_objects(console_set):
 
 def test_console_set_needs_the_outputs_of_a_console_build(tmp_path, monkeypatch, console_set):
     (console_set["outs"]["r36s"] / "kernel-pkg/boot/Image").unlink()
-    with pytest.raises(image.ConsoleImageError, match="last `r36os build console`.*Image"):
+    with pytest.raises(image.ConsoleImageError, match="last `lume build console`.*Image"):
         image.write_console_set(console_set["v"], ga36_out=console_set["outs"]["ga36"],
                                 r36s_out=console_set["outs"]["r36s"], out=console_set["out"],
                                 area_writer=lambda dest: _file(dest, b"a"))
 
 
 def test_archived_set_is_pushable_and_flashable(console_set):
-    from r36os import flash
+    from lume_tool import flash
 
     out, outs, v = console_set["out"], console_set["outs"], console_set["v"]
     extras = image.ga36_android_boot_images(outs["ga36"])
@@ -258,7 +272,7 @@ def test_archived_set_is_pushable_and_flashable(console_set):
 
 
 def test_latest_language(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     assert fb.latest_language() is None
     d = archive.images_dir(IMAGES["console"]) / "20261117-000000"
     d.mkdir(parents=True)

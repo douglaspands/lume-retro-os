@@ -36,7 +36,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     fn dir() -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rootfs/overlay/usr/share/lume/i18n")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/lume-launcher-data/files/usr/share/lume/i18n")
     }
 
     fn keys(lang: &str) -> BTreeSet<String> {

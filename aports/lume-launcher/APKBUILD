@@ -1,12 +1,12 @@
 # Lume Retro OS: the lume-launcher (openspec change lume-launcher, D2). The Rust workspace
-# lume/ and its crates are staged in stage/ by r36os.lume.stage() before abuild runs (the
-# crates come from a distfiles tarball checked by SHA512 and pinned by Cargo.lock), so the
-# build is offline: cargo --offline --frozen.
-# On armv7 and aarch64, cargo runs on the PC (r36os.lume_cross, build-speed D7) and
+# lume/ and its crates are staged in stage/ by lume_tool.launcher_stage.stage() before abuild
+# runs (the crates come from a distfiles tarball checked by SHA512 and pinned by Cargo.lock),
+# so the build is offline: cargo --offline --frozen.
+# On armv7 and aarch64, cargo runs on the PC (lume_tool.lume_cross, build-speed D7) and
 # $LUME_PREBUILT is the folder with its binaries: this APKBUILD only packages them.
 pkgname=lume-launcher
 pkgver=0.1.0
-pkgrel=27
+pkgrel=28
 pkgdesc="Game launcher of Lume Retro OS: interface, game lists and supervisor"
 url="https://example.invalid"
 arch="x86_64 armv7 aarch64"
@@ -21,13 +21,13 @@ builddir="$startdir/stage/lume"
 
 prepare() {
 	default_prepare
-	[ -f "$builddir/Cargo.lock" ] || die "run r36os.lume.stage() first (r36os build or pkg do it)"
+	[ -f "$builddir/Cargo.lock" ] || die "run lume_tool.launcher_stage.stage() first (lume build or pkg do it)"
 }
 
 build() {
 	if [ -n "${LUME_PREBUILT:-}" ]; then
-		for b in lume-run lume-ui lume-index; do
-			[ -x "$LUME_PREBUILT/$b" ] || die "$LUME_PREBUILT/$b: missing (r36os.lume_cross)"
+		for b in lume-run lume-ui lume-index lume-menu; do
+			[ -x "$LUME_PREBUILT/$b" ] || die "$LUME_PREBUILT/$b: missing (lume_tool.lume_cross)"
 		done
 		return 0
 	fi
@@ -35,7 +35,9 @@ build() {
 }
 
 package() {
-	for b in lume-run lume-ui lume-index; do
+	# lume-menu: the Lume menu over a game, drawn by the system (lume-hud-actions D14); it
+	# runs as the games user with no capability (pidfd_getfd of its own user's game)
+	for b in lume-run lume-ui lume-index lume-menu; do
 		if [ -n "${LUME_PREBUILT:-}" ]; then
 			install -Dm755 "$LUME_PREBUILT"/$b "$pkgdir"/usr/bin/$b
 		else

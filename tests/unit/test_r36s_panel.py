@@ -4,9 +4,9 @@ alpine-retroarch-distro design and the mode is the 60 Hz timing of appendix A.""
 
 import re
 
-from r36os import kpatch
-from r36os.kernel import OWN_DRIVER_FILES
-from r36os.paths import REPO_ROOT
+from lume_tool import kpatch
+from lume_tool.kernel import OWN_DRIVER_FILES
+from lume_tool.paths import REPO_ROOT
 
 DESIGN = (REPO_ROOT / "openspec/changes/archive/2026-11-11-alpine-retroarch-distro/design.md").read_text()
 DRIVER = "\n".join(kpatch.added_lines(kpatch.find("0010-"),

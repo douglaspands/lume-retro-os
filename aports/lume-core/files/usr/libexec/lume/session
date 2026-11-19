@@ -1,0 +1,279 @@
+#!/bin/sh
+# lume-session (D10): runs the configured frontend on tty1 as the game user.
+#
+#   exit 0            -> writes what is pending (persist flush) and powers off
+#   exit 66           -> the same clean steps, then reboots (device-fixes D19)
+#   other exit codes  -> starts again; on the 3rd failure in 60 s stops and shows the error and the log
+#   SIGTERM (service) -> ends the frontend without powering off
+#   SIGUSR1 (lume-sleep, the power button held 2 s, device-fixes D11) -> ends the frontend
+#                        (SIGTERM: lume-run quits the game politely), waits for it, then the
+#                        same power_off as exit 0
+# SESSION_LIBDIR and STORAGE only change for the tests; SESSION_LIB=1 loads only the functions.
+LIBEXEC=${SESSION_LIBDIR:-/usr/libexec/lume}
+STORAGE=${STORAGE:-/storage}
+. "$LIBEXEC/lib.sh"
+. "$LIBEXEC/logs.sh"
+[ -f /etc/conf.d/frontend ] && . /etc/conf.d/frontend
+FRONTEND=${FRONTEND:-retroarch}
+EXE=/usr/libexec/lume/frontends/$FRONTEND
+TTY=/dev/tty1
+LOG=/var/log/frontend.log
+WINDOW=60
+MAX_FAILS=3
+# frozen in docs/FRONTEND.md, same value as Exit::Restart (lume-ui) and EXIT_RESTART (lume-run)
+EXIT_RESTART=66
+
+# dmesg (log de boot) + serial de debug + syslog
+SERIAL=/dev/$(cat /etc/lume/serial-tty 2>/dev/null)
+kmsg() {
+	echo "<5>lume: $*" > /dev/kmsg
+	[ -c "$SERIAL" ] && echo "lume: $*" > "$SERIAL"
+	logger -t lume "$*" 2>/dev/null
+	return 0
+}
+
+stopping=""
+child=""
+closed_by=""
+trap 'stopping=1; [ -n "$child" ] && kill "$child" 2>/dev/null' TERM INT
+trap 'closed_by="the power button"; [ -n "$child" ] && kill "$child" 2>/dev/null' USR1
+
+# wait_frontend: waits for $child and sets rc. A trapped signal interrupts the wait while the
+# frontend is still ending (lume-run closing the game), so on the power button it waits again
+# until the frontend is gone: power_off must not run under a game still writing its save.
+wait_frontend() {
+	wait "$child"
+	rc=$?
+	while [ -n "$closed_by" ] && kill -0 "$child" 2>/dev/null; do
+		wait "$child"
+	done
+	child=""
+}
+
+# Cópia do log do frontend, legível no PC: ROMS/logs/frontend/boot-<n>.log (descarga
+# imediata dos logs); só sem ROMS vai para BOOT/logs/frontend-error.log.
+# Define LOG_PC com o caminho mostrado na tela.
+keep_log() {
+	if logs_on_disk; then
+		logs_conf
+		logs_flush
+		LOG_PC="ROMS/logs/frontend/boot-$(boot_n).log"
+		return 0
+	fi
+	LOG_PC="BOOT/logs/frontend-error.log"
+	mount -o remount,rw /boot 2>/dev/null || return 0
+	mkdir -p /boot/logs
+	cp "$LOG" /boot/logs/frontend-error.log 2>/dev/null
+	sync
+	mount -o remount,ro /boot
+}
+
+# Tela de erro no idioma da interface (ui_lang). $1: missing (frontend não instalado)
+# ou o último código de saída.
+fail_screen() {
+	local why="$1"
+	case "$(ui_lang)" in
+	pt)
+		echo "O frontend '$FRONTEND' falhou $MAX_FAILS vezes em $WINDOW segundos e não"
+		echo "será reiniciado."
+		[ "$why" = missing ] && echo "Frontend não instalado: $EXE" || echo "Último código de saída: $why."
+		echo
+		echo "Log: $LOG_PC (no cartão, pelo PC)"
+		echo "     $LOG (no console serial)"
+		echo
+		echo "Desligue o aparelho pelo botão de energia."
+		;;
+	es)
+		echo "El frontend '$FRONTEND' falló $MAX_FAILS veces en $WINDOW segundos y no"
+		echo "se reiniciará."
+		[ "$why" = missing ] && echo "Frontend no instalado: $EXE" || echo "Último código de salida: $why."
+		echo
+		echo "Log: $LOG_PC (en la tarjeta, desde el PC)"
+		echo "     $LOG (en la consola serie)"
+		echo
+		echo "Apague el equipo con el botón de encendido."
+		;;
+	*)
+		echo "The frontend '$FRONTEND' failed $MAX_FAILS times in $WINDOW seconds and will"
+		echo "not be restarted."
+		[ "$why" = missing ] && echo "Frontend not installed: $EXE" || echo "Last exit code: $why."
+		echo
+		echo "Log: $LOG_PC (on the card, from a PC)"
+		echo "     $LOG (on the serial console)"
+		echo
+		echo "Turn the device off with the power button."
+		;;
+	esac
+}
+
+give_up() {  # missing | <último código de saída>
+	local detail="last exit code: $1"
+	[ "$1" = missing ] && detail="not installed: $EXE"
+	event frontend FAIL "$FRONTEND stopped after $MAX_FAILS failures in ${WINDOW}s; $detail"
+	keep_log
+	chvt 1
+	{
+		printf '\033[2J\033[H'
+		echo "Lume Retro OS"
+		echo
+		fail_screen "$1"
+	} > "$TTY"
+	kmsg "frontend stopped after $MAX_FAILS failures in ${WINDOW}s ($detail); log at $LOG_PC"
+	exit 1
+}
+
+# The card left clean by a power off of the session (device-fixes D2). The kernel sets the
+# exFAT VolumeDirty flag of ROMS on mount and clears it only on an unmount or a remount, never
+# on a sync: without this, a later failure of the shutdown runlevel's own remount (a file
+# still open for writing) leaves it set, and the next boot checks the card for nothing.
+# lume-logd is the last writer of the card at power off (final events and the clean shutdown
+# mark), so it is stopped first; OpenRC then skips it in the shutdown runlevel. Then /storage
+# is remounted read-only, or unmounted when that fails. A failure of both is logged and never
+# stops the power off. Shared by every path of the session that ends the console (power off
+# now, restart later).
+release_storage() {
+	mountpoint -q "$STORAGE" || return 0
+	rc-service lume-logd stop >/dev/null 2>&1
+	sync
+	if mount -o remount,ro "$STORAGE" 2>/dev/null; then
+		kmsg "storage: remounted read-only"
+		return 0
+	fi
+	if umount "$STORAGE" 2>/dev/null; then
+		kmsg "storage: unmounted (remount read-only failed)"
+		return 0
+	fi
+	# still writable: the failure reaches the card, then the power off goes on
+	kmsg "ERROR: storage: remount read-only and unmount failed; ROMS stays marked dirty"
+	event shutdown FAIL "storage: remount read-only and unmount failed; ROMS stays marked dirty and is checked at the next boot"
+	logs_flush
+	sync
+	return 0
+}
+
+# The clean steps before the console ends, shared by power_off and restart: what is pending
+# goes to the card, then the clock while ROMS is still writable (release_storage remounts it
+# read-only; device-fixes D15), then the card is left clean.
+end_clean() {
+	"$LIBEXEC/persist" flush
+	command -v lume-clock >/dev/null 2>&1 && lume-clock save
+	sync
+	release_storage
+}
+
+# Exit 0 of the frontend, or the power button held (SIGUSR1, $closed_by): power off.
+power_off() {
+	kmsg "frontend closed by ${closed_by:-user}: saving and powering off"
+	event frontend OK "$FRONTEND closed by ${closed_by:-user}: shutting down"
+	end_clean
+	poweroff
+}
+
+# Exit 66 of the frontend (Restart in the system menu, device-fixes D19): reboot.
+restart() {
+	kmsg "frontend closed by user: saving and rebooting"
+	event frontend OK "$FRONTEND closed by user: rebooting"
+	end_clean
+	reboot
+}
+
+# end_leftovers: what a frontend that ended with an error left running in the lume/ subtree
+# (lume-hud-actions 3.5: a lume-run killed with the Lume menu open left its game stopped and
+# holding the screen, so every lume-ui after it failed and the session gave up). SIGCONT
+# first (a stopped process does nothing until it runs again), then cgroup.kill (SIGKILL to
+# the whole subtree; kill -KILL one by one without it), and up to 2 s for it to empty, so the
+# next frontend finds the screen free.
+end_leftovers() {
+	local cg pids p n i=0
+	[ -n "${CG_PROCS:-}" ] || return 0
+	cg=${CG_PROCS%/session/cgroup.procs}
+	pids=$(find "$cg" -name cgroup.procs -exec cat {} + 2>/dev/null)
+	[ -n "$pids" ] || return 0
+	n=$(echo $pids | wc -w)
+	for p in $pids; do kill -CONT "$p" 2>/dev/null; done
+	if [ -w "$cg/cgroup.kill" ]; then
+		echo 1 > "$cg/cgroup.kill"
+	else
+		for p in $pids; do kill -KILL "$p" 2>/dev/null; done
+	fi
+	while [ $i -lt 20 ]; do
+		[ -z "$(find "$cg" -name cgroup.procs -exec cat {} + 2>/dev/null)" ] && break
+		sleep 0.1
+		i=$((i + 1))
+	done
+	kmsg "frontend left $n process(es) running: ended before the restart"
+	event frontend OK "$FRONTEND left $n process(es) running: ended before the restart"
+}
+
+# frontend_ended: what the session does with the end of the frontend ($rc, $closed_by).
+# Exit 0 or the power button held powers off (the button wins over any code), 66 reboots;
+# any other code is one more failure in the window ($fail_times, $n) and the MAX_FAILS-th
+# gives up. Returns only when the frontend should start again.
+frontend_ended() {
+	if [ "$rc" -eq 0 ] || [ -n "$closed_by" ]; then
+		power_off
+		exit 0
+	fi
+	if [ "$rc" -eq $EXIT_RESTART ]; then
+		restart
+		exit 0
+	fi
+	now=$(date +%s)
+	recent=""
+	for t in $fail_times; do [ $((now - t)) -lt $WINDOW ] && recent="$recent $t"; done
+	fail_times="$recent $now"
+	n=$(echo $fail_times | wc -w)
+	kmsg "frontend terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	event frontend FAIL "$FRONTEND terminated with error (code $rc): failure $n of $MAX_FAILS in ${WINDOW}s"
+	# also in the frontend log: a frontend that fails silently leaves the log empty
+	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
+	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
+	end_leftovers
+	return 0
+}
+
+fail_times=""
+
+[ -n "${SESSION_LIB:-}" ] && return 0   # tests: only the functions
+
+mkdir -p /run/user/1000
+chown game:game /run/user/1000
+chmod 700 /run/user/1000
+chown game:game "$TTY"
+chvt 1
+: > "$LOG"
+chown game:game "$LOG"
+# each game in its own cgroup, under a subtree handed to the game user (lume-launcher D9)
+CG_PROCS=$(lume_cgroup game 2>"$LUME_RUN/cgroup.err") || {
+	CG_PROCS=""
+	kmsg "no cgroup v2 for the games ($(cat "$LUME_RUN/cgroup.err" 2>/dev/null)): they end by process group"
+}
+rm -f "$LUME_RUN/cgroup.err"
+# lume-run (game) appends its game lines to the events buffer (lume-launcher D10)
+events_shared game || kmsg "events buffer not shared with the game user"
+
+while :; do
+	# the power button held between two runs of the frontend (during the restart pause)
+	if [ -n "$closed_by" ]; then
+		power_off
+		exit 0
+	fi
+	[ -x "$EXE" ] || give_up missing
+	kmsg "frontend started: $FRONTEND"
+	event frontend OK "started: $FRONTEND"
+	# the subshell moves itself into the session leaf ("0" is the writer) before it
+	# becomes the frontend, so everything the frontend starts is inside lume/
+	(
+		[ -n "$CG_PROCS" ] && { echo 0 > "$CG_PROCS" || kmsg "frontend not moved to the games cgroup"; }
+		XDG_RUNTIME_DIR=/run/user/1000 exec su -s /bin/sh -c "exec $EXE" game
+	) < "$TTY" >> "$LOG" 2>&1 &
+	child=$!
+	wait_frontend
+	if [ -n "$stopping" ]; then
+		kmsg "session terminated by service"
+		event frontend OK "$FRONTEND closed by service (code $rc)"
+		exit 0
+	fi
+	frontend_ended
+	sleep 1
+done

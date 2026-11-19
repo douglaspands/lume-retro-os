@@ -27,7 +27,12 @@ use crate::theme::{Theme, Themes};
 pub enum Exit {
     Shutdown = 0,
     Launch = 64,
+    /// kept for lume-run's contract; no screen of the launcher exits with it any more (the
+    /// Settings lost the RetroArch item, device-fixes D19)
+    #[allow(dead_code)]
     RetroArch = 65,
+    /// restart the session (frozen in the session contract, docs/FRONTEND.md; the system menu)
+    Restart = 66,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +53,14 @@ pub enum Ev {
     Battery(u8, bool),
     /// Wi-Fi or Bluetooth connected or not any more (Wi-Fi, Bluetooth)
     Network(bool, bool),
+    /// the Fn button was tapped (D19; used by 9.11)
+    FnTap,
+    /// Fn is held, with the table of the button actions (D19; used by 9.11 and 9.13)
+    FnHold(Vec<lume_core::input::HoldEntry>),
+    /// Fn was released
+    FnRelease,
+    /// a sleep notice of the input daemon (D11; used by 8.5)
+    Sleep(lume_core::sleep::Notice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,10 +118,40 @@ pub enum SetRow {
     Volume,
     Brightness,
     System,
+    /// the card's maintenance: free space, last runs, Optimize now, Check on next boot (D5)
+    Card,
     /// the game lists' actions: Update lists (A)
     Games,
-    RetroArch,
-    Power,
+}
+
+/// How long the Card panel waits for the service to answer a TRIM request before it gives up.
+const TRIM_ANSWER: Duration = Duration::from_secs(15);
+
+/// What the Card panel shows (device-fixes D5), read when the item is focused.
+#[derive(Debug, Clone, Default)]
+pub struct CardPanel {
+    /// free bytes of the games partition
+    pub free: Option<u64>,
+    /// boot numbers of the last TRIM and the last check (None: never)
+    pub last_trim: Option<u64>,
+    pub last_check: Option<u64>,
+    /// the TRIM state: None idle, else running / ok with the freed bytes / fail
+    pub trim: Option<lume_core::cardreq::Status>,
+    /// the check is requested for the next boot
+    pub check_pending: bool,
+    /// when the TRIM request was written, and when the status was last read (the 1 s polling)
+    asked: Option<Instant>,
+    polled: Option<Instant>,
+}
+
+/// A byte count as GB with one decimal ("58,4 GB" outside English, as the prototype).
+fn gb_text(bytes: u64, lang: &str) -> String {
+    let t = format!("{:.1} GB", bytes as f64 / 1e9);
+    if lang == "en" {
+        t
+    } else {
+        t.replace('.', ",")
+    }
 }
 
 /// What a menu sheet shows on its left (10.9).
@@ -118,8 +161,10 @@ enum Cover {
     Game(GameRef),
     /// the console's logo (or its abbreviation)
     Console(usize),
-    /// no column: the power off question
+    /// no column: the confirmation questions
     None,
+    /// no column and no subtitle, as wide as its content (16.2 to 20 em): the system menu
+    Narrow,
 }
 
 /// The value on the right of a sheet row.
@@ -160,7 +205,41 @@ enum Overlay {
     /// save states of a game with the picture of the focused one
     Slots { game: GameRef, slots: Vec<String>, focus: usize },
     Keyboard { focus: usize },
-    Confirm { focus: usize },
+}
+
+/// The system menu layer of the Fn button (device-fixes D19): above any screen or sheet,
+/// with the input before the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SystemMenu {
+    focus: usize,
+    /// the vertical confirmation of Restart or Power off, when open
+    confirm: Option<SysConfirm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SysConfirm {
+    /// true: Restart, false: Power off
+    restart: bool,
+    /// 0 the action (on top), 1 Cancel (below, the default)
+    focus: usize,
+}
+
+/// The items of the system menu, in order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SysItem {
+    Settings,
+    Suspend,
+    Restart,
+    PowerOff,
+}
+
+const SYS_ITEMS: [SysItem; 4] = [SysItem::Settings, SysItem::Suspend, SysItem::Restart, SysItem::PowerOff];
+
+/// Where the Settings opened by the system menu came from: B goes back there (screen and
+/// the sheet that was open).
+struct SettingsOrigin {
+    screen: Screen,
+    overlay: Option<Overlay>,
 }
 
 /// L1/R1: a share of the list, never less than a page, faster when repeated quickly.
@@ -217,6 +296,15 @@ pub struct App<S: SystemAdapter> {
     pub sys: S,
     pub screen: Screen,
     overlay: Option<Overlay>,
+    /// the Fn system menu, over everything (D19)
+    system: Option<SystemMenu>,
+    /// the Fn hold hint (D19): the chords of the `fn_hold` table the launcher handles, as the
+    /// (chord label, text key) of each row; the panel takes no input
+    hold_hint: Option<Vec<(&'static str, &'static str)>>,
+    /// the screen the Settings were opened from by the system menu (None: from the Dock)
+    settings_from: Option<SettingsOrigin>,
+    /// the request folder of lume-sleep (the Suspend item makes `suspend` there)
+    pub sleep_dir: PathBuf,
     toast: Option<(String, Instant)>,
     /// the volume bar outside the Settings: level and when it goes away
     pub volume_bar: Option<(u8, Instant)>,
@@ -235,6 +323,10 @@ pub struct App<S: SystemAdapter> {
     /// the SSH code last drawn in the Wi-Fi panel (None: none yet, the panel waits for it)
     ssh_code_drawn: Option<String>,
     info:Option<(Instant, Vec<(&'static str, String)>)>,
+    /// the Card panel's data (read while the Card item is focused)
+    pub card_info: Option<CardPanel>,
+    /// the request folder of lume-card (/run/lume/card)
+    pub card_run: PathBuf,
     level: BTreeMap<&'static str, u8>,
     /// cover texture and the part of it that is the image
     thumbs: Lru<GameRef, (TextureId, Rect)>,
@@ -245,13 +337,50 @@ pub struct App<S: SystemAdapter> {
     slot_pic: Option<(PathBuf, Option<(TextureId, Rect)>)>,
     pub jump: Jump,
     pub exit: Option<Exit>,
+    /// suspended (D11): no frame until `resume`
+    pub sleeping: bool,
+    /// the `suspend <seq>` still to answer with `suspend_ok <seq>` (the main loop takes it)
+    pub suspend_reply: Option<u32>,
     pub updating: Option<(usize, usize)>,
     /// asks the main loop to start `lume-index --progress`
     pub start_update: bool,
     anim: Option<(Instant, f32)>,
     pub cols: usize,
     pub rows: usize,
+    /// seconds without a button before the idle state (None: switched off, `idle after=0`)
+    pub idle_after: Option<Duration>,
+    /// the last button (or level key), the idle timer's start
+    last_input: Instant,
+    /// the screen is dimmed (idle state): the next button wakes it and does nothing else
+    pub idle: bool,
+    /// the user's brightness (percent) while dimmed, put back on waking; never saved
+    idle_user: Option<u8>,
+    /// the low-battery level (percent), the service's `battery warn=`
+    pub warn_level: u8,
+    /// the warning already shown in this discharge
+    warned: bool,
+    /// the power service's FIFO (`menu` and `idle` are written here)
+    pub power_fifo: PathBuf,
 }
+
+/// The idle timeout (seconds; 0 switches it off) and the low-battery level (percent):
+/// from the service's published state when it exists (already merged and validated), else
+/// from `power.conf`, else the defaults (120 s, 5%).
+pub fn idle_config(state: &std::path::Path, conf: &std::path::Path) -> (u32, u8) {
+    const DEFAULT: (u32, u8) = (120, 5);
+    if let Some(st) = lume_core::powerstate::PowerState::read(state) {
+        return (st.idle_after, st.battery.map_or(DEFAULT.1, |(w, _)| w.min(100) as u8));
+    }
+    match lume_core::powerconf::PowerConf::load(conf) {
+        Ok(c) => (c.idle_after().unwrap_or(DEFAULT.0), c.battery_warn().map_or(DEFAULT.1, |w| w.min(100) as u8)),
+        Err(_) => DEFAULT,
+    }
+}
+
+/// The idle state's backlight: 10% of the panel, or the user's level when it is lower.
+const IDLE_BRIGHTNESS: u8 = 10;
+/// the low-battery warning stays this long
+const WARN_TOAST: Duration = Duration::from_secs(4);
 
 pub struct Paths {
     pub storage: PathBuf,
@@ -296,6 +425,10 @@ impl<S: SystemAdapter> App<S> {
             sys,
             screen: Screen::Dock,
             overlay: None,
+            system: None,
+            hold_hint: None,
+            settings_from: None,
+            sleep_dir: lume_core::sleep::dir(),
             toast: None,
             volume_bar: None,
             brightness_bar: None,
@@ -308,6 +441,8 @@ impl<S: SystemAdapter> App<S> {
             panel_focus: None,
             ssh_code_drawn: None,
             info: None,
+            card_info: None,
+            card_run: lume_core::cardreq::request_dir(),
             level: BTreeMap::new(),
             thumbs: Lru::new(cache),
             free_list: Vec::new(),
@@ -315,13 +450,26 @@ impl<S: SystemAdapter> App<S> {
             slot_pic: None,
             jump: Jump { last: None, speed: 1 },
             exit: None,
+            sleeping: false,
+            suspend_reply: None,
             updating: None,
             start_update: false,
             anim: None,
             cols: 4,
             rows: 2,
+            idle_after: None,
+            last_input: Instant::now(),
+            idle: false,
+            idle_user: None,
+            warn_level: 5,
+            warned: false,
+            power_fifo: lume_core::power::fifo_path(),
         };
+        let (idle, warn) = idle_config(&lume_core::powerstate::state_path(), &app.card.join("power.conf"));
+        app.idle_after = (idle > 0).then(|| Duration::from_secs(idle as u64));
+        app.warn_level = warn;
         app.battery = app.sys.battery();
+        app.check_low_battery();
         app.network = app.sys.network();
         app.write_level_colors();
         app.build_dock();
@@ -493,6 +641,39 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
+    /// The sleep notices (D11, task 8.5). `suspend <seq>`: nothing is drawn from now on and the
+    /// answer `suspend_ok <seq>` is queued in `suspend_reply` (the main loop writes it to the
+    /// input socket once this returns). `resume <seq>`: one redraw of the current screen.
+    fn on_sleep_notice(&mut self, n: lume_core::sleep::Notice, now: Instant) -> bool {
+        use lume_core::sleep::Notice;
+        match n {
+            Notice::Suspend(seq) => {
+                self.sleeping = true;
+                self.suspend_reply = Some(seq);
+                false
+            }
+            Notice::Resume(_) => {
+                let was = std::mem::replace(&mut self.sleeping, false);
+                if was {
+                    self.last_input = now; // the idle timer starts from the wake
+                }
+                was
+            }
+            Notice::PowerTap | Notice::PowerHold => false,
+        }
+    }
+
+    /// An event while suspended: never a frame. Input and the timers are dropped (lume-input
+    /// already drops the input; this is defence in depth), the data events still update the state.
+    fn handle_asleep(&mut self, ev: Ev) -> bool {
+        if matches!(ev, Ev::Battery(..) | Ev::Network(..) | Ev::Reload | Ev::Progress(..) | Ev::UpdateDone(_)) {
+            self.sleeping = false;
+            self.handle(ev);
+            self.sleeping = true;
+        }
+        false
+    }
+
     fn page(&self) -> usize {
         self.cols * self.rows
     }
@@ -502,9 +683,18 @@ impl<S: SystemAdapter> App<S> {
     /// Handles one event; true when the screen must be drawn again.
     pub fn handle(&mut self, ev: Ev) -> bool {
         let now = Instant::now();
+        if let Ev::Sleep(n) = ev {
+            return self.on_sleep_notice(n, now);
+        }
+        if self.sleeping {
+            return self.handle_asleep(ev);
+        }
         match ev {
             Ev::Tick => {
                 let mut redraw = false;
+                if !self.idle && self.idle_wait().is_some_and(|d| d.is_zero()) {
+                    self.enter_idle();
+                }
                 if self.toast.as_ref().is_some_and(|(_, t)| now >= *t) {
                     self.toast = None;
                     redraw = true;
@@ -522,6 +712,9 @@ impl<S: SystemAdapter> App<S> {
                     redraw = true;
                 }
                 if self.waiting_for_ssh_code() && self.ssh_code().is_some() {
+                    redraw = true;
+                }
+                if self.card_polling() && self.poll_card(now) {
                     redraw = true;
                 }
                 if let Some((t, _)) = self.anim {
@@ -552,12 +745,23 @@ impl<S: SystemAdapter> App<S> {
                 true
             }
             Ev::Volume(v) => {
+                // a volume key is a button: it wakes a dimmed screen and does nothing else
+                if self.wake() {
+                    return false;
+                }
                 // the Settings show it in the Volume row; elsewhere, the bar
                 self.level.insert("volume", v);
                 self.volume_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
                 true
             }
             Ev::Brightness(v) => {
+                // a brightness event hides the Fn hold hint
+                let hid = self.hold_hint.take().is_some();
+                // the first button too: the daemon already moved the backlight, wake puts the
+                // user's level back and the key does nothing else
+                if self.wake() {
+                    return hid;
+                }
                 // the same: the Brightness row in the Settings, the left line elsewhere
                 self.level.insert("brightness", v);
                 self.brightness_bar = (self.screen != Screen::Settings).then_some((v, now + VOLUME_BAR));
@@ -567,19 +771,61 @@ impl<S: SystemAdapter> App<S> {
                 let new = Some((level.min(100), charging));
                 let changed = self.battery != new;
                 self.battery = new;
-                changed
+                // the toast needs a frame too
+                self.check_low_battery() || changed
             }
+            // the Fn tap opens and closes the system menu (D19); a button like the others for
+            // the idle state and the update
+            Ev::FnTap => {
+                if self.wake() || self.updating.is_some() {
+                    return false;
+                }
+                self.hold_hint = None;
+                self.system = match self.system {
+                    Some(_) => None,
+                    None => Some(SystemMenu { focus: 0, confirm: None }),
+                };
+                true
+            }
+            // Fn held: the hint of the chords the launcher handles (D19); with the system menu
+            // open the table is ignored
+            Ev::FnHold(table) => {
+                if self.wake() || self.updating.is_some() || self.system.is_some() {
+                    return false;
+                }
+                let mut rows = vec![("Fn", "hint_tap")];
+                if table.iter().any(|e| e.button == "Vol" && e.action == "brightness") {
+                    rows.push(("Fn+Vol", "hint_brightness"));
+                }
+                self.hold_hint = Some(rows);
+                true
+            }
+            Ev::FnRelease => self.hold_hint.take().is_some(),
+            // no behaviour yet: task 8.5 uses this
+            Ev::Sleep(_) => false,
             Ev::Network(wifi, bt) => {
                 let changed = self.network != (wifi, bt);
                 self.network = (wifi, bt);
                 changed
             }
             Ev::Input(a, repeat) => {
+                // the first button after the idle state only brings the light back
+                if self.wake() {
+                    return false;
+                }
                 if self.updating.is_some() {
                     return false; // the lists are being rebuilt
                 }
                 let before = self.on_system_row();
+                let before_card = self.on_card_row();
                 self.input(a, repeat, now);
+                if self.on_card_row() {
+                    if !before_card {
+                        self.read_card();
+                    }
+                } else {
+                    self.card_info = None; // leaving the item stops the polling
+                }
                 if !self.on_system_row() {
                     self.info = None; // leaving the item stops the reading
                 } else if !before {
@@ -610,6 +856,9 @@ impl<S: SystemAdapter> App<S> {
 
     /// How long the main loop may wait for an event (None: until one comes).
     pub fn wait(&self) -> Option<Duration> {
+        if self.sleeping {
+            return None;
+        }
         let now = Instant::now();
         let mut w: Option<Duration> = None;
         let mut min = |d: Duration| w = Some(w.map_or(d, |x: Duration| x.min(d)));
@@ -625,14 +874,176 @@ impl<S: SystemAdapter> App<S> {
         if let Some((_, t)) = &self.brightness_bar {
             min(t.saturating_duration_since(now));
         }
-        if self.on_system_row() || self.waiting_for_ssh_code() {
+        if self.on_system_row() || self.waiting_for_ssh_code() || self.card_polling() {
             min(Duration::from_millis(1000));
         }
         w
     }
 
+    fn on_card_row(&self) -> bool {
+        self.screen == Screen::Settings && self.overlay.is_none() && self.set_rows().get(self.settings_focus) == Some(&SetRow::Card)
+    }
+
+    /// The Card panel is open and a TRIM runs: the only time the status is read (every second).
+    fn card_polling(&self) -> bool {
+        self.on_card_row() && self.card_info.as_ref().is_some_and(|c| c.trim == Some(lume_core::cardreq::Status::Running))
+    }
+
+    fn card_markers(&self) -> PathBuf {
+        self.dirs.storage.join("system/card")
+    }
+
+    fn read_marker(&self, name: &str) -> Option<u64> {
+        std::fs::read_to_string(self.card_markers().join(name)).ok()?.trim().parse().ok()
+    }
+
+    /// Reads what the Card panel shows: free space, the last runs, the pending check and a
+    /// TRIM that is already running (started before the panel was opened).
+    fn read_card(&mut self) {
+        use lume_core::cardreq::Status;
+        let running = std::fs::read_to_string(self.card_run.join("status")).ok().and_then(|t| Status::parse(&t)) == Some(Status::Running);
+        let c = CardPanel {
+            free: self.sys.card_free(),
+            last_trim: self.read_marker("last-trim"),
+            last_check: self.read_marker("last-check"),
+            trim: running.then_some(Status::Running),
+            check_pending: self.card_markers().join("check-next-boot").exists() || self.card_run.join("check-next-boot").exists(),
+            asked: None,
+            polled: Some(Instant::now()),
+        };
+        self.card_info = Some(c);
+    }
+
+    /// Reads the TRIM status (called every second while it runs); true when the panel changed.
+    fn poll_card(&mut self, now: Instant) -> bool {
+        use lume_core::cardreq::Status;
+        let Some(c) = self.card_info.as_ref() else { return false };
+        if c.polled.is_some_and(|t| now.duration_since(t) < Duration::from_millis(950)) {
+            return false;
+        }
+        let status = std::fs::read_to_string(self.card_run.join("status")).ok().and_then(|t| Status::parse(&t));
+        let (free, last_trim) = (self.sys.card_free(), self.read_marker("last-trim"));
+        let c = self.card_info.as_mut().unwrap();
+        c.polled = Some(now);
+        match status {
+            Some(Status::Running) | None => {
+                // no answer for too long: the service is not there
+                if status.is_none() && c.asked.is_some_and(|t| now.duration_since(t) >= TRIM_ANSWER) {
+                    c.trim = Some(Status::Fail("no answer".into()));
+                    return true;
+                }
+                false
+            }
+            done => {
+                c.trim = done;
+                c.free = free;
+                c.last_trim = last_trim;
+                true
+            }
+        }
+    }
+
+    /// A on a line of the Card panel: 0 Optimize now (writes the `trim` request), 1 Check on
+    /// next boot (writes the request; again, it cancels: the launcher deletes the request and the
+    /// marker, the frozen interface having no cancel verb).
+    fn card_action(&mut self, line: usize) {
+        use lume_core::cardreq::{Status, Verb};
+        if self.card_info.is_none() {
+            self.read_card();
+        }
+        if line == 0 {
+            if self.card_info.as_ref().is_some_and(|c| c.trim == Some(Status::Running)) {
+                return; // one at a time
+            }
+            // a stale answer of the last run must not read as this one's
+            let _ = std::fs::remove_file(self.card_run.join("status"));
+            let wrote = std::fs::create_dir_all(&self.card_run).and_then(|_| std::fs::write(self.card_run.join(Verb::Trim.name()), b""));
+            let c = self.card_info.as_mut().unwrap();
+            match wrote {
+                Ok(()) => {
+                    c.trim = Some(Status::Running);
+                    c.asked = Some(Instant::now());
+                    c.polled = Some(Instant::now());
+                }
+                Err(e) => {
+                    lume_core::log::line("lume-ui", &format!("trim request not written: {e}"));
+                    c.trim = Some(Status::Fail(e.to_string()));
+                }
+            }
+        } else {
+            let pending = self.card_info.as_ref().is_some_and(|c| c.check_pending);
+            if pending {
+                let _ = std::fs::remove_file(self.card_run.join(Verb::CheckNextBoot.name()));
+                let _ = std::fs::remove_file(self.card_markers().join(Verb::CheckNextBoot.name()));
+            } else if let Err(e) = std::fs::create_dir_all(&self.card_run).and_then(|_| std::fs::write(self.card_run.join(Verb::CheckNextBoot.name()), b"")) {
+                lume_core::log::line("lume-ui", &format!("check request not written: {e}"));
+                return;
+            }
+            self.card_info.as_mut().unwrap().check_pending = !pending;
+        }
+    }
+
     fn toast_key(&mut self, key: &'static str) {
         self.toast = Some((self.tr(key), Instant::now() + TOAST));
+    }
+
+    /// Tells the power service the scenario is the menu (the first screen, and the return
+    /// from the idle state). Without the service the message is dropped.
+    pub fn announce_menu(&self) {
+        let _ = lume_core::power::send_to(&self.power_fifo, &lume_core::power::Message::Menu);
+    }
+
+    /// How long until the idle state starts: None when it is off or already on, zero when the
+    /// time is up. The main loop uses it as the timeout of its event wait, so the timer costs
+    /// one wake-up at its end, not one per frame (`wait` stays None on an idle screen).
+    pub fn idle_wait(&self) -> Option<Duration> {
+        let after = self.idle_after.filter(|_| !self.idle && !self.sleeping)?;
+        Some((self.last_input + after).saturating_duration_since(Instant::now()))
+    }
+
+    /// The idle state: the backlight to min(10%, the user's level) without saving it, and the
+    /// service told (`idle`).
+    fn enter_idle(&mut self) {
+        self.idle = true;
+        self.idle_user = self.sys.brightness();
+        if let Some(user) = self.idle_user {
+            self.sys.set_brightness(user.min(IDLE_BRIGHTNESS));
+        }
+        let _ = lume_core::power::send_to(&self.power_fifo, &lume_core::power::Message::Idle);
+    }
+
+    /// A button (or a volume or brightness key) pressed: restarts the idle timer. From the idle
+    /// state it puts the user's brightness back, tells the service `menu` and returns true:
+    /// the press is consumed.
+    fn wake(&mut self) -> bool {
+        self.last_input = Instant::now();
+        if !self.idle {
+            return false;
+        }
+        self.idle = false;
+        if let Some(user) = self.idle_user.take() {
+            self.sys.set_brightness(user);
+        }
+        self.brightness_bar = None;
+        self.announce_menu();
+        true
+    }
+
+    /// The low-battery warning: a toast once per discharge, at or below the service's level
+    /// while discharging; charging, or a level above it, arms it again. True when it shows.
+    fn check_low_battery(&mut self) -> bool {
+        let Some((level, charging)) = self.battery else { return false };
+        if charging || level > self.warn_level {
+            self.warned = false;
+            return false;
+        }
+        if self.warned {
+            return false;
+        }
+        self.warned = true;
+        let text = format!("{} {level}%", self.tr("low_battery"));
+        self.toast = Some((text, Instant::now() + WARN_TOAST));
+        true
     }
 
     fn animate(&mut self, from: f32) {
@@ -642,6 +1053,11 @@ impl<S: SystemAdapter> App<S> {
     }
 
     fn input(&mut self, a: Action, repeat: bool, now: Instant) {
+        // the system menu takes the input before everything else (D19)
+        if let Some(m) = self.system.take() {
+            self.system = self.system_input(m, a);
+            return;
+        }
         if let Some(ov) = self.overlay.take() {
             self.overlay = self.overlay_input(ov, a, repeat);
             return;
@@ -650,6 +1066,81 @@ impl<S: SystemAdapter> App<S> {
             Screen::Dock => self.dock_input(a),
             Screen::Grid => self.grid_input(a, now),
             Screen::Settings => self.settings_input(a, repeat),
+        }
+    }
+
+    /// A button with the system menu open; returns the menu to keep (None: closed). Up and
+    /// down move (wrapping); B closes; in a confirmation only up and down change the choice
+    /// (left and right do nothing, D8) and B goes back to the menu.
+    fn system_input(&mut self, mut m: SystemMenu, a: Action) -> Option<SystemMenu> {
+        if let Some(mut c) = m.confirm {
+            match a {
+                Action::Up => c.focus = 0,
+                Action::Down => c.focus = 1,
+                Action::B => {
+                    m.confirm = None;
+                    return Some(m);
+                }
+                Action::A => {
+                    if c.focus == 0 {
+                        self.exit = Some(if c.restart { Exit::Restart } else { Exit::Shutdown });
+                        return None;
+                    }
+                    m.confirm = None;
+                    return Some(m);
+                }
+                _ => {}
+            }
+            m.confirm = Some(c);
+            return Some(m);
+        }
+        let n = SYS_ITEMS.len();
+        match a {
+            Action::Up => m.focus = (m.focus + n - 1) % n,
+            Action::Down => m.focus = (m.focus + 1) % n,
+            Action::B => return None,
+            Action::A | Action::Start => match SYS_ITEMS[m.focus] {
+                SysItem::Settings => {
+                    self.open_settings_from_menu();
+                    return None;
+                }
+                SysItem::Suspend => {
+                    // the same request as the power button's tap (D11, 3.2); no confirmation
+                    if let Err(e) = lume_core::sleep::request_in(&self.sleep_dir, lume_core::sleep::Request::Suspend) {
+                        lume_core::log::line("lume-ui", &format!("suspend request not made: {e}"));
+                    }
+                    return None;
+                }
+                SysItem::Restart => m.confirm = Some(SysConfirm { restart: true, focus: 1 }),
+                SysItem::PowerOff => m.confirm = Some(SysConfirm { restart: false, focus: 1 }),
+            },
+            _ => {}
+        }
+        Some(m)
+    }
+
+    /// Opens the Settings from wherever the user is, remembering the screen and the open
+    /// sheet; B in the list goes back to them.
+    fn open_settings_from_menu(&mut self) {
+        if self.screen == Screen::Settings {
+            return;
+        }
+        self.settings_from = Some(SettingsOrigin { screen: self.screen, overlay: self.overlay.take() });
+        self.screen = Screen::Settings;
+        self.settings_focus = 0;
+        self.panel_focus = None;
+        self.read_levels();
+    }
+
+    /// B on the Settings list: back to the screen the system menu came from (with its sheet),
+    /// or to the Dock.
+    fn leave_settings(&mut self) {
+        match self.settings_from.take() {
+            Some(o) if o.screen != Screen::Settings && (o.screen != Screen::Grid || self.grid.is_some()) => {
+                self.screen = o.screen;
+                self.overlay = o.overlay;
+            }
+            _ => self.screen = Screen::Dock,
         }
     }
 
@@ -664,8 +1155,20 @@ impl<S: SystemAdapter> App<S> {
                 self.dock_focus = (self.dock_focus + 1) % n;
                 self.animate(1.0);
             }
+            _ => {}
+        }
+        if matches!(a, Action::Left | Action::Right) {
+            // the state file follows the Dock focus (tmpfs, one small write): the device test
+            // scripts read it to find the focus (`dev run` open_game/home, virtual-gamepad D5)
+            if let Err(e) = self.current_state().save(&self.runtime) {
+                lume_core::log::line("lume-ui", &format!("state not saved: {e}"));
+            }
+            return;
+        }
+        match a {
             Action::A | Action::Start => match self.dock[self.dock_focus] {
                 DockItem::Settings => {
+                    self.settings_from = None;
                     self.screen = Screen::Settings;
                     self.settings_focus = 0;
                     self.panel_focus = None;
@@ -1013,20 +1516,6 @@ impl<S: SystemAdapter> App<S> {
                 focus = r * 16 + c;
                 Some(Overlay::Keyboard { focus })
             }
-            Overlay::Confirm { mut focus } => {
-                match a {
-                    Action::Left | Action::Right | Action::Up | Action::Down => focus ^= 1,
-                    Action::B => return None,
-                    Action::A => {
-                        if focus == 1 {
-                            self.exit = Some(Exit::Shutdown);
-                        }
-                        return None;
-                    }
-                    _ => {}
-                }
-                Some(Overlay::Confirm { focus })
-            }
         }
     }
 
@@ -1064,7 +1553,7 @@ impl<S: SystemAdapter> App<S> {
         if self.sys.bluetooth_present() {
             v.push(SetRow::Bluetooth);
         }
-        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Games, SetRow::RetroArch, SetRow::Power]);
+        v.extend([SetRow::Language, SetRow::Theme, SetRow::Display, SetRow::Volume, SetRow::Brightness, SetRow::System, SetRow::Card, SetRow::Games]);
         v
     }
 
@@ -1084,7 +1573,7 @@ impl<S: SystemAdapter> App<S> {
         }
     }
 
-    /// The theme's level line colors for r36os-input, which draws the same lines over a game
+    /// The theme's level line colors for lume-input, which draws the same lines over a game
     /// through RetroArch (LUME_LEVEL): `level-colors` on the card, written only when they
     /// change.
     fn write_level_colors(&self) {
@@ -1131,7 +1620,7 @@ impl<S: SystemAdapter> App<S> {
     }
 
     /// The lines of an item's panel that take the focus (D14). Empty: the item is only read
-    /// (Wi-Fi and Bluetooth for now, System) or is an action of its own (RetroArch, Power off).
+    /// (Wi-Fi and Bluetooth for now, System).
     pub fn panel_rows(&self, row: SetRow) -> Vec<PanelRow> {
         match row {
             SetRow::Language => (0..LANGUAGES.len()).map(PanelRow::Choice).collect(),
@@ -1143,6 +1632,8 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Wifi if self.settings.ssh_wifi => vec![PanelRow::Toggle, PanelRow::Action],
             SetRow::Wifi => vec![PanelRow::Toggle],
             SetRow::Games => vec![PanelRow::Action],
+            // Optimize now, Check on next boot
+            SetRow::Card => vec![PanelRow::Action, PanelRow::Action],
             _ => Vec::new(),
         }
     }
@@ -1195,7 +1686,7 @@ impl<S: SystemAdapter> App<S> {
                 self.save_settings();
             }
             SetRow::Wifi => {
-                // r36os-ssh-wifi (root) sees the file change within a few seconds
+                // lume-ssh-wifi (root) sees the file change within a few seconds
                 self.settings.ssh_wifi = !self.settings.ssh_wifi;
                 self.save_settings();
                 // turned off: the focus goes back to the switch (the action line goes away)
@@ -1206,16 +1697,20 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Volume | SetRow::Brightness => {
                 let key = if row == SetRow::Volume { "volume" } else { "brightness" };
                 let cur = self.level.get(key).copied().unwrap_or(50) as i32;
-                let v = (cur + dir * 5).clamp(if row == SetRow::Brightness { 5 } else { 0 }, 100) as u8;
+                // the volume moves on the 5% grid of the volume keys (device-fixes 7.2)
+                let v = if row == SetRow::Volume {
+                    crate::volume::step(cur, dir > 0) as u8
+                } else {
+                    (cur + dir * 5).clamp(5, 100) as u8
+                };
                 self.level.insert(key, v);
                 if row == SetRow::Volume {
                     self.sys.set_volume(v);
-                    self.settings.volume = Some(v);
                 } else {
+                    // the user's choice is saved on the card (lume-input applies it at boot)
                     self.sys.set_brightness(v);
-                    self.settings.brightness = Some(v);
+                    self.sys.save_brightness();
                 }
-                self.save_settings();
             }
             _ => {}
         }
@@ -1233,7 +1728,7 @@ impl<S: SystemAdapter> App<S> {
         })
     }
 
-    /// The SSH code (the password of "console") on the card; r36os-ssh-wifi makes one when the
+    /// The SSH code (the password of "console") on the card; lume-ssh-wifi makes one when the
     /// option is turned on, and it stays until the user asks for a new one.
     pub fn ssh_code(&self) -> Option<String> {
         let text = std::fs::read_to_string(self.ssh_code_path()).ok()?;
@@ -1256,8 +1751,8 @@ impl<S: SystemAdapter> App<S> {
     }
 
     /// Two focus levels (D14). On the list: ▲▼ change the item (wrapping), A or ▶ enter its
-    /// panel (A runs RetroArch and Power off, which have none), ◀▶ change nothing, B goes back
-    /// to the Dock. In the panel: ▲▼ change the line (wrapping), ◀▶ change the value, A runs
+    /// panel, ◀▶ change nothing, B goes back to the screen the Settings were opened from
+    /// (the Dock when opened from there). In the panel: ▲▼ change the line (wrapping), ◀▶ change the value, A runs
     /// the line, B goes back to the same item of the list.
     fn settings_input(&mut self, a: Action, _repeat: bool) {
         let rows = self.set_rows();
@@ -1290,6 +1785,7 @@ impl<S: SystemAdapter> App<S> {
                     PanelRow::Choice(i) => self.choose(row, i),
                     PanelRow::Toggle => self.adjust(row, 1),
                     PanelRow::Action if row == SetRow::Wifi => self.new_ssh_code(),
+                    PanelRow::Action if row == SetRow::Card => self.card_action(pf),
                     PanelRow::Action => {
                         // Games: the one action is Update lists
                         self.updating = Some((0, 0));
@@ -1302,22 +1798,11 @@ impl<S: SystemAdapter> App<S> {
             return;
         }
         match a {
-            Action::B => self.screen = Screen::Dock,
+            Action::B => self.leave_settings(),
             // the list wraps: down on the last item goes to the first, up on the first to the last
             Action::Up => self.settings_focus = (self.settings_focus + rows.len() - 1) % rows.len(),
             Action::Down => self.settings_focus = (self.settings_focus + 1) % rows.len(),
             Action::A | Action::Right if !lines.is_empty() => self.panel_focus = Some(self.panel_start(row)),
-            Action::A => match row {
-                SetRow::RetroArch => {
-                    if let Some(r) = self.runners.get(lume_core::catalog::LIBRETRO_RUNNER) {
-                        if launch::retroarch_menu(r).write(&self.runtime, true).is_ok() {
-                            self.exit = Some(Exit::RetroArch);
-                        }
-                    }
-                }
-                SetRow::Power => self.overlay = Some(Overlay::Confirm { focus: 0 }),
-                _ => {}
-            },
             _ => {}
         }
     }
@@ -1348,7 +1833,6 @@ impl<S: SystemAdapter> App<S> {
                 Overlay::Menu { sys, game, focus, sub } => Overlay::Menu { sys: *sys, game: *game, focus: *focus, sub: *sub },
                 Overlay::Slots { game, slots, focus } => Overlay::Slots { game: *game, slots: slots.clone(), focus: *focus },
                 Overlay::Keyboard { focus } => Overlay::Keyboard { focus: *focus },
-                Overlay::Confirm { focus } => Overlay::Confirm { focus: *focus },
             };
             self.draw_overlay(c, &ov, w, h);
             // the battery stays in its spot and undimmed over the menus (the search draws it
@@ -1357,6 +1841,16 @@ impl<S: SystemAdapter> App<S> {
                 let dimmed = th.color("bg").under(th.color("overlay"));
                 self.draw_status_battery_on(c, w, dimmed);
             }
+        }
+        // the system menu: above every screen and sheet, under the short notices
+        if let Some(m) = self.system {
+            self.draw_system(c, &m, w, h);
+            let dimmed = th.color("bg").under(th.color("overlay"));
+            let dimmed = if self.overlay.as_ref().is_some_and(|o| !matches!(o, Overlay::Keyboard { .. })) { dimmed.under(th.color("overlay")) } else { dimmed };
+            self.draw_status_battery_on(c, w, dimmed);
+        }
+        if let Some(rows) = self.hold_hint.clone() {
+            self.draw_hold_hint(c, &rows, w, h);
         }
         if let Some((text, _)) = &self.toast {
             let px = (th.em("label_px", w) as f32) * 0.9;
@@ -1457,10 +1951,10 @@ impl<S: SystemAdapter> App<S> {
     /// SVG icon (a 30x14 box: body 25x12 at (1, 1) with a 1.6 stroke and 2.5 corners, a 2x5
     /// terminal at (27, 4.5), the level in a 20x7 bar at (3.5, 3.5)), all in the text color,
     /// 0.95 of the text tall and centered on its line, 0.35 of the text before the percent
-    /// (medium). One color, no charging mark: the prototype has none. Edges are rounded,
+    /// (medium). One color; the charge mark (a bolt) only while charging. Edges are rounded,
     /// not sizes, so the stroke stays even. Returns the x where it starts.
-    fn draw_battery(&self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, under: crate::canvas::Color) -> i32 {
-        let Some((level, _charging)) = self.battery else { return right };
+    fn draw_battery(&mut self, c: &mut dyn Canvas, right: i32, y: i32, px: f32, under: crate::canvas::Color) -> i32 {
+        let Some((level, charging)) = self.battery else { return right };
         let th = &self.theme;
         let fg = th.color("fg");
         let s = px * 0.95 / 14.0; // icon units to pixels
@@ -1487,6 +1981,20 @@ impl<S: SystemAdapter> App<S> {
         let fill = 20.0 * level.min(100) as f32 / 100.0;
         if fill > 0.0 {
             c.fill(rect(3.5, 3.5, 3.5 + fill, 10.5), rad(1.0), fg);
+        }
+        // charging: the bolt inside the body (the icon and the text keep their width), in the
+        // text color with a halo in the background color so it shows on the full and the
+        // empty part; "full" has no bolt
+        if charging {
+            use crate::glyphs::{BOLT_BOX as B, BOLT_HALO as H};
+            let halo = rect(B.0 - H, B.1 - H, B.2 + H, B.3 + H);
+            let mark = rect(B.0, B.1, B.2, B.3);
+            if let Some((t, _)) = self.symbol(c, "@bolt_halo") {
+                c.draw_mask(t, halo, under);
+            }
+            if let Some((t, _)) = self.symbol(c, "@bolt") {
+                c.draw_mask(t, mark, fg);
+            }
         }
         x0.round() as i32
     }
@@ -1617,7 +2125,8 @@ impl<S: SystemAdapter> App<S> {
         c.text(&sub, w / 2, name_y + (2.62 * em).round() as i32, sub_px, th.color("muted"), Align::Center, w - 2 * em as i32);
         // status bar: the battery at the top right (regular weight here, as the prototype)
         self.draw_status_battery(c, w);
-        self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select"))]);
+        // the Fn button opens the system menu (D19): the third hint, after ◀▶ and A
+        self.draw_hints(c, w, h, &[(NAV_LR, self.tr("hint_navigate")), ("A", self.tr("hint_select")), ("Fn", self.tr("hint_menu"))]);
     }
 
     /// A symbol of the launcher (`@star`, `@gear`, `@clock`) as a mask texture, made once.
@@ -1634,6 +2143,9 @@ impl<S: SystemAdapter> App<S> {
             // the status bar's icons, drawn about 17 px tall: made at 3x, scaled down
             "@wifi" => crate::glyphs::wifi(56),
             "@bt" => crate::glyphs::bluetooth(56),
+            // the charge mark and its halo (battery icon, drawn about 11 px tall)
+            "@bolt" => crate::glyphs::bolt(48),
+            "@bolt_halo" => crate::glyphs::bolt_halo(52),
             _ => (N, N, crate::glyphs::clock(N)),
         };
         let made = c.texture_mask(w, h, &alpha).map(|t| (t, Rect::new(0, 0, w as i32, h as i32)));
@@ -1964,9 +2476,18 @@ impl<S: SystemAdapter> App<S> {
         let ef = |v: f32| v * em;
         let r_ = |x: f32, y: f32, rw: f32, rh: f32| Rect::new(x.round() as i32, y.round() as i32, (x + rw).round() as i32 - x.round() as i32, (y + rh).round() as i32 - y.round() as i32);
         c.fill(Rect::new(0, 0, w, h), 0, th.color("overlay"));
-        let sw = (w as f32 * 0.94).min(ef(36.0));
+        let narrow = matches!(cover, Cover::Narrow);
+        let (pad, row_h) = (ef(0.9), ef(2.45));
+        // the narrow sheet (system menu): 16.2 em at least (259.6 px at 640, measured on the
+        // prototype), more when a text needs it, 20 em at most; no subtitle, so the rows start
+        // 2.1875 em under the title
+        let (sw, head) = if narrow {
+            let widest = rows.iter().map(|r| c.text_width(&r.label, ef(1.25)) + 2 * ef(1.0).round() as i32).max().unwrap_or(0).max(c.text_width_bold(title, ef(1.75)));
+            ((widest as f32 + 2.0 * pad).max(ef(16.225)).min(ef(20.0)), ef(2.1875))
+        } else {
+            ((w as f32 * 0.94).min(ef(36.0)), ef(4.4075))
+        };
         let sx = (w as f32 - sw) / 2.0;
-        let (pad, row_h, head) = (ef(0.9), ef(2.45), ef(4.4075));
         let body_h = head + rows.len() as f32 * row_h;
         let cover_w = ef(10.0);
         let cpad = ef(0.4);
@@ -1977,7 +2498,7 @@ impl<S: SystemAdapter> App<S> {
                 let id = self.lib.systems[s].id.clone();
                 self.icon(c, &id)
             }
-            Cover::None => None,
+            Cover::None | Cover::Narrow => None,
         };
         // a game's cover sets its own height: fit to the column's width, at most 16 em
         let pic_h = match (cover, pic) {
@@ -1994,8 +2515,8 @@ impl<S: SystemAdapter> App<S> {
         let base = th.color("bg").under(th.color("overlay")).under(panel_bg);
         let fade = |col: Color, k: f32| base.under(Color { a: (k * 255.0).round() as u8, ..col });
         let mut bx = sx + pad;
-        if !matches!(cover, Cover::None) {
-            let cr = r_(sx + pad, sy + pad, cover_w, inner_h);
+        if !matches!(cover, Cover::None | Cover::Narrow) {
+            let cr =r_(sx + pad, sy + pad, cover_w, inner_h);
             c.fill(cr, th.em("radius_tile", w), th.color("tile_bg_opaque"));
             let (aw, ah) = (cover_w - 2.0 * cpad, inner_h - 2.0 * cpad);
             let (cx, cy) = (sx + pad + cover_w / 2.0, sy + pad + inner_h / 2.0);
@@ -2016,7 +2537,7 @@ impl<S: SystemAdapter> App<S> {
                     let s = match cover {
                         Cover::Game(r) => r.sys,
                         Cover::Console(s) => s,
-                        Cover::None => unreachable!(),
+                        Cover::None | Cover::Narrow => unreachable!(),
                     };
                     let abbr = self.lib.systems[s].abbr.clone();
                     c.text_bold(&abbr, cx.round() as i32, (cy - ef(1.0) * 1.172).round() as i32, ef(2.0), th.color("fg"), Align::Center, aw as i32);
@@ -2028,7 +2549,9 @@ impl<S: SystemAdapter> App<S> {
         let bw = sx + sw - pad - bx;
         let by = sy + pad + (inner_h - body_h).max(0.0) / 2.0;
         c.text_bold(title, bx.round() as i32, by.round() as i32, ef(1.75), th.color("fg"), Align::Left, bw as i32);
-        c.text(sub, bx.round() as i32, (by + ef(2.1875)).round() as i32, ef(1.2), th.color("muted"), Align::Left, bw as i32);
+        if !narrow {
+            c.text(sub, bx.round() as i32, (by + ef(2.1875)).round() as i32, ef(1.2), th.color("muted"), Align::Left, bw as i32);
+        }
         // more rows than room: the list scrolls to keep the focus in sight
         let visible = (((inner_h - head) / row_h) as usize).max(1);
         let first = focus.saturating_sub(visible - 1);
@@ -2158,12 +2681,73 @@ impl<S: SystemAdapter> App<S> {
             }
             Overlay::Slots { game, slots, focus } => self.draw_slots(c, *game, slots, *focus, w, h),
             Overlay::Keyboard { .. } => {}
-            Overlay::Confirm { focus } => {
-                // the safe choice (Cancel) first and focused, as the prototype
-                let rows = [self.tr("cancel"), self.tr("power_off")].map(|label| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false });
-                let (title, sub) = (self.tr("power_off"), self.tr("power_ask"));
-                self.draw_sheet(c, w, h, Cover::None, &title, &sub, &rows, *focus);
+        }
+    }
+
+    /// The system menu (D19): a narrow sheet with the four items, or the vertical
+    /// confirmation of Restart / Power off. The project's rule for every confirmation (user,
+    /// 2026-11-17): the affirmative on top, the safe choice (Cancel) below and focused.
+    fn draw_system(&mut self, c: &mut dyn Canvas, m: &SystemMenu, w: i32, h: i32) {
+        let plain = |label: String| SheetRow { label, value: SheetValue::None, enabled: true, cycle: false };
+        match m.confirm {
+            Some(conf) => {
+                let (action, title, ask) = if conf.restart {
+                    (self.tr("restart"), self.tr("restart_title"), self.tr("restart_ask"))
+                } else {
+                    (self.tr("power_off"), self.tr("power_title"), self.tr("power_ask"))
+                };
+                let rows = [plain(action), plain(self.tr("cancel"))];
+                self.draw_sheet(c, w, h, Cover::None, &title, &ask, &rows, conf.focus);
             }
+            None => {
+                let rows: Vec<SheetRow> = SYS_ITEMS
+                    .iter()
+                    .map(|i| {
+                        plain(self.tr(match i {
+                            SysItem::Settings => "settings",
+                            SysItem::Suspend => "suspend",
+                            SysItem::Restart => "restart",
+                            SysItem::PowerOff => "power_off",
+                        }))
+                    })
+                    .collect();
+                let title = self.tr("sys_menu");
+                self.draw_sheet(c, w, h, Cover::Narrow, &title, "", &rows, m.focus);
+            }
+        }
+    }
+
+    /// The Fn hold hint (D19): a small panel centred on the screen, 1.4 em text, 0.7 em x 1.1 em
+    /// padding, 0.35 em between the rows, the chord in the accent and bold (prototype `hold`).
+    fn draw_hold_hint(&mut self, c: &mut dyn Canvas, rows: &[(&'static str, &'static str)], w: i32, h: i32) {
+        let th = self.theme.clone();
+        let em = w as f32 / 40.0;
+        let px = em * 1.4;
+        let line = (px * 1.2).round();
+        let space = c.text_width(" ", px) as f32;
+        let parts: Vec<(&str, String, f32)> = rows
+            .iter()
+            .map(|(chord, key)| {
+                let rest = self.tr(key);
+                // the text after the chord starts with a space unless it is a colon
+                let gap = if rest.starts_with(':') { 0.0 } else { space };
+                let width = c.text_width_bold(chord, px) as f32 + gap + c.text_width(&rest, px) as f32;
+                (*chord, rest, width)
+            })
+            .collect();
+        let text_w = parts.iter().map(|p| p.2).fold(0.0, f32::max);
+        // the paddings and the gap are in the panel's own em (the 1.4 em text size)
+        let pw = (text_w + 2.2 * px).round();
+        let ph = (rows.len() as f32 * line + (rows.len() as f32 - 1.0) * 0.35 * px + 1.4 * px).round();
+        let panel = Rect::new(((w as f32 - pw) / 2.0).round() as i32, ((h as f32 - ph) / 2.0).round() as i32, pw as i32, ph as i32);
+        c.fill(panel, th.em("radius_panel", w), th.color("panel_bg_opaque"));
+        for (i, (chord, rest, _)) in parts.iter().enumerate() {
+            let row_y = panel.y as f32 + 0.7 * px + i as f32 * (line + 0.35 * px);
+            let ty = (row_y + (line - px) / 2.0).round() as i32;
+            let x = panel.x + (1.1 * px).round() as i32;
+            let used = c.text_bold(chord, x, ty, px, th.color("accent"), Align::Left, panel.w);
+            let gap = if rest.starts_with(':') { 0 } else { space as i32 };
+            c.text(rest, x + used + gap, ty, px, th.color("fg"), Align::Left, panel.w);
         }
     }
 
@@ -2260,9 +2844,8 @@ impl<S: SystemAdapter> App<S> {
             SetRow::Volume => (self.tr("volume"), pct("volume")),
             SetRow::Brightness => (self.tr("brightness"), pct("brightness")),
             SetRow::System => (self.tr("system"), String::new()),
+            SetRow::Card => (self.tr("card"), String::new()),
             SetRow::Games => (self.tr("games_item"), String::new()),
-            SetRow::RetroArch => (self.tr("retroarch"), String::new()),
-            SetRow::Power => (self.tr("power_off"), String::new()),
         }
     }
 
@@ -2343,15 +2926,28 @@ impl<S: SystemAdapter> App<S> {
             let fg = th.color(if pill { "sel_fg" } else { "fg" });
             let label_fg = if muted_label && !pill { th.color("muted") } else { fg };
             let ty = r.y + pad_y;
-            let vw = value.map_or(0, |v| c.text_width(v, px));
+            // a value that starts with ✓ ("✓ Scheduled", "✓ 1.3 GB freed"): the font has no
+            // ✓ (it showed as a box on the R36S, 2026-11-19), so it is drawn like the list's
+            let (tick, value) = match value.and_then(|v| v.strip_prefix('✓')) {
+                Some(rest) => (true, Some(rest.trim_start())),
+                None => (false, value),
+            };
+            let d = (px * 0.8).round() as i32;
+            let tw = value.map_or(0, |v| c.text_width(v, px));
+            let gap = if tw > 0 { e(0.3) } else { 0 };
+            let vw = tw + if tick { d + gap } else { 0 };
             c.text(text, r.x + pad_x, ty, px, label_fg, Align::Left, r.w - 2 * pad_x - vw - e(0.5));
             if let Some(v) = value {
-                c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, vw + 1);
+                c.text(v, r.right() - pad_x, ty, px, fg, Align::Right, tw + 1);
+            }
+            if tick {
+                if let Some((t, _)) = me.symbol(c, "@check") {
+                    c.draw_mask(t, Rect::new(r.right() - pad_x - tw - gap - d, r.y + (r.h - d) / 2, d, d), fg);
+                }
             }
             if check && value.is_none() {
                 // the ✓, drawn (the font has none), the text's size
                 if let Some((t, _)) = me.symbol(c, "@check") {
-                    let d = (px * 0.8).round() as i32;
                     c.draw_mask(t, Rect::new(r.right() - pad_x - d, r.y + (r.h - d) / 2, d, d), fg);
                 }
             }
@@ -2446,14 +3042,47 @@ impl<S: SystemAdapter> App<S> {
                     }
                 }
             }
+            SetRow::Card => {
+                use lume_core::cardreq::Status;
+                let ci = self.card_info.clone().unwrap_or_default();
+                let lang = self.settings.language.clone();
+                let boot = |n: Option<u64>, me: &Self| n.map_or_else(|| me.tr("card_never"), |n| format!("{} {n}", me.tr("card_boot")));
+                let free = ci.free.map_or_else(|| "—".to_string(), |b| gb_text(b, &lang));
+                line(self, c, y, &self.tr("card_free"), Some(&free), false, false, true);
+                y += pitch;
+                line(self, c, y, &self.tr("card_last_trim"), Some(&boot(ci.last_trim, self)), false, false, true);
+                y += pitch;
+                line(self, c, y, &self.tr("card_last_check"), Some(&boot(ci.last_check, self)), false, false, true);
+                y += pitch;
+                // the actions: the state of the TRIM on the right of the first, the request of
+                // the check on the right of the second
+                let failed = matches!(ci.trim, Some(Status::Fail(_)));
+                let trim_text = match &ci.trim {
+                    None => String::new(),
+                    Some(Status::Running) => self.tr("card_trimming"),
+                    Some(Status::Ok(Some(b))) => format!("✓ {} {}", gb_text(*b, &lang), self.tr("card_freed")),
+                    Some(Status::Ok(None)) => "✓".to_string(),
+                    Some(Status::Fail(_)) => self.tr("card_trim_fail"),
+                };
+                let focused = pill(0, false);
+                if failed && !focused {
+                    // the failure in red, outside the focus (the prototype's #ff8a80)
+                    line(self, c, y, &self.tr("card_trim_now"), Some(""), false, false, false);
+                    let vw = c.text_width(&trim_text, px);
+                    c.text(&trim_text, inner.right() - pad_x, y.round() as i32 + pad_y, px, Color { r: 0xff, g: 0x8a, b: 0x80, a: 255 }, Align::Right, vw + 1);
+                } else {
+                    line(self, c, y, &self.tr("card_trim_now"), Some(&trim_text), focused, false, false);
+                }
+                y += pitch;
+                let check_text = if ci.check_pending { self.tr("card_check_set") } else { String::new() };
+                line(self, c, y, &self.tr("card_check_next"), Some(&check_text), pill(1, false), false, false);
+                y += pitch;
+            }
             SetRow::Games => {
                 // its actions as the panel's lines; one for now (A runs it)
                 line(self, c, y, &self.tr("update_lists"), Some(""), true, false, false);
                 y += pitch;
                 note = Some(("note_update", false));
-            }
-            SetRow::RetroArch | SetRow::Power => {
-                note = Some(("note_open", false));
             }
         }
         if let Some((key, arrows)) = note {
@@ -2480,7 +3109,7 @@ impl<S: SystemAdapter> App<S> {
         match pf.and_then(|f| lines.get(f).copied()) {
             None => {
                 hints.push((NAV_UD, self.tr("hint_navigate")));
-                if !lines.is_empty() || matches!(row, SetRow::RetroArch | SetRow::Power) {
+                if !lines.is_empty() {
                     hints.push(("A", self.tr("hint_open")));
                 }
             }
@@ -2491,7 +3120,7 @@ impl<S: SystemAdapter> App<S> {
                 match l {
                     PanelRow::Choice(_) => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Level | PanelRow::Toggle => hints.push((NAV_LR, self.tr("hint_adjust"))),
-                    PanelRow::Action if row == SetRow::Wifi => hints.push(("A", self.tr("hint_select"))),
+                    PanelRow::Action if matches!(row, SetRow::Wifi | SetRow::Card) => hints.push(("A", self.tr("hint_select"))),
                     PanelRow::Action => hints.push(("A", self.tr("hint_update"))),
                 }
             }
@@ -2514,7 +3143,7 @@ impl<S: SystemAdapter> App<S> {
     }
 }
 
-/// The SSH code's alphabet: no 0/O, 1/I/L (the same as r36os-ssh-wifi).
+/// The SSH code's alphabet: no 0/O, 1/I/L (the same as lume-ssh-wifi).
 pub const SSH_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 /// A code as "XXXX-XXXX" from the alphabet.

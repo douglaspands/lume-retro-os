@@ -4,7 +4,7 @@ Each side is either a folder written by regdump.sh (<name>.txt files, every word
 or a boot log with the "regdump <name> <address> <offset> <value>" lines of
 kernel patch 0017 (non-zero words only; a missing word reads as zero).
 
-Usage: regdiff.py <factory dump dir or log> <r36os boot log or dir>
+Usage: regdiff.py <factory dump dir or log> <lume boot log or dir>
 Prints the words that differ, region by region, as "<region> <offset> <a> <b>".
 """
 

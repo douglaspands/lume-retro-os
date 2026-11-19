@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * AISLPC K36S, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/k36s/5.10/rk3326-k36s-linux.dtb
  * SHA-256: e3ea30ee169b561ae1c24b4a22dda733b4a91fe6927b7fb80fe2e73b5afe588c
  * Note: power: source regulator DCDC_REG5 is not an RK817 one, ignored

@@ -1,6 +1,6 @@
 import copy
 
-from r36os import catalog, pkglists
+from lume_tool import catalog, pkglists
 
 CAT = catalog.load()
 
@@ -17,15 +17,31 @@ def test_every_core_has_package_in_common_list():
 
 def test_systems_match_design_table():
     ids = [s["id"] for s in CAT["systems"]]
-    assert ids == ["nes", "snes", "mastersystem", "megadrive", "segacd", "sega32x", "gb", "gbc",
-                   "gba", "arcade", "cps1", "cps2", "neogeo", "psx", "love", "ports"]
+    assert ids == ["nes", "snes", "mastersystem", "gamegear", "sg1000", "megadrive", "segacd",
+                   "sega32x", "gb", "gbc", "gba", "arcade", "cps1", "cps2", "neogeo", "psx",
+                   "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
-    # Sega CD: genesis_plus_gx, picodrive on the GA36 (armv7); required BIOS by region
+    # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap
+    assert by_id["snes"]["core"] == "snes9x2005_plus"
+    assert by_id["snes"]["alt_cores"] == []
+    assert by_id["snes"]["core_by_arch"] == {}
+    for arch in ("x86_64", "aarch64", "armv7"):
+        assert catalog.default_core(by_id["snes"], arch) == "snes9x2005_plus"
+    assert not any("snes9x" in c and c != "snes9x2005_plus" for c in CAT["cores"])
+    # Sega CD, Master System, Mega Drive: genesis_plus_gx on every console, picodrive as the
+    # alternative (the user, 2026-11-19: same cores on both consoles at the start)
     assert by_id["segacd"]["extensions"] == ["cue", "chd", "iso", "m3u"]
-    assert catalog.default_core(by_id["segacd"], "aarch64") == "genesis_plus_gx"
-    assert catalog.default_core(by_id["segacd"], "x86_64") == "genesis_plus_gx"
-    assert catalog.default_core(by_id["segacd"], "armv7") == "picodrive"
-    assert by_id["segacd"]["alt_cores"] == ["picodrive"]
+    for sid in ("segacd", "mastersystem", "megadrive"):
+        for arch in ("x86_64", "aarch64", "armv7"):
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
+        assert by_id[sid]["alt_cores"] == ["picodrive"]
+    # Game Gear and SG-1000 (the user, 2026-11-19): the same genesis_plus_gx as the rest of the
+    # Sega 8/16-bit family, so one core to optimize
+    assert by_id["gamegear"]["extensions"] == ["gg", "zip", "7z"]
+    assert by_id["sg1000"]["extensions"] == ["sg", "zip", "7z"]
+    for sid in ("gamegear", "sg1000"):
+        for arch in ("x86_64", "aarch64", "armv7"):
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
     assert by_id["segacd"]["bios"][0]["files"] == [
         "bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
     assert by_id["segacd"]["bios"][0]["required"] is True
@@ -61,10 +77,18 @@ def test_systems_match_design_table():
         "scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"]
 
 
+def test_same_cores_on_both_consoles_for_now():
+    # the user, 2026-11-19: at the start the GA36 (armv7) and the R36S (aarch64) run the same
+    # cores; each console may take its own path later through core_by_arch (the field stays)
+    for s in CAT["systems"]:
+        assert s["core_by_arch"] == {}, s["id"]
+        assert catalog.emulators(s, "armv7") == catalog.emulators(s, "aarch64"), s["id"]
+
+
 def test_vm_core_tests_cover_what_has_a_free_rom():
     # the VM self-test runs a core with a ROM the build can generate (or Gridlee for fbneo);
     # fbalpha2012_* have no free romset: they are only checked by tests/cores/load_cores.sh
-    from r36os import testdata
+    from lume_tool import testdata
 
     tests = testdata.core_tests(CAT)
     assert tests["fbneo"] == ("arcade", "roms/arcade/gridlee.zip")
@@ -84,7 +108,7 @@ def test_validator_catches_errors():
     assert any("doesnotexist" in e for e in errs)
     assert any("snes: extensions" in e for e in errs)
     assert any("architecture" in e for e in errs)
-    assert any(e.startswith("megadrive:") for e in errs)
+    assert any(e.startswith(f"{bad['systems'][3]['id']}:") for e in errs)
 
 
 def test_validator_refuses_arcade_core_by_arch():
@@ -112,13 +136,13 @@ def test_schema3_launcher_fields():
 
 def test_emulators_derived_from_core_fields():
     # the two forms agree: the libretro emulators are the default core of the architecture
-    # first, then the other cores of the system, and r36os-playlists keeps using `core`
+    # first, then the other cores of the system, and lume-playlists keeps using `core`
     by_id = {s["id"]: s for s in CAT["systems"]}
     assert catalog.emulators(by_id["nes"], "x86_64") == [
         {"runner": "retroarch", "core": "fceumm"}, {"runner": "retroarch", "core": "nestopia"}]
     assert catalog.emulators(by_id["segacd"], "armv7") == [
-        {"runner": "retroarch", "core": "picodrive"},
-        {"runner": "retroarch", "core": "genesis_plus_gx"}]
+        {"runner": "retroarch", "core": "genesis_plus_gx"},
+        {"runner": "retroarch", "core": "picodrive"}]
     assert catalog.emulators(by_id["segacd"], "aarch64") == [
         {"runner": "retroarch", "core": "genesis_plus_gx"},
         {"runner": "retroarch", "core": "picodrive"}]
@@ -141,6 +165,15 @@ def test_image_runners_are_valid():
     assert runners["retroarch"]["kind"] == "libretro"
     assert runners["retroarch"]["quit"] == "retroarch-cmd"
     assert runners["love"]["quit"] == runners["sh"]["quit"] == "sigterm"
+    # lume-hud-actions D3: RetroArch declares every action and the overlay; the native
+    # runners declare nothing (the system freezes them for the menu)
+    assert runners["retroarch"]["overlay"] == "retroarch"
+    assert runners["retroarch"]["actions"] == {
+        "pause": "retroarch-pause", "app_menu": "retroarch-cmd:MENU_TOGGLE",
+        "reset": "retroarch-cmd:RESET", "save_state": "retroarch-cmd:SAVE_STATE",
+        "load_state": "retroarch-cmd:LOAD_STATE", "screenshot": "retroarch-cmd:SCREENSHOT"}
+    for native in ("love", "sh"):
+        assert "actions" not in runners[native] and "overlay" not in runners[native]
 
 
 def test_validator_refuses_missing_runner():
@@ -186,12 +219,24 @@ def test_validator_refuses_bad_runner():
     assert any("whole argument" in e for e in
                catalog.validate_runner(dict(base, exec=["/bin/x", "--rom={rom}"])))
     assert any("absolute" in e for e in catalog.validate_runner(dict(base, exec=["x"])))
+    # actions and overlay: the same rules as lume-core's ActionForm::parse
+    ok = dict(base, overlay="retroarch", actions={"pause": "retroarch-pause", "reset": "key:KEY_F2",
+                                                  "screenshot": "signal:SIGUSR1"})
+    assert catalog.validate_runner(ok) == []
+    for actions, why in (({"save_state": "retroarch-pause"}, "only for pause"),
+                         ({"reset": "key:BTN_A"}, "KEY_"),
+                         ({"reset": "signal:SIGKILL"}, "unknown signal"),
+                         ({"reset": "retroarch-cmd:reset"}, "upper-case"),
+                         ({"rewind": "retroarch-cmd:REWIND"}, "unknown action")):
+        assert any(why in e for e in catalog.validate_runner(dict(base, actions=actions))), why
+    assert any("unknown overlay" in e for e in catalog.validate_runner(dict(base, overlay="sdl")))
+    assert any("unknown field" in e for e in catalog.validate_runner(dict(base, shell=True)))
 
 
 def test_new_folders_created_without_deleting(tmp_path):
     # love/ and ports/ come from the catalog ids, like every other system folder; an old
     # card keeps its games
-    from r36os import flash
+    from lume_tool import flash
 
     old = tmp_path / "roms/megadrive"
     old.mkdir(parents=True)

@@ -1,7 +1,7 @@
 #!/bin/bash
 # R36S speaker loudness: RK817 codec register dump while a tone plays (task 4.6).
 #
-# On the factory ArkOS card the speaker is much louder than on r36os with the same
+# On the factory ArkOS card the speaker is much louder than on Lume with the same
 # volume settings. Run this from the ArkOS Ports menu (/roms/ports): it plays a 440 Hz
 # sine for a few seconds and, while it plays, saves next to this script, in
 # ../regdump/codec-<kernel>-<date>/:
@@ -10,7 +10,7 @@
 #     /dev/i2c-0 exists, as a second source that does not depend on the driver;
 #   - the GPIO state (gpio3 20 is the speaker enable), the mixer, the PCM state and
 #     the clock tree.
-# Compare with the same registers read on r36os (the kernel no longer logs them; read them
+# Compare with the same registers read on Lume (the kernel no longer logs them; read them
 # from the debugfs regmap while a tone plays).
 #
 # Only reads: the I2C reads set the register address and read one byte; nothing is

@@ -31,7 +31,7 @@ exfatprogs
 jq
 
 # USB device role on the OTG port (usb-device-access D3, D4): MTP server for ROMS and the
-# SSH server of the USB network, both started by r36os-usb (the dropbear service that
+# SSH server of the USB network, both started by lume-usb (the dropbear service that
 # Alpine adds with OpenRC is not enabled)
 umtprd
 dropbear
@@ -66,7 +66,8 @@ lume-power
 lume-games
 lume-launcher-data
 lume-retroarch-cfg
-lume-shaders
+# lume-shaders: out of the image until they run at full speed on the GA36 (P-89; 26.7 fps with
+# gba-modern-remaster on lima, 2026-11-17)
 
 # Frontend
 retroarch
@@ -74,9 +75,17 @@ libretro-core-info
 retroarch-assets
 retroarch-joypad-autoconfig
 
-# Input daemon (lume-launcher D8, aports/r36os-input): one virtual gamepad from the built-in
+# Input daemon (lume-launcher D8, aports/lume-input): one virtual gamepad from the built-in
 # controls, Fn+Start for the launcher and the volume buttons, with a profile per board
-r36os-input
+lume-input
+
+# Load controller of the power profiles (game-governor D12, aports/lume-powerctl): started by
+# lume-power (lume-power) in the game profiles with controller=load
+lume-powerctl
+
+# The sampling loop of the diagnostic logs in C (game-governor 1.2, aports/lume-logd): lume-logd
+# (lume-core) execs it after the hardware snapshot; without it the shell loop runs
+lume-logd
 
 # The default frontend (lume-launcher, aports/lume-launcher): interface, game lists and
 # supervisor

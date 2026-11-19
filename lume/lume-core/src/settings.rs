@@ -1,5 +1,5 @@
 //! Launcher settings (`ROMS/system/lume/settings.toml`, lume-launcher D6, D10): language,
-//! theme, preferred volume and brightness, the display options (the battery's percent). Unknown or invalid values fall back to
+//! theme, the display options (the battery's percent). Unknown or invalid values fall back to
 //! the default, so an old or hand-edited file never stops the launcher.
 
 use std::io;
@@ -15,20 +15,16 @@ pub struct Settings {
     pub language: String,
     /// theme id; empty: the default theme of the image (themes/base.toml)
     pub theme: String,
-    /// 0-100, `None` keeps the mixer as it is
-    pub volume: Option<u8>,
-    /// 0-100, `None` keeps the backlight as it is
-    pub brightness: Option<u8>,
     /// Display: the battery's percent next to its icon in the status bar
     pub battery_percent: bool,
     /// Wi-Fi: SSH over the Wi-Fi network, key only (lume-launcher D18); off from the factory.
-    /// The root service r36os-ssh-wifi reads it from this file.
+    /// The root service lume-ssh-wifi reads it from this file.
     pub ssh_wifi: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { language: "en".into(), theme: String::new(), volume: None, brightness: None, battery_percent: true, ssh_wifi: false }
+        Settings { language: "en".into(), theme: String::new(), battery_percent: true, ssh_wifi: false }
     }
 }
 
@@ -41,8 +37,6 @@ impl Settings {
         if !LANGUAGES.contains(&s.language.as_str()) {
             s.language = Settings::default().language;
         }
-        s.volume = s.volume.map(|v| v.min(100));
-        s.brightness = s.brightness.map(|v| v.min(100));
         s
     }
 
@@ -52,7 +46,7 @@ impl Settings {
 }
 
 /// RetroArch `user_language` value of a launcher language (RETRO_LANGUAGE_*: 0 English,
-/// 3 Spanish, 7 Portuguese of Brazil), the same mapping as `r36os.lang`.
+/// 3 Spanish, 7 Portuguese of Brazil), the same mapping as `lume_tool.lang`.
 pub fn retroarch_language(lang: &str) -> u32 {
     match lang {
         "es" => 3,
@@ -68,7 +62,7 @@ mod tests {
     #[test]
     fn round_trip_and_fallbacks() {
         let p = std::env::temp_dir().join(format!("lume-settings-{}.toml", std::process::id()));
-        let s = Settings { language: "es".into(), volume: Some(70), ..Default::default() };
+        let s = Settings { language: "es".into(), ..Default::default() };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p), s);
         // a file from before the lite mode was removed still loads
@@ -85,7 +79,11 @@ mod tests {
         std::fs::write(&p, "language = \"xx\"\nvolume = 250\nunknown = 1\n").unwrap();
         let l = Settings::load(&p);
         assert_eq!(l.language, "en");
-        assert_eq!(l.volume, Some(100));
+        // the old volume and brightness fields nobody read are ignored, and not written back
+        std::fs::write(&p, "volume = 70\nbrightness = 40\n").unwrap();
+        Settings::load(&p).save(&p).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(!text.contains("volume") && !text.contains("brightness"));
         std::fs::write(&p, "not toml [").unwrap();
         assert_eq!(Settings::load(&p), Settings::default());
     }

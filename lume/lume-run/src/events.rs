@@ -1,5 +1,5 @@
 //! Game lines of the events log (lume-launcher D10), in the format of `event` in logs.sh:
-//! `<time> <boot> game <OK|FAIL> <detail>`, appended to `$R36OS_RUN/logs/events.pending`
+//! `<time> <boot> game <OK|FAIL> <detail>`, appended to `$LUME_RUN/logs/events.pending`
 //! (copied in batches to `ROMS/logs/events.log`). The detail has the system, the runner, the
 //! core, the exit code, how it ended and the duration; never the game name or the ROM path.
 //!

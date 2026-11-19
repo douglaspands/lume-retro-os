@@ -1,0 +1,13 @@
+[package]
+name = "lume-menu"
+description = "The Lume menu over a game, drawn by the system on the game's own screen (lume-hud-actions D14)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc.workspace = true
+fontdue = "0.9"
+# the system screenshot (Fn+Y, any game); already in Cargo.lock through lume-ui's image
+png = "0.18"

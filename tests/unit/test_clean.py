@@ -1,10 +1,10 @@
-"""r36os clean: what goes, what is only listed, and what is never touched."""
+"""lume clean: what goes, what is only listed, and what is never touched."""
 
 import os
 
 import pytest
 
-from r36os import clean
+from lume_tool import clean
 
 DIGEST = VERSION = "6.18.62"  # the second argument of plan() is the kernel version
 
@@ -35,7 +35,7 @@ def tree(tmp_path):
     # work folders, evidence and the things never to touch
     _mk(repo / "aports" / "libretro-ppsspp" / "src" / "big.tar")
     _mk(repo / "aports" / "libretro-ppsspp" / "APKBUILD")
-    _mk(repo / "src" / "r36os" / "__pycache__" / "x.pyc")
+    _mk(repo / "src" / "lume_tool" / "__pycache__" / "x.pyc")
     _mk(repo / "var" / "sd_roms" / "game.zip")
     _mk(repo / "var" / "__pycache__" / "x.pyc")
     _mk(out / "repo" / "aarch64" / "pkg.apk")
@@ -54,7 +54,7 @@ def test_plan_removes_only_what_a_build_recreates(tree):
         out / "images" / "console" / stamps[2],
         cache / "flash" / f"console-{stamps[1]}.img",
         repo / "aports" / "libretro-ppsspp" / "src",
-        repo / "src" / "r36os" / "__pycache__",
+        repo / "src" / "lume_tool" / "__pycache__",
     }
     # stamps[0] is cited in the docs, stamps[1] is on the card (its decompressed copy in
     # flash/ goes, the archive stays), 3..5 are the newest three (5 is latest)
@@ -67,9 +67,9 @@ def test_python_caches_inside_the_repo_cache_are_not_walked(tmp_path):
     cache = repo / ".cache"
     _mk(cache / "x" / "__pycache__" / "y.pyc")
     _mk(cache / "src" / "linux" / "scripts" / "__pycache__" / "z.pyc")
-    _mk(repo / "src" / "r36os" / "__pycache__" / "x.pyc")
+    _mk(repo / "src" / "lume_tool" / "__pycache__" / "x.pyc")
     remove, _review = clean.plan(repo, repo / "out", cache, DIGEST, cited=set())
-    assert {i.path for i in remove} == {repo / "src" / "r36os" / "__pycache__"}
+    assert {i.path for i in remove} == {repo / "src" / "lume_tool" / "__pycache__"}
 
 
 def test_remove_frees_the_plan_and_keeps_the_rest(tree):
@@ -97,7 +97,7 @@ def test_the_flashed_build_stays_without_the_flash_cache(tree):
 
 
 def test_flash_marks_the_build_written(tmp_path):
-    from r36os.flash import mark_flashed
+    from lume_tool.flash import mark_flashed
 
     b = tmp_path / "console" / "20261112-170732"
     b.mkdir(parents=True)

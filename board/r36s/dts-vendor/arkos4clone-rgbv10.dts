@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * Powkiddy RGBV10, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rgbv10/rk3326-rgbv10-linux.dtb
  * SHA-256: db3d7c3bdf672fabda44d557063ec0e245cf446e1ad095d49723402d5687ac01
  * Note: speaker gain: source spk-volume 3 ignored, the native safe value is used

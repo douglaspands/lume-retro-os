@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * R36S-V12 2023-08-18 Variant 1 Panel 3 A, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: darkosre/files/BOOT/dtb/clone/R36S-V12 2023-08-18 Variant 1 Panel 3 A/rk3326-r36s-linux.dtb
  * SHA-256: 7dc7fb7b79cc0dd8fffda44455e06fc0168ec838e82c8d8ffc94f0a0245a9450
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured

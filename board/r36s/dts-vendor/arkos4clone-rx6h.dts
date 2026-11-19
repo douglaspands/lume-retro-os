@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole RX6H, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/rx6h/rk3326-rx6h-linux.dtb
  * SHA-256: 12bf3c04ff59af923d65a4757673367158c76300cb2472ee0760e0228c226489
  * Note: power: OTG_SWITCH not declared by the source: no voltage set, left on

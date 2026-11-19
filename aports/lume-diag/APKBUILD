@@ -4,7 +4,7 @@
 # ships them as they are.
 #
 # noarch: built once in the x86_64 builder and published as the same .apk for every
-# architecture (r36os build, packages.build_noarch). No ELF file may be added to files/.
+# architecture (lume build, packages.build_noarch). No ELF file may be added to files/.
 pkgname=lume-diag
 pkgver=1.0
 pkgrel=0
@@ -12,9 +12,10 @@ pkgdesc="Diagnostics: selftest, hardware info and the hardware summary"
 url="https://example.invalid"
 arch="noarch"
 license="GPL-2.0-or-later"
-depends="lume-core"
+# i2c-tools: the codec-i2c tool of the build phase (P-45); it leaves the final image with P-22
+depends="lume-core i2c-tools"
 options="!check" # tested on the host (tests/unit and the shell suites)
-# services `r36os push --hot` restarts when they are running (empty: none)
+# services `lume push --hot` restarts when they are running (empty: none)
 _lume_restart=""
 builddir="$srcdir"
 

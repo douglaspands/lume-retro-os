@@ -1,13 +1,13 @@
 //! Lines of the events log in the format of `event` in logs.sh (docs/LOGS.md):
 //! `<time> <boot> <category> <OK|FAIL> <detail>`, appended to
-//! `$R36OS_RUN/logs/events.pending` (the session creates it writable by the game user).
+//! `$LUME_RUN/logs/events.pending` (the session creates it writable by the game user).
 //! English only, and never a game name or path.
 
 use std::io::Write;
 use std::path::PathBuf;
 
 fn logs_dir() -> PathBuf {
-    std::env::var_os("R36OS_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/r36os")).join("logs")
+    std::env::var_os("LUME_RUN").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/run/lume")).join("logs")
 }
 
 /// Local time as `YYYY-MM-DDTHH:MM:SS`.

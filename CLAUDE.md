@@ -94,8 +94,11 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
   recursos exclusivos que usa, o executor e a onda. As regras completas estão em
   `openspec/config.yaml` (`rules.tasks` e `operations.apply`).
 - Recursos exclusivos deste projeto: `CPU` (um build pesado por vez, sob a proteção de calor),
-  `ARCH:<arch>` (um `r36os pkg` por arquitetura), `GA36`, `R36S`, `USUARIO` (ação física ou
-  olho humano) e `MERGE` (um merge por vez).
+  `ARCH:<arch>` (um build de pacotes por arquitetura), `GA36`, `R36S`, `USUARIO` (ação física
+  ou olho humano), `MERGE` (um merge por vez) e `TREE` (nó que mexe no repositório inteiro,
+  como uma troca de nomes: roda sozinho, sem nenhuma worktree aberta).
+- Várias changes no mesmo branch dividem esses recursos e as janelas de aparelho; um nó `TREE`
+  de uma delas bloqueia os nós das outras e atualiza as tarefas abertas delas.
 - Executar onda por onda: o código de nós independentes vai em paralelo, cada um na sua
   worktree em `out/worktrees/<nó>`; builds numa fila única; as provas que precisam do usuário
   ficam juntas em janelas de aparelho. Vários subagentes ao mesmo tempo, ou a ferramenta
@@ -107,6 +110,20 @@ Este repositório é gerenciado pelo **motor `ctx`** com governança multi-harne
 - **O usuário aprova os modelos:** ao escrever o grafo, e de novo antes de cada onda, mostrar
   os nós com o modelo de cada um e esperar a aprovação ou as trocas pedidas; a troca entra na
   tabela do `tasks.md`. Nenhum subagente é criado sem essa aprovação.
+
+## Teste sem o console: perguntar pelo emulador x86 (regra do projeto)
+
+- Sempre que um teste ou uma prova precisar de um console (GA36 ou R36S) e ele não estiver no
+  cabo, **perguntar ao usuário se é para testar no emulador x86** (a imagem `vm`:
+  `lume build vm`, `lume vm`, `lume test-vm`) antes de seguir ou de deixar a prova para
+  depois. Nunca decidir sozinho por um lado ou pelo outro.
+- Nesse cenário o teste fica **exclusivo no emulador**: o resultado vale só para a `vm` e diz
+  isso no registro (tarefa, bring-up, relatório). A prova no aparelho continua pendente e a
+  tarefa só é marcada `[x]` depois dela.
+- Antes de rodar, conferir os limites conhecidos da `vm`: fora do ciclo de build desde a
+  `build-speed` (P-81), `test-vm` só com o driver da NVIDIA no PC (memória do projeto), sem
+  bateria, sem cpufreq nem DRAM do console, controle só se houver um gamepad no PC ou um
+  dispositivo virtual da QEMU.
 
 ## Pendências (regra do projeto)
 

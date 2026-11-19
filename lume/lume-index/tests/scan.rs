@@ -28,7 +28,7 @@ fn card(name: &str) -> Ctx {
     fs::write(snes.join("media/other.sfc"), b"x").unwrap();
     fs::write(snes.join(".hidden.sfc"), b"x").unwrap();
     fs::write(snes.join("readme.txt"), b"x").unwrap();
-    let catalog = Catalog::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rootfs/overlay/usr/share/r36os/systems.json")).unwrap();
+    let catalog = Catalog::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../aports/lume-games/files/usr/share/lume/systems.json")).unwrap();
     Ctx { storage: root, catalog, tile: DEFAULT_TILE }
 }
 

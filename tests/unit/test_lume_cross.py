@@ -5,18 +5,18 @@ import re
 
 import pytest
 
-from r36os import lume, lume_cross, packages
-from r36os.container import Container
-from r36os.paths import REPO_ROOT
-from r36os.targets import TARGETS
+from lume_tool import launcher_stage, lume_cross, packages
+from lume_tool.container import Container
+from lume_tool.paths import REPO_ROOT
+from lume_tool.targets import TARGETS
 
 APKBUILD = (REPO_ROOT / "aports/lume-launcher/APKBUILD").read_text()
 
 
 @pytest.fixture(autouse=True)
 def _scratch(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     monkeypatch.delenv(lume_cross.CROSS_ENV, raising=False)
 
 
@@ -38,7 +38,7 @@ def test_script_uses_the_alpine_toolchain_of_the_target(arch):
     assert "/tmp/fetch/$XV.apk" in s and "usr/lib/rustlib/$T" in s
     # the sysroot without emulation, with the local repository key
     assert "--initdb" in s and "--no-scripts" in s and "--arch $A" in s
-    assert "r36os.rsa.pub $S/etc/apk/keys/" in s
+    assert "lume.rsa.pub $S/etc/apk/keys/" in s
     for p in ("musl-dev", "gcc", "sdl2-dev"):
         assert p in s
     # clang drives the GNU ld of binutils-<arch>, against the sysroot
@@ -59,15 +59,15 @@ def test_script_builds_where_abuild_builds():
 
 
 def test_script_does_not_depend_on_jobs(monkeypatch):
-    monkeypatch.setenv("R36OS_JOBS", "2")
+    monkeypatch.setenv("LUME_JOBS", "2")
     a = lume_cross.script("armv7")
-    monkeypatch.setenv("R36OS_JOBS", "7")
+    monkeypatch.setenv("LUME_JOBS", "7")
     assert lume_cross.script("armv7") == a
 
 
 def test_cross_target_is_not_the_native_cargo_cache():
     for arch in lume_cross.TRIPLES:
-        assert lume_cross.target_dir(arch) != lume.target_cache(arch)
+        assert lume_cross.target_dir(arch) != launcher_stage.target_cache(arch)
     assert lume_cross.target_dir("armv7") != lume_cross.target_dir("aarch64")
 
 
@@ -92,7 +92,7 @@ def test_packaging_installs_only_what_it_needs(monkeypatch):
     for arch, name in (("armv7", "retroarch"), ("x86_64", "lume-launcher")):
         assert packages._fragment_script(arch, name) == (
             packages._KEY + packages._local_repo(arch)
-            + f"(cd /aports/r36os/{name} && abuild -F -r -P /repodest)\n")
+            + f"(cd /aports/lume/{name} && abuild -F -r -P /repodest)\n")
     monkeypatch.setenv(lume_cross.CROSS_ENV, "0")
     assert "abuild -F -r -P" in packages._package_script("armv7", "lume-launcher")
 
@@ -154,4 +154,4 @@ def test_fallback_builds_under_qemu_with_the_cargo_cache(monkeypatch, tmp_path):
     assert len(seen) == 1 and not isinstance(seen[0], tuple)
     c = seen[0]
     assert lume_cross.PREBUILT_ENV not in c.env
-    assert c.volumes[lume.target_cache("aarch64")] == lume_cross.WORKSPACE_GUEST + "/target"
+    assert c.volumes[launcher_stage.target_cache("aarch64")] == lume_cross.WORKSPACE_GUEST + "/target"

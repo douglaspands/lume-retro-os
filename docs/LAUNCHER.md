@@ -15,10 +15,53 @@ ao mesmo lugar. Durante o jogo, a interface sai da memória. Planejamento e deci
 | X | — | busca por nome (teclado na tela) | — |
 | Y | — | opções do console | — |
 | L1 / R1 | — | salta uma parte da lista (mais longe se repetir rápido) | — |
+| Fn (toque) | abre e fecha o [menu do sistema](#menu-do-sistema-pelo-fn) | idem | idem (por cima da folha aberta) |
 | **Fn+Start** | nada | nada | **encerra o jogo aberto e volta ao launcher** |
-| Fn sozinho | — | — | abre o menu do RetroArch, dentro de um jogo do RetroArch |
 | Volume + / − | volume do sistema, em qualquer tela e em qualquer jogo | | |
 | Fn + Volume + / − | brilho da tela, em passos de 5%, em qualquer tela e em qualquer jogo | | |
+| Energia (toque) | suspende o console; outro toque acorda (ver [Suspender](#suspender-e-desligar-pelo-botão-de-energia)) | | |
+| Energia (segurar 2 s) | desliga, como o item Desligar do menu do sistema | | |
+
+### Atalhos dentro do jogo (o Fn é o botão do sistema)
+
+O Fn funciona como o botão Steam do SteamOS: **tocar** abre o menu do Lume, **segurar** mostra
+os atalhos e **segurar + outro botão** faz o atalho. Um atalho nunca vira toque.
+
+| Gesto | O que faz |
+|---|---|
+| Tocar no Fn | abre e fecha o **menu do Lume** sobre o jogo, com o jogo pausado: Voltar ao jogo, Encerrar jogo, Reiniciar, Menu do RetroArch (Reiniciar e Encerrar pedem confirmação: Sim em cima, Não embaixo e em foco). Com o menu aberto, os botões não chegam ao jogo |
+| Segurar o Fn (meio segundo) | mostra a lista dos atalhos que valem neste jogo; soltar a esconde |
+| Fn+B | menu do RetroArch (abre e fecha) |
+| Fn+R1 / Fn+L1 | salva / carrega o estado no slot rápido (o slot com que o jogo abriu; pela grade, o 0) |
+| Fn+Y | foto do jogo em `ROMS/screenshots/`, com data e hora no nome, sem a barra nem os menus |
+| Fn+X | mostra e esconde a barra de status no topo (continua ligada no jogo seguinte) |
+| Fn+Start | encerra o jogo na hora, também com o menu aberto (saída de emergência) |
+
+Os outros Fn + botão (Fn+A, Fn+Select...) ficam reservados e não fazem nada. Start + Select
+voltou a ser do jogo. Se o programa do jogo travar, o toque no Fn mostra "Forçar fechamento".
+A barra, a lista de atalhos e o menu aparecem nos jogos do RetroArch; num Port ou num jogo LÖVE,
+só Fn+Start vale nesta versão (os outros atalhos só deixam uma linha no log).
+
+A barra, a dica dos acordes e a foto do Fn+Y são do sistema, não do emulador (decisão do
+usuário, 2026-11-17): o `lume-menu` desenha a barra (`--hud`) e a dica (`--hint`) num plano de
+sobreposição da tela por cima de qualquer jogo, sem pausá-lo, e grava a foto (`--shot`, PNG da
+imagem do jogo, sem a barra) em `ROMS/screenshots/`. Cada um só roda enquanto pedido: a barra
+enquanto ligada, a dica enquanto o Fn está segurado, a foto uma vez por aperto.
+
+A barra serve para avaliar o desempenho do jogo e achar o gargalo. Ela mostra
+`FPS 59.7 │ CPU 47% 1008 │ GPU 62% 38M │ MEM 124/492 sw 20 │ 52° │ BAT 74% 1.9W 2:40`, espalhada
+pela largura da tela numa faixa preta a 92%, com os rótulos na cor de destaque e uma divisória
+entre os grupos: quadros por segundo do jogo (as trocas de quadro que o kernel conta para os
+arquivos DRM do jogo, `drm-page-flips` no `fdinfo`, patch 0036, a cada segundo), uso (média dos
+núcleos) e clock da CPU em MHz, uso
+da GPU e a memória que o jogo ocupa nela, em MiB (pelo `fdinfo` do arquivo DRM do jogo; a GPU
+não tem memória própria, são buffers na RAM do sistema; no GA36 isso vem do patch 0035 do
+kernel, e sem ele aparece o clock da GPU em MHz), memória usada/total e o swap só quando em uso,
+em MiB, temperatura do SoC em °C inteiros (`52°`, de `thermal_zone0`, lida na mesma amostra de
+1 s e só com a barra ligada; sem o rótulo `TMP`, porque com ele a barra não cabe a 640x480, e `--`
+sem zona ou sem leitura; o espaço mínimo entre grupos é de 14 px), e bateria (nível, potência e tempo restante;
+carregando, `BAT 74% + 0:50`, o tempo até encher). `--` é um valor que o aparelho não informa e
+`--:--` aparece nos primeiros 30 s, até haver uma estimativa.
 
 Fora das Configurações, o volume aparece como uma linha na borda direita da tela e o brilho
 como uma linha branca na borda esquerda; as duas somem logo depois do último aperto.
@@ -28,6 +71,183 @@ A busca ignora maiúsculas e acentos e exige todas as palavras: "super bros" ach
 **Fn+Start** funciona com qualquer programa aberto pelo launcher: RetroArch, LÖVE, um script de
 Ports ou um emulador travado. Primeiro o programa recebe um pedido para sair (o RetroArch grava o
 save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abriu são encerrados.
+
+## Suspender e desligar pelo botão de energia
+
+- **Tocar** no botão de energia (soltar antes de 1 s) suspende o console, com o launcher ou
+  com um jogo na tela: o jogo pausa, a tela, a luz e o som se apagam. Outro toque acorda o
+  console no mesmo ponto, com o mesmo brilho e volume, e **o jogo continua sozinho**. Os
+  outros botões não acordam o console, e o que for apertado com ele suspenso é descartado.
+- **Segurar** o botão por 2 s desliga, pelo mesmo caminho do item Desligar (grava o pendente
+  antes). Segurar por vários segundos continua desligando à força pelo hardware, como reserva.
+- O item **Suspender** do [menu do sistema](#menu-do-sistema-pelo-fn) (toque no Fn) faz o mesmo
+  que o toque, sem confirmação.
+- Antes de suspender, o que estava pendente de gravação vai para o cartão (`sync`): acabar a
+  bateria com o console suspenso não perde o save.
+- Se a suspensão falhar, o console volta ao estado de antes com a tela acesa, e o
+  `events.log` registra o motivo (`sleep FAIL ...`, ver [`docs/LOGS.md`](LOGS.md#eventslog)).
+
+### Protocolo do sono (para quem programa)
+
+Congelado na change `device-fixes` (D11, tarefa 3.2). Código de referência:
+`lume/lume-core/src/sleep.rs` (tipos, leitura e escrita, prazo da resposta, admissão do
+pedido) e `lume/lume-core/src/input.rs` (o socket); `aports/lume-input/input.c` e o serviço
+`lume-sleep` (pacote `lume-power`, em shell) seguem o mesmo protocolo e mudam junto.
+
+```
+ toque no botão (solto antes de 1 s)  lume-input -> pedido   /run/lume/sleep/suspend
+                                      lume-input -> clientes power_tap
+ botão segurado 2 s                   lume-input -> pedido   /run/lume/sleep/poweroff
+                                      lume-input -> clientes power_hold
+ item Suspender                       lume-ui    -> pedido   /run/lume/sleep/suspend
+
+ lume-sleep (inotifyd)                grava phase    "suspend <seq>"
+ lume-input repassa                   socket         "suspend <seq>"
+ cada cliente, já pausado             socket         "suspend_ok <seq>"
+ lume-input (todos ou 2 s)            grava clients  "suspend <seq> ok|timeout <a>/<n>"
+ lume-sleep: som, hora, sync, luz, Wi-Fi, governor, gadget USB solto, /sys/power/state
+ ... o botão de energia acorda ...
+ lume-sleep: os mesmos passos na ordem inversa, por último phase "resume <seq>"
+ lume-input descarta a entrada acumulada e repassa "resume <seq>"
+```
+
+**Socket do `lume-input`** (`/run/lume/input.sock`, `SOCK_SEQPACKET`, uma mensagem por
+pacote, sem quebra de linha):
+
+| Mensagem | Sentido | Significado |
+|---|---|---|
+| `power_tap` | daemon → clientes | o botão foi tocado. Só aviso: o `lume-input` já fez o pedido `suspend`, e o cliente **não** faz outro |
+| `power_hold` | daemon → clientes | o botão ficou segurado 2 s (o pedido `poweroff` já foi feito). Só aviso |
+| `suspend <seq>` | daemon → clientes | pausar o jogo (`lume-run`, pelo caminho de pausa da `lume-hud-actions`) ou parar de desenhar (`lume-ui`) e então responder |
+| `suspend_ok <seq>` | cliente → daemon | pronto para suspender, com o mesmo `<seq>` |
+| `resume <seq>` | daemon → clientes | o console voltou: continuar (o jogo continua sozinho; o `lume-ui` redesenha). Sem resposta |
+
+`<seq>` é um inteiro decimal positivo, crescente a cada suspensão desde que o `lume-sleep`
+subiu; os lados só comparam igualdade. Uma mensagem com `<seq>` ausente, zero ou com outro
+texto não é do protocolo e é ignorada.
+
+**Prazos:**
+
+| Prazo | Valor | Quem espera | Ao estourar |
+|---|---|---|---|
+| resposta dos clientes | 2 s | `lume-input`, pelo `suspend_ok <seq>` de cada cliente ligado quando o aviso saiu | grava `clients` com `timeout <respondidos>/<total>` e a suspensão segue |
+| resposta do `lume-input` | 3 s | `lume-sleep`, pelo `clients` do seu `<seq>` | segue sem ele (`sleep FAIL clients: lume-input did not answer within 3s`) |
+| guarda do despertar | 1 s | `lume-sleep` | um `suspend` até 1 s depois de voltar a `awake` é o toque que acordou o console: apagado sem rodar |
+| religar o gadget USB | ~1 s | `lume-sleep`, em segundo plano | — (não atrasa a tela) |
+| toque / segurar | solto antes de 1 s / 2 s | `lume-input` | — |
+
+Um cliente que se desliga durante a espera deixa de ser esperado. Uma resposta de outro
+`<seq>`, uma segunda resposta do mesmo cliente ou de um cliente que não foi avisado não conta.
+Sem nenhum cliente ligado, o `clients` sai na hora com `ok 0/0`.
+
+**Pasta `/run/lume/sleep/`** (criada pelo `lume-sleep` ao subir, `root:game`, modo `1770`;
+sem ela não há serviço, e o toque só deixa uma linha no log do `lume-input`):
+
+| Arquivo | Quem grava | Conteúdo |
+|---|---|---|
+| `suspend` | `lume-input` (toque), `lume-ui` (item Suspender) | vazio: o pedido. Criado com `O_EXCL`: se já existe, o pedido está pendente e nada novo é feito |
+| `poweroff` | `lume-input` (segurado 2 s) | vazio: o pedido |
+| `phase` | `lume-sleep` (root, por `rename`) | `suspend <seq>` ou `resume <seq>`: o aviso ao `lume-input`, que observa a pasta |
+| `clients` | `lume-input` (root, por `rename`) | `suspend <seq> ok <n>/<n>` ou `suspend <seq> timeout <a>/<n>` |
+| `status` | `lume-sleep` (root, por `rename`) | `awake`, `suspending <seq>`, `suspended <seq> <modo>`, `resuming <seq>` ou `poweroff` |
+
+O `lume-sleep` e o `lume-input` só confiam em `phase`, `clients` e `status` do dono root (o
+grupo `game` pode criar arquivos na pasta). Nomes começados por `.` (temporários, trava) não
+são pedidos. Qualquer outro nome é apagado e registrado (`sleep FAIL refused request: <nome>`).
+
+**Admissão do pedido** (o arquivo é apagado em todo caso): `suspend` roda com o `status` em
+`awake`; durante uma sequência (`suspending`, `suspended`, `resuming`) o pedido em dobro é
+apagado sem rodar, só com uma linha no log do kernel; dentro da guarda de 1 s depois de
+acordar também. `poweroff` roda em qualquer estado, menos depois de outro `poweroff`. O
+`poweroff` leva ao desligamento da sessão, pelo mesmo caminho do item Desligar.
+
+**Como o `poweroff` chega à sessão (8.3):** o `lume-sleep` grava `status` `poweroff`, registra
+`sleep OK poweroff: power button held` e manda `SIGUSR1` ao `session` (o pid de
+`/run/frontend.pid`). O `session` termina o frontend com `SIGTERM`, como quando o serviço o
+para (o `lume-run` fecha o jogo pelo pedido educado do runner, o RetroArch grava o save), espera
+o frontend acabar e chama a mesma `power_off` do código 0: `persist flush`, a hora (9.1),
+`sync`, `release_storage` (para o `lume-logd`, remonta a `ROMS` só leitura) e `poweroff`. O
+evento do frontend sai como `closed by the power button: shutting down`. Sem sessão viva, ou
+se ela não desligar em 30 s (frontend travado), o `lume-sleep` chama `poweroff` sozinho, e a
+`ROMS` fica com o `mount-ro` do runlevel `shutdown`.
+
+**Ordem da suspensão no `lume-sleep` (8.3):** `status` `suspending <seq>` e `phase`
+`suspend <seq>`; espera o `clients` (3 s); som: nada (a pausa do jogo já fecha o PCM, D9);
+`lume-clock save` se a imagem tiver (9.1); `sync` (sem remontar, D2); luz em 0 (o nível
+guardado); rádio do Wi-Fi desligado, se estava ligado (`nmcli`); `suspend` na FIFO do
+`lume-power` (`/run/lume/power`); gadget USB solto do UDC (nome guardado); as fontes de
+despertar da lista do console desligadas (8.1, abaixo); o modo do console
+(`deep` em `mem_sleep` antes do `mem`); `sleep OK suspend <modo>`, `status`
+`suspended <seq> <modo>` e a gravação em `/sys/power/state`. Na volta (ou na recusa do
+kernel), ao contrário: fontes de despertar religadas, gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
+`lume-power`, Wi-Fi, luz no nível guardado, `status` `resuming`, `phase` `resume <seq>`,
+`status` `awake` e `sleep OK resume after <s>` (ou `sleep FAIL suspend <modo>: <motivo>`).
+Cada comando externo tem prazo de 5 s, para nenhum segurar a suspensão.
+
+**Modo de cada console:** `/usr/share/lume/sleep/<placa>.conf` (pacote `lume-power`), linha
+`mode freeze` ou `mode mem` (`#` comenta); sem arquivo ou com valor inválido, `freeze`.
+`freeze` grava `freeze` em `/sys/power/state`; `mem` grava `deep` em `/sys/power/mem_sleep` e
+depois `mem` em `/sys/power/state`, e só vale num console que acordou 10 vezes em 10.
+
+| Console | Modo | Origem |
+|---|---|---|
+| GA36 | `freeze` | medido (2.3, J1, 2026-11-18): `mem_sleep` só oferece `[s2idle]`; 10 de 10 despertares pelo botão |
+| R36S | `freeze` | padrão, ainda não medido: a J1 do R36S (2.3) confere o `mem_sleep` e preenche o arquivo |
+| VM | `freeze` | padrão (sem arquivo) |
+
+**Só o botão de energia acorda (8.1):** o mesmo arquivo do console lista, em linhas
+`nowake <pasta do dispositivo em /sys>` (padrões do shell valem), as fontes de despertar que
+não podem acordar o console. Antes de gravar em `/sys/power/state`, o `lume-sleep` grava
+`disabled` no `power/wakeup` de cada uma que estava `enabled` e, na volta (ou na recusa do
+kernel), grava `enabled` de novo só nessas. Pasta que não existe é pulada; caminho absoluto ou
+com `..` é recusado (`sleep FAIL wakeup: refused path <caminho>`). O botão de energia nunca
+entra na lista: no GA36 o driver `axp20x-pek` se faz fonte de despertar sozinho (o
+`axp221-pek` não tem nó no DTS), e no R36S o `rk805-pwrkey` acorda pela interrupção do RK817,
+armada pelo `wakeup-source` no nó do PMIC (o cliente I2C `0-0020`, que também nunca entra na
+lista). Nenhum outro nó dos dois DTS tem `wakeup-source` (botões, analógicos, cartão).
+
+| Console | Fonte | Como fica |
+|---|---|---|
+| GA36 | `axp221-pek` (botão) | acorda (o driver liga; J1: 10 de 10) |
+| GA36 | `axp20x-usb` (entrada do carregador, a porta DC) | `nowake`: o driver só arma o `VBUS_PLUGIN` com o `power/wakeup` ligado, e a varredura dele (AXP221/223) não segura mais a suspensão |
+| GA36 | `axp20x-battery` | `nowake` (sem interrupção; só a fonte do `power_supply_changed`) |
+| GA36 | `1f00000.rtc` | `nowake`: nada no sistema arma alarme (sem `rtcwake`, sem timers de alarme) |
+| GA36 | `alarmtimer` | nada a fazer: só arma o RTC acima |
+| GA36 | `mmc0` | nada a fazer: detecção do cartão, e o cartão de boot é fixo (`non-removable`) |
+| GA36 | `musb-hdrc.2.auto` | não dá para desligar: o driver arma a interrupção como despertar no probe, sem olhar o `power/wakeup`; o gadget já sai do UDC antes (passo 8) e o VBUS da porta não chega ao kernel |
+| R36S | `rk805-pwrkey` pelo PMIC `0-0020` | acorda (`wakeup-source` no DTS) |
+| R36S | `rk817-charger`, `rk817-battery` | `nowake`; as interrupções de ligar e tirar o carregador dividem a linha do PMIC e não se mascaram pelo sysfs: conferir na J1 do R36S |
+| R36S | `rk808-rtc.*` | `nowake`: nada arma alarme |
+
+As opções do kernel não mudam: o GA36 suspende em `s2idle` com o `sunxi_defconfig` (J1), e o
+R36S fica com o `defconfig` arm64 (`SUSPEND`, PSCI, `rk805-pwrkey` como módulo) até a J1 dele
+dizer se o `mem` serve.
+
+**Dois achados da J1 no GA36 que o `lume-sleep` (8.3) e o `lume-input` (8.2) cumprem:**
+
+1. **Gadget USB:** depois de um `freeze` o `musb` fica em `b_peripheral` com o UDC
+   `not_attached`, e o PC não enumera nem com o cabo recolocado. Antes de gravar em
+   `/sys/power/state`, o `lume-sleep` guarda o conteúdo de
+   `/sys/kernel/config/usb_gadget/lume/UDC` e grava vazio nele (solta o gadget); ~1 s depois
+   de acordar, em segundo plano, grava de volta o nome guardado (só se estava ligado). Falha:
+   `sleep FAIL usb: <motivo>`, sem impedir a suspensão.
+2. **Entrada acumulada:** ao acordar, a interface "andava" sozinha com os eventos do controle
+   da suspensão. Entre o `phase suspend` e o `phase resume` o `lume-input` não repassa nada
+   (nem toque, nem acorde, nem pedido); no `resume`, antes de avisar os clientes, ele lê e
+   descarta tudo o que está na fila das origens, solta as teclas seguradas no controle virtual
+   e ignora o botão de energia até vê-lo solto (o toque que acordou não vira outro pedido).
+
+**Lado do `lume-input` (tarefa 8.2):** a origem do botão vem da linha `power <nome>` do
+perfil (`axp20x-pek` no GA36, `rk805 pwrkey` no R36S; opcional, só a tecla `KEY_POWER` dela é
+lida); um `KEY_POWER` de outra origem também é o botão, e nunca vai para os jogos. O aviso
+`power_tap`/`power_hold` só sai quando o pedido foi criado (sem a pasta, ou com o pedido ainda
+pendente, fica só a linha no log). Soltar entre 1 s e 2 s não faz nada; segurado, o
+`power_hold` sai uma vez por aperto. Ao acordar, além do que está acima, os analógicos são
+relidos do kernel (o movimento feito dormindo foi descartado) e um toque começado até 1 s
+depois do `resume` não vira pedido (a mesma guarda do `lume-sleep`); segurar 2 s ainda
+desliga. Um `phase` repetido igual é ignorado, e um `phase` existente quando a pasta aparece
+não é seguido. Sem `resume` em 60 s de tempo acordado depois do `suspend`, o controle volta
+sozinho e os clientes recebem `resume <seq>`.
 
 ## Dock
 
@@ -63,13 +283,36 @@ ou o que o item faz. Idioma (vale também para o RetroArch e para as mensagens d
 Tema (Lume, o padrão, e Material escuro e claro), Tela (mostrar ou não o percentual ao lado
 da bateria), Volume, Brilho, Sistema (modelo, CPU,
 memória, cartão, bateria e a memória do próprio launcher, lidos só enquanto o item está
-selecionado), Games (com **Atualizar listas**: A atualiza), RetroArch (o menu completo, sem jogo; ao sair, volta às
-Configurações) e Desligar (pede confirmação; Cancelar é o padrão). Wi-Fi e Bluetooth aparecem
-só com um adaptador USB conectado.
+selecionado) e Games (com **Atualizar listas**: A atualiza); a lista dá a volta em Games. Wi-Fi e
+Bluetooth aparecem só com um adaptador USB conectado. **Desligar**, **Suspender** e **Reiniciar**
+não ficam aqui: moram no [menu do sistema](#menu-do-sistema-pelo-fn). O acesso ao menu completo do
+RetroArch fora de um jogo saiu das Configurações (volta pela pendência P-101); dentro de um jogo,
+Fn+B continua abrindo o menu do RetroArch.
 
 Na lista, ▲▼ escolhem o item e A ou ▶ entram no painel dele; no painel, ▲▼ trocam a linha, ◀▶
-mudam o valor, A executa e B volta à lista. Sistema só mostra valores; RetroArch e Desligar
-executam direto com A.
+mudam o valor, A executa e B volta à lista. Sistema só mostra valores. Na lista, **B volta à tela
+de onde as Configurações foram abertas**: ao Dock, se vieram do Dock; à grade (com a folha do jogo
+aberta, se havia uma) se vieram do menu do sistema.
+
+## Menu do sistema pelo Fn
+
+Fora de um jogo, **tocar no Fn** abre o menu do sistema por cima de qualquer tela (Dock, grade,
+Configurações) ou folha (a do jogo aberta, por exemplo); outro toque no Fn ou B fecha, e a tela
+de baixo continua exatamente como estava (a grade no mesmo jogo, a folha aberta). Enquanto ele
+está aberto, os botões são só dele. Itens, nesta ordem, com o foco inicial em Configurações:
+
+| Item | O que faz |
+|---|---|
+| Configurações | abre as Configurações; B na lista volta à tela de origem |
+| Suspender | pede a suspensão sem confirmação (o mesmo pedido do toque no botão de energia); o toque no botão de energia acorda no mesmo lugar |
+| Reiniciar | confirmação (Reiniciar em cima, Cancelar embaixo e em foco); ao confirmar, o launcher sai com o código 66 e a sessão reinicia |
+| Desligar | confirmação (Desligar em cima, Cancelar embaixo e em foco); ao confirmar, o launcher sai com 0 e o console desliga |
+
+Nas duas confirmações só ▲▼ mudam a escolha (◀▶ não fazem nada) e B volta ao menu. A tela do
+Dock mostra no rodapé a dica **Fn Menu**, depois de ◀▶ e A. O Fn tem três gestos no launcher
+(os mesmos do jogo, com tabela própria): **tocar** abre e fecha o menu do sistema; **segurar** (meio
+segundo) mostra a dica dos atalhos que valem (no launcher, só Fn+Volume: brilho, mais o toque do
+Fn) e soltar a esconde; **Fn+Volume** muda o brilho.
 
 ### SSH pela rede Wi-Fi
 
@@ -142,6 +385,20 @@ timeout = 3                         # segundos até o encerramento forçado
 - O primeiro item é o caminho absoluto de um executável. Um arquivo com erro, ou que cite um
   executável que não existe, é ignorado e o log diz qual foi; os outros runners continuam.
 - Com o mesmo `id` de um runner da imagem (`retroarch`, `love`, `sh`), o do cartão vence.
+- Os atalhos do Fn chegam ao emulador pela tabela opcional `[runner.actions]`: `pause`,
+  `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, cada uma como
+  `retroarch-cmd:<COMANDO>` (comando de rede do RetroArch), `key:<KEY_*>` (uma tecla apertada e
+  solta no controle virtual, por exemplo `key:KEY_F2`) ou `signal:<NOME>` (sinal ao programa,
+  por exemplo `signal:SIGUSR1`); `pause` aceita também `retroarch-pause`. Sem `pause`, o menu do
+  Lume congela o programa enquanto está aberto. Uma ação que o runner não declara só deixa uma
+  linha no log. `overlay = "retroarch"` diz que o runner desenha a barra e a lista de atalhos.
+
+```toml
+[runner.actions]
+save_state = "key:KEY_F2"
+load_state = "key:KEY_F4"
+screenshot = "signal:SIGUSR1"
+```
 
 Depois, cite o runner num console, em `ROMS/system/lume/systems.d/*.toml`:
 
@@ -159,16 +416,140 @@ emulators = [{ runner = "meu-emulador" }]
 ```
 
 Um core do RetroArch que não está no catálogo também entra assim:
-`emulators = [{ runner = "retroarch", core = "snes9x" }]` (o arquivo
-`/usr/lib/libretro/snes9x_libretro.so` precisa existir).
+`emulators = [{ runner = "retroarch", core = "snes9x2005_plus" }]` (o arquivo
+`/usr/lib/libretro/snes9x2005_plus_libretro.so` precisa existir).
 
 Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jogo do console.
+
+## Volume por saída (formato congelado, change `device-fixes`, D9 e D10)
+
+**Arquivo.** Cada saída guarda o próprio nível em `ROMS/system/audio/level-<saída>`, com
+`<saída>` = `speaker` ou `headphones`: um inteiro decimal de 0 a 100 e uma quebra de linha
+(`70`). É o nível que a borda direita e as Configurações mostram, e o `mixer` o reaplica no
+boot. **GA36:** a entrada do fone tem uma chave mecânica e nenhuma detecção, então só existe o
+`level-speaker`; o `headphones` fica sem uso. **R36S:** os dois valem (D10): o serviço `jack`
+(`lume-audio`) troca o `Playback Mux` (`SPK`/`HP`) a cada encaixe ou retirada do fone, grava a
+saída ativa em `/run/lume/audio/output` (`speaker` ou `headphones`) e aplica o nível da saída
+nova pela conversão desta seção (no `Master` digital até a 7.1 medir um ganho analógico). No
+GA36 o `jack` não faz nada: chave mecânica, um nível só.
+
+**Quem mexe (7.2).** As teclas de volume (`lume-input`) e a linha Volume das Configurações
+(`lume-ui`) andam de 5 em 5% na grade (de 87%, sobe para 90% e desce para 85%), na saída ativa
+(sem o arquivo de saída, `speaker`), aplicam a posição bruta e gravam `level-<saída>` (arquivo
+oculto renomeado por cima). A borda direita sobre o jogo (`LUME_LEVEL`) e as Configurações
+mostram esse mesmo número. O `mixer` reaplica o nível no boot e não grava o arquivo. Os dois
+leem o controle no perfil do `lume-input` (`/usr/share/lume/input/<placa>.conf`):
+
+| Linha | Uso |
+|---|---|
+| `mixer <placa> <controle> 5` | o controle do volume e o passo, em % da escala |
+| `mixer_scale <lo> <hi> <ref> <mdB por passo>` | o controle na escala desta seção (sem ela, o `amixer` em % puro, como na `vm`) |
+| `mixer_switch` | 0% desliga a chave do controle (mudo; o DAPM desliga a saída); qualquer outro nível a liga |
+| `mixer_keep <controle> <valores>` | reaplicado a cada passo (GA36: `DAC 160 on`, o digital em 0 dB e ligado) |
+| `mixer_amp <controle>` | a chave do amplificador (GA36: `Speaker`): 0% a desliga (senão o amplificador chia com o ganho no mínimo), qualquer outro nível a liga; o `mixer` do boot, o `lume-input` e as Configurações a aplicam |
+| `mixer_old <controle> <lo> <hi> <ref> <mdB por passo>` | o controle do volume antigo, para a conversão única (GA36: `DAC`) |
+
+No GA36 o controle é o `Headphone` (com a chave); no R36S, o `Master` (sem chave: 0% é o mínimo
+do controle).
+
+**Escala perceptiva.** O número é um ganho em dB abaixo do máximo limpo do controle, não uma
+fração da posição bruta dele (antes, cada toque tirava 4,5 dB e a barra só caía de 100% para
+96%; 50% da barra já era -60 dB). 100% é o máximo limpo (0 dB), 5% fica perto de -39 dB (o fim
+útil), e 0% é mudo (o controle no mínimo e a chave da saída desligada). Entre dois pontos da
+tabela a curva é linear em dB; de 1% a 4% vale o ganho de 5%.
+
+| % | dB |
+|---|---|
+| 5 | -39,0 |
+| 10 | -36,0 |
+| 15 | -33,0 |
+| 20 | -30,0 |
+| 25 | -28,0 |
+| 30 | -26,0 |
+| 35 | -24,0 |
+| 40 | -22,0 |
+| 45 | -20,0 |
+| 50 | -18,0 |
+| 55 | -16,0 |
+| 60 | -14,0 |
+| 65 | -12,0 |
+| 70 | -10,0 |
+| 75 | -8,0 |
+| 80 | -6,0 |
+| 85 | -4,5 |
+| 90 | -3,0 |
+| 95 | -1,5 |
+| 100 | 0,0 |
+
+**Controle (dado).** A posição bruta do controle é `ref - round(-dB / dB_por_passo)`, com no
+mínimo `lo + 1` fora do mudo:
+
+| Console | Controle | Faixa | 0 dB (`ref`) | dB por passo | Origem |
+|---|---|---|---|---|---|
+| GA36 | `Headphone` de `GA36MB` (analógico; alimenta também o alto-falante) | 0 a 63 | 54 | 1 | o passo pelo TLV do driver (63 é 0 dB); o 54 (−9 dB) é o mais alto limpo no alto-falante com um jogo em volume cheio, julgado pelo usuário em 2026-11-18 (55 e acima distorcem; o tom de teste da 2.5 era baixo demais para mostrar) |
+| R36S | `Master` de `rk817int` (digital) | 0 a 255 | 255 | ~0,373 | `rk817_codec.c` (-95 dB a 0 dB), até a medição da 2.5 do R36S; a 7.1 pode trocar o controle |
+| antigo | `DAC` de `GA36MB` (digital) | 0 a 192 | 160 | 0,75 | só para a conversão abaixo |
+
+**Conversão única.** Se `level-<saída>` não existe, o nível sai do controle de hoje: o
+ganho em dB dele (`(bruto - ref) * dB_por_passo`, no máximo 0 dB) vira a porcentagem mais
+próxima da tabela (empate vai para a menor); bruto no mínimo é 0%. Ex.: `DAC` 154 (-4,5 dB)
+vira 85%; 160 e 166 viram 100%. Daí em diante o arquivo manda. Sem arquivo e sem leitura do
+mixer, o nível inicial é 70%.
+
+Na prática (7.2), sem `level-<saída>`: o `DAC` antigo só é convertido enquanto guarda um nível
+do sistema antigo, isto é, fora de 0 dB (por exemplo, um `lume push --hot` que reiniciou os
+serviços com o volume antigo aplicado). Com o `DAC` em 0 dB (boot novo), o `mixer` aplica 70%,
+e o `lume-input` e as Configurações leem a posição do próprio controle (que é a que o `mixer`
+aplicou). No R36S, sem arquivo, o `mixer` e o `jack` aplicam 70%. O primeiro toque grava o
+arquivo.
+
+**Onde vive.** A tabela e as funções puras estão em `aports/lume-input/volume.h` (C, usado
+pelo `lume-input`), em `lume/lume-ui/src/volume.rs` (Rust, usado pelo launcher) e em
+`aports/lume-audio/files/usr/libexec/lume/volume.sh` (shell, usado pelo `mixer` e pelo `jack`);
+o teste `tests/unit/test_volume_scale.py` confere que as três tabelas e esta são iguais, e que
+o shell dá as mesmas posições e a mesma conversão do C. Quem usa o formato são as tarefas 7.1,
+7.2 e 7.4.
+
+## Brilho salvo (change `device-fixes`, 9.15 e 9.16)
+
+**Arquivo.** `ROMS/system/display/brightness` (`/storage/system/display/brightness` no
+aparelho): um inteiro decimal de 0 a 100 e uma quebra de linha (`65`), na mesma escala da barra
+da borda esquerda: 100% é o teto do perfil (`backlight_max`), se houver, ou o máximo do painel
+(`max_brightness`). Hoje nenhum perfil tem teto: o GA36 perdeu o dele em 2026-11-18 e usa os
+10 níveis. Gravado como o volume, por um arquivo oculto renomeado por cima (`.brightness.tmp`).
+
+**Quem grava.** As teclas Fn + volume (`lume-input`) gravam o nível que acabaram de aplicar, e
+a linha Brilho das Configurações (`lume-ui`) grava o nível que o painel passou a ter (lido de
+volta, para o `lume-input` chegar ao mesmo nível bruto em painéis grossos como o do GA36). O
+escurecimento por inatividade do launcher **não** grava: ele só muda o painel.
+
+**Quem lê.** Primeiro o initramfs (9.16), logo depois de montar a ROMS, nos dois consoles
+(`initramfs/lib/brightness.sh`): uma leitura do arquivo e uma escrita no `brightness` da
+primeira luz de fundo de `/sys/class/backlight`, com a mesma conta do `lume-input`
+(arredondada, nunca abaixo do piso de 5% nem do nível 1). Não espera nada (P-58): sem ROMS,
+sem arquivo ou sem luz de fundo, não faz nada. O topo ali é só o `max_brightness`: o
+initramfs não tem o perfil do `lume-input`, e como nenhum perfil tem teto hoje a conta é a
+mesma; um perfil que voltar a ter teto precisa dele no initramfs também. Depois o
+`lume-input`, ao iniciar, aplica de novo o nível salvo, nunca acima do teto do perfil e nunca
+abaixo do piso de 5%. Sem o arquivo, o comportamento anterior (um nível acima do nível de
+início do perfil, `backlight_boot`, desce a ele). Um arquivo inválido (não é um inteiro de 0
+a 100) é ignorado pelos dois, com uma linha no log (`brightness: ignoring the bad file`; a do
+initramfs, com o prefixo `lume:`, vai para o log do kernel).
+
+**Antes do initramfs.** O kernel acende a tela no nível do device tree
+(`default-brightness-level`): no GA36, 7 de 10 (era o 8 de fábrica; do 7 para cima este GA36
+pode mostrar a imagem quebrada, P-95); na árvore nativa do R36S, 80 de 160 (50%, o de fábrica,
+sem mudança; as árvores convertidas dos fabricantes trazem o nível de cada uma).
+
+Os campos `volume` e `brightness` do `settings.toml` eram gravados pelas Configurações e lidos
+por ninguém; saíram (um arquivo antigo com eles continua carregando, os campos são ignorados).
 
 ## Arquivos do launcher no cartão
 
 | Arquivo | Conteúdo |
 |---|---|
-| `ROMS/system/lume/settings.toml` | idioma, tema, volume, brilho e as opções de Tela |
+| `ROMS/system/lume/settings.toml` | idioma, tema e as opções de Tela (o volume e o brilho não ficam aqui: ver "Volume por saída" e "Brilho salvo") |
+| `ROMS/system/display/brightness` | o brilho salvo (ver "Brilho salvo") |
 | `ROMS/system/lume/themes/` | seus temas (`<id>/theme.toml`) e logos dos consoles (`<id>/icons/<sistema>.png`); o `LEIA-ME.txt` da pasta explica o formato |
 | `ROMS/system/lume/systems/<id>.toml` | opções do console |
 | `ROMS/system/lume/games/<id>.toml` | opções de cada jogo (só o que difere) |
@@ -177,3 +558,44 @@ Depois de "Atualizar listas", o emulador aparece nas Configurações de cada jog
 
 Apagar `ROMS/system/lume/` volta o launcher ao padrão de fábrica; jogos, saves e states
 continuam.
+
+## Pedidos de manutenção do cartão (interface congelada)
+
+O launcher pede o trabalho ao serviço `lume-card` criando um arquivo vazio, com o nome do
+verbo, em `/run/lume/card/` (pasta do grupo `game`). O módulo `lume-core::cardreq` lê e
+escreve tudo isto; nenhum outro programa deve montar esses caminhos à mão.
+
+| Pedido (arquivo) | Efeito | Resultado |
+|---|---|---|
+| `trim` | `fstrim -v /storage`; um pedido com outro em andamento é apagado sem rodar | `status`, e `ROMS/system/card/last-trim` com o boot |
+| `check-next-boot` | cria `ROMS/system/card/check-next-boot` | `status` = `ok` |
+
+Um arquivo com outro nome é apagado e registrado como recusado.
+
+`/run/lume/card/status` tem uma linha, em um destes formatos:
+
+| Conteúdo | Significado |
+|---|---|
+| `running` | o TRIM está em andamento |
+| `ok <bytes>` | TRIM concluído; `<bytes>` liberados (decimal) |
+| `ok` | pedido sem tamanho concluído (`check-next-boot`) |
+| `fail <motivo>` | falhou; o motivo é texto de uma linha |
+
+Conteúdo fora desses formatos é ignorado (como se não houvesse `status`).
+
+Arquivos no cartão (`ROMS/system/card/`), cada um com o **número do boot em texto decimal**
+(sem data, o console não tem relógio):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `last-trim` | boot do último TRIM concluído |
+| `last-check` | boot que consumiu o último pedido de verificação |
+| `check-next-boot` | pedido de verificação (boot que o fez); o initramfs só testa se o arquivo existe e o apaga ao verificar |
+
+Arquivo ausente ou com conteúdo inválido vale "nunca". Os caminhos seguem `LUME_RUN` (padrão
+`/run/lume`) e `LUME_STORAGE` (padrão `/storage`), movíveis nos testes.
+
+Cancelar a verificação não tem verbo: no painel Cartão do `lume-ui`, A de novo em "Verificar no
+próximo boot" apaga direto o arquivo `check-next-boot` da `ROMS` (e o pedido, se o serviço ainda
+não o pegou). O `lume-ui` também apaga o `status` antigo ao pedir um `trim`, para não ler a
+resposta da rodada anterior.

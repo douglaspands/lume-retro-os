@@ -11,9 +11,9 @@ imagem `console`, o cartão único do GA36 e do R36S (change `r36s-single-card`)
 ## 1. Gerar e gravar
 
 ```sh
-uv run r36os build console                          # 1ª vez: R36OS_GA36_FACTORY e R36OS_R36S_FACTORY (README)
-uv run r36os flash console /dev/sdX --full --eject  # cartão novo: imagem + ROMS no resto do cartão
-uv run r36os flash console /dev/sdX --update --eject   # cartão já gravado com a console: a ROMS fica
+uv run lume build console                          # 1ª vez: LUME_GA36_FACTORY e LUME_R36S_FACTORY (README)
+uv run lume flash console /dev/sdX --full --eject  # cartão novo: imagem + ROMS no resto do cartão
+uv run lume flash console /dev/sdX --update --eject   # cartão já gravado com a console: a ROMS fica
 # cartão do GA36 gravado antes (BOOT de 1 GiB): o --update recusa; copiar a ROMS e usar --full
 ```
 
@@ -23,7 +23,7 @@ O mesmo cartão serve aos dois consoles: basta trocar de aparelho.
 
 O R36S sobe pela cadeia do próprio aparelho, a mesma do cartão que veio com ele (um ArkOS
 para o "R36S V5"). Ela é binário fechado, fica fora do git e o build a lê da cópia do
-cartão original (`R36OS_R36S_FACTORY`), conferida por SHA256 (`src/r36os/r36s_vendor.py`).
+cartão original (`LUME_R36S_FACTORY`), conferida por SHA256 (`src/lume_tool/r36s_vendor.py`).
 
 | Etapa | Onde está no cartão | O que faz |
 |---|---|---|
@@ -63,7 +63,7 @@ R36S para no logo, procure `BOOT/error.log` pelo PC.
 | depois | `ROMS` (exFAT): jogos, saves, configuração e logs dos dois | `flash` ou 1º boot |
 
 O build monta a área a partir das duas cadeias e confere que nenhuma região do R36S cai
-sobre dados do GA36 (`src/r36os/bootarea.py`). O initramfs de cada console monta o próprio
+sobre dados do GA36 (`src/lume_tool/bootarea.py`). O initramfs de cada console monta o próprio
 sistema: `BOOT/r36s/SYSTEM` no R36S, `BOOT/ga36/SYSTEM` no GA36.
 
 **A partição `BOOT`** (a mesma nos dois consoles; `docs/BRINGUP-GA36.md` tem a mesma tabela):
@@ -118,7 +118,7 @@ ao driver), a busca sozinha testa os outros DTBs da pasta, um por boot.
   "(converted)"; esquerda/L1 e direita/R1 pulam uma página.
 
 **DTB de fábrica convertido, provado (2026-11-16, build `20261115-232617`, boots 92 a 95):**
-`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `r36os dtb-import`) em
+`factory-r35s` (o `rk3326-r35s-linux.dtb` do cartão de fábrica, por `lume dtb-import`) em
 `BOOT/dtbs/force`. Boot 92: tela preta. O painel respondeu o ID (`fe5202`) ao driver
 `panel-generic-dsi`, mas o DTB convertido não levava a taxa da DSI, e a estimativa do
 mainline não dá imagem neste painel. Depois que o conversor passou a gravar a taxa do kernel
@@ -238,24 +238,24 @@ nitidez e cores e o histórico completo estão na tarefa 4.6 da change `r36s-sin
 
 Para testar uma mudança de kernel ou de DTB sem regravar o cartão inteiro:
 
-1. `uv run r36os build console` (com `podman ps` vazio antes).
+1. `uv run lume build console` (com `podman ps` vazio antes).
 2. Com o cartão no PC, copiar `out/r36s/kernel/Image` para `BOOT/r36s/Image` e
    `out/r36s/kernel/modules` para `BOOT/r36s/modules` (os dois juntos: com módulos de outra
    versão o console sobe sem módulos e o log de boot tem uma linha `ERROR`) e, se o DTS
    mudou, `out/r36s/kernel/dtbs/rk3326-r36s-v5.dtb` para `BOOT/dtbs/rk3326/`. Pelo cabo,
-   `uv run r36os push` faz isso sozinho.
+   `uv run lume push` faz isso sozinho.
 3. O leitor USB `14cd:125d` corrompe gravações pequenas: depois de copiar, `sync -f`,
    desmontar (`udisksctl unmount -b /dev/sdX1`), montar só leitura
    (`udisksctl mount -b /dev/sdX1 -o ro`), conferir o SHA256 dos arquivos copiados e dos
-   dois DTBs do RG351 contra o build, e ejetar com `uv run r36os eject /dev/sdX`.
-4. Mudanças no `SYSTEM` (userland, como o `mixer`) exigem `r36os flash console` (gravação
+   dois DTBs do RG351 contra o build, e ejetar com `uv run lume eject /dev/sdX`.
+4. Mudanças no `SYSTEM` (userland, como o `mixer`) exigem `lume flash console` (gravação
    completa ou `--update`).
 
 ## 7. Controle
 
 Os botões (`gpio-keys`) e os dois analógicos (`adc-joystick`, SARADC canal 1 atrás de um
-multiplexador) são unidos pelo daemon de entrada `r36os-input` (perfil
-`/usr/share/r36os/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
+multiplexador) são unidos pelo daemon de entrada `lume-input` (perfil
+`/usr/share/lume/input/r36s.conf`, change `lume-launcher`, D8) num único **"R36S Gamepad"**,
 com os mesmos códigos de botão do GA36, então a autoconfiguração do RetroArch tem os mesmos
 índices (`/usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg`). Os botões de volume são
 um dispositivo à parte (`volume-keys`), também capturado pelo daemon.
@@ -265,12 +265,12 @@ junção:
 
 - **Fn (F5, `BTN_MODE`) sozinho**: sai como apertar e soltar o Fn, quando ele é solto (o menu
   do RetroArch abre nessa hora).
-- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/r36os/input.sock`, e nenhuma das
+- **Fn+Start**: manda `quit` ao launcher pelo socket `/run/lume/input.sock`, e nenhuma das
   duas teclas sai; o jogo aberto pelo launcher é encerrado. Fora de um jogo, nada acontece.
 - **Volume**: os botões mudam o controle `Master` do `rk817int` em passos de 5%, em qualquer
   programa, e não chegam aos programas.
 
-`r36os-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
+`lume-input --list` mostra os dispositivos de entrada com o barramento (o virtual é
 `bus=0x6`).
 
 | Tecla no DTS | Função provisória | Confirmar |
@@ -320,18 +320,18 @@ aparece no PC como **"Lume R36S"** (fabricante "Lume Retro OS"), com duas funç�
 - **MTP:** a `ROMS` como armazenamento "ROMS" no gerenciador de arquivos;
 - **rede USB:** o PC recebe `10.55.0.2` e o console fica em `10.55.0.1`:
   `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@10.55.0.1` (root sem
-  senha, só por esse cabo) e `uv run r36os push` (atualização sem tirar o cartão; ver o
+  senha, só por esse cabo) e `uv run lume push` (atualização sem tirar o cartão; ver o
   `README.md`).
 
-**Testes pelo cabo (`r36os dev`):** o cartão vai de um console ao outro e só um deles fica no
-PC; os dois respondem em `10.55.0.1`. Use `.venv/bin/r36os dev wait`, `dev sh <comando>`,
+**Testes pelo cabo (`lume dev`):** o cartão vai de um console ao outro e só um deles fica no
+PC; os dois respondem em `10.55.0.1`. Use `.venv/bin/lume dev wait`, `dev sh <comando>`,
 `dev shot <arquivo.png>`, `dev keys '<sequência>'`, `dev log` e
 `dev check --console r36s` (recusa o GA36 com "the console on the cable is the GA36, not the
 R36S"), além de `dev shot --compare <tela>` para as capturas de referência (ver
-[BUILD.md](BUILD.md)). O `r36os push` espera o console voltar e confere o boot novo
+[BUILD.md](BUILD.md)). O `lume push` espera o console voltar e confere o boot novo
 (`ok: boot N completed with build X (...)`); `--no-wait` só reinicia. Para mudar só um
-fragmento `lume-*`/`r36os-*` sem reboot (só na RAM): `r36os push --hot <fragmento>` ou
-`r36os dev watch <fragmento>` (ver "Testar no console pelo cabo" em [BUILD.md](BUILD.md)).
+fragmento `lume-*`/`lume-*` sem reboot (só na RAM): `lume push --hot <fragmento>` ou
+`lume dev watch <fragmento>` (ver "Testar no console pelo cabo" em [BUILD.md](BUILD.md)).
 
 **Espaço da `BOOT` no `push` (change `push-boot-swap`):** o `push` renomeia o
 `r36s/SYSTEM` e o `r36s/modules` em uso para `.old` (apagados no `push` seguinte), para não
@@ -339,13 +339,13 @@ perder clusters na FAT. Os `push` anteriores a essa change perdiam ~290 MB a cad
 `SYSTEM`; se o cartão do R36S tiver esse resto, o `push` avisa com
 `warning: BOOT has <N> MiB in lost clusters` e segue. Para recuperar, com o cartão no leitor
 do PC: `sudo fsck.vfat -a /dev/sdX1` e apagar os `FSCK*.REC` da raiz da `BOOT`, ou
-`r36os flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
+`lume flash --update`. Se a energia cair entre os dois `mv` da troca, o boot usa o `.old`
 com uma linha `ERROR ... using r36s/SYSTEM.old from the previous build` no log.
 *Primeiro `push` no R36S com a change: pendente (tarefa 6.1 da change `r36s-usb-proof`).*
 
 **Como funciona no R36S:** o `u2phy` vê o pino ID, mas não o VBUS da porta OTG (medição de
 2026-11-13, change `usb-device-access`). O controlador (dwc2) usa um *role switch* que começa
-como device e força a sessão por override. O serviço `r36os-usb` lê o `USB-HOST` do `extcon`
+como device e força a sessão por override. O serviço `lume-usb` lê o `USB-HOST` do `extcon`
 e troca para host quando um adaptador OTG puxa o ID para baixo, para o pendrive no adaptador
 continuar funcionando. Ele enumerou na medição, antes do role switch; com o role switch
 ainda não foi provado.
@@ -355,7 +355,7 @@ ainda não foi provado.
   switch (`role=`) e o estado do gadget (`udc=…:configured` com o PC ligado);
 - no `events.log`, `usb OK device: connected|disconnected`, `network: up|down` e
   `ssh: login accepted`;
-- no `boot/boot-<n>.log`, as mensagens `r36os-usb:` (inclusive `port role host|device`) e
+- no `boot/boot-<n>.log`, as mensagens `lume-usb:` (inclusive `port role host|device`) e
   `umtprd:` (a saída do servidor MTP).
 
 **Medido:** o modo device ainda não foi provado no R36S (a prova com o PC foi feita no GA36).
@@ -388,6 +388,20 @@ ainda não foi provado.
 | 2026-11-12 | Áudio (boots 16 a 24) | alto-falante toca com o patch 0024 e na velocidade certa com o 0025; mudo sem eles (seção 8) |
 | 2026-11-13 | Gamepad | funciona corretamente (usuário); botões e os quatro eixos no menu e em jogo |
 | 2026-11-13 | Volume e zumbido | volume muito abaixo da fábrica e zumbido em silêncio continuam: P-45 |
+| 2026-11-19 | Read-ahead (`device-fixes` 2.2) | PS1 133 MB: 6,48 / 6,18 / 5,99 / 5,90 s com 128 / 256 / 512 / 1024 KiB; Neo Geo 38 MB: 1,90 / 1,81 / 1,76 / 1,76 s (D6) |
+| 2026-11-19 | GPU e bateria (`lume-hud-actions` 4.1) | `panfrost`: `drm-engine-fragment`/`vertex-tiler` só com `profiling=1`, arquivo `root 0644` (regra do udev nova, 4.4); RK817 sem `current_now`/`voltage_now`, só `current_avg` (positivo carregando, negativo descarregando) e `voltage_avg`; `charge_now`, `charge_full`, `status` presentes; sem Yama |
+| 2026-11-19 | Suspensão, parte automática (`device-fixes` 2.3) | `mem_sleep` = `s2idle [deep]`; 10 de 10 em `freeze` e 10 de 10 em `mem` acordados pelo RTC, sem despertar antes da hora; botão e carregador pendentes |
+| 2026-11-19 | V2 (`virtual-gamepad` 4.3) | `dev keys` ok (o primeiro botão com a tela escurecida só devolve a luz); gravação de 62 s tocada com atraso máx. 0,75 ms e tela final idêntica; `play` como `game` recusado (rc 3); `open-close-*` de NES, SNES, Mega Drive, GB, GBC, GBA e PS1 ok; `launcher-screens` com as referências novas (dica Fn, itens Cartão e Games) ok na tela inicial; replay de GBA igual em duas sessões do jogo (0 px aos 6 s e no fim) |
+| 2026-11-19 | Áudio, parte técnica (`device-fixes` 2.5) | tom de 440 Hz pelo `speaker-test`, registradores do RK817 pelo `regmap` do debugfs (sem ferramentas de I2C no console): o `Master` (0 a 255) muda só o volume digital do DAC (0x39/0x3A) e, junto, o de captura (0x31/0x32: `Master Capture Volume` ligado ao de reprodução); nenhum registrador analógico (0x4C em diante) muda. Corrente: silêncio 308 mA, tom 335 a 344 mA, tom com `Internal Speakers Switch` desligado 288 mA (amplificador ~20 mA parado, ~56 mA tocando). Zumbido: falta o ouvido do usuário |
+| 2026-11-19 | Menu do Lume e ações (`lume-hud-actions` 4.6/6.3, R6) | toque no Fn (`k:fn`) mostra o menu sobre o jogo do RetroArch em ~330 ms, jogo congelado (`T`), B volta e despausa (`PLAYING`), `lume-menu` dormindo (`S`) depois; Fn+R1/Fn+L1: a tela depois de carregar é idêntica à de salvar (0 px), `.state` com a miniatura; Fn+Y: duas fotos diferentes; RetroArch com `SIGSTOP`: menu "RetroArch não responde" com "Forçar fechamento" em foco, A encerra (`end=force-close`); barra: `lume-menu` a desenha num plano de overlay (o `lume-shot` só lê o primário, P-57), conferir na J3; 5 min de jogo com a barra: `lume-run` 1,32% de um núcleo (RSS 1,3 MB), `lume-menu` 0,49% (RSS 40 MB), `lume-logd` 0,42% |
+| 2026-11-19 | `game-governor` (1.2, 3.2, 2.2) | `logd` parado no launcher 0,38% de um núcleo, num jogo de SNES 1,25% (acima de 1%) e num de GBA 0,42%; `sugov:0` 4,4% parado e 22% no jogo de SNES (P-60); eventos `power` menu/jogo/idle certos (perfil `default`); tela escurece de 80 para 16 em 2 min e o primeiro botão só devolve a luz; `reload` de `idle after=300` no `power.conf` do cartão aparece no `power.state` sem reboot |
+| 2026-11-19 | Encerrar jogo cedo | jogos fechados ~6 s depois de abertos (roteiros `open-close`) são mortos (`end=killed`): o RetroArch ainda não atende o `QUIT`; fechados depois de 1 min, `exit=0` |
+| 2026-11-19 | Usuário com as mãos (`device-fixes` 2.3, 2.1/R7, 7.4) | suspensão pelo botão volta em 4 s; desligar segurando o botão desliga com o desligamento ordenado e o boot seguinte tem `ROMS clean`; fone: antes tocava no fone e no alto-falante juntos (o amplificador é alimentado pelo estágio do fone, patch 0024), o `lume-jack` agora desliga o `Internal Speakers` com o fone (build `20261119-150509`) e o usuário confirmou só fone com ele e alto-falante sem ele |
+| 2026-11-19 | RTC (`device-fixes` 2.4) | hora acertada pelo cabo, console desligado e sem cabo ~20 min (boots 209 a 210): o `rtc0` voltou com 0 s de diferença do PC; `clock OK restored system` no boot |
+| 2026-11-19 | J3 da `device-fixes` pelo cabo (10.3) | ROMS limpa em todos os boots (205: `dirty: checked: clean` depois do corte de energia no GA36); frontend em 16,8 a 18,9 s; Otimizar agora (`card OK trim`), Verificar no próximo boot (gravado, cancelado pelo segundo A, consumido uma vez no boot 213); nós de entrada `0640` (o `game` não escreve no controle virtual); amplificador desligado na pausa (`AHP_CFG0` `0x80` → `0xe0` → `0x80`); Menu rápido travado; menu do sistema, confirmação vertical, Reiniciar pelo código 66 e a dica do Fn no launcher; Mega Drive e Master System 5 min cada no `genesis_plus_gx` sem `slow` |
+| 2026-11-19 | J3 da `lume-hud-actions` pelo cabo (6.3) | Fn+A e Fn+Select sem efeito; Start + Select chega ao jogo; Fn+B e o Menu rápido; Reiniciar com confirmação (Não não reinicia, Sim volta à tela de título); os botões não chegam ao jogo com o menu aberto; o menu no LÖVE só com Voltar e Encerrar; Fn+Start com o menu aberto encerra; slot 3 gravado pelo Fn+R1 com o slot 0 intacto. Achado: matar o `lume-run` com o menu aberto devolve o controle mas deixa o jogo congelado e o launcher não volta (tarefa 3.5) |
+| 2026-11-19 | Correções da J3 (build `20261119-160138`, boot 214) | `lume-run` morto com o menu aberto: o launcher volta em ~1 s, os 3 processos que sobraram são encerrados pela sessão (`lume-hud-actions` 3.5); o `✓` do painel Cartão desenhado ("✓ 12,9 GB liberados"). O `push` mediu 2m58s de boot, mas o console subiu em ~30 s: o resto foi o PC reconectando a rede USB |
+| 2026-11-19 | Achados da V2 | o `open_game` errava o Dock depois de movimentos à mão (o launcher só gravava o estado ao abrir um jogo): corrigido no `lume-ui`, falta o build; o RetroArch numera as gravações de replay sozinho (`.replay1`, `.replay2`) e uma segunda reprodução na mesma sessão do jogo não volta ao começo |
 
 *A preencher com as tarefas 9.1 a 9.4 da change (boot integrado). As medições (cores, taxa do
 painel, F1-F5) ficam para a próxima change: P-46.*

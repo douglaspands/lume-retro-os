@@ -2,61 +2,6 @@
 
 ## ADDED Requirements
 
-### Requirement: Menu do sistema pelo toque no Fn
-Em qualquer tela do launcher, o toque no Fn (apertado e solto sozinho) MUST abrir o menu do sistema por cima da tela atual, com Desligar, Reiniciar e Configurações. Outro toque no Fn ou B MUST fechar o menu e voltar exatamente ao ponto de onde ele foi aberto. Um acorde com o Fn MUST NOT abrir o menu.
-
-#### Scenario: Abrir no Dock
-- **WHEN** o usuário toca o Fn na tela de consoles
-- **THEN** o menu do sistema aparece com Desligar, Reiniciar e Configurações
-
-#### Scenario: Abrir na grade e voltar
-- **WHEN** o usuário está na grade do SNES com o foco no décimo jogo, toca o Fn e depois aperta B
-- **THEN** o menu some e a grade do SNES volta com o foco no mesmo jogo
-
-#### Scenario: Fechar com outro toque
-- **WHEN** o menu do sistema está aberto e o usuário toca o Fn
-- **THEN** o menu some
-
-#### Scenario: Brilho não abre o menu
-- **WHEN** o usuário segura o Fn e aperta volume para mudar o brilho
-- **THEN** o brilho muda e o menu do sistema não abre
-
-### Requirement: Configurações pelo menu do sistema
-O item Configurações do menu do sistema MUST abrir as Configurações do launcher; B nas Configurações MUST voltar à tela onde o menu foi aberto.
-
-#### Scenario: Configurações a partir da grade
-- **WHEN** o usuário, na grade do NES, toca o Fn, escolhe Configurações e depois aperta B
-- **THEN** as Configurações abrem e, com o B, a grade do NES volta
-
-### Requirement: Dica do Fn no rodapé
-O rodapé da tela de consoles MUST mostrar a dica do Fn (o glifo do Fn e "Menu"), como as outras dicas de botão, nos três idiomas.
-
-#### Scenario: Dica visível
-- **WHEN** o launcher mostra a tela de consoles
-- **THEN** o rodapé tem a dica do Fn ao lado das dicas de A e do direcional
-
-### Requirement: Dica dos atalhos ao segurar o Fn
-Segurar o Fn sozinho no launcher MUST mostrar, por cima da tela, os atalhos com o Fn que valem no launcher (no mínimo o toque para o menu e Fn+Vol para o brilho), no idioma do usuário. Soltar o Fn MUST esconder a dica sem abrir o menu; um acorde MUST esconder a dica e agir.
-
-#### Scenario: Ver os atalhos
-- **WHEN** o usuário segura o Fn por 1 segundo na grade de jogos
-- **THEN** aparece a dica com "Menu do sistema" e "Brilho"
-
-#### Scenario: Soltar sem escolher
-- **WHEN** a dica está na tela e o usuário solta o Fn
-- **THEN** a dica some e o menu do sistema não abre
-
-### Requirement: Reiniciar com confirmação
-O item Reiniciar do menu do sistema MUST pedir confirmação, com Cancelar como opção inicial. Confirmado, o aparelho MUST gravar o pendente e reiniciar, voltando ao launcher.
-
-#### Scenario: Reiniciar confirmado
-- **WHEN** o usuário escolhe Reiniciar e confirma
-- **THEN** o aparelho grava o pendente, reinicia e o launcher reaparece, com o boot seguinte registrando o desligamento anterior como limpo
-
-#### Scenario: Cancelar é o padrão
-- **WHEN** o usuário escolhe Reiniciar e aperta A sem mover o foco
-- **THEN** nada acontece e o launcher continua na tela
-
 ### Requirement: Cores por console no tema
 Um tema MUST poder declarar, por sistema, as cores do item do Dock (fundo e conteúdo, normal e em foco), herdadas como os outros tokens. O logo usado como máscara e a sigla MUST ser pintados nessas cores. Um sistema sem cores declaradas MUST usar as cores gerais do ícone. O tema Lume da imagem MUST trazer as cores oficiais dos logos dos consoles.
 
@@ -83,6 +28,64 @@ Um tema do cartão MUST poder trazer um logo colorido por sistema, mostrado como
 - **WHEN** o tema do cartão traz o logo colorido do SNES e só a máscara do NES
 - **THEN** o SNES aparece com o logo colorido e o NES com a máscara pintada na cor do tema
 
+### Requirement: Relógio na tela
+O launcher MUST poder mostrar a hora no mesmo lugar em todas as telas, como a bateria, na posição e no formato aprovados no protótipo. Uma opção das Configurações MUST ligar e desligar o relógio. Enquanto a hora do aparelho nunca tiver sido acertada (nenhuma fonte real desde a imagem), o relógio MUST NOT aparecer, para não mostrar uma hora errada.
+
+#### Scenario: Mesmo lugar em todas as telas
+- **WHEN** o relógio está ligado e o usuário passa do Dock para a grade, a busca e as Configurações
+- **THEN** a hora aparece no mesmo lugar e no mesmo tamanho em todas elas
+
+#### Scenario: Relógio desligado
+- **WHEN** o usuário desliga "Mostrar relógio" nas Configurações
+- **THEN** a hora some de todas as telas e a escolha sobrevive ao reboot
+
+#### Scenario: Hora nunca acertada
+- **WHEN** o aparelho nunca teve a hora acertada pelo cabo, pela rede ou à mão
+- **THEN** o relógio não aparece, mesmo ligado
+
+### Requirement: Acertar a hora nas Configurações
+As Configurações MUST oferecer o acerto da data e da hora à mão, só com o controle. Confirmado, o acerto MUST valer para o sistema, para o relógio do aparelho e para a hora guardada no cartão, e MUST poder voltar a hora para trás (é uma fonte real, como o cabo e a rede).
+
+#### Scenario: Acerto à mão
+- **WHEN** o usuário ajusta a data e a hora com o direcional e confirma
+- **THEN** o relógio da tela passa a mostrar a hora nova e ela continua certa depois de desligar e ligar
+
+### Requirement: Telas de carregamento com barra de progresso
+O sistema MUST mostrar uma tela própria do Lume, no tema ativo e com barra de progresso, em cada espera: a inicialização do sistema, o carregamento do jogo, a finalização do jogo, o encerramento ou reinício do sistema e as tarefas demoradas. A barra MUST seguir o tipo aprovado para cada tela (por etapas, por bytes ou indeterminada). A tela de inicialização MUST NOT deixar o boot mais lento: ela só usa as etapas que o boot já registra.
+
+#### Scenario: Carregamento do jogo
+- **WHEN** o usuário abre um jogo no launcher
+- **THEN** a tela de carregamento aparece com a barra avançando pelas etapas até o primeiro quadro do jogo, sem tela preta entre elas
+
+#### Scenario: Tarefa demorada
+- **WHEN** uma tarefa demorada do sistema roda com a tela acesa (verificação do cartão, indexação)
+- **THEN** a tela mostra o nome da tarefa e a barra de progresso até o fim
+
+#### Scenario: Boot sem atraso
+- **WHEN** o console liga com a tela de inicialização
+- **THEN** o tempo de boot até o launcher não aumenta em relação ao boot sem ela
+
+### Requirement: Wi-Fi nas Configurações
+As Configurações MUST permitir ligar e desligar o Wi-Fi, procurar redes, conectar com senha pelo teclado da tela e esquecer redes salvas, só com o controle. A senha MUST NOT aparecer em argumento de processo nem em log.
+
+#### Scenario: Conectar a uma rede nova
+- **WHEN** o usuário escolhe uma rede com cadeado, digita a senha e confirma
+- **THEN** o console conecta, a rede fica salva e reconecta sozinha depois do reboot
+
+### Requirement: Bluetooth nas Configurações
+As Configurações MUST permitir ligar e desligar o Bluetooth, procurar a pedido, parear, conectar, desconectar e esquecer aparelhos. Com um fone conectado, o som MUST ir para ele e voltar ao alto-falante quando ele desconecta, sem reiniciar o jogo.
+
+#### Scenario: Fone Bluetooth
+- **WHEN** o usuário pareia um fone pelo painel e abre um jogo
+- **THEN** o som do jogo sai no fone, as teclas de volume mexem nele, e ao desligar o fone o som volta ao alto-falante
+
+### Requirement: Modo avançado
+As Configurações MUST oferecer um "Modo avançado", desligado de fábrica, que, ligado com confirmação, libera o menu completo do RetroArch durante o jogo; desligado, o menu do RetroArch MUST ficar preso ao Quick Menu.
+
+#### Scenario: Liberar o RetroArch
+- **WHEN** o usuário liga o Modo avançado e abre o menu do RetroArch num jogo
+- **THEN** ele consegue sair do Quick Menu para a tela principal do RetroArch, e com o modo desligado não consegue
+
 ## MODIFIED Requirements
 
 ### Requirement: Ícones de console próprios
@@ -91,36 +94,3 @@ Os itens do Dock MUST ser desenhados pelo tema a partir do nome e da sigla do si
 #### Scenario: Imagem padrão
 - **WHEN** o launcher abre com o tema padrão
 - **THEN** cada console aparece como um tile com a sigla (por exemplo "SNES"), nas cores do console, e nenhum arquivo de logotipo de fabricante é lido
-
-### Requirement: Configurações do aparelho
-O item Configurações MUST oferecer Idioma, Tema, Tela (por enquanto, mostrar ou não o percentual da bateria; ligado de fábrica), Volume, Brilho, Sistema, Games (com Atualizar listas, uma ação do painel que A executa) e RetroArch, numa lista à esquerda, com o painel do item em foco à direita (pouco mais da metade da tela) mostrando o valor, o nível ou o que o item faz, e onde os valores são mudados. A lista MUST dar a volta: para baixo no último item vai ao primeiro, para cima no primeiro vai ao último. Wi-Fi e Bluetooth MUST aparecer só quando houver adaptador presente. As escolhas MUST sobreviver ao reboot.
-
-#### Scenario: Lista que dá a volta
-- **WHEN** o foco está em RetroArch, o último item, e o usuário aperta para baixo
-- **THEN** o foco vai para o primeiro item
-
-#### Scenario: Sem dongle
-- **WHEN** nenhum adaptador Wi-Fi está conectado
-- **THEN** o item Wi-Fi não aparece
-
-#### Scenario: Menu do RetroArch
-- **WHEN** o usuário escolhe o item RetroArch
-- **THEN** o menu completo do RetroArch abre sem jogo e, ao sair dele, o launcher reaparece nas Configurações
-
-#### Scenario: Desligar não está nas Configurações
-- **WHEN** o usuário percorre a lista das Configurações
-- **THEN** não há item Desligar; desligar é pelo menu do sistema (toque no Fn)
-
-### Requirement: Desligar com confirmação
-O item Desligar do menu do sistema MUST pedir confirmação, com Cancelar como opção inicial. Confirmado, o aparelho MUST gravar o pendente e desligar.
-
-#### Scenario: Cancelar é o padrão
-- **WHEN** o usuário abre Desligar no menu do sistema e aperta A sem mover o foco
-- **THEN** nada acontece e o aparelho continua ligado
-
-### Requirement: Navegação só com o gamepad
-Toda ação do launcher MUST ser possível só com o controle integrado: D-pad, A, B, X, Y, L1, R1, Start, Select e Fn.
-
-#### Scenario: Sem teclado
-- **WHEN** o console não tem teclado conectado
-- **THEN** o usuário consegue buscar, abrir, favoritar, configurar, desligar e reiniciar

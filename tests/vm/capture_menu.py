@@ -13,9 +13,9 @@ import sys
 import time
 from pathlib import Path
 
-from r36os.paths import REPO_ROOT
-from r36os.qmp import QMP
-from r36os.vm import VmConfig, podman_argv, prepare_disk, run_dir
+from lume_tool.paths import REPO_ROOT
+from lume_tool.qmp import QMP
+from lume_tool.vm import VmConfig, podman_argv, prepare_disk, run_dir
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO_ROOT / "out/vm/capturas"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ games = {"nes": "Aventura.nes", "snes": "Corrida.sfc", "megadrive": "Plataforma.
          "gba": "Puzzle.gba", "psx": "Disco.cue", "arcade": "gridlee.zip"}
 for sysid, name in games.items():
     serial(f"touch '/storage/roms/{sysid}/{name}'", 0.2)
-serial("r36os-playlists >/dev/null; chown -R game:game /home/game/.config/retroarch")
+serial("lume-playlists >/dev/null; chown -R game:game /home/game/.config/retroarch")
 serial("rc-service frontend restart", 12)
 
 shots = []

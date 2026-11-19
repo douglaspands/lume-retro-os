@@ -11,10 +11,15 @@
 //! timeout=3
 //! path=Alpha (USA).sfc gamelist key, for lume-index --touch
 //! states=/storage/states/snes/Alpha (USA)   state files prefix (libretro), may be empty
-//! arg=/usr/libexec/r36os/frontends/retroarch
+//! overlay=retroarch    the runner draws the bar and the hint (lume-hud-actions D3), optional
+//! action=pause retroarch-pause                 one line per declared action, optional
+//! action=save_state retroarch-cmd:SAVE_STATE
+//! arg=/usr/libexec/lume/frontends/retroarch
 //! arg=-L
 //! ...
 //! ```
+
+use lume_core::runner::{ActionForm, ACTIONS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quit {
@@ -33,6 +38,16 @@ pub struct Launch {
     pub path: String,
     pub states: String,
     pub argv: Vec<String>,
+    /// the runner draws RetroArch's widgets (the bar, the hint)
+    pub overlay: bool,
+    /// the runner's actions (D3), in the order of the file
+    pub actions: Vec<(String, ActionForm)>,
+}
+
+impl Launch {
+    pub fn action(&self, name: &str) -> Option<&ActionForm> {
+        self.actions.iter().find(|(n, _)| n == name).map(|(_, f)| f)
+    }
 }
 
 pub fn parse(text: &str) -> Result<Launch, String> {
@@ -46,6 +61,8 @@ pub fn parse(text: &str) -> Result<Launch, String> {
         path: String::new(),
         states: String::new(),
         argv: Vec::new(),
+        overlay: false,
+        actions: Vec::new(),
     };
     for line in text.lines() {
         if line.is_empty() {
@@ -78,6 +95,20 @@ pub fn parse(text: &str) -> Result<Launch, String> {
             "path" => l.path = v.into(),
             "states" => l.states = v.into(),
             "arg" => l.argv.push(v.into()),
+            "overlay" => {
+                l.overlay = match v {
+                    "retroarch" => true,
+                    "" => false,
+                    _ => return Err(format!("bad overlay {v:?}")),
+                }
+            }
+            "action" => {
+                let (name, form) = v.split_once(' ').ok_or_else(|| format!("bad action {v:?}"))?;
+                // an action this lume-run does not know comes from a newer interface
+                if ACTIONS.contains(&name) {
+                    l.actions.push((name.into(), ActionForm::parse(name, form)?));
+                }
+            }
             // unknown keys come from a newer interface: ignored
             _ => {}
         }
@@ -103,6 +134,27 @@ mod tests {
         assert_eq!(l.timeout, 4);
         assert_eq!(l.argv, ["/bin/ra", "-L", "/c/x.so", "/r/a b=c.sfc"]);
         assert_eq!(l.path, "a b.sfc");
+    }
+
+    #[test]
+    fn actions_and_overlay_lines() {
+        let base = "kind=game\nsystem=snes\nrunner=retroarch\narg=/bin/ra\n";
+        let l = parse(base).unwrap();
+        assert!(!l.overlay && l.actions.is_empty());
+        let l = parse(&format!(
+            "{base}overlay=retroarch\naction=pause retroarch-pause\naction=save_state retroarch-cmd:SAVE_STATE\n\
+             action=reset key:KEY_F2\naction=rewind retroarch-cmd:REWIND\n"
+        ))
+        .unwrap();
+        assert!(l.overlay);
+        assert_eq!(l.action("pause"), Some(&ActionForm::RetroarchPause));
+        assert_eq!(l.action("save_state"), Some(&ActionForm::RetroarchCmd("SAVE_STATE".into())));
+        assert_eq!(l.action("reset"), Some(&ActionForm::Key("KEY_F2".into())));
+        // an action of a newer interface is skipped
+        assert_eq!(l.actions.len(), 3);
+        assert!(parse(&format!("{base}action=save_state retroarch-pause\n")).is_err());
+        assert!(parse(&format!("{base}action=save_state\n")).is_err());
+        assert!(parse(&format!("{base}overlay=sdl\n")).is_err());
     }
 
     #[test]

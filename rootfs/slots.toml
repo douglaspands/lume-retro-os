@@ -51,7 +51,6 @@ runtime = [
 # The project's fragments (local aports): scripts, settings, launcher, input daemon
 lume = [
     "lume-*",
-    "r36os-*",
 ]
 
 # Alpine base, services and the dongle firmware (named so the test sees a decision)

@@ -5,7 +5,7 @@
 Ver `proposal.md`. O RetroArch da imagem é compilado com GLES (`--enable-opengles`), que
 inclui os shaders GLSL (`.glslp`/`.glsl`); os três shaders são GLSL de um passe, escritos
 para GLES 2 (Mali-400 do GA36) e válidos também na Mali-G31 do R36S e no virgl da VM. A
-configuração do usuário fica em `~/.config/retroarch`, que o `r36os-persist` copia de e
+configuração do usuário fica em `~/.config/retroarch`, que o `lume-persist` copia de e
 para `ROMS/system/retroarch`; as chaves fixas do sistema estão em `retroarch-lume.cfg` e
 são escritas pelo frontend a cada início.
 

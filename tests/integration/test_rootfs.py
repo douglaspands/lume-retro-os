@@ -1,6 +1,6 @@
 """Tarefas 3.1-3.3: rootfs x86_64, manifesto estável e SYSTEM squashfs.
 
-Requer podman e os pacotes locais em out/repo/x86_64 (uv run r36os pkg vm ...).
+Requer podman e os pacotes locais em out/repo/x86_64 (uv run lume pkg vm ...).
 """
 
 import io
@@ -10,9 +10,9 @@ import tarfile
 
 import pytest
 
-from r36os import rootfs
-from r36os.container import Container, ensure_builder
-from r36os.targets import get_target
+from lume_tool import rootfs
+from lume_tool.container import Container, ensure_builder
+from lume_tool.targets import get_target
 
 pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podman")
 VM = get_target("vm")
@@ -36,8 +36,8 @@ def test_rootfs_has_openrc_init_and_game_user(first_build):
         assert "./sbin/init" in names
         assert "./sbin/openrc" in names
         inittab = _read(tar, "./etc/inittab")
-        assert "::sysinit:/usr/libexec/r36os/rc-tee sysinit" in inittab
-        assert "/sbin/openrc" in _read(tar, "./usr/libexec/r36os/rc-tee")
+        assert "::sysinit:/usr/libexec/lume/rc-tee sysinit" in inittab
+        assert "/sbin/openrc" in _read(tar, "./usr/libexec/lume/rc-tee")
         passwd = _read(tar, "./etc/passwd")
         game = next(l for l in passwd.splitlines() if l.startswith("game:"))
         assert game.split(":")[2] == "1000"

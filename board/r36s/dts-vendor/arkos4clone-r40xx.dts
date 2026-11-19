@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * GameConsole R40xx, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/r40xx/rk3326-r40xx-linux.dtb
  * SHA-256: 076337bff8a1d4fbe1a5049f86e7ff1657684e87f7739b4ac8f7240eb03e4775
  * Note: sticks: axes from the ROCKNIX joypad mapping, not measured

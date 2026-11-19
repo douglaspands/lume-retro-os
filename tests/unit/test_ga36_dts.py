@@ -1,14 +1,14 @@
 """GA36-MB V1.2 DTS against appendix B of the design (task 9.3).
 
 Reads the source (board/ga36/dts/) without compiling: dtc and dt-validate run in the build
-(r36os.kernel.build_dtbs). The expected values are those of appendix B.
+(lume_tool.kernel.build_dtbs). The expected values are those of appendix B.
 """
 
 import re
 
 import pytest
 
-from r36os.paths import REPO_ROOT
+from lume_tool.paths import REPO_ROOT
 
 DTS_DIR = REPO_ROOT / "board/ga36/dts"
 DTSI = (DTS_DIR / "sun8i-a33-ga36-mb-v1.2.dtsi").read_text()
@@ -105,7 +105,7 @@ def test_backlight_and_volume_keys():
     code = _code(DTSI)
     assert "pwms = <&pwm 0 50000 0>" in code                    # PWM0, 20 kHz
     assert "brightness-levels = <0 10 20 30 40 50 60 70 80 90 100>" in code
-    assert "default-brightness-level = <8>" in code              # 80
+    assert "default-brightness-level = <7>" in code              # 70 (device-fixes 9.16)
     assert re.search(r"KEY_VOLUMEUP>;\s*channel = <0>;\s*voltage = <200000>", code)
     assert re.search(r"KEY_VOLUMEDOWN>;\s*channel = <0>;\s*voltage = <400000>", code)
 
@@ -177,6 +177,27 @@ def test_gpu_opps_only_gain_the_same_voltage():
     for hz, body in opps:
         assert body.strip() == "opp-microvolt = <1100000 1000000 1200000>;", hz
         assert "opp-hz" not in body
+
+
+WAKE_PROPS = ("wakeup-source", "enable-sdio-wakeup", "gpio-key,wakeup", "linux,wakeup")
+
+
+def test_only_the_power_key_wakes():
+    # device-fixes D11, task 8.1: the power key (axp221-pek, no DT node) is a wakeup source by
+    # its driver and woke the GA36 10 of 10 times in the J1 without an overlay; nothing in the
+    # tree may add another one (volume keys, gamepad, card, USB), and neither may the
+    # experiment variants appended at the end of each DTS (6.3)
+    sources = ALL_SOURCES + [p.read_text() for p in
+                             (REPO_ROOT / "kernel/variants/ga36").glob("*/board.dtsi")]
+    for src in sources:
+        for prop in WAKE_PROPS:
+            assert prop not in _code(src), prop
+    # the drivers keep the switches lume-sleep turns off: no-wakeup flags would hide them
+    conf = (REPO_ROOT / "aports/lume-power/files/usr/share/lume/sleep/ga36.conf").read_text()
+    nowake = re.findall(r"^nowake (\S+)\s*(?:#.*)?$", conf, re.M)
+    assert nowake == ["class/power_supply/axp20x-usb", "class/power_supply/axp20x-battery",
+                      "bus/platform/devices/1f00000.rtc"]
+    assert not any(re.search(r"pek|rsb|3a3", p) for p in nowake)
 
 
 def test_memory_is_512mib_fallback():

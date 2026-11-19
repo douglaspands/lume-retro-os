@@ -4,14 +4,21 @@
 //! [runner]
 //! id = "retroarch"
 //! kind = "libretro"          # libretro shows Aspect and Shader and takes a core
-//! exec = ["/usr/libexec/r36os/frontends/retroarch", "-L", "{core_path}", "{rom}"]
+//! exec = ["/usr/libexec/lume/frontends/retroarch", "-L", "{core_path}", "{rom}"]
 //! quit = "retroarch-cmd"     # retroarch-cmd | sigterm
 //! timeout = 3                # seconds before the forced end
+//! overlay = "retroarch"      # optional: draws the status bar and the chord hint
+//!
+//! [runner.actions]           # optional (lume-hud-actions D3)
+//! pause      = "retroarch-pause"            # GET_STATUS + PAUSE_TOGGLE; only for pause
+//! app_menu   = "retroarch-cmd:MENU_TOGGLE"  # UDP command to 127.0.0.1:55355
+//! reset      = "key:KEY_F2"                 # a key tapped on the virtual device
+//! screenshot = "signal:SIGUSR1"             # a signal to the game's process group
 //! ```
 //!
 //! The image brings `/usr/share/lume/runners.d/` and the card `ROMS/system/lume/runners.d/`;
 //! with the same id, the card wins. An invalid file is refused with one log line and the
-//! other runners keep working. The rules match `r36os.catalog.validate_runner()`.
+//! other runners keep working. The rules match `lume_tool.catalog.validate_runner()`.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -55,6 +62,87 @@ impl Quit {
     }
 }
 
+/// The actions a runner may declare (D3), in the order of the launch file.
+pub const ACTIONS: &[&str] = &["pause", "app_menu", "reset", "save_state", "load_state", "screenshot"];
+
+/// The signals a `signal:` action may send.
+pub const SIGNALS: &[(&str, i32)] = &[
+    ("SIGHUP", libc::SIGHUP),
+    ("SIGINT", libc::SIGINT),
+    ("SIGQUIT", libc::SIGQUIT),
+    ("SIGUSR1", libc::SIGUSR1),
+    ("SIGUSR2", libc::SIGUSR2),
+    ("SIGTERM", libc::SIGTERM),
+    ("SIGSTOP", libc::SIGSTOP),
+    ("SIGCONT", libc::SIGCONT),
+    ("SIGTSTP", libc::SIGTSTP),
+];
+
+/// How a runner carries out one action (D3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionForm {
+    /// A network command of RetroArch (UDP 127.0.0.1:55355), e.g. `SAVE_STATE`
+    RetroarchCmd(String),
+    /// A keyboard key tapped on the virtual device (`tap KEY_F2` to lume-input)
+    Key(String),
+    /// A signal to the game's process group
+    Signal(String),
+    /// Pause through RetroArch: GET_STATUS, then PAUSE_TOGGLE only when PLAYING (D10)
+    RetroarchPause,
+}
+
+impl ActionForm {
+    /// Parses the value of one action; `retroarch-pause` only for `pause`.
+    pub fn parse(action: &str, value: &str) -> Result<ActionForm, String> {
+        let bad = |why: &str| Err(format!("action {action} = {value:?}: {why}"));
+        if value == "retroarch-pause" {
+            return if action == "pause" {
+                Ok(ActionForm::RetroarchPause)
+            } else {
+                bad("retroarch-pause is only for pause")
+            };
+        }
+        let Some((form, arg)) = value.split_once(':') else {
+            return bad("expected retroarch-cmd:<CMD>, key:<KEY_*> or signal:<NAME>");
+        };
+        match form {
+            "retroarch-cmd" => {
+                let ok = arg.split(' ').next().is_some_and(|w| {
+                    !w.is_empty() && w.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                }) && arg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ' ');
+                if ok {
+                    Ok(ActionForm::RetroarchCmd(arg.into()))
+                } else {
+                    bad("the command must be an upper-case RetroArch command")
+                }
+            }
+            "key" if crate::input::is_key_name(arg) => Ok(ActionForm::Key(arg.into())),
+            "key" => bad("the key must be a KEY_ code"),
+            "signal" if SIGNALS.iter().any(|(n, _)| *n == arg) => Ok(ActionForm::Signal(arg.into())),
+            "signal" => bad("unknown signal"),
+            _ => bad("expected retroarch-cmd:<CMD>, key:<KEY_*> or signal:<NAME>"),
+        }
+    }
+
+    /// The text of the value, as in the runner file and the launch file.
+    pub fn to_value(&self) -> String {
+        match self {
+            ActionForm::RetroarchCmd(c) => format!("retroarch-cmd:{c}"),
+            ActionForm::Key(k) => format!("key:{k}"),
+            ActionForm::Signal(s) => format!("signal:{s}"),
+            ActionForm::RetroarchPause => "retroarch-pause".into(),
+        }
+    }
+
+    /// The number of a `signal:` action's signal.
+    pub fn signal_number(name: &str) -> Option<i32> {
+        SIGNALS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+    }
+}
+
+/// The overlays a runner may draw (D3): only RetroArch's widgets in this version.
+pub const OVERLAYS: &[&str] = &["retroarch"];
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Runner {
@@ -63,6 +151,12 @@ pub struct Runner {
     pub exec: Vec<String>,
     pub quit: Quit,
     pub timeout: u32,
+    /// `retroarch`: the runner draws the status bar and the chord hint
+    #[serde(default)]
+    pub overlay: Option<String>,
+    /// action name -> form, as written in `[runner.actions]`
+    #[serde(default)]
+    pub actions: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -163,7 +257,29 @@ impl Runner {
         if check_exec && !is_executable(Path::new(first)) {
             return Err(format!("{first} is not an executable file"));
         }
+        if let Some(o) = &self.overlay {
+            if !OVERLAYS.contains(&o.as_str()) {
+                return Err(format!("unknown overlay {o:?} (only \"retroarch\")"));
+            }
+        }
+        for (name, value) in &self.actions {
+            if !ACTIONS.contains(&name.as_str()) {
+                return Err(format!("unknown action {name:?}"));
+            }
+            ActionForm::parse(name, value)?;
+        }
         Ok(())
+    }
+
+    /// The declared actions, validated, in the order of `ACTIONS`.
+    pub fn resolved_actions(&self) -> Vec<(&'static str, ActionForm)> {
+        ACTIONS
+            .iter()
+            .filter_map(|a| {
+                let v = self.actions.get(*a)?;
+                ActionForm::parse(a, v).ok().map(|f| (*a, f))
+            })
+            .collect()
     }
 
     /// The argv of one launch: each placeholder becomes one whole argument (no shell), so a
@@ -279,6 +395,58 @@ timeout = 3"#,
         assert!(parse(&extra, false).is_err());
         let relative = SH.replace("/bin/sh", "sh");
         assert!(parse(&relative, false).unwrap_err().contains("absolute"));
+    }
+
+    #[test]
+    fn runner_without_actions_is_valid() {
+        let r = parse(SH, true).unwrap();
+        assert!(r.actions.is_empty() && r.overlay.is_none());
+        assert!(r.resolved_actions().is_empty());
+    }
+
+    #[test]
+    fn actions_and_overlay() {
+        let text = format!(
+            "{SH}overlay = \"retroarch\"\n\n[runner.actions]\npause = \"retroarch-pause\"\n\
+             app_menu = \"retroarch-cmd:MENU_TOGGLE\"\nreset = \"key:KEY_F2\"\n\
+             screenshot = \"signal:SIGUSR1\"\nsave_state = \"retroarch-cmd:SAVE_STATE\"\n"
+        );
+        let r = parse(&text, true).unwrap();
+        assert_eq!(r.overlay.as_deref(), Some("retroarch"));
+        assert_eq!(
+            r.resolved_actions(),
+            [
+                ("pause", ActionForm::RetroarchPause),
+                ("app_menu", ActionForm::RetroarchCmd("MENU_TOGGLE".into())),
+                ("reset", ActionForm::Key("KEY_F2".into())),
+                ("save_state", ActionForm::RetroarchCmd("SAVE_STATE".into())),
+                ("screenshot", ActionForm::Signal("SIGUSR1".into())),
+            ]
+        );
+        for (_, f) in r.resolved_actions() {
+            let v = f.to_value();
+            assert_eq!(ActionForm::parse("pause", &v).unwrap(), f);
+        }
+        assert_eq!(ActionForm::signal_number("SIGUSR1"), Some(libc::SIGUSR1));
+    }
+
+    #[test]
+    fn bad_actions_are_refused_with_the_reason() {
+        let with = |extra: &str| format!("{SH}\n[runner.actions]\n{extra}\n");
+        let e = parse(&with("save_state = \"retroarch-pause\""), false).unwrap_err();
+        assert!(e.contains("only for pause"), "{e}");
+        let e = parse(&with("save_state = \"telnet:SAVE\""), false).unwrap_err();
+        assert!(e.contains("action save_state"), "{e}");
+        let e = parse(&with("save_state = \"retroarch-cmd:save state\""), false).unwrap_err();
+        assert!(e.contains("upper-case"), "{e}");
+        let e = parse(&with("reset = \"key:BTN_A\""), false).unwrap_err();
+        assert!(e.contains("KEY_"), "{e}");
+        let e = parse(&with("reset = \"signal:SIGKILL\""), false).unwrap_err();
+        assert!(e.contains("unknown signal"), "{e}");
+        let e = parse(&with("rewind = \"retroarch-cmd:REWIND\""), false).unwrap_err();
+        assert!(e.contains("unknown action"), "{e}");
+        let e = parse(&format!("{SH}overlay = \"sdl\"\n"), false).unwrap_err();
+        assert!(e.contains("unknown overlay"), "{e}");
     }
 
     #[test]

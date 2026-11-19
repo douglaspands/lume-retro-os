@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from r36os import fragments as frag
-from r36os import manifests, packages
-from r36os.targets import get_target
+from lume_tool import fragments as frag
+from lume_tool import manifests, packages
+from lume_tool.targets import get_target
 
 H1 = "1" * 64
 H2 = "2" * 64
@@ -61,7 +61,7 @@ def make_apk(path: Path, name: str = "lume-x", version: str = "1.0-r0",
     data = [_dir("usr"), _dir("usr/share"), _dir("usr/share/x")]
     data += [_file(n, d, modes.get(n, 0o644)) for n, d in files.items()]
     data += [_link(n, t) for n, t in (links or {}).items()]
-    sig = gzip.compress(_tar([_file(".SIGN.RSA.r36os.rsa.pub", b"s" * 256)], cut=True))
+    sig = gzip.compress(_tar([_file(".SIGN.RSA.lume.rsa.pub", b"s" * 256)], cut=True))
     ctl = gzip.compress(_tar([_file(".PKGINFO", pkginfo)], cut=True))
     dat = gzip.compress(_tar(data, cut=False))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,10 +101,10 @@ def test_build_deps_are_the_build_time_names_without_constraints():
 
 def test_build_order_puts_local_deps_and_subpackage_origins_first():
     deps = {"lume-launcher": ["retroarch"], "retroarch": ["mesa-dev", "zlib-dev"],
-            "mesa": [], "libretro-snes9x": []}
-    order = frag.build_order(["libretro-snes9x", "lume-launcher", "mesa", "retroarch"], deps)
+            "mesa": [], "libretro-snes9x2005-plus": []}
+    order = frag.build_order(["libretro-snes9x2005-plus", "lume-launcher", "mesa", "retroarch"], deps)
     assert order.index("mesa") < order.index("retroarch") < order.index("lume-launcher")
-    assert order[0] == "libretro-snes9x"
+    assert order[0] == "libretro-snes9x2005-plus"
 
 
 # --- inputs ---------------------------------------------------------------------------
@@ -252,12 +252,12 @@ def _repo(tmp_path: Path, files: list[str]) -> Path:
 def test_cleanup_keeps_newest_and_previous_of_each_package(tmp_path):
     repo = _repo(tmp_path, [f"lume-launcher-0.1.0-r{n}.apk" for n in range(1, 28)]
                  + ["retroarch-1.22.2-r111.apk", "retroarch-1.22.2-r112.apk",
-                    "r36os-devmem-1.0-r0.apk", "APKINDEX.tar.gz", "hashes.json"])
+                    "lume-devmem-1.0-r0.apk", "APKINDEX.tar.gz", "hashes.json"])
     removed, freed = frag.remove_old_versions(repo, set())
     assert len(removed) == 25 and freed == 25 * 1000
     assert sorted(p.name for p in repo.iterdir()) == [
-        "APKINDEX.tar.gz", "hashes.json", "lume-launcher-0.1.0-r26.apk",
-        "lume-launcher-0.1.0-r27.apk", "r36os-devmem-1.0-r0.apk",
+        "APKINDEX.tar.gz", "hashes.json", "lume-devmem-1.0-r0.apk",
+        "lume-launcher-0.1.0-r26.apk", "lume-launcher-0.1.0-r27.apk",
         "retroarch-1.22.2-r111.apk", "retroarch-1.22.2-r112.apk"]
 
 
@@ -298,7 +298,7 @@ class FakeBuilder:
     def sh(self, script, **kw):
         if self.repodest is None:   # key/reindex containers
             return None
-        name = re.search(r"/aports/r36os/([^ )]+) &&", script)[1]
+        name = re.search(r"/aports/lume/([^ )]+) &&", script)[1]
         commit = re.search(r"ABUILD_LAST_COMMIT=([0-9a-f]+)", script)[1]
         gen = next(h for h, g in self.volumes.items() if g.endswith(f"{name}/APKBUILD"))
         ver, rel = frag.apkbuild_version(Path(gen).read_text())
@@ -311,7 +311,7 @@ class FakeBuilder:
 
 @pytest.fixture
 def fake_build(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     calls: list[str] = []
     monkeypatch.setattr(packages, "_container",
                         lambda target, aports, **kw: FakeBuilder(calls, target, aports, **kw))

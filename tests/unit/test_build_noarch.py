@@ -1,12 +1,12 @@
-"""build-speed 4.2 and 6.1: `r36os build` hands the noarch fragments to build_noarch (once,
+"""build-speed 4.2 and 6.1: `lume build` hands the noarch fragments to build_noarch (once,
 in the x86_64 builder), which decides by inputs and content; the changed ones are published
 as the same .apk for every arch, before the arch packages and rootfs. Fakes only: no podman."""
 
 import pytest
 
-from r36os import build, packages
-from r36os.stages import StageTimer
-from r36os.targets import get_image, get_target
+from lume_tool import build, packages
+from lume_tool.stages import StageTimer
+from lume_tool.targets import get_image, get_target
 
 
 class _Log(list):
@@ -15,7 +15,7 @@ class _Log(list):
 
 @pytest.fixture
 def calls(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path / "out"))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path / "out"))
     log = _Log()
     changed = {"names": None}  # None: every fragment changed
 

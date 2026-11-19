@@ -1,0 +1,6 @@
+# GPU load on the bar (lume-hud-actions D6, task 4.4): panfrost reports drm-engine-* per
+# client only with its profiling switch on, and the switch is root-only (0644, R36S J1). The
+# video group may write it, so lume-run (user game) turns it on and off with the bar. The
+# attribute exists once the driver is bound: bind (a module loaded later) and add (the
+# coldplug at boot).
+SUBSYSTEM=="platform", ACTION=="add|bind", DRIVER=="panfrost", RUN+="/bin/chgrp video /sys%p/profiling", RUN+="/bin/chmod g+w /sys%p/profiling"

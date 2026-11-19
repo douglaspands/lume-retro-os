@@ -1,0 +1,26 @@
+Subject: [PATCH] drm/sun4i: dsi: experiment E4, send the EoT packet like the vendor
+
+Experiment kernel of device-fixes 6.3 (D12, P-95 E4), never in the default image.
+
+The vendor configuration of the GA36 (script.bin, [lcd0_para]) has lcd_dsi_eotp = 1:
+its driver ends every HS transmission with an End of Transmission packet. Mainline
+never sets SUN6I_DSI_BASIC_CTL0_HS_EOTP_EN. This variant sets it unless the device
+asks for MIPI_DSI_MODE_NO_EOT_PACKET (the JD9366 driver does not). Same clock,
+totals and burst mode. A receiver that misses the end of a burst when hot may take
+the next line at the wrong position; the EoT packet marks it explicitly.
+---
+diff --git a/drivers/gpu/drm/sun4i/sun6i_mipi_dsi.c b/drivers/gpu/drm/sun4i/sun6i_mipi_dsi.c
+--- a/drivers/gpu/drm/sun4i/sun6i_mipi_dsi.c
++++ b/drivers/gpu/drm/sun4i/sun6i_mipi_dsi.c
+@@ -738,7 +738,10 @@
+ 	regmap_write(dsi->regs, SUN6I_DSI_CTL_REG, SUN6I_DSI_CTL_EN);
+ 
+ 	regmap_write(dsi->regs, SUN6I_DSI_BASIC_CTL0_REG,
+-		     SUN6I_DSI_BASIC_CTL0_ECC_EN | SUN6I_DSI_BASIC_CTL0_CRC_EN);
++		     SUN6I_DSI_BASIC_CTL0_ECC_EN | SUN6I_DSI_BASIC_CTL0_CRC_EN |
++		     (device->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET ?
++		      0 : SUN6I_DSI_BASIC_CTL0_HS_EOTP_EN));
++	dev_info(dsi->dev, "experiment kernel e4-eotp: EoT packet after every HS transmission\n");
+ 
+ 	regmap_write(dsi->regs, SUN6I_DSI_TRANS_START_REG, 10);
+ 	regmap_write(dsi->regs, SUN6I_DSI_TRANS_ZERO_REG, 0);

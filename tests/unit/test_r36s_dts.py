@@ -2,7 +2,7 @@
 r36s-single-card).
 
 Reads the source (board/r36s/dts/) without compiling: dtc and dt-validate run in the build
-(r36os.kernel.build_dtbs). The expected values are those of appendix A, which comes from
+(lume_tool.kernel.build_dtbs). The expected values are those of appendix A, which comes from
 the factory device tree of the device.
 """
 
@@ -10,8 +10,8 @@ import re
 
 import pytest
 
-from r36os import kpatch
-from r36os.paths import REPO_ROOT
+from lume_tool import kpatch
+from lume_tool.paths import REPO_ROOT
 
 DTS = (REPO_ROOT / "board/r36s/dts/rk3326-r36s-v5.dts").read_text()
 BANKS = "ABCD"
@@ -256,7 +256,7 @@ def test_stick_channels_and_directions_as_tested_on_the_device():
 
 def test_otg_port_is_device_by_default_with_a_role_switch():
     # usb-device-access D1: the u2phy does not see the VBUS of the OTG port, so the dwc2
-    # role switch overrides the session bits; r36os-usb sets host from the ID pin
+    # role switch overrides the session bits; lume-usb sets host from the ID pin
     otg = _node("&usb20_otg")
     assert "usb-role-switch;" in otg
     assert 'role-switch-default-mode = "peripheral";' in otg
@@ -286,6 +286,27 @@ def test_otg_host_role_powers_the_port():
     # usb-device-access D7: 5 V from the RK817 OTG_SWITCH in the host role
     assert "vbus-supply = <&otg_switch>;" in _node("&usb20_otg")
     assert "otg_switch: OTG_SWITCH {" in CODE
+
+
+def test_only_the_power_key_wakes():
+    # device-fixes D11, task 8.1: the power key (rk805-pwrkey) is an MFD cell without a DT
+    # node; it wakes through the RK817 interrupt, which the I2C core arms as the wake IRQ of
+    # the PMIC client only with wakeup-source on the PMIC node. That is the single wakeup
+    # property of the board: the gamepad gpio-keys, the sticks and the card never wake.
+    pmic = _node("rk817: pmic@20")
+    own = re.sub(r"^\t\t\w[^\n]*\{\n.*?^\t\t\};\n", "", pmic, flags=re.S | re.M)  # children out
+    assert "wakeup-source;" in own
+    assert "interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;" in own
+    assert CODE.count("wakeup-source") == 1
+    for prop in ("enable-sdio-wakeup", "gpio-key,wakeup", "linux,wakeup"):
+        assert prop not in CODE, prop
+    # lume-sleep switches off the other RK817 sources and never the PMIC itself (0-0020):
+    # without its wake IRQ nothing wakes the console
+    conf = (REPO_ROOT / "aports/lume-power/files/usr/share/lume/sleep/r36s.conf").read_text()
+    nowake = re.findall(r"^nowake (\S+)\s*(?:#.*)?$", conf, re.M)
+    assert nowake == ["class/power_supply/rk817-charger", "class/power_supply/rk817-battery",
+                      "bus/platform/devices/rk808-rtc.*"]
+    assert not any(re.search(r"pwrkey|0020|i2c|rk808$|rk817$", p) for p in nowake)
 
 
 def test_leds():

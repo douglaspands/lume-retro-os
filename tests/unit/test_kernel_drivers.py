@@ -9,8 +9,8 @@
 
 import re
 
-from r36os import kpatch
-from r36os.paths import REPO_ROOT
+from lume_tool import kpatch
+from lume_tool.paths import REPO_ROOT
 
 DESIGN = (REPO_ROOT / "openspec/changes/archive/2026-11-11-alpine-retroarch-distro/design.md").read_text()
 PANEL = kpatch.new_file(kpatch.find("0005-"), "drivers/gpu/drm/panel/panel-ga36mb-jd9366.c")

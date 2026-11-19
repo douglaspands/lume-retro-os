@@ -9,7 +9,7 @@ import tarfile
 
 import pytest
 
-from r36os import kernel
+from lume_tool import kernel
 
 GIT = shutil.which("git")
 pytestmark = pytest.mark.skipif(GIT is None, reason="no git")
@@ -87,7 +87,7 @@ def test_same_series_touches_nothing(fake_kernel):
 
 def test_two_pipelines_at_once_share_the_tree(fake_kernel):
     # build-speed 6.6: both arch pipelines ask for the tree at the same time; without the
-    # lock git failed with `r36os-series.index.lock: File exists`
+    # lock git failed with `lume-series.index.lock: File exists`
     import threading
 
     results, errors = [], []

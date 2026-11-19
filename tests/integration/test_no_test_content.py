@@ -10,12 +10,12 @@ import tarfile
 
 import pytest
 
-from r36os import catalog, testroms
-from r36os.container import Container, ensure_builder
-from r36os.image import boot_start
-from r36os.paths import out_dir
-from r36os.rootfs import target_out
-from r36os.targets import IMAGES, TARGETS
+from lume_tool import catalog, testroms
+from lume_tool.container import Container, ensure_builder
+from lume_tool.image import boot_start
+from lume_tool.paths import out_dir
+from lume_tool.rootfs import target_out
+from lume_tool.targets import IMAGES, TARGETS
 
 ROM_EXTS = {e for s in catalog.load()["systems"] for e in s["extensions"]} | {"exe"}
 TEST_NAMES = {name for name, _ in testroms.ROMS.values()} | {"gridlee.zip"}

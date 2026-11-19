@@ -1,0 +1,139 @@
+#!/bin/sh
+# Headphone jack -> output switch and per-output level (device-fixes D10, task 7.4).
+#
+# R36S: inside the RK817 the speaker output and the left headphone pin are the same, chosen
+# by the "Playback Mux" control (HP or SPK); nothing switches it on its own. This service
+# sets it from the jack state at start and again on every event of the jack input device
+# ("rk817_int Headphones", created by simple-audio-card from hp-det-gpios), then applies the
+# level of that output (ROMS/system/audio/level-<output>, scale and curve frozen in
+# docs/LAUNCHER.md "Volume por saida", same table as aports/lume-input/volume.h).
+#
+# GA36: nothing to do. The jack has a MECHANICAL switch (with headphones in, the speaker is
+# silent) and no detection (no pin in the DTS, no event), so the hardware switches the output
+# and only one level, "speaker", exists. The service exits 0 at once.
+#
+# Events are read with one open file descriptor and one dd per event: the read of an evdev
+# node blocks until the kernel has an event, so the service sleeps with no CPU. An error or
+# end of file ends the service (supervise-daemon restarts it), never a busy loop.
+#
+# Every message also goes to the kernel log (KMSG), so the logd trace keeps it: the
+# service runs under supervise-daemon, whose stdout goes nowhere.
+#
+# The active output goes to OUTPUT_FILE ("speaker" or "headphones"), so the volume keys
+# (lume-input) and the launcher change the level of that output (task 7.2).
+#
+# Environment for the tests: BOARD_FILE, AMIXER, JACK_EVDEV (the event device to read),
+# INPUT_SYSFS (default /sys/class/input), KMSG (default /dev/kmsg), LEVEL_DIR (default
+# /storage/system/audio), OUTPUT_FILE (default /run/lume/audio/output), AUDIO_LIBDIR
+# (volume.sh, default this folder), EVENT_SIZE (bytes of one struct input_event).
+BOARD_FILE=${BOARD_FILE:-/etc/lume/board}
+AMIXER=${AMIXER:-amixer}
+INPUT_SYSFS=${INPUT_SYSFS:-/sys/class/input}
+KMSG=${KMSG:-/dev/kmsg}
+OUTPUT_FILE=${OUTPUT_FILE:-/run/lume/audio/output}
+. "${AUDIO_LIBDIR:-${0%/*}}/volume.sh"
+CARD=rk817int
+JACK_NAME="rk817_int Headphones"
+
+# struct input_event: 16 bytes on 32-bit (armv7), 24 on 64-bit (aarch64, x86_64)
+if [ -z "${EVENT_SIZE:-}" ]; then
+	case "$(uname -m)" in
+	armv*|arm|i?86) EVENT_SIZE=16 ;;
+	*) EVENT_SIZE=24 ;;
+	esac
+fi
+
+[ "$(cat "$BOARD_FILE" 2>/dev/null)" = r36s ] || exit 0
+
+say() {
+	echo "$1"
+	[ -w "$KMSG" ] && echo "lume-$1" > "$KMSG" 2>/dev/null
+	return 0
+}
+
+# R36S digital Master of the RK817: raw 0-255, 255 is 0 dB, 373 milli-dB per step (volume.h
+# VOL_R36S_MASTER, the "mixer_scale" of r36s.conf). Task 7.1 replaces this control with the
+# analog one: change only raw_of_percent and set_output_gain (and the same control in
+# r36s.conf and in the mixer service).
+MASTER_LO=0 MASTER_REF=255 MASTER_STEP=373
+
+raw_of_percent() {  # <percent> -> raw of the control
+	vol_raw "$MASTER_LO" "$MASTER_REF" "$MASTER_STEP" "$1"
+}
+
+set_output_gain() {  # <raw> : the one place that writes the volume control
+	"$AMIXER" -c "$CARD" -q sset 'Master' "$1" >/dev/null 2>&1
+}
+
+# The active output for lume-input and the launcher, written by rename (never half a word)
+set_output() {  # <speaker|headphones>
+	mkdir -p "${OUTPUT_FILE%/*}" 2>/dev/null
+	echo "$1" > "$OUTPUT_FILE.tmp" 2>/dev/null && mv -f "$OUTPUT_FILE.tmp" "$OUTPUT_FILE" 2>/dev/null
+	return 0
+}
+
+apply_level() {  # <speaker|headphones>
+	local out=$1 pct raw
+	pct=$(level_read "$out")
+	[ -z "$pct" ] && pct=$VOL_DEFAULT_PCT
+	raw=$(raw_of_percent "$pct")
+	if set_output_gain "$raw"; then
+		say "jack: $out level $pct%, volume control $raw"
+	else
+		say "jack: FAILED to set the $out level $pct%"
+	fi
+}
+
+last=""
+apply() {
+	local state mux out
+	# a CARD control: without iface=CARD amixer looks among the MIXER ones and finds nothing
+	state=$("$AMIXER" -c "$CARD" cget iface=CARD,name='Headphones Jack' 2>/dev/null \
+		| sed -n 's/.*: values=//p')
+	case "$state" in
+	on) mux=HP out=headphones amp=off ;;
+	off) mux=SPK out=speaker amp=on ;;
+	*) return 0 ;;
+	esac
+	[ "$mux" = "$last" ] && return 0
+	# The speaker amplifier (spk-ctl, "Internal Speakers") is fed by the headphone stage
+	# (kernel patch 0024), so the mux alone leaves the speaker playing with headphones in
+	# (R36S J1, 2026-11-19): it goes off with headphones and on again without them.
+	if ! "$AMIXER" -c "$CARD" -q sset 'Internal Speakers' "$amp" >/dev/null 2>&1; then
+		say "jack: FAILED to switch the speaker amplifier $amp"
+	fi
+	if "$AMIXER" -c "$CARD" -q sset 'Playback Mux' "$mux" >/dev/null 2>&1; then
+		say "jack: headphones $state, playback mux $mux, speaker amplifier $amp"
+		last=$mux
+		set_output "$out"
+		apply_level "$out"
+	else
+		say "jack: FAILED to set playback mux $mux"
+	fi
+}
+
+find_evdev() {
+	local d
+	for d in "$INPUT_SYSFS"/event*; do
+		[ "$(cat "$d/device/name" 2>/dev/null)" = "$JACK_NAME" ] && { echo "/dev/input/${d##*/}"; return 0; }
+	done
+	return 1
+}
+
+apply
+dev=${JACK_EVDEV:-$(find_evdev)}
+if [ -z "$dev" ]; then
+	say "jack: no input device named \"$JACK_NAME\"; the playback mux stays on $last"
+	exit 1
+fi
+say "jack: watching $dev"
+# One fd for the whole run; each dd takes exactly one event (a read of an evdev node returns
+# one whole event and blocks until there is one). Every event (switch and sync) wakes the
+# loop; apply() only acts on a change. End of file or a read error stops the loop, so a
+# vanished device never spins.
+exec 3<"$dev" || { say "jack: cannot open $dev"; exit 1; }
+while [ "$(dd bs="$EVENT_SIZE" count=1 <&3 2>/dev/null | wc -c)" -ge "$EVENT_SIZE" ]; do
+	apply
+done
+say "jack: input device closed, stopping"
+exit 1

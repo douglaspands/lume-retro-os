@@ -64,12 +64,20 @@ O boot MUST NOT formatar, recriar ou redimensionar uma partição 2 que já exis
 - **WHEN** a partição 2 existe mas não é exFAT
 - **THEN** o boot não a modifica, mostra o erro na tela e no log e segue sem a partição de jogos
 
-### Requirement: Verificação da partição de jogos a cada boot
-Antes de montar a partição `ROMS`, o boot MUST rodar a verificação e o reparo automático do exFAT. A partição MUST ser montada em `/storage`, com dono no usuário do frontend.
+### Requirement: Verificação da partição de jogos quando precisa
+Antes de montar a partição `ROMS`, o boot MUST ler as marcas de volume sujo e de falha de mídia do exFAT e rodar a verificação e o reparo automático só quando uma delas estiver ligada ou quando houver um pedido de verificação do usuário. Num volume limpo, sem pedido, a verificação MUST NOT rodar. A partição MUST ser montada em `/storage`, com dono no usuário do frontend.
 
 #### Scenario: Partição marcada como suja
 - **WHEN** o sistema sobe depois de um desligamento abrupto que deixou a `ROMS` marcada como suja
 - **THEN** a verificação roda, o resultado aparece na tela e no log, e a `ROMS` é montada em `/storage`
+
+#### Scenario: Boot depois de um desligamento normal
+- **WHEN** o sistema sobe depois de um desligamento pelo menu ou pelo botão
+- **THEN** nenhuma verificação roda, o log registra `roms OK clean: check skipped`, e a `ROMS` é montada em `/storage`
+
+#### Scenario: Pedido do usuário
+- **WHEN** o volume está limpo e existe o pedido "Verificar no próximo boot"
+- **THEN** a verificação roda, o pedido é apagado e o resultado aparece na tela e no log
 
 ### Requirement: Persistência seletiva em ROMS/system
 Só os itens de uma lista explícita MUST persistir entre boots, guardados em `ROMS/system/`: a configuração do RetroArch (incluindo remaps e overrides), o fuso horário e o hostname. Gravar esses itens MUST ser atômico (arquivo temporário e renomeação).
@@ -156,7 +164,7 @@ No cartão da imagem `console`, o boot MUST montar como raiz o `SYSTEM` do conso
 
 #### Scenario: Mesmo cartão, sistemas diferentes
 - **WHEN** o mesmo cartão inicia no GA36 e depois no R36S
-- **THEN** no GA36 a raiz é o `SYSTEM` armv7 de `BOOT/ga36/` e no R36S é o `SYSTEM` aarch64 de `BOOT/r36s/`, e o `/etc/r36os/board` de cada um nomeia o próprio console
+- **THEN** no GA36 a raiz é o `SYSTEM` armv7 de `BOOT/ga36/` e no R36S é o `SYSTEM` aarch64 de `BOOT/r36s/`, e o `/etc/lume/board` de cada um nomeia o próprio console
 
 #### Scenario: SYSTEM do console ausente
 - **WHEN** o R36S inicia um cartão cuja `BOOT` não tem `r36s/SYSTEM`
@@ -203,3 +211,57 @@ do frontend os serviços que nenhum jogo usa (Bluetooth, NetworkManager, playlis
 #### Scenario: Cabo USB logo no boot
 - **WHEN** o console inicia com o cabo do PC na porta OTG
 - **THEN** o PC alcança o console pela rede USB antes de o frontend iniciar
+
+### Requirement: Hora que só anda para a frente
+Sem fonte de hora garantida, a hora do sistema MUST nunca voltar entre um desligamento e o
+boot seguinte. Ela MUST ser gravada no cartão ao desligar e ao suspender, e restaurada no
+boot como a maior entre a gravada, a data do build e o relógio do hardware. Uma fonte real,
+quando houver, MUST corrigi-la. Nada disso MUST atrasar o boot até o frontend.
+
+#### Scenario: Save depois de um reboot
+- **WHEN** o usuário grava um save, desliga, liga e grava outro save
+- **THEN** o segundo save tem data mais nova que o primeiro
+
+#### Scenario: Cartão novo
+- **WHEN** o console sobe sem hora gravada no cartão
+- **THEN** a hora do sistema não é anterior à data do build
+
+### Requirement: Nós de entrada só leitura para os jogos
+Os dispositivos de entrada do controle integrado, do controle virtual e dos botões de energia
+e de volume MUST ser só leitura para o usuário dos jogos. Só o serviço de entrada do sistema
+MUST poder escrever neles. Controles USB MUST continuar graváveis pelo grupo de entrada, para
+a vibração e os LEDs.
+
+#### Scenario: Jogo tenta injetar um botão
+- **WHEN** um processo do usuário dos jogos tenta escrever um evento no controle virtual
+- **THEN** a escrita é recusada por permissão
+
+#### Scenario: Vibração num controle USB
+- **WHEN** um controle USB com vibração é ligado e um jogo a usa
+- **THEN** a vibração funciona
+
+### Requirement: Coleta de métricas com custo baixo
+A coleta periódica de métricas e eventos, somando os processos que ela dispara, MUST usar menos de 1% de um núcleo no GA36 e no R36S, medido numa janela de 60 segundos com o launcher parado e com um jogo aberto.
+
+#### Scenario: Launcher parado
+- **WHEN** o console fica 60 segundos no launcher sem nenhum botão
+- **THEN** o coletor e os processos dele usam menos de 1% de um núcleo nesse intervalo
+
+#### Scenario: Durante o jogo
+- **WHEN** um jogo roda por 60 segundos com as métricas ligadas
+- **THEN** o coletor e os processos dele usam menos de 1% de um núcleo, e as colunas das métricas continuam as mesmas do formato documentado
+
+### Requirement: Serviços em segundo plano sem processo novo a cada volta
+Os serviços do sistema que vigiam um estado em laço (o cabo USB, os saves, a configuração persistida, o SSH pelo Wi-Fi) MUST esperar e ler sem criar um processo novo a cada volta, e todos juntos MUST usar menos de 1% de um núcleo, medido em 60 segundos com o launcher parado e com um jogo aberto. Com o launcher parado, o sistema inteiro MUST criar menos de um processo novo por segundo.
+
+#### Scenario: Launcher parado
+- **WHEN** o console fica 60 segundos no launcher sem nenhum botão e sem mudança no cabo
+- **THEN** o contador `processes` de `/proc/stat` sobe menos de 60, e os laços somam menos de 1% de um núcleo
+
+#### Scenario: Durante o jogo
+- **WHEN** um jogo roda por 60 segundos
+- **THEN** os laços somam menos de 1% de um núcleo, e o cabo, o MTP, o SSH pelo cabo, a gravação dos saves e a configuração persistida continuam funcionando como antes
+
+#### Scenario: Hora do log depois do fuso
+- **WHEN** o fuso do cartão é aplicado depois de o coletor subir
+- **THEN** as linhas seguintes do coletor saem na hora local, como as do `lume-run`

@@ -1,0 +1,35 @@
+#!/sbin/openrc-run
+# vm image only (virtual-gamepad 3.3): the local network of `lume vm --ssh` and dropbear on
+# it, root with no password like the USB cable of the consoles, for `lume dev`. Enabled in
+# rootfs/configure.sh for the vm board only; without a virtio network interface (test-vm,
+# plain `lume vm`) it starts nothing. After the frontend: never on the boot critical path.
+
+description="Local network of the vm for lume dev (ssh, vm only)"
+supervisor="supervise-daemon"
+command="/usr/libexec/lume/vm-net"
+command_args="run"
+respawn_delay=2
+respawn_max=5
+
+depend() {
+	need localmount
+	after frontend
+}
+
+has_vm_nic() {
+	[ "$(cat /etc/lume/board 2>/dev/null)" = vm ] || return 1
+	/usr/libexec/lume/vm-net ifname >/dev/null
+}
+
+start() {
+	if ! has_vm_nic; then
+		einfo "No vm network interface: no ssh"
+		return 0
+	fi
+	default_start
+}
+
+stop() {
+	has_vm_nic || return 0
+	default_stop
+}

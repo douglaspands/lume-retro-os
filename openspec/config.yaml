@@ -16,7 +16,7 @@ context: |
   - A documentação do cofre assume dArkOS/ArkOS com EmulationStation e o launcher como item do
     menu Ports. Este repositório é o Lume Retro OS (Alpine, sem EmulationStation, sem X11). Aqui o
     launcher entra como frontend pelo contrato de sessão em docs/FRONTEND.md
-    (/usr/libexec/r36os/frontends/<nome> e FRONTEND em /etc/conf.d/frontend), ver a spec
+    (/usr/libexec/lume/frontends/<nome> e FRONTEND em /etc/conf.d/frontend), ver a spec
     frontend-session. O change deve decidir de onde vêm os gamelist.xml e as capas nesta imagem
     (hoje o RetroArch usa playlists, ver a spec game-library) e como o launcher abre o jogo com
     core, aspecto, shader e save state pelo RetroArch.
@@ -32,8 +32,9 @@ rules:
       Planejamento em grafo (regra do projeto): o tasks.md MUST começar com uma seção
       "Grafo de execução" (sem checkbox) antes dos grupos numerados, contendo (1) os recursos
       exclusivos usados (CPU = um build pesado por vez, sob a proteção de calor; ARCH:<arch> =
-      um `r36os pkg` por arquitetura; GA36; R36S; USUARIO = ação física ou olho humano;
-      MERGE = um merge por vez no branch da change), (2) uma tabela com uma linha por task:
+      um build de pacotes por arquitetura; GA36; R36S; USUARIO = ação física ou olho humano;
+      MERGE = um merge por vez no branch da change; TREE = o repositório inteiro, para um nó
+      que toca arquivos de todas as áreas, como uma troca de nomes ou de estrutura), (2) uma tabela com uma linha por task:
       nó, depende de, recursos, executor (AG = subagente em out/worktrees/<nó>, só código e
       teste de unidade; PR = sessão principal: merge, build, aparelho), modelo e onda, (3) as trilhas
       e o caminho crítico em ASCII, (4) as ondas (nós de uma onda sem recurso em comum rodam em
@@ -59,6 +60,18 @@ rules:
     - >-
       Uma task com prova no aparelho pode ter o código mesclado antes da janela dela, mas só
       é marcada [x] depois da prova.
+    - >-
+      Nó TREE: fica sozinho na sua onda (nenhum outro nó, nem de outra change) e entra o mais
+      cedo possível no grafo, para os nós seguintes já nascerem sobre o resultado dele. Se o
+      risco for de boot, ele é dividido em nós TREE em sequência, um por área, cada um provado
+      na VM antes do seguinte.
+    - >-
+      Várias changes no mesmo branch: os recursos exclusivos (CPU, ARCH, GA36, R36S, USUARIO,
+      MERGE, TREE) valem para todas elas, e o grafo de cada uma lista na seção de recursos as
+      outras changes ativas do branch. Uma janela de aparelho pode juntar provas de changes
+      diferentes, com a change de cada prova anotada. Um nó TREE de uma change bloqueia os nós
+      das outras enquanto roda, e ele mesmo atualiza as tasks abertas delas (nomes, caminhos,
+      comandos) no mesmo merge.
 
 operations:
   apply:
@@ -78,6 +91,12 @@ operations:
       - >-
         Antes de cada janela de aparelho, avisar o usuário quais provas ela cobre e o que ele
         precisa ligar ou fazer.
+      - >-
+        Barreira do nó TREE: antes dele, mesclar ou descartar toda worktree aberta em
+        out/worktrees/ (de qualquer change do branch) e conferir que nenhuma sobrou; durante
+        ele, nenhum outro nó roda; depois do merge, a suíte de unidade completa, as suítes de
+        shell e o teste da VM, e só então as worktrees da onda seguinte são criadas a partir do
+        branch com o resultado.
 
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.

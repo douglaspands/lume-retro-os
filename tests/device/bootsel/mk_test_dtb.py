@@ -4,7 +4,7 @@
 Usage: mk_test_dtb.py <blank|hang> <in.dtb> <out.dtb>"""
 import sys
 
-from r36os import fdt
+from lume_tool import fdt
 
 mode, src, dst = sys.argv[1:4]
 root = fdt.parse(open(src, "rb").read())

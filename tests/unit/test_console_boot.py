@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from r36os import bootarea, r36s_vendor, vendor
-from r36os.paths import cache_dir
+from lume_tool import bootarea, r36s_vendor, vendor
+from lume_tool.paths import cache_dir
 
 S = 512
 
@@ -99,7 +99,7 @@ def synthetic_chain(monkeypatch, tmp_path):
                                   hashlib.sha256(card[r.start * S:r.end * S]).hexdigest())
         for r in r36s_vendor.REGIONS)
     monkeypatch.setattr(r36s_vendor, "REGIONS", regions)
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     monkeypatch.delenv(r36s_vendor.ENV_VAR, raising=False)
     return card
 
@@ -228,7 +228,7 @@ def synthetic_boot(monkeypatch, tmp_path):
     monkeypatch.setattr(r36s_vendor, "BOOT_FILES", {
         n: hashlib.sha256(BOOT_CONTENT[n]).hexdigest()
         for n in ("rg351mp-kernel.dtb", "rg351p-kernel.dtb", "logo.bmp")})
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     monkeypatch.delenv(r36s_vendor.ENV_VAR, raising=False)
 
 
@@ -355,7 +355,7 @@ def _boot_sizes(ga36_runtime=260 * MiB, r36s_runtime=262 * MiB, image=45 * MiB,
 
 def _slot_set(layer_out: Path, console: str) -> dict[str, Path]:
     """A slot set in <layer>/slot/ as the build leaves it; BOOT path -> file."""
-    from r36os import manifests
+    from lume_tool import manifests
 
     sdir = layer_out / manifests.SLOTS_DIR
     sdir.mkdir(parents=True, exist_ok=True)
@@ -376,7 +376,7 @@ def _slot_set(layer_out: Path, console: str) -> dict[str, Path]:
 
 
 def test_console_boot_files_layout(tmp_path):
-    from r36os import image
+    from lume_tool import image
 
     files = image.console_boot_files(tmp_path / "ga36", tmp_path / "r36s")
     assert {"boot.ini", "ga36/SLOTS", "ga36/zImage", "r36s/SLOTS", "r36s/Image",
@@ -426,7 +426,7 @@ def test_console_boot_files_layout(tmp_path):
 def test_boot_copy_commands_come_from_the_one_boot_list(tmp_path):
     # usb-device-access 5.1: the FAT is filled from console_boot_files(), the list that
     # flash and push use, with no glob of its own
-    from r36os import image
+    from lume_tool import image
 
     files = {"logo.bmp": tmp_path / "out/factory-boot/logo.bmp",
              "ga36/SYSTEM": tmp_path / "ga36/SYSTEM",
@@ -450,9 +450,9 @@ def test_boot_list_is_the_fat_content(tmp_path):
     import shutil
     import subprocess
 
-    from r36os import image
-    from r36os.container import Container, ensure_builder
-    from r36os.targets import TARGETS
+    from lume_tool import image
+    from lume_tool.container import Container, ensure_builder
+    from lume_tool.targets import TARGETS
 
     if shutil.which("podman") is None:
         pytest.skip("no podman")
@@ -479,9 +479,9 @@ def test_boot_list_is_the_fat_content(tmp_path):
 
 def test_archived_boot_list_matches_the_build():
     # the latest console build: its boot-files.sha256 names what console_boot_files lists
-    from r36os import image
-    from r36os.archive import images_dir
-    from r36os.targets import IMAGES
+    from lume_tool import image
+    from lume_tool.archive import images_dir
+    from lume_tool.targets import IMAGES
 
     path = images_dir(IMAGES["console"]) / "latest" / image.BOOT_LIST
     if not path.exists():
@@ -502,7 +502,7 @@ def test_archived_boot_list_matches_the_build():
 
 
 def test_console_boot_within_limits():
-    from r36os import image
+    from lume_tool import image
 
     image.check_console_boot(_boot_sizes())
     # both consoles with ~330 MiB of slots, counted twice (the previous sets): ~1.4 GiB
@@ -511,7 +511,7 @@ def test_console_boot_within_limits():
 
 @pytest.mark.parametrize("which", ["ga36", "r36s"])
 def test_console_boot_refuses_slots_above_448_mib(which):
-    from r36os import image
+    from lume_tool import image
 
     sizes = _boot_sizes(**{f"{which}_runtime": 448 * MiB - 22 * MiB - 3 * MiB})
     with pytest.raises(image.ConsoleImageError, match=f"slots of {which}.*448 MiB"):
@@ -523,7 +523,7 @@ def test_console_boot_refuses_slots_above_448_mib(which):
 
 
 def test_console_boot_needs_64_mib_free():
-    from r36os import image
+    from lume_tool import image
 
     with pytest.raises(image.ConsoleImageError, match="needs at least 64 MiB"):
         image.check_console_boot(_boot_sizes(image=900 * MiB))
@@ -532,7 +532,7 @@ def test_console_boot_needs_64_mib_free():
 def test_console_boot_counts_the_previous_slot_set():
     # system-image: 64 MiB free counting the previous set a push keeps (SLOTS.old), taken
     # as large as the new one: a slot of 60 MiB more takes 120 MiB of the free space
-    from r36os import image
+    from lume_tool import image
 
     sizes = _boot_sizes(ga36_runtime=400 * MiB, r36s_runtime=400 * MiB)
     files = sum(-(-s // 4096) * 4096 for s in sizes.values())
@@ -550,9 +550,9 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     the boot area folder and /out were the same path, and the dict kept only one)."""
     import re as _re
 
-    from r36os import image, version
+    from lume_tool import image, version
 
-    monkeypatch.setenv("R36OS_OUT", str(tmp_path))
+    monkeypatch.setenv("LUME_OUT", str(tmp_path))
     # the kernel and the DTBs as extracted from the published packages (build-speed 7.3)
     for f in ("ga36/kernel-pkg/boot/zImage", "ga36/kernel-pkg/boot/dtbs/a33/a.dtb",
               "ga36/kernel/android-boot-panel1.img", "r36s/kernel-pkg/boot/Image",
@@ -562,7 +562,7 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
     ga36_set = _slot_set(tmp_path / "ga36", "ga36")
     _slot_set(tmp_path / "r36s", "r36s")
     # the build checks the lume-select node of every DTB (boot-dtb-select D3)
-    from r36os import fdt
+    from lume_tool import fdt
     for f, ident in (("ga36/kernel-pkg/boot/dtbs/a33/a.dtb", "a"),
                      ("r36s/kernel-pkg/boot/dtbs/rk3326/rk3326-r36s-v5.dtb", "r36s-v5")):
         node = fdt.Node(props={"lume,id": fdt.s(ident), "lume,priority": fdt.u32(0),
@@ -612,7 +612,7 @@ def test_console_image_script_only_uses_mounted_paths(tmp_path, monkeypatch):
 
 
 def test_boot_ini_loads_the_r36s_kernel_and_dtb():
-    from r36os import image
+    from lume_tool import image
 
     ini = (image.REPO_ROOT / "board/r36s/boot.ini").read_text()
     assert ini.startswith("odroidgoa-uboot-config\n")   # the header the factory U-Boot wants

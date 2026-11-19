@@ -7,9 +7,9 @@ import struct
 
 import pytest
 
-from r36os import bootarea, bootimg, build, kpatch, vendor
-from r36os.image import BOOT_SECTORS, boot_start
-from r36os.paths import REPO_ROOT
+from lume_tool import bootarea, bootimg, build, kpatch, vendor
+from lume_tool.image import BOOT_SECTORS, boot_start
+from lume_tool.paths import REPO_ROOT
 
 BOARD = REPO_ROOT / "board/ga36"
 FRAGMENT = (BOARD / "kernel.config").read_text()
@@ -21,8 +21,8 @@ def test_ga36_factory_logo_is_the_boot_logo():
     GA36 draws bootlogo.bmp from its internal FAT (sector 73728) and cannot draw a BMP of
     BOOT (proof 1.4: sunxi_bmp_display fails from bootcmd), so the logo stays the factory
     one; it is the same file as BOOT/logo.bmp of the R36S, checked here."""
-    from r36os import r36s_vendor
-    from r36os.paths import cache_dir
+    from lume_tool import r36s_vendor
+    from lume_tool.paths import cache_dir
 
     area = cache_dir() / "vendor" / "ga36-factory-128M.bin"
     if not area.exists():
@@ -85,7 +85,7 @@ def test_vendor_area_digest_skips_sector0():
 
 
 def test_vendor_area_requires_factory_image(tmp_path, monkeypatch):
-    monkeypatch.setenv("R36OS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("LUME_CACHE", str(tmp_path / "cache"))
     monkeypatch.delenv(vendor.ENV_VAR, raising=False)
     with pytest.raises(vendor.VendorAreaError, match=vendor.ENV_VAR):
         vendor.vendor_area()
@@ -106,7 +106,7 @@ _RETROPAD = {"a": "BTN_A", "b": "BTN_B", "x": "BTN_X", "y": "BTN_Y", "l": "BTN_T
              "r": "BTN_TR", "l2": "BTN_TL2", "r2": "BTN_TR2", "select": "BTN_SELECT",
              "start": "BTN_START", "l3": "BTN_THUMBL", "r3": "BTN_THUMBR",
              "up": "BTN_DPAD_UP", "down": "BTN_DPAD_DOWN", "left": "BTN_DPAD_LEFT",
-             "right": "BTN_DPAD_RIGHT", "menu_toggle": "BTN_MODE"}
+             "right": "BTN_DPAD_RIGHT"}   # BTN_MODE is the Fn, kept by lume-input (lume-hud-actions D9)
 
 
 def test_gamepad_autoconfig_matches_driver():

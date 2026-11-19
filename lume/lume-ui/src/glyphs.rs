@@ -158,6 +158,36 @@ pub fn bluetooth(h: u32) -> (u32, u32, Vec<u8>) {
     (w, h, m)
 }
 
+/// The prototype's charge mark (its SVG path in the 30 x 14 battery viewBox):
+/// M15.6 2.6 10.4 7.6 h3.1 l-1 3.8 l5.2-5.2 h-3.2 z. Spans x 10.4..17.7, y 2.6..11.4.
+const BOLT: [(f32, f32); 6] = [(15.6, 2.6), (10.4, 7.6), (13.5, 7.6), (12.5, 11.4), (17.7, 6.2), (14.5, 6.2)];
+/// The bolt's box in the battery's icon units: (left, top, right, bottom).
+pub const BOLT_BOX: (f32, f32, f32, f32) = (10.4, 2.6, 17.7, 11.4);
+/// Half of the halo's stroke (1.1 units wide) around the bolt.
+pub const BOLT_HALO: f32 = 0.55;
+
+/// The bolt as a mask `h` px tall covering exactly `BOLT_BOX`; returns (w, h, mask).
+pub fn bolt(h: u32) -> (u32, u32, Vec<u8>) {
+    let (l, t, r, b) = BOLT_BOX;
+    let (vw, vh) = (r - l, b - t);
+    let w = (h as f32 * vw / vh).round() as u32;
+    let m = mask_view(w, h, vw, vh, |x, y| in_polygon(x + l, y + t, &BOLT));
+    (w, h, m)
+}
+
+/// The bolt's halo: the polygon plus a band of `BOLT_HALO` around its edges (round joins),
+/// over `BOLT_BOX` grown by that band on every side; returns (w, h, mask) for `h` px tall.
+pub fn bolt_halo(h: u32) -> (u32, u32, Vec<u8>) {
+    let (l, t, r, b) = BOLT_BOX;
+    let (vw, vh) = (r - l + 2.0 * BOLT_HALO, b - t + 2.0 * BOLT_HALO);
+    let w = (h as f32 * vw / vh).round() as u32;
+    let m = mask_view(w, h, vw, vh, |x, y| {
+        let (x, y) = (x + l - BOLT_HALO, y + t - BOLT_HALO);
+        in_polygon(x, y, &BOLT) || (0..BOLT.len()).any(|i| to_segment(x, y, BOLT[i], BOLT[(i + 1) % BOLT.len()]) <= BOLT_HALO)
+    });
+    (w, h, m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

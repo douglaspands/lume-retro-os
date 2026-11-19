@@ -52,7 +52,7 @@ fn main() -> ExitCode {
         return screenshot(&mut app, font, std::path::Path::new(&out));
     }
     // GLES first: on lima (GA36) the default "opengl" renderer only clears the screen, no
-    // tiles and no text (seen with r36os-shot, 2026-11-14). SDL falls back to the other
+    // tiles and no text (seen with lume-shot, 2026-11-14). SDL falls back to the other
     // renderers when GLES is missing; SDL_RENDER_DRIVER in the environment still wins.
     if std::env::var_os("SDL_RENDER_DRIVER").is_none() {
         sdl2::hint::set("SDL_RENDER_DRIVER", "opengles2");
@@ -99,7 +99,9 @@ fn main() -> ExitCode {
     std::thread::spawn(move || lume_ui::input::run(move |a, rep| {
         let _ = t.send(Ev::Input(a, rep));
     }));
-    // volume keys (and Fn + volume keys, the brightness): r36os-input applies them and tells
+    // the connection to the input daemon, to answer `suspend <seq>` (D11)
+    let link: lume_ui::input::Link = Default::default();
+    // volume keys (and Fn + volume keys, the brightness): lume-input applies them and tells
     // its socket clients; the level is read here as the Settings read it
     {
         use lume_ui::input::Level;
@@ -107,46 +109,51 @@ fn main() -> ExitCode {
         let mixer = lume_ui::system::this_board_mixer();
         let backlight = RealSystem::new();
         let t = tx.clone();
+        let link = link.clone();
         let sock = std::env::var_os("LUME_INPUT_SOCK").map(std::path::PathBuf::from).unwrap_or_else(|| lume_ui::input::INPUT_SOCK.into());
         std::thread::spawn(move || {
-            lume_ui::input::watch_levels(
+            use lume_ui::input::Sock;
+            lume_ui::input::watch_socket(
                 &sock,
+                link,
                 |k| match k {
                     Level::Volume => mixer.as_ref().and_then(|m| m.level()),
                     Level::Brightness => backlight.brightness(),
                 },
-                move |k, v| {
-                    let _ = t.send(match k {
-                        Level::Volume => Ev::Volume(v),
-                        Level::Brightness => Ev::Brightness(v),
+                move |s| {
+                    let _ = t.send(match s {
+                        Sock::Level(Level::Volume, v) => Ev::Volume(v),
+                        Sock::Level(Level::Brightness, v) => Ev::Brightness(v),
+                        Sock::FnTap => Ev::FnTap,
+                        Sock::FnHold(table) => Ev::FnHold(table),
+                        Sock::FnRelease => Ev::FnRelease,
+                        Sock::Sleep(n) => Ev::Sleep(n),
                     });
                 },
             )
         });
     }
-    // the status bar: Wi-Fi and Bluetooth every 5 s (a connection shows soon), the battery
-    // every 30 s; a few sysfs reads, no process, an event only when something changes (the
-    // loop stays asleep otherwise)
+    // the status bar: Wi-Fi, Bluetooth and the battery (level and charging, for the charge
+    // mark and the low-battery warning) every 5 s; a few sysfs reads, no process, an event
+    // only when something changes (the loop stays asleep otherwise)
     let t = tx.clone();
     std::thread::spawn(move || {
         let sys = std::path::Path::new("/sys");
         let mut battery = lume_ui::system::read_battery(sys);
         let mut network = lume_ui::system::read_network(sys);
-        for tick in 1u64.. {
+        loop {
             std::thread::sleep(Duration::from_secs(5));
             let now = lume_ui::system::read_network(sys);
             if now != network {
                 let _ = t.send(Ev::Network(now.0, now.1));
                 network = now;
             }
-            if tick % 6 == 0 {
-                let now = lume_ui::system::read_battery(sys);
-                if now != battery {
-                    if let Some((level, charging)) = now {
-                        let _ = t.send(Ev::Battery(level, charging));
-                    }
-                    battery = now;
+            let now = lume_ui::system::read_battery(sys);
+            if now != battery {
+                if let Some((level, charging)) = now {
+                    let _ = t.send(Ev::Battery(level, charging));
                 }
+                battery = now;
             }
         }
     });
@@ -158,10 +165,22 @@ fn main() -> ExitCode {
     }));
 
     const IDLE: Duration = Duration::from_secs(1);
+    // the first screen is the menu scenario for the power service (D9)
+    app.announce_menu();
+    // The first frame twice: on the GA36 (KMSDRM, lima) the first swap after a game leaves the
+    // screen black until the next one, so the launcher only showed on the first key press
+    // (2026-11-17). One extra frame at start costs a few ms.
+    app.draw(&mut c);
     let mut redraw = true;
     let code = loop {
-        if redraw {
+        if redraw && !app.sleeping {
             app.draw(&mut c);
+        }
+        // suspended: the last frame is out, the answer to `suspend <seq>` goes now
+        if let Some(seq) = app.suspend_reply.take() {
+            if !lume_ui::input::answer_suspend(&link, seq) {
+                log(&format!("suspend_ok {seq} not sent"));
+            }
         }
         if let Some(exit) = app.exit {
             break exit;
@@ -189,14 +208,16 @@ fn main() -> ExitCode {
             });
         }
         // idle: wake once a second only to drain SDL's queue; an animation: its next frame
-        let event = match app.wait() {
+        // The idle timer is a timeout of this wait, not a polling loop: one wake-up when its
+        // time is up (zero: a Tick enters the idle state), nothing while the screen is dimmed.
+        let event = match app.wait().into_iter().chain(app.idle_wait()).min() {
             None => rx.recv_timeout(IDLE).ok(),
             Some(d) => Some(rx.recv_timeout(d.max(Duration::from_millis(1))).unwrap_or(Ev::Tick)),
         };
         redraw = event.map(|ev| app.handle(ev)).unwrap_or(false);
         // SDL's own events, without waiting: a window exposed again (VT switch back) draws
         for e in pump.poll_iter() {
-            redraw |= matches!(e, sdl2::event::Event::Window { .. });
+            redraw |= matches!(e, sdl2::event::Event::Window { .. }) && !app.sleeping;
         }
     };
     if let Err(e) = app.current_state().save(&app.runtime) {

@@ -1,7 +1,7 @@
 From: Lume Retro OS
 Subject: [PATCH] gfx_widgets: LUME_LEVEL draws the launcher's level line
 
-r36os-input changes the system mixer (volume keys) and the backlight
+lume-input changes the system mixer (volume keys) and the backlight
 (Fn + volume keys) without RetroArch knowing, so a game showed nothing. The
 new network command "LUME_LEVEL <left|right> <percent> <rrggbb>" draws the
 lume launcher's level line over the game: a thin line along the left
@@ -17,7 +17,7 @@ build files do not change). The command channel listens on 127.0.0.1 only
      return true;
  }
  
-+/* Lume: "LUME_LEVEL <left|right> <percent> <rrggbb>", sent by r36os-input
++/* Lume: "LUME_LEVEL <left|right> <percent> <rrggbb>", sent by lume-input
 + * after a volume (right) or brightness (left) key: the launcher's level line
 + * over the game. Without graphics widgets it does nothing. */
 +bool command_lume_level(command_t *cmd, const char* arg)
@@ -93,7 +93,7 @@ build files do not change). The command channel listens on 127.0.0.1 only
 +
 +/* Lume: a level as a thin line along one edge of the screen, the
 + * launcher's volume and brightness lines (lume-launcher 8.9). The system
-+ * mixer and the backlight are changed by r36os-input, which asks for the
++ * mixer and the backlight are changed by lume-input, which asks for the
 + * line with the LUME_LEVEL network command. A faint track the full height,
 + * filled from the bottom; gone 1.5 s after the last request. */
 +#define LUME_LEVEL_DURATION 1500

@@ -42,7 +42,7 @@ nas métricas do `logd` (colunas `lume_*` e `input_*`).
 | GA36-MB V1.2 (build 20261114-143705) | A33, 4× Cortex-A7, Mali-400 (`lima`) | 512 MB | 79 MB / 73% de um núcleo | `lume-ui` 59 MB / 0,1% de um núcleo |
 
 Durante um jogo (NES, fceumm, 60 fps) só ficam o `lume-run` (696 KB, 0% de CPU) e o
-`r36os-input` (500 KB, 0% de CPU); o `lume-ui` sai e devolve a memória ao jogo.
+`lume-input` (500 KB, 0% de CPU); o `lume-ui` sai e devolve a memória ao jogo.
 
 Tempos no mesmo aparelho: do fim do jogo até a grade de volta, 0,80–0,93 s (meta de 1 s); do
 aperto de Fn+Start até a grade, 1,70–1,78 s, com 0,85–0,90 s gastos pelo RetroArch para

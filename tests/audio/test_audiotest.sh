@@ -4,7 +4,7 @@
 # busybox with fake aplay, speaker-test and uptime.
 set -u
 cd "$(dirname "$0")/../.."
-AT="busybox sh aports/lume-audio/files/usr/libexec/r36os/audiotest"
+AT="busybox sh aports/lume-audio/files/usr/libexec/lume/audiotest"
 W=$(mktemp -d)
 FAILS=0
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
@@ -49,7 +49,7 @@ out=$($AT)
 check "aplay error: reported with its error" 'printf "%s\n" "$out" | grep -q "^audiotest: S16_LE FAILED"'
 unset FAKE_RC
 
-check "service: enabled only on the R36S" 'grep -q "add r36os-audiotest default" rootfs/configure.sh'
+check "service: enabled only on the R36S" 'grep -q "add lume-audiotest default" rootfs/configure.sh'
 
 rm -rf "$W"
 echo "failures: $FAILS"

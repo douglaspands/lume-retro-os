@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
  * YMC A10Mini V4, converted from a vendor RK3326 device tree by
- * `r36os dtb import` (boot-dtb-select D12). Do not edit: import again.
+ * `lume dtb import` (boot-dtb-select D12). Do not edit: import again.
  * Source: arkos4clone/boot/dArkOS/consoles/a10miniv4/rk3326-a10mini-v4-linux.dtb
  * SHA-256: 7094dfca9f42271de91e9f7b5d2e0c2550c41d7c69102939e56f99ade0937b2d
  * Note: speaker gain: source spk-volume 3 ignored, the native safe value is used

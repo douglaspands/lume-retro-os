@@ -1,0 +1,28 @@
+# Lume Retro OS: the sampling loop of the diagnostic logs (openspec game-governor 1.2, D8,
+# P-60). lume-logd (lume-core) execs it after the hardware snapshot: every interval it writes
+# the metrics line, the frontend and usb trace lines and the events, and traces the kernel
+# messages as they arrive, in the format of docs/LOGS.md, at a fraction of the shell cost. It
+# calls the shell logd back for the batch flush, the snapshot of a frozen frontend and the
+# display interrupt kick.
+pkgname=lume-logd
+pkgver=1.0
+pkgrel=0
+pkgdesc="Sampling loop of the diagnostic logs (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+options="!check" # tested on the host (tests/unit/test_lume_logd.py)
+source="logd.c"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-logd logd.c
+}
+
+package() {
+	install -Dm755 lume-logd "$pkgdir"/usr/bin/lume-logd
+}
+
+sha512sums="
+2b9125f494b0f26879bcf6dfc47c4e412924b83a171db3f149894b3b26344b3787c1b110cd4c6c9799330e2236c4ba9025777b08f2256632e4a4ba7c1404df48  logd.c
+"

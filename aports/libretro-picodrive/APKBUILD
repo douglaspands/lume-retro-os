@@ -2,7 +2,7 @@
 # atualizado para o master atual com os submódulos usados pelo build libretro.
 pkgname=libretro-picodrive
 pkgver=0_git20260926
-pkgrel=0
+pkgrel=1
 _commit="1890c2932234c9d30f4cd3851d02228baae8f09e"
 _commit_dr_libs="dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb"
 _commit_libchdr="e62ac5995b1c7ef65ece35293914843b8ee57d49"
@@ -33,8 +33,23 @@ prepare() {
 	rm -rf platform/libpicofe && mv "$srcdir/libpicofe-$_commit_libpicofe" platform/libpicofe
 }
 
+# armv7 only: -marm. picodrive keeps a flag in its memory maps by storing each handler as
+# (function address >> 1) and calls it back with (entry << 1) (MAP_FUNCTION_SHIFT in
+# pico/memory.h), so every handler must sit at an even address; xmap_set() in
+# pico/memory.c refuses odd ones ("xmap_set: function ptr is not aligned") and leaves the
+# map entry unset. Alpine's armv7 gcc emits Thumb-2 by default, where every function
+# pointer has bit 0 set: on the GA36 the maps came out broken (black screen, exit 139).
+# ARM mode puts the handlers at even addresses. The Makefile.libretro "unix" platform
+# never adds -marm itself (its armv7 board platforms do), and ARCH comes from
+# `gcc -dumpmachine` ("armv7", not "arm"), so the ARM asm and the dynarecs stay off and
+# only C code is built: -marm is all it needs. CFLAGS goes through the environment (the
+# Makefile appends to it and passes it to the LTO link too); aarch64 and x86_64 unchanged.
+case "$CARCH" in
+armv7) _cflags="-marm" ;;
+esac
+
 build() {
-	make -f Makefile.libretro
+	CFLAGS="$CFLAGS $_cflags" make -f Makefile.libretro
 }
 
 package() {

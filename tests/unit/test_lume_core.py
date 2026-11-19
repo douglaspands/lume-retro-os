@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-from r36os import packages
-from r36os.paths import REPO_ROOT
+from lume_tool import packages
+from lume_tool.paths import REPO_ROOT
 
 BASE_COMMIT = "76b148d"  # the last commit with every file still in rootfs/overlay
 APORT = REPO_ROOT / "aports/lume-core"
@@ -17,11 +17,12 @@ OVERLAY = REPO_ROOT / "rootfs/overlay"
 # What the fragment ships (design D2, mapped to the real paths of the overlay)
 CORE = {
     "etc/conf.d/dmesg", "etc/conf.d/frontend", "etc/hostname", "etc/init.d/frontend",
-    "etc/init.d/r36os-logd", "etc/issue", "etc/motd",
-    "usr/libexec/r36os/bootlog", "usr/libexec/r36os/frontends/lume",
-    "usr/libexec/r36os/frontends/retroarch", "usr/libexec/r36os/lib.sh",
-    "usr/libexec/r36os/logd", "usr/libexec/r36os/logs.sh", "usr/libexec/r36os/rc-tee",
-    "usr/libexec/r36os/session",
+    "etc/init.d/lume-logd", "etc/issue", "etc/motd",
+    "etc/init.d/lume-clock", "usr/bin/lume-clock",   # device-fixes 9.1
+    "usr/libexec/lume/bootlog", "usr/libexec/lume/frontends/lume",
+    "usr/libexec/lume/frontends/retroarch", "usr/libexec/lume/lib.sh",
+    "usr/libexec/lume/logd", "usr/libexec/lume/logs.sh", "usr/libexec/lume/rc-tee",
+    "usr/libexec/lume/session",
 }
 
 
@@ -50,6 +51,34 @@ def _base_overlay() -> dict[str, tuple[str, str]]:
     return files
 
 
+# device-fixes 1.2 renamed the console paths after the base commit: the libexec and share
+# folders of the old prefix became .../lume, and the <old>-<x> services and tools lume-<x>.
+# The old prefix is spelled in two parts so the name guard (test_lume_names) skips it.
+OLD = "r36" "os"
+_RENAMED_DIRS = ("usr/libexec/", "usr/share/", "etc/")
+
+
+def _base_name(rel: str, base: dict) -> str:
+    """The name `rel` had at the base commit (itself when it was not renamed)."""
+    if rel in base:
+        return rel
+    old = rel
+    for d in _RENAMED_DIRS:
+        if old.startswith(d + "lume/"):
+            old = f"{d}{OLD}/{old[len(d + 'lume/'):]}"
+    head, _, name = old.rpartition("/")
+    if name.startswith("lume-"):
+        old = f"{head}/{OLD}-{name[len('lume-'):]}"
+    return old
+
+
+def _base_has_old_names(sha: str) -> bool:
+    """Whether the base blob holds the old prefix: its content changed with the 1.2 rename."""
+    blob = subprocess.run(["git", "-C", str(REPO_ROOT), "cat-file", "blob", sha], check=True,
+                          capture_output=True).stdout
+    return OLD.encode() in blob.lower()
+
+
 def _git_mode(path) -> str:
     return "100755" if path.stat().st_mode & 0o111 else "100644"
 
@@ -68,6 +97,42 @@ def _roots():
     return [OVERLAY, *(REPO_ROOT / "aports" / n / "files" for n in FRAGMENTS)]
 
 
+# files created in a fragment after the move (they have no base commit entry)
+ADDED_AFTER_MOVE = {
+    "usr/libexec/lume/power-profiles.sh",  # game-governor 1.1: profile validator (lume-power)
+    "usr/bin/lume-power",                  # game-governor 2.2: the power service (lume-power)
+    "etc/init.d/lume-power",
+    "usr/share/lume/power/ga36.conf",
+    "usr/share/lume/power/r36s.conf",
+    "usr/libexec/lume/vm-net",             # virtual-gamepad 3.3: the vm's ssh network (lume-net)
+    "etc/init.d/lume-vmnet",
+    # game-governor: RetroArch keys per core (the PlayStation keeps the main-thread video)
+    "usr/share/lume/retroarch-core.keys",
+    # device-fixes 3.2: the suspension mode of each console (lume-power, read by lume-sleep)
+    "usr/share/lume/sleep/ga36.conf",
+    "usr/share/lume/sleep/r36s.conf",
+    # R36S J1 (2026-11-19): panfrost profiling for the video group (lume-hud-actions 4.4) and
+    # the R36S card read-ahead (device-fixes 5.5), both lume-power udev rules
+    "etc/udev/rules.d/90-lume-gpu-profiling.rules",
+    "etc/udev/rules.d/90-lume-readahead.rules",
+    # P-45: guarded RK817 codec access over I2C (lume-diag, build phase; leaves with P-22)
+    "usr/libexec/lume/codec-i2c",
+    # device-fixes 8.3: suspend and power off by the power button (lume-power)
+    "usr/libexec/lume/lume-sleep",
+    "etc/init.d/lume-sleep",
+    # device-fixes 9.1: the clock that only moves forward (lume-core) and its NTP hook (lume-net)
+    "usr/bin/lume-clock",
+    "etc/init.d/lume-clock",
+    "etc/NetworkManager/dispatcher.d/90-lume-clock",
+    # device-fixes 7.2: the volume scale of the shell services (lume-audio: mixer, jack)
+    "usr/libexec/lume/volume.sh",
+    # device-fixes 5.3: the card maintenance requests (lume-saves)
+    "usr/libexec/lume/card",
+    "usr/libexec/lume/card-event",
+    "etc/init.d/lume-card",
+}
+
+
 def test_aports_and_overlay_together_are_the_overlay_before_the_move():
     base = _base_overlay()
     seen: dict[str, str] = {}
@@ -75,22 +140,40 @@ def test_aports_and_overlay_together_are_the_overlay_before_the_move():
         for rel in _tree(root):
             assert rel not in seen, f"{rel} is in {seen[rel]} and in {root}"
             seen[rel] = str(root)
-    assert set(seen) == set(base)
+    assert {_base_name(r, base) for r in set(seen) - ADDED_AFTER_MOVE} == set(base)
 
 
 # files edited on purpose after the move (only their mode is still held to the base commit)
 EDITED_AFTER_MOVE = {
-    "usr/libexec/r36os/hwinfo",     # 8.2: the fragments section
-    "usr/libexec/r36os/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
+    # 2026-11-19, the user: same cores on both consoles; Game Gear and SG-1000 added
+    "usr/share/lume/systems.json",
+    "usr/libexec/lume/hwinfo",     # 8.2: the fragments section
+    "usr/libexec/lume/jack",       # R36S 2026-11-17: dd reads the jack events (od failed)
+    "usr/share/lume/i18n/en.toml",  # game-governor 3.2: the low-battery text
+    "usr/share/lume/i18n/pt.toml",
+    "usr/share/lume/i18n/es.toml",
+    "usr/libexec/lume/logd",       # game-governor 1.2: the sample without external processes
+    "usr/libexec/lume/logs.sh",
+    "usr/libexec/lume/selftest",   # lume-hud-actions D9: Start + Select stays in the game
+    "usr/libexec/lume/frontends/retroarch",  # lume-hud-actions D9: Start + Select as reserve
+    "usr/share/lume/runners.d/retroarch.toml",  # lume-hud-actions D3: actions and overlay
+    # lume-hud-actions D5, D9: the pictures and the menu keys of RetroArch
+    "usr/share/lume/retroarch-lume.cfg",
+    "usr/share/lume/factory/retroarch/retroarch.cfg",
+    "usr/share/libretro/autoconfig/udev/R36S Gamepad.cfg",
+    "usr/share/libretro/autoconfig/udev/GA36-MB Gamepad.cfg",
+    # game-governor P-93: threaded video on both consoles
+    "usr/share/lume/retroarch-ga36.cfg",
+    "usr/share/lume/retroarch-r36s.cfg",
 }
 
 
 def test_every_file_keeps_its_content_and_mode():
     base = _base_overlay()
     for root in _roots():
-        for rel in _tree(root):
-            mode, sha = base[rel]
-            if rel in EDITED_AFTER_MOVE:
+        for rel in _tree(root) - ADDED_AFTER_MOVE:
+            mode, sha = base[_base_name(rel, base)]
+            if rel in EDITED_AFTER_MOVE or _base_has_old_names(sha):
                 assert _git_mode(root / rel) == mode, rel
                 continue
             assert (_git_mode(root / rel), _blob_sha(root / rel)) == (mode, sha), rel

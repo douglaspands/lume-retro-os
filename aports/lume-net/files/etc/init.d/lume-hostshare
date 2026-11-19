@@ -1,0 +1,38 @@
+#!/sbin/openrc-run
+# VM only: the PC folder shared over virtio-9p (uv run lume vm --roms DIR), read only.
+# When it holds the system folders it becomes /storage/roms; bios/ becomes /storage/bios.
+
+description="Host shared folder (VM)"
+
+depend() {
+	need localmount
+	after lume-persist
+	before lume-playlists frontend
+}
+
+start() {
+	[ "$(cat /etc/lume/board 2>/dev/null)" = vm ] || return 0
+	modprobe 9pnet_virtio 2>/dev/null
+	mkdir -p /mnt/host
+	mount -t 9p -o ro,trans=virtio,version=9p2000.L hostshare /mnt/host 2>/dev/null || return 0
+	ebegin "Mounting host shared folder at /mnt/host"
+	local roms=""
+	if [ -d /mnt/host/roms ]; then
+		roms=/mnt/host/roms
+	else
+		for s in $(jq -r '.systems[].id' /usr/share/lume/systems.json); do
+			[ -d "/mnt/host/$s" ] && { roms=/mnt/host; break; }
+		done
+	fi
+	if [ -n "$roms" ]; then
+		mount --bind "$roms" /storage/roms && einfo "$roms -> /storage/roms"
+		[ -d "$roms/bios" ] && mount --bind "$roms/bios" /storage/bios \
+			&& einfo "$roms/bios -> /storage/bios"
+	fi
+	eend 0
+}
+
+stop() {
+	umount /storage/bios /storage/roms /mnt/host 2>/dev/null
+	return 0
+}

@@ -1,0 +1,494 @@
+#!/bin/sh
+# Acceptance self-test of the VM (enabled by lume.selftest=1 on the cmdline).
+#
+# Each boot runs one phase, kept in TESTDATA/state. The results go to the serial as
+# "SELFTEST <name> PASS|FAIL [detail]" and to TESTDATA/results.txt. Actions only the host
+# can do (abrupt reset, keys) are asked with "SELFTEST REQUEST <action>".
+#
+# `selftest device` is the mode of the consoles (build-speed D12, run by `lume dev check`):
+# stateless, without the VM-only cases; it lives in selftest-device.
+[ "$1" = device ] && exec /usr/libexec/lume/selftest-device
+. /usr/libexec/lume/lib.sh
+T=$LUME_RUN/testdata
+SERIAL=/dev/$(cat /etc/lume/serial-tty)
+RA_CFG=/home/game/.config/retroarch/retroarch.cfg
+LUME=/usr/share/lume/retroarch-lume.cfg
+EXTRA=$LUME_RUN/retroarch-extra.cfg
+STATE_ROM="/storage/roms/nes/Test NES.nes"
+# The logs are deleted in phase third; the rotation (keep_boots=10) needs 11 boots after it
+TOTAL_BOOTS=14
+LOGS=/storage/logs
+LOGS_CONF=/storage/system/etc/logs.conf
+
+say() { echo "SELFTEST $*" > "$SERIAL"; }
+mark() {  # name PASS|FAIL [detail]
+	local name="$1" res="$2"; shift 2
+	say "$name $res${*:+ $*}"
+	echo "$name $res $*" >> "$T/results.txt"
+	fsync "$T/results.txt" 2>/dev/null
+}
+check() {  # name "condition" [detail]
+	if eval "$2"; then mark "$1" PASS "${3:-}"; else mark "$1" FAIL "${3:-}"; fi
+}
+request() { say "REQUEST $1"; }
+next() { echo "$1" > "$T/state"; sync -f "$T/state"; }
+wait_for() {  # seconds "condition"
+	local i=0
+	while [ $i -lt $(($1 * 2)) ]; do eval "$2" && return 0; sleep 0.5; i=$((i + 1)); done
+	return 1
+}
+ra_pid() { pidof retroarch | awk '{print $1}'; }
+ra_cmd() { printf '%s' "$1" | nc -u -w1 127.0.0.1 55355 2>/dev/null; }
+ra_running() { [ -n "$(ra_pid)" ]; }
+# the session frontend is the lume-launcher: lume-run supervises lume-ui and the games
+frontend_running() { pidof lume-run >/dev/null 2>&1; }
+ui_pid() { pidof lume-ui | awk '{print $1}'; }
+ui_running() { [ -n "$(ui_pid)" ]; }
+# The NES test game increments RAM $0000 all the time: if the byte does not change in half
+# a second, the core is paused (menu open with menu_pause_libretro).
+ram0() { ra_cmd "READ_CORE_RAM 0 1" | awk '{print $3}'; }
+core_running() { local a; a=$(ram0); sleep 0.5; [ -n "$a" ] && [ "$a" != "$(ram0)" ]; }
+core_paused() { local a; a=$(ram0); sleep 0.5; [ -n "$a" ] && [ "$a" = "$(ram0)" ]; }
+
+# RetroArch on its own as game (KMS/GLES), with network commands: ra_run <log> <args...>
+# The log also goes to TESTDATA/results/ (read by the host after the test).
+ra_run() {
+	local log="$1" rc=0; shift
+	su -s /bin/sh game -c "XDG_RUNTIME_DIR=/run/user/1000 exec retroarch \
+		--config $RA_CFG --appendconfig '$LUME|$EXTRA' --verbose $*" \
+		< /dev/tty1 > "$log" 2>&1 || rc=$?
+	cp "$log" "$T/results/" 2>/dev/null
+	return $rc
+}
+
+# Diagnostic logs (D14)
+cur_boot() { cat "$LUME_RUN/logs/boot-n" 2>/dev/null; }
+logs_flush_now() { /usr/libexec/lume/logd flush >/dev/null 2>&1; }
+set_logs_conf() {  # chave valor
+	sed -i "s/^$1=.*/$1=$2/" "$LOGS_CONF"
+	sync -f "$LOGS_CONF"
+}
+# CPU of lume-logd (itself and its reaped children) since it started, in % of one core
+logd_cpu_pct() {
+	local pid
+	pid=$(cat /run/lume-logd.pid 2>/dev/null)
+	[ -r "/proc/$pid/stat" ] || { echo "?"; return; }
+	# parentheses in the printf: without them awk reads the ">" as an output redirection
+	awk -v up="$(cut -d' ' -f1 /proc/uptime)" -v hz="$(getconf CLK_TCK 2>/dev/null || echo 100)" '
+		{ sub(/^.*\) /, ""); cpu = ($12 + $13 + $14 + $15) / hz; el = up - $20 / hz
+		  printf "%.2f", (el > 0 ? 100 * cpu / el : 0) }' "/proc/$pid/stat"
+}
+
+stop_frontend() {
+	rc-service frontend stop >/dev/null 2>&1
+	wait_for 10 '! frontend_running && ! ui_running && ! ra_running'
+	sleep 1  # DRM is released when the process has finished exiting
+}
+
+start_frontend() {
+	rc-service frontend start >/dev/null 2>&1
+	wait_for 30 ui_running
+}
+
+# lume-launcher driven from the test (lume-launcher 8.1). lume-ui reads its state file only
+# when it starts, so the test writes where the interface opens (a screen, a game) and starts
+# the frontend again; then keys over QMP do the rest. VM keys: X = A, Enter = Start,
+# F1 = Fn (vm profile of lume-input).
+LUME_RT=/run/user/1000/lume
+PORTS=/storage/roms/ports
+lume_open() {  # state lines (key=value ...)
+	stop_frontend
+	mkdir -p "$LUME_RT"
+	printf '%s\n' "$@" > "$LUME_RT/state"
+	chown -R game:game "$LUME_RT"
+	start_frontend
+	sleep 3  # the first frame is drawn and the gamepad reader is up
+	UI_PID=$(ui_pid)  # a new pid later means the interface came back after a game
+}
+keys() {  # QMP key names, one request each (the host waits 0.5 s before each one)
+	local k
+	for k in "$@"; do request "key-$k"; sleep 1; done
+}
+# Opens a game of a grid: the game menu opens on "Start"
+lume_play() {  # system path
+	lume_open screen=grid "dock=sys:$1" "list=sys:$1" "game_system=$1" "game_path=$2"
+	keys x x
+}
+pid_gone() { [ -n "$1" ] && [ ! -d "/proc/$1" ]; }
+
+phase_first() {
+	# Games partition created on the first boot
+	local dev label
+	dev=$(awk '$2 == "/storage" {print $1}' /proc/mounts)
+	# exfatlabel refuses the mounted device ("Resource busy"); blkid reads the label
+	label=$(blkid "$dev" | sed -n 's/.*LABEL="\([^"]*\)".*/\1/p')
+	check roms-created 'grep -q " /storage exfat " /proc/mounts && [ "$label" = ROMS ]' "$dev $label"
+	check roms-first-boot-msg 'dmesg | grep -q "ROMS partition created"'
+	local missing=""
+	for d in $(jq -r '.systems[].id' /usr/share/lume/systems.json); do
+		[ -d "/storage/roms/$d" ] || missing="$missing roms/$d"
+	done
+	for d in bios saves states screenshots system; do [ -d "/storage/$d" ] || missing="$missing $d"; done
+	check roms-folders '[ -z "$missing" ] && [ -f /storage/LEIA-ME.txt ]' "$missing"
+	check roms-owner '[ "$(stat -c %u /storage/roms)" = 1000 ] && grep " /storage " /proc/mounts | grep -q noatime'
+	check boot-readonly 'awk "\$2==\"/boot\"{print \$4}" /proc/mounts | grep -q "^ro"'
+	# Logs in ROMS/logs/ (D14); BOOT has no logs/
+	check boot-no-logs-dir '[ ! -e /boot/logs ]'
+	check logs-dirs '[ -d $LOGS/boot ] && [ -d $LOGS/hw ] && [ -d $LOGS/metrics ] && [ -d $LOGS/frontend ] && [ "$(cat $LOGS/.boot)" = 1 ] && [ -f "$LOGS_CONF" ]' "$(ls -A $LOGS 2>/dev/null | tr '\n' ' ')"
+	# rotation testable in a few boots
+	set_logs_conf keep_boots 10
+
+	# "Quit RetroArch" becomes "Shut Down" (aports/retroarch) when RetroArch is the frontend
+	check quit-label-desligar 'grep -q "Desligar" /usr/bin/retroarch && grep -q "Shut Down" /usr/bin/retroarch'
+	check root-overlay 'grep "^overlay / overlay" /proc/mounts | grep -q "lowerdir=/lower,upperdir=/rw/upper" && grep -q "/SYSTEM" /sys/block/loop0/loop/backing_file' "$(cat /sys/block/loop0/loop/backing_file 2>/dev/null)"
+	check zram-swap 'grep -E "^/dev/zram0[[:space:]]" /proc/swaps | grep -q "32767" && [ "$(cat /proc/sys/vm/swappiness 2>/dev/null)" = 100 ] && [ "$(cat /proc/sys/vm/page-cluster 2>/dev/null)" = 0 ]' "$(cat /proc/swaps 2>/dev/null | tr '\n' ';')"
+
+
+	# Hardware summary
+	local hw=$LUME_RUN/hwsummary
+	check hwsummary '[ -f "$hw" ] && grep -q "video *ok" "$hw" && grep -q "gamepad *ok" "$hw" && grep -q "ROMS *ok" "$hw"' "$(tr -s ' ' < "$hw" 2>/dev/null | tr '\n' ';')"
+	check hwsummary-battery-absent 'grep -q "battery *absent" "$hw"'
+
+	# The lume-launcher is the frontend, as game, on KMS with a GLES renderer
+	wait_for 60 ui_running
+	check frontend-up 'frontend_running && ui_running' "lume-run=$(pidof lume-run) lume-ui=$(ui_pid)"
+	check frontend-not-root '[ "$(awk "/^Uid:/{print \$2}" /proc/$(pidof lume-run)/status)" = 1000 ] && [ "$(awk "/^Uid:/{print \$2}" /proc/$(ui_pid)/status)" = 1000 ]'
+	wait_for 20 'grep -q "lume-ui: video " /var/log/frontend.log'
+	local ui
+	ui=$(grep -m 1 "lume-ui: video " /var/log/frontend.log | sed 's/.*lume-ui: //')
+	# KMSDRM with the GLES renderer that lume-ui asks for: SDL's default "opengl" only clears
+	# the screen on lima (GA36, 2026-11-14), so the VM checks the same choice as the consoles
+	check lume-ui-kms-gles 'echo "$ui" | grep -q "^video KMSDRM, renderer opengles2," ' "${ui:-no video line in the log}"
+	# lume-ui idle on the Dock sleeps: SDL_WaitEvent polled every millisecond on KMSDRM and
+	# took 42% of a core on the GA36 (2026-11-14). Budget 1% (task 9.1); 2% here for VM noise:
+	# at most 20 ticks of 1/100 s in 10 s
+	sleep 3
+	local up t0 t1
+	up=$(ui_pid)
+	t0=$(cut -d' ' -f14,15 "/proc/$up/stat" 2>/dev/null | tr ' ' '+')
+	sleep 10
+	t1=$(cut -d' ' -f14,15 "/proc/$up/stat" 2>/dev/null | tr ' ' '+')
+	local idle=$(( (${t1:-0}) - (${t0:-0}) ))
+	check lume-ui-idle-cpu '[ -n "$t0" ] && [ -n "$t1" ] && [ "$idle" -le 20 ]' "lume-ui pid $up used $idle ticks in 10 s"
+	cp /var/log/frontend.log "$T/results/frontend-first.log" 2>/dev/null
+	# games cgroup handed to game before the frontend (tasks 1.1 and 6.1)
+	check cgroup-delegated '[ "$(stat -c %U /sys/fs/cgroup/lume)" = game ] && [ -e /sys/fs/cgroup/lume/cgroup.kill ] && grep -q pids /sys/fs/cgroup/cgroup.controllers && grep -q memory /sys/fs/cgroup/cgroup.controllers' "lume: $(ls /sys/fs/cgroup/lume 2>/dev/null | tr '\n' ' ')| mounts: $(grep cgroup /proc/mounts | cut -d' ' -f1-4 | tr '\n' ';')| controllers: $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null)| cgroups service: $(rc-service cgroups status 2>&1 | tr -d ' *' | head -c 30)"
+
+	# Boot log in ROMS/logs/boot/
+	wait_for 30 '[ -f "$LUME_RUN/bootlog" ]'
+	local bl
+	bl=$(cat "$LUME_RUN/bootlog" 2>/dev/null)
+	check bootlog-written '[ "$bl" = $LOGS/boot/boot-1.log ] && grep -q "== kernel" "$bl" && grep -q "seatd" "$bl"' "$bl"
+	check bootlog-boot-ro-again 'awk "\$2==\"/boot\"{print \$4}" /proc/mounts | grep -q "^ro"'
+	# input daemon (task 3.5): the QEMU keyboard is grabbed and published again as one device
+	check input-daemon 'pidof lume-input >/dev/null && [ "$(grep -c "^N: Name=\"Lume VM Keyboard\"" /proc/bus/input/devices)" = 1 ] && grep -q "lume-input: \"Lume VM Keyboard\" from 1 of 1 source" "$bl"' "$(grep "lume-input:" "$bl" 2>/dev/null | head -n 2 | tr '\n' '|')"
+
+	# Hardware snapshot of this boot
+	local hwf=$LOGS/hw/boot-1.txt
+	check logs-hw 'wait_for 60 "[ -s $hwf ]" && grep -q "== CPU" $hwf && grep -q "cores" $hwf && grep -q "== memory" $hwf && grep -q "MemTotal" $hwf && grep -q "== thermal" $hwf && grep -q "== battery and power" $hwf && grep -q "== storage" $hwf' "$(grep -c "" $hwf 2>/dev/null) lines"
+
+	# Stopping the service does not power off
+	stop_frontend
+	check frontend-stop-no-poweroff '! frontend_running'
+
+	# Test games and playlists. lume-playlists starts after the frontend (build-speed D20):
+	# wait for its boot run, so it does not write the playlists at the same time as this one
+	wait_for 60 'rc-service lume-playlists status >/dev/null 2>&1'
+	cp -r "$T/roms/." /storage/roms/
+	/usr/bin/lume-playlists > /dev/null
+	local pl=/home/game/.config/retroarch/playlists
+	check playlists '[ -f "$pl/NES.lpl" ] && [ -f "$pl/Super Nintendo.lpl" ] && [ -f "$pl/Arcade.lpl" ] && [ "$(jq -r ".items[0].core_path" "$pl/Arcade.lpl")" = /usr/lib/libretro/fbneo_libretro.so ]' "$(ls "$pl" | tr '\n' ';')"
+
+	# One game per core, 600 frames
+	while IFS="$(printf '\t')" read -r core file sys rom; do
+		[ -n "$core" ] || continue
+		local log="$LUME_RUN/core-$core.log"
+		ra_run "$log" -L "/usr/lib/libretro/$file" --max-frames=600 "\"/storage/$rom\""
+		check "core-loaded-$core" 'grep -q "\[Core\] Geometry:" "$log" && grep -q "Content ran for a total of" "$log"' "$sys"
+	done < "$T/cores.tsv"
+	# RetroArch (the libretro runner) on KMS with GLES, from the log of the first core run:
+	# "[GL] Vendor: Mesa, Renderer: llvmpipe ..." and "[GL] Version: OpenGL ES 3.2 ..."
+	local ralog gl
+	ralog=$(ls "$LUME_RUN"/core-*.log 2>/dev/null | head -n 1)
+	gl=$(grep -E "\[GL\] (Vendor|Version)" "$ralog" 2>/dev/null | sed 's/.*\[GL\] //' | tr '\n' ';')
+	check retroarch-gles 'echo "$gl" | grep -q "OpenGL ES" && ! echo "$gl" | grep -qiE "llvmpipe|softpipe|swrast"' "${gl:-no [GL] lines in $ralog}"
+	check retroarch-kms 'grep -qiE "\[KMS\]|kms" "$ralog"'
+
+	# Persistence: change an option and wait for the sync (2 s debounce)
+	sed -i '/^audio_volume = /d' "$RA_CFG"
+	echo 'audio_volume = "-3.000000"' >> "$RA_CFG"
+	check persist-sync 'wait_for 10 "grep -q \"^audio_volume = \\\"-3.000000\\\"\" /storage/system/retroarch/retroarch.cfg"'
+
+	# Save state followed by an abrupt reset
+	ra_run "$LUME_RUN/state.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
+	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	# usb-device-access 8.3 (patch 0009): while RetroArch answers GET_STATUS, its command
+	# socket (UDP 55355 = D83B) is on 127.0.0.1 (0100007F) only, not on every interface
+	check netcmd-localhost 'grep -q " 0100007F:D83B " /proc/net/udp && ! grep -q " 00000000:D83B " /proc/net/udp' "$(grep ":D83B " /proc/net/udp | cut -c1-60 | tr "\n" "|")"
+	ra_cmd SAVE_STATE >/dev/null
+	check state-saved 'wait_for 10 "ls /storage/states/nes/*.state >/dev/null 2>&1"'
+	check state-synced 'wait_for 5 "grep -q /storage/states/nes/ $LUME_RUN/savesync.log"'
+
+	# Game opened and closed with RetroArch as the frontend (the reserve one, no lume-run):
+	# events with core and duration, and "game" samples in the metrics
+	kill "$(ra_pid)" 2>/dev/null
+	wait_for 10 '! ra_running'
+	ra_run "$LUME_RUN/logs-game.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
+	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	# at least three samples (interval 5 s) in game: the FPS needs two in a row
+	sleep 17
+	ra_cmd QUIT >/dev/null
+	wait_for 10 '! ra_running'
+	sleep 7
+	logs_flush_now
+	check logs-game-events 'grep -qE " game OK opened: core=.*content=Test NES" $LOGS/events.log && grep -qE " game OK closed: core=.* duration=[0-9]+s" $LOGS/events.log' "$(grep " game " $LOGS/events.log | tail -n 2 | tr '\n' '|')"
+	check logs-metrics-game 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q "^time,uptime_s," && grep -q ",game," $LOGS/metrics/boot-1.csv' "$(grep -c "" $LOGS/metrics/boot-1.csv 2>/dev/null) lines"
+	# game FPS (GET_STATUS frame counter, RetroArch patch 0004). The nominal FPS comes from
+	# the session's frontend log, which this RetroArch run does not write (it logs to
+	# logs-game.log), so here it may be empty.
+	# the lume-launcher columns (6 of them) come after fps_nominal
+	check logs-metrics-fps 'head -n 1 $LOGS/metrics/boot-1.csv | grep -q ",content,fps,fps_nominal,lume_ui_rss_kb," && grep -qE ",game,[^,]*,[^,]*,[0-9]+\.[0-9],[0-9.]*(,[^,]*){6}$" $LOGS/metrics/boot-1.csv' "$(grep ",game," $LOGS/metrics/boot-1.csv | tail -n 2 | tr '\n' '|')"
+	# Wi-Fi and Bluetooth by USB dongle (usb-device-access 8.2): dbus and NetworkManager run
+	# in the vm too (no dongle); bluetooth is enabled on the consoles only (the vm kernel
+	# has no Bluetooth), so here it must not be in the default runlevel. NetworkManager starts
+	# after the frontend (build-speed D20), so it gets a little time to come up
+	check wireless-services 'wait_for 30 "rc-service networkmanager status >/dev/null 2>&1" && rc-service dbus status >/dev/null 2>&1 && [ ! -e /etc/runlevels/default/bluetooth ]' "$(for s in dbus networkmanager bluetooth; do printf "%s=%s " $s "$(rc-service $s status 2>&1 | tr -d " *" | head -c 20)"; done)"
+	# OTG port sample (usb-device-access 1.1): the vm has no OTG port, so every trace line
+	# is "usb: none" and there is no usb event
+	check logs-usb 'grep -q " usb: none$" $LOGS/trace/boot-1.log && ! grep " usb: " $LOGS/trace/boot-1.log | grep -qv " usb: none$" && ! grep -q " usb " $LOGS/events.log' "$(grep -c " usb: " $LOGS/trace/boot-1.log 2>/dev/null) usb lines, $(grep -c " usb " $LOGS/events.log 2>/dev/null) usb events"
+	local pct
+	pct=$(logd_cpu_pct)
+	# a number is required: an empty value must not pass as "below 1"
+	check logs-cost 'echo "$pct" | grep -qE "^[0-9]+\.[0-9]+$" && awk -v p="$pct" "BEGIN{exit !(p + 0 < 1)}"' "logd: $pct% of one core"
+
+	# Batch written before the abrupt reset: it must survive
+	grep -c "" $LOGS/metrics/boot-1.csv > "$T/metrics-lines"
+	sync -f "$T/metrics-lines"
+
+	echo test > /var/tmp/lume-test
+	next second
+	request reset-in-5
+}
+
+phase_second() {
+	# The previous boot ended in an abrupt reset (QMP system_reset)
+	logs_flush_now
+	check logs-abrupt 'grep -q " shutdown FAIL previous abrupt (boot 1)" $LOGS/events.log' "$(grep " shutdown " $LOGS/events.log | tail -n 1)"
+	local before after
+	before=$(cat "$T/metrics-lines" 2>/dev/null)
+	after=$(grep -c "" $LOGS/metrics/boot-1.csv 2>/dev/null)
+	check logs-metrics-last-batch '[ -n "$before" ] && [ "${after:-0}" -ge "$before" ]' "$after lines (written before reset: $before)"
+
+	check var-tmp-gone '[ ! -e /var/tmp/lume-test ]'
+	check persist-after-reboot 'grep -q "^audio_volume = \"-3.000000\"" "$RA_CFG"'
+	check roms-preserved '[ -f "$STATE_ROM" ]'
+	# the reset left ROMS mounted, so its VolumeDirty flag is set: checked (device-fixes D1)
+	check roms-checked-at-boot 'dmesg | grep -q "lume: ROMS dirty: checked: "' "$(dmesg | sed -n 's/.*lume: \(ROMS [a-z]*: .*\)/\1/p')"
+
+	wait_for 60 ui_running
+	stop_frontend
+	ra_run "$LUME_RUN/load.log" -L /usr/lib/libretro/fceumm_libretro.so --entryslot=0 --max-frames=120 "\"$STATE_ROM\""
+	# The message is translated (user_language); the path and "succeeded" are not.
+	check state-survived-reset 'grep -qE "\[State\] .*Test NES\.state.* succeeded" "$LUME_RUN/load.log"'
+
+	# Shortcuts (lume-hud-actions D9): Start + Select belongs to the game (no menu, no quit);
+	# right Shift + S (keyboard only) opens the menu; Esc does not quit
+	ra_run "$LUME_RUN/keys.log" -L /usr/lib/libretro/fceumm_libretro.so "\"$STATE_ROM\"" &
+	wait_for 20 '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]'
+	check game-running-before-menu 'wait_for 5 core_running' "RAM \$0000=$(ram0)"
+	request keys-start-select
+	sleep 2
+	check combo-stays-in-game '[ "$(ra_cmd GET_STATUS | cut -d" " -f2)" = PLAYING ]' "$(ra_cmd GET_STATUS)"
+	check combo-no-quit ra_running
+	request keys-menu
+	check hotkey-menu-opens 'wait_for 10 core_paused' "RAM \$0000=$(ram0)"
+	request keys-menu
+	check hotkey-menu-closes 'wait_for 10 core_running'
+	request keys-esc
+	sleep 4
+	check esc-no-quit ra_running
+	kill "$(ra_pid)" 2>/dev/null
+	wait_for 10 '! ra_running'
+
+	phase_lume
+
+	# Fake frontend that always fails: the loop stops at the 3rd failure in 60 s
+	printf '#!/bin/sh\nexit 1\n' > /usr/libexec/lume/frontends/failing
+	chmod 755 /usr/libexec/lume/frontends/failing
+	sed -i 's/^FRONTEND=.*/FRONTEND="failing"/' /etc/conf.d/frontend
+	rc-service frontend start >/dev/null 2>&1
+	check frontend-fail-loop-stops 'wait_for 20 "dmesg | grep -q \"frontend stopped after 3 failures\""'
+	check frontend-fail-log '[ -s $LOGS/frontend/boot-$(cur_boot).log ] && [ ! -e /boot/logs ]' "$LOGS/frontend/boot-$(cur_boot).log"
+	check logs-frontend-fail-event 'grep -q " frontend FAIL failing stopped after 3 failures" $LOGS/events.log' "$(grep " frontend FAIL" $LOGS/events.log | tail -n 1)"
+	check frontend-fail-no-restart 'sleep 3; [ "$(dmesg | grep -c "frontend started: failing")" = 3 ]'
+	rc-service frontend stop >/dev/null 2>&1
+
+	# Frontend swap: another executable starts instead of the lume-launcher
+	# the frontend runs as game: it writes where game can write
+	printf '#!/bin/sh\nid -u > /tmp/fake-frontend\nexec sleep 3600\n' > /usr/libexec/lume/frontends/fake
+	chmod 755 /usr/libexec/lume/frontends/fake
+	sed -i 's/^FRONTEND=.*/FRONTEND="fake"/' /etc/conf.d/frontend
+	rm -f /tmp/fake-frontend
+	rc-service frontend start >/dev/null 2>&1
+	check frontend-swap 'wait_for 15 "[ \"\$(cat /tmp/fake-frontend 2>/dev/null)\" = 1000 ]" && ! frontend_running && ! ra_running'
+	rc-service frontend stop >/dev/null 2>&1
+	sed -i 's/^FRONTEND=.*/FRONTEND="lume"/' /etc/conf.d/frontend
+
+	# Factory reset: delete system/ with the console "off" (abrupt reset)
+	rm -rf /storage/system
+	sync -f /storage/roms
+	next third
+	request reset
+}
+
+# lume-launcher as the frontend (task 8.1), with two fake Ports games copied to roms/ after
+# the boot scan. Ends with the frontend stopped.
+phase_lume() {
+	local quick=selftest-quick.sh stubborn=selftest-stubborn.sh gpid ggpid
+	rm -f /tmp/lume-quick /tmp/lume-stubborn /tmp/lume-grandchild
+	printf '#!/bin/sh\necho $$ > /tmp/lume-quick\nexit 0\n' > "$PORTS/$quick"
+	# ignores SIGTERM and leaves a grandchild in a session of its own, outside the process
+	# group: only the game cgroup reaches it
+	cat > "$PORTS/$stubborn" <<-'EOF'
+	#!/bin/sh
+	trap '' TERM
+	setsid sh -c 'trap "" TERM HUP; echo $$ > /tmp/lume-grandchild; while :; do sleep 1; done' &
+	echo $$ > /tmp/lume-stubborn
+	while :; do sleep 1; done
+	EOF
+	sync -f "$PORTS"
+
+	# Settings -> Games (two rows above Shut down, the last one): A enters its panel, A again
+	# runs Update lists (lume-launcher D14)
+	check lume-new-game-unlisted '! grep -q "$quick" "$PORTS/gamelist.xml" 2>/dev/null'
+	lume_open screen=settings settings=99
+	keys up up x x
+	check lume-update-lists 'wait_for 60 "grep -q \"$quick\" \"$PORTS/gamelist.xml\" && grep -q \"$stubborn\" \"$PORTS/gamelist.xml\""' "$(grep -c "<game>" "$PORTS/gamelist.xml" 2>/dev/null) games in ports"
+	sleep 2  # lume-index bumps GEN last
+
+	# A game that ends by itself: the interface comes back on the same game
+	lume_play ports "$quick"
+	check lume-runner-returns 'wait_for 20 "[ -s /tmp/lume-quick ] && ui_running && [ \"\$(ui_pid)\" != \"$UI_PID\" ]" && grep -qx "game_path=$quick" "$LUME_RT/state"' "$(tr '\n' ' ' < "$LUME_RT/state" 2>/dev/null)"
+
+	# Fn+Start (F1+Enter) on a game that ignores SIGTERM and has a grandchild: everything
+	# ends within the runner timeout (3 s) plus the kill grace, and the interface comes back
+	lume_play ports "$stubborn"
+	wait_for 20 '[ -s /tmp/lume-stubborn ] && [ -s /tmp/lume-grandchild ]'
+	gpid=$(cat /tmp/lume-stubborn 2>/dev/null)
+	ggpid=$(cat /tmp/lume-grandchild 2>/dev/null)
+	sleep 2  # lume-run is connected to the input socket
+	request keys-fn-start
+	check lume-quit-combo 'wait_for 10 "pid_gone $gpid && pid_gone $ggpid" && wait_for 10 ui_running' "game=$gpid grandchild=$ggpid"
+	# the session truncates the log on each start: keep the one of this game
+	cp /var/log/frontend.log "$T/results/frontend-quit-combo.log" 2>/dev/null
+
+	# game lines of lume-run: system, runner, core, how it ended; never the game name. The
+	# stubborn game ignored SIGTERM, so it ended killed after the runner timeout (a FAIL line)
+	sleep 1
+	logs_flush_now
+	check lume-game-events 'grep -qE " game OK ports sh - start$" $LOGS/events.log && grep -qE " game OK ports sh - exit=0 end=normal secs=[0-9]+$" $LOGS/events.log && grep -qE " game FAIL ports sh - exit=sig9 end=killed secs=[0-9]+$" $LOGS/events.log && ! grep -q "selftest-" $LOGS/events.log' "$(grep " game " $LOGS/events.log | tail -n 3 | tr '\n' '|')"
+
+	# Settings -> RetroArch (one row above Shut down): the menu opens as launched by the lume
+	# (task 3.6: "Quit" goes back to the launcher) and Fn+Start brings the interface back
+	lume_open screen=settings settings=99
+	# lume-input restarted under the interface (its service respawns it): the virtual
+	# gamepad comes back as a new node and the lume opens it (the GA36 stopped answering,
+	# 2026-11-14)
+	rc-service lume-input restart >/dev/null 2>&1
+	wait_for 10 '[ "$(grep -c "^N: Name=\"Lume VM Keyboard\"" /proc/bus/input/devices)" = 1 ]'
+	sleep 1
+	keys up x
+	check lume-input-after-restart 'wait_for 20 ra_running' "lume-input=$(pidof lume-input) lume-ui=$(ui_pid)"
+	check lume-retroarch-menu 'wait_for 20 ra_running && tr "\0" "\n" < /proc/$(ra_pid)/environ | grep -qx LUME_RETROARCH_QUIT=launcher' "retroarch=$(ra_pid)"
+	sleep 3
+	request keys-fn-start
+	check lume-retroarch-returns 'wait_for 15 "! ra_running && ui_running"'
+	# lume-run and lume-ui lines of this phase, read by the host after the test
+	cp /var/log/frontend.log "$T/results/frontend-lume.log" 2>/dev/null
+	stop_frontend
+	rm -f "$PORTS/$quick" "$PORTS/$stubborn"
+}
+
+phase_third() {
+	# the frontend script appends the fixed keys to the user config (none of them is in the
+	# factory file), so the card config starts with the factory file, whole and unchanged
+	local fac=/usr/share/lume/factory/retroarch/retroarch.cfg
+	check factory-reset 'head -n "$(grep -c "" $fac)" /storage/system/retroarch/retroarch.cfg | cmp -s - $fac'
+	check factory-keeps-games '[ -f "$STATE_ROM" ] && ls /storage/states/nes/*.state >/dev/null 2>&1'
+	mkdir -p /storage/system/etc
+	echo "America/Sao_Paulo" > /storage/system/etc/timezone
+	echo "lume-test" > /storage/system/etc/hostname
+	# the factory reset deleted system/: logs.conf came back with the defaults
+	set_logs_conf keep_boots 10
+	# Clear the logs "from the PC": logd stopped (as with the console off) and folder deleted
+	rc-service lume-logd stop >/dev/null 2>&1
+	rm -rf "$LOGS"
+	# Forced failure of the self-test service on the next boot (service events)
+	: > "$T/fail-service"
+	sync
+	echo 4 > "$T/boots"
+	next boots
+	reboot
+}
+
+phase_boots() {
+	local n
+	n=$(cat "$T/boots")
+	wait_for 30 '[ -f "$LUME_RUN/bootlog" ]'
+	local cur
+	cur=$(cur_boot)
+	case "$n" in
+	4)
+		check timezone '[ "$(readlink /etc/localtime)" = /usr/share/zoneinfo/America/Sao_Paulo ]'
+		check hostname '[ "$(hostname)" = lume-test ]'
+		# ROMS/logs/ deleted on the previous boot: created again, numbering starts over
+		check logs-recreated '[ "$cur" = 1 ] && [ -f $LOGS/boot/boot-1.log ] && [ "$(ls $LOGS/boot | wc -l)" = 1 ]' "boot $cur; $(ls $LOGS/boot 2>/dev/null | tr '\n' ' ')"
+		check logs-service-fail 'grep -q " service FAIL lume-selftest failed to start" $LOGS/events.log' "$(grep " service " $LOGS/events.log | tail -n 1)"
+		;;
+	5)
+		check logs-clean 'grep -q " shutdown OK previous clean (boot 1)" $LOGS/events.log' "$(grep " shutdown " $LOGS/events.log | tail -n 1)"
+		set_logs_conf enable 0
+		;;
+	6)
+		# enable=0: no snapshot and no metrics; boot log and events go on
+		sleep 15
+		check logs-disabled '[ ! -e $LOGS/hw/boot-$cur.txt ] && [ ! -e $LOGS/metrics/boot-$cur.csv ] && [ -f $LOGS/boot/boot-$cur.log ]' "boot $cur"
+		set_logs_conf enable 1
+		;;
+	esac
+	if [ "$n" -lt $TOTAL_BOOTS ]; then
+		echo $((n + 1)) > "$T/boots"
+		sync -f "$T/boots"
+		reboot
+		return
+	fi
+	local count newest
+	count=$(ls $LOGS/boot/boot-*.log 2>/dev/null | wc -l)
+	newest=$(cat "$LUME_RUN/bootlog")
+	check bootlog-rotation '[ "$count" = 10 ] && [ ! -e $LOGS/boot/boot-1.log ]' "$count logs in ROMS/logs/boot after $((n - 3)) boots since cleanup"
+	check bootlog-newest '[ -f "$newest" ] && grep -q "Linux version" "$newest" && grep -q "frontend\|lume" "$newest"' "$newest"
+
+	# Shut down in the launcher powers off: Settings -> Shut down (the last row), then the
+	# confirmation, whose default is Cancel
+	wait_for 60 ui_running
+	lume_open screen=settings settings=99
+	next done
+	say "ALL-CHECKS-DONE"
+	request expect-poweroff
+	keys x right x
+}
+
+case "$1" in
+run)
+	phase=$(cat "$T/state" 2>/dev/null)
+	say "PHASE ${phase:-?}"
+	case "$phase" in
+	first) phase_first ;;
+	second) phase_second ;;
+	third) phase_third ;;
+	boots) phase_boots ;;
+	*) say "PHASE-UNKNOWN $phase" ;;
+	esac
+	;;
+*) echo "usage: $0 run|device" >&2; exit 2 ;;
+esac
