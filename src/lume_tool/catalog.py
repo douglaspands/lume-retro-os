@@ -24,7 +24,8 @@ _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 RUNNER_KINDS = {"libretro", "native"}
 QUIT_POLICIES = {"retroarch-cmd", "sigterm"}
 # lume-hud-actions D3 (lume-core runner.rs: ACTIONS, SIGNALS, OVERLAYS)
-RUNNER_FIELDS = {"id", "kind", "exec", "quit", "timeout", "overlay", "actions"}
+RUNNER_FIELDS = {"id", "kind", "exec", "quit", "timeout", "overlay", "actions", "env"}
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 RUNNER_ACTIONS = ("pause", "app_menu", "reset", "save_state", "load_state", "screenshot")
 RUNNER_SIGNALS = {"SIGHUP", "SIGINT", "SIGQUIT", "SIGUSR1", "SIGUSR2", "SIGTERM", "SIGSTOP",
                   "SIGCONT", "SIGTSTP"}
@@ -84,6 +85,15 @@ def validate_runner(r: dict) -> list[str]:
             errs.append(f"runner {rid}: unknown action {name!r}")
         elif err := action_error(name, value):
             errs.append(f"runner {rid}: {err}")
+    env = r.get("env", {})
+    if not isinstance(env, dict):
+        errs.append(f"runner {rid}: env must be a table")
+        env = {}
+    for name, value in env.items():
+        if not _ENV_NAME.fullmatch(name):
+            errs.append(f"runner {rid}: env name {name!r} must be [A-Za-z_][A-Za-z0-9_]*")
+        if not isinstance(value, str) or "\0" in value:
+            errs.append(f"runner {rid}: env {name} must be text without NUL")
     unknown = set(r) - RUNNER_FIELDS
     if unknown:
         errs.append(f"runner {rid}: unknown field(s) {sorted(unknown)}")

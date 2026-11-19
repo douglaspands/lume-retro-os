@@ -14,6 +14,9 @@
 //! app_menu   = "retroarch-cmd:MENU_TOGGLE"  # UDP command to 127.0.0.1:55355
 //! reset      = "key:KEY_F2"                 # a key tapped on the virtual device
 //! screenshot = "signal:SIGUSR1"             # a signal to the game's process group
+//!
+//! [runner.env]               # optional (game-experience-tuning D5): name -> text value
+//! SDL_VIDEODRIVER = "kmsdrm"
 //! ```
 //!
 //! The image brings `/usr/share/lume/runners.d/` and the card `ROMS/system/lume/runners.d/`;
@@ -157,6 +160,9 @@ pub struct Runner {
     /// action name -> form, as written in `[runner.actions]`
     #[serde(default)]
     pub actions: BTreeMap<String, String>,
+    /// name -> value, as written in `[runner.env]` (game-experience-tuning D5)
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +214,13 @@ fn is_valid_id(id: &str) -> bool {
     let mut chars = id.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// An environment variable name: `[A-Za-z_][A-Za-z0-9_]*`.
+fn is_valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The placeholder name of an argument that is exactly `{name}`.
@@ -268,7 +281,21 @@ impl Runner {
             }
             ActionForm::parse(name, value)?;
         }
+        for (name, value) in &self.env {
+            if !is_valid_env_name(name) {
+                return Err(format!("env name {name:?} must be [A-Za-z_][A-Za-z0-9_]*"));
+            }
+            if value.contains('\0') {
+                return Err(format!("env {name} has a NUL byte in the value"));
+            }
+        }
         Ok(())
+    }
+
+    /// The declared environment variables as (name, value) pairs, in a deterministic order
+    /// (sorted by name); the game gets them after LANG, LANGUAGE and TZ.
+    pub fn env_pairs(&self) -> Vec<(String, String)> {
+        self.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
     /// The declared actions, validated, in the order of `ACTIONS`.
@@ -450,6 +477,31 @@ timeout = 3"#,
     }
 
     #[test]
+    fn env_is_read_in_order_and_bad_names_are_refused() {
+        let r = parse(&format!("{SH}\n[runner.env]\nZED = \"1\"\n_A1 = \"x y\"\n"), false).unwrap();
+        assert_eq!(r.env_pairs(), [("ZED".to_string(), "1".to_string()), ("_A1".to_string(), "x y".to_string())]);
+        assert!(parse(SH, false).unwrap().env.is_empty());
+        for bad in ["\"A=B\" = \"1\"", "\"1A\" = \"1\"", "\"\" = \"1\"", "\"A-B\" = \"1\""] {
+            let e = parse(&format!("{SH}\n[runner.env]\n{bad}\n"), false).unwrap_err();
+            assert!(e.contains("env name"), "{e}");
+        }
+        let e = parse(&format!("{SH}\n[runner.env]\nA = \"x\\u0000y\"\n"), false).unwrap_err();
+        assert!(e.contains("NUL"), "{e}");
+        assert!(parse(&format!("{SH}\n[runner.env]\nA = 1\n"), false).is_err());
+    }
+
+    #[test]
+    fn bad_env_refuses_only_that_runner() {
+        let dir = tmpdir("env");
+        fs::write(dir.join("sh.toml"), SH).unwrap();
+        fs::write(dir.join("bad.toml"), format!("{}\n[runner.env]\n\"A=B\" = \"1\"\n", SH.replace("\"sh\"", "\"bad\""))).unwrap();
+        let (runners, errors) = load(&[dir.clone()], false);
+        assert_eq!(runners.keys().collect::<Vec<_>>(), ["sh"]);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].file, dir.join("bad.toml"));
+    }
+
+    #[test]
     fn the_user_guide_example_is_accepted() {
         // docs/LAUNCHER.md (task 7.8): the runner example of the guide parses and builds argv
         let doc = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/LAUNCHER.md")).unwrap();
@@ -457,6 +509,7 @@ timeout = 3"#,
         let toml = block.split("```toml").nth(1).unwrap().split("```").next().unwrap();
         let r = parse(toml, false).unwrap();
         assert_eq!(r.id, "meu-emulador");
+        assert_eq!(r.env_pairs(), [("MEU_EMULADOR_HOME".to_string(), "/storage/bios/meu-emulador".to_string())]);
         let ctx = Context { rom: "/storage/roms/snes/A B.sfc".into(), ..Default::default() };
         assert_eq!(r.argv(&ctx).last().unwrap(), "/storage/roms/snes/A B.sfc");
     }
