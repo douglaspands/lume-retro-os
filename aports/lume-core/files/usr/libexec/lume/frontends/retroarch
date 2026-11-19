@@ -120,14 +120,34 @@ for a in "$@"; do
 	prev=$a
 done
 if [ -n "$CORE" ] && [ -f "$SHARE/retroarch-core.keys" ]; then
-	while read -r c kv rest; do
-		case "$c" in ''|\#*) continue ;; esac
-		[ "$c" = "$CORE" ] || [ "$c" = "*" ] || continue
-		k=${kv%%=*}
-		case "$k" in ''|*[!A-Za-z0-9_]*) continue ;; esac
-		printf '%s = "%s"\n' "$k" "${kv#*=}" >> "$RUN_KEYS"
-		SAVE="$SAVE $k"
-	done < "$SHARE/retroarch-core.keys"
+	# One awk for the whole file. The first field says who the line is for; the lines are
+	# written in the order of their priority, the last one wins in merge_fixed:
+	#   "*" < "<core>" < "<board>:*" < "<board>:<core>"
+	# A line of another console (or of an unknown one) is ignored. awk prints the key names
+	# (once each) for SAVE.
+	SAVE="$SAVE $(awk -v core="$CORE" -v board="$BOARD" -v out="$RUN_KEYS" '
+		$1 == "" || $1 ~ /^#/ { next }
+		{
+			t = -1
+			if ($1 == "*") t = 0
+			else if ($1 == core) t = 1
+			else if (board != "" && $1 == board ":*") t = 2
+			else if (board != "" && $1 == board ":" core) t = 3
+			if (t < 0) next
+			kv = $2; p = index(kv, "=")
+			if (p < 2) next
+			k = substr(kv, 1, p - 1)
+			if (k !~ /^[A-Za-z0-9_]+$/) next
+			n[t]++; line[t, n[t]] = k " = \"" substr(kv, p + 1) "\""; name[t, n[t]] = k
+		}
+		END {
+			for (t = 0; t <= 3; t++)
+				for (i = 1; i <= n[t]; i++) {
+					print line[t, i] >> out
+					if (!(name[t, i] in seen)) { seen[name[t, i]] = 1; print name[t, i] }
+				}
+		}
+	' "$SHARE/retroarch-core.keys")"
 fi
 if [ -z "$SAVE" ]; then
 	exec retroarch \
