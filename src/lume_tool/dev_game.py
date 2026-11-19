@@ -14,10 +14,11 @@ Navigation model, derived from lume/lume-ui/src/app.rs (see docs/BUILD.md):
 - B closes an overlay, clears a filter, leaves the grid or Settings for the Dock; on the Dock
   it does nothing. Four B presses reach the Dock from any screen.
 - The Dock focus is read from the launcher's state file (`dock=` line only, see
-  lume-ui state.rs): written when the launcher leaves for a game, read when it starts again,
-  on tmpfs, so a fresh boot has none (Favorites). Limit: if someone moves the Dock by hand
-  after a game without launching another, the file is stale and the sequence starts from the
-  wrong tile.
+  lume-ui state.rs): written when the launcher leaves for a game and on every Dock move
+  (since the R36S V2: before that a Dock moved by hand left the file stale and open_game
+  started from the wrong tile), read when it starts again, on tmpfs, so a fresh boot has none
+  (Favorites).
+- `home`: B four times, then the Dock run to Favorites (tile 0).
 """
 from __future__ import annotations
 
@@ -102,6 +103,15 @@ def open_sequence(from_focus: int, dock_index: int, dock_count: int, position: i
     return ",".join(parts)
 
 
+def home_sequence(from_focus: int, dock_count: int) -> str:
+    """The `dev keys` sequence from any screen to the Dock focused on Favorites."""
+    parts = [f"b*{BACK_PRESSES}", f"wait:{SETTLE_MS}"]
+    moves = dock_moves(from_focus, 0, dock_count)
+    if moves:
+        parts += [moves, f"wait:{SETTLE_MS}"]
+    return ",".join(parts)
+
+
 class GameDriver:
     """`open` and `close` hooks of the runner's Context; `run` and `keys` are injectable."""
 
@@ -119,3 +129,8 @@ class GameDriver:
 
     def close(self) -> None:
         self.keys(CLOSE_SEQUENCE)
+
+    def home(self) -> None:
+        """Back to the Dock with the focus on Favorites (tile 0), from wherever it is."""
+        _, dock_count, _, focus = parse_info(self.run(info_command("none")))
+        self.keys(home_sequence(focus % dock_count, dock_count))

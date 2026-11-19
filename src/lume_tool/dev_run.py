@@ -110,6 +110,7 @@ class Context:
     play: object = None           # play(recording)
     open_game: object = None      # open_game(system, position)   (node 3.2)
     close_game: object = None     # close_game()                  (node 3.2)
+    home: object = None           # home(): Dock focused on Favorites
     console: str | None = None    # ga36 | r36s, the console that answered (for play)
     start_lines: int = 0          # events.log line count when the run started
     seen: int = field(default=0)  # lines already read by wait_event
@@ -128,6 +129,7 @@ class Context:
         games = dev_game.GameDriver(self.run, lambda seq: self.keys(seq))
         self.open_game = self.open_game or games.open
         self.close_game = self.close_game or games.close
+        self.home = self.home or games.home
         self.seen = self.start_lines
 
     def _default_sh(self, command: str, timeout: float) -> int:
@@ -297,10 +299,17 @@ def do_close_game(ctx: Context, step) -> None:
     ctx.game_end = "FAIL" if re.search(r"\bFAIL\b", line) else "OK"   # either way it ended
 
 
+def do_home(ctx: Context, step) -> None:
+    try:
+        ctx.home()
+    except dev.DevError as e:
+        raise StepFailed(str(e)) from None
+
+
 HANDLERS = {
     "keys": do_keys, "play": do_play, "wait_event": do_wait_event,
     "wait_process": do_wait_process, "shot": do_shot, "sh": do_sh,
-    "open_game": do_open_game, "close_game": do_close_game,
+    "open_game": do_open_game, "close_game": do_close_game, "home": do_home,
 }
 
 

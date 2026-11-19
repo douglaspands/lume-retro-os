@@ -1155,6 +1155,17 @@ impl<S: SystemAdapter> App<S> {
                 self.dock_focus = (self.dock_focus + 1) % n;
                 self.animate(1.0);
             }
+            _ => {}
+        }
+        if matches!(a, Action::Left | Action::Right) {
+            // the state file follows the Dock focus (tmpfs, one small write): the device test
+            // scripts read it to find the focus (`dev run` open_game/home, virtual-gamepad D5)
+            if let Err(e) = self.current_state().save(&self.runtime) {
+                lume_core::log::line("lume-ui", &format!("state not saved: {e}"));
+            }
+            return;
+        }
+        match a {
             Action::A | Action::Start => match self.dock[self.dock_focus] {
                 DockItem::Settings => {
                     self.settings_from = None;

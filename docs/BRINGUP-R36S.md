@@ -388,6 +388,11 @@ ainda não foi provado.
 | 2026-11-12 | Áudio (boots 16 a 24) | alto-falante toca com o patch 0024 e na velocidade certa com o 0025; mudo sem eles (seção 8) |
 | 2026-11-13 | Gamepad | funciona corretamente (usuário); botões e os quatro eixos no menu e em jogo |
 | 2026-11-13 | Volume e zumbido | volume muito abaixo da fábrica e zumbido em silêncio continuam: P-45 |
+| 2026-11-19 | Read-ahead (`device-fixes` 2.2) | PS1 133 MB: 6,48 / 6,18 / 5,99 / 5,90 s com 128 / 256 / 512 / 1024 KiB; Neo Geo 38 MB: 1,90 / 1,81 / 1,76 / 1,76 s (D6) |
+| 2026-11-19 | GPU e bateria (`lume-hud-actions` 4.1) | `panfrost`: `drm-engine-fragment`/`vertex-tiler` só com `profiling=1`, arquivo `root 0644` (regra do udev nova, 4.4); RK817 sem `current_now`/`voltage_now`, só `current_avg` (positivo carregando, negativo descarregando) e `voltage_avg`; `charge_now`, `charge_full`, `status` presentes; sem Yama |
+| 2026-11-19 | Suspensão, parte automática (`device-fixes` 2.3) | `mem_sleep` = `s2idle [deep]`; 10 de 10 em `freeze` e 10 de 10 em `mem` acordados pelo RTC, sem despertar antes da hora; botão e carregador pendentes |
+| 2026-11-19 | V2 (`virtual-gamepad` 4.3) | `dev keys` ok (o primeiro botão com a tela escurecida só devolve a luz); gravação de 62 s tocada com atraso máx. 0,75 ms e tela final idêntica; `play` como `game` recusado (rc 3); `open-close-*` de NES, SNES, Mega Drive, GB, GBC, GBA e PS1 ok; `launcher-screens` com as referências novas (dica Fn, itens Cartão e Games) ok na tela inicial; replay de GBA igual em duas sessões do jogo (0 px aos 6 s e no fim) |
+| 2026-11-19 | Achados da V2 | o `open_game` errava o Dock depois de movimentos à mão (o launcher só gravava o estado ao abrir um jogo): corrigido no `lume-ui`, falta o build; o RetroArch numera as gravações de replay sozinho (`.replay1`, `.replay2`) e uma segunda reprodução na mesma sessão do jogo não volta ao começo |
 
 *A preencher com as tarefas 9.1 a 9.4 da change (boot integrado). As medições (cores, taxa do
 painel, F1-F5) ficam para a próxima change: P-46.*

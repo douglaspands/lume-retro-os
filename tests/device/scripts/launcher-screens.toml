@@ -1,5 +1,9 @@
-description = "Compares the launcher reference screens (tests/device/shots/screens.toml). Starts on the launcher home (Dock on Favorites) and leaves it there."
+description = "Compares the launcher reference screens (tests/device/shots/screens.toml). Goes to the launcher home (Dock on Favorites) first and leaves it there."
 consoles = ["ga36", "r36s"]
+
+[[step]]
+name = "go to the home"
+type = "home"
 
 [[step]]
 name = "home screen"

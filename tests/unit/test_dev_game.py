@@ -170,6 +170,24 @@ def test_close_is_fn_start():
     assert keys == ["fn+start"]
 
 
+@pytest.mark.parametrize("focus,expected", [
+    (0, "b*4,wait:300"),                            # already on Favorites
+    (2, "b*4,wait:300,left*2,wait:300"),            # a system near the start
+    (9, "b*4,wait:300,right*2,wait:300"),           # Recent of 11: wraps right
+    (10, "b*4,wait:300,right*1,wait:300"),          # Settings: one Right wraps to Favorites
+])
+def test_home_goes_to_favorites_from_any_focus(focus, expected):
+    driver, asked, keys = make_driver(f"dock_index=0 dock_count=11 games=0 focus={focus}\n")
+    driver.home()
+    assert keys == [expected]
+    assert len(asked) == 1
+
+
+def test_home_is_a_valid_script_step():
+    s = scripts.loads('consoles = ["r36s"]\n[[step]]\nname = "home"\ntype = "home"\n')
+    assert s.steps[0].type == "home"
+
+
 class FakeConsole:
     """The runner's console: the index query, the events.log and process checks."""
 

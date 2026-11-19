@@ -6,7 +6,7 @@
     [[step]]
     name = "open the menu"                 # the step label: never a game
     type = "keys"                          # keys|play|wait_event|wait_process|shot|sh|
-                                           # open_game|close_game
+                                           # open_game|close_game|home
     timeout = 30                           # seconds, > 0; default depends on the type
     sequence = "fn+start,wait:500"         # type fields below
 
@@ -19,6 +19,7 @@ Type fields (all required unless marked optional):
     sh            command
     open_game     system, position (integer >= 1)
     close_game    (none)
+    home          (none): back to the Dock, focus on Favorites (the launcher home)
 
 Privacy: game names and ROM paths never go in a script. The keys `game`, `rom`, `path`,
 `content` and `title` are refused anywhere, and a step `name` must not look like a ROM file
@@ -50,6 +51,7 @@ TYPES: dict[str, tuple[int, tuple[str, ...], tuple[str, ...]]] = {
     "sh": (30, ("command",), ()),
     "open_game": (60, ("system", "position"), ()),
     "close_game": (30, (), ()),
+    "home": (30, (), ()),
 }
 COMMON = ("name", "type", "timeout")
 TOP = ("description", "consoles", "step")

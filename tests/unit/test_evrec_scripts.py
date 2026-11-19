@@ -59,6 +59,10 @@ position = 1
 [[step]]
 name = "close"
 type = "close_game"
+
+[[step]]
+name = "back home"
+type = "home"
 """
 
 
