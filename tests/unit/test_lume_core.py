@@ -115,6 +115,8 @@ ADDED_AFTER_MOVE = {
     # the R36S card read-ahead (device-fixes 5.5), both lume-power udev rules
     "etc/udev/rules.d/90-lume-gpu-profiling.rules",
     "etc/udev/rules.d/90-lume-readahead.rules",
+    # P-45: guarded RK817 codec access over I2C (lume-diag, build phase; leaves with P-22)
+    "usr/libexec/lume/codec-i2c",
     # device-fixes 8.3: suspend and power off by the power button (lume-power)
     "usr/libexec/lume/lume-sleep",
     "etc/init.d/lume-sleep",
