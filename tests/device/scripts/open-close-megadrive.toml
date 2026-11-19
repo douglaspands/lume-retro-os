@@ -10,7 +10,7 @@ position = 1
 [[step]]
 name = "let it run"
 type = "sh"
-command = "sleep 3"
+command = "sleep 10"  # RetroArch answers QUIT only after a few seconds (R36S V2)
 
 [[step]]
 name = "close the game"

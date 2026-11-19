@@ -73,6 +73,14 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
 - Fuso do cartão (`system/etc/timezone`) posto em `America/Sao_Paulo` a pedido do usuário; a
   hora UTC do R36S estava certa.
 
+- Usuário aprovou (2026-11-19): C2 com 512 KiB só no R36S, C1 e C4 com `opus`. C2 feito
+  (`90-lume-readahead.rules`, conferida no aparelho: 512). C1 decidido sem código: o `Master`
+  digital fica, o ganho analógico vai para o P-45 (sem ferramenta de I2C no console). C4
+  espera o R1 do usuário (carregador com o console suspenso).
+- Testes automáticos das outras changes rodados (V2, menu do Lume, ações, barra, custo do
+  `logd`, ociosidade, `reload`): resultados no `docs/BRINGUP-R36S.md`. B1 em build com C2,
+  C3, C6 e a correção do Dock no `lume-ui`.
+
 ## Fora deste plano (lembrar)
 
 - No GA36 ainda abertos: a J2 da `device-fixes` (10.2, P-103), a V1 da `virtual-gamepad`

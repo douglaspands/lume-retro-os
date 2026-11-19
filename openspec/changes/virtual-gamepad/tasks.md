@@ -110,7 +110,7 @@ acrescentado e aprovado pelo usuário em 2026-11-17, sonnet.
 
 - [ ] 4.1 Build com o `lume-input` novo (o `lume-evrec`) nas duas arquiteturas, um `lume pkg` por vez sob a proteção de calor, e `lume push`. Verificação: o binário no manifesto das duas camadas e o `push` terminando com `ok`.
 - [ ] 4.2 Janela V1 no GA36: o `dev keys` de sempre (botão no controle virtual e Fn+Start no do kernel), uma gravação de 60 s repetida com atraso ≤ 10 ms e o launcher na mesma tela, os roteiros `open-close-*` e `launcher-screens` passando, um replay do RetroArch repetido duas vezes, e um `play` como o usuário dos jogos recusado. Verificação: resultados no `docs/BRINGUP-GA36.md`, sem nome de jogo.
-- [ ] 4.3 Janela V2 no R36S, com o mesmo cartão: as mesmas provas da 4.2. Verificação: resultados no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, a P-86 movida para "Concluídas" com a change.
+- [ ] 4.3 (R36S feito em 2026-11-19, builds `20261118-234742` e `20261119-142444`: `dev keys`, gravação de 62 s com atraso máx. 0,75 ms e a mesma tela, `play` como `game` recusado, os 7 `open-close-*` e o `launcher-screens` passando também depois de mover o Dock à mão (correção no `lume-ui`: estado gravado a cada movimento; passo `home` no `dev run`; `open-close` com 10 s de jogo para o `QUIT` ser atendido; a tela `settings` com o segundo A), replay de GBA igual em duas sessões do jogo; resultados no `docs/BRINGUP-R36S.md`. Falta a V1 no GA36, com a referência `settings` dele regravada, e a P-86 ao fechar.) Janela V2 no R36S, com o mesmo cartão: as mesmas provas da 4.2. Verificação: resultados no `docs/BRINGUP-R36S.md`; no `docs/PENDENCIAS.md`, a P-86 movida para "Concluídas" com a change.
 
 ## Workflow follow-up
 
