@@ -26,7 +26,10 @@ CORE_SYSTEM_OVERRIDE: dict[str, str] = {}
 # work). Their cores are tested through another system, or, for the fbalpha2012_* cores,
 # only by loading with no content (tests/cores/load_cores.sh). Game Gear and SG-1000 have no
 # generated ROM yet: their core (genesis_plus_gx) is tested through the Master System.
-NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "neogeo", "gamegear", "sg1000"}
+# TurboGrafx-16/CD have no generated ROM or disc (mednafen_pce_fast is only loaded by
+# tests/cores/load_cores.sh), and CPS-3 shares fbneo with the arcade folder.
+NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "cps3", "neogeo", "gamegear", "sg1000",
+               "pcengine", "pcenginecd"}
 SIZE_MIB = 64
 
 

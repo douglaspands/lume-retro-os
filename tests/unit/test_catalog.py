@@ -18,8 +18,8 @@ def test_every_core_has_package_in_common_list():
 def test_systems_match_design_table():
     ids = [s["id"] for s in CAT["systems"]]
     assert ids == ["nes", "snes", "mastersystem", "gamegear", "sg1000", "megadrive", "segacd",
-                   "sega32x", "gb", "gbc", "gba", "arcade", "cps1", "cps2", "neogeo", "psx",
-                   "love", "ports"]
+                   "sega32x", "gb", "gbc", "gba", "pcengine", "pcenginecd", "arcade", "cps1",
+                   "cps2", "cps3", "neogeo", "psx", "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
     # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap
     assert by_id["snes"]["core"] == "snes9x2005_plus"
@@ -63,7 +63,31 @@ def test_systems_match_design_table():
     assert "roms/neogeo/" in by_id["neogeo"]["bios"][0]["note"]
     assert by_id["arcade"]["romset"].startswith("FBNeo")
     # only the arcade systems carry a romset
-    assert {s["id"] for s in CAT["systems"] if s["romset"]} == {"arcade", "cps1", "cps2", "neogeo"}
+    assert {s["id"] for s in CAT["systems"] if s["romset"]} == {
+        "arcade", "cps1", "cps2", "cps3", "neogeo"}
+    # CPS-3 (game-experience-tuning D8): fbneo, the FBNeo romset, no alternative, no per-arch core
+    cps3 = by_id["cps3"]
+    assert (cps3["name"], cps3["abbr"], cps3["extensions"]) == ("CPS-3", "CPS3", ["zip"])
+    assert cps3["core"] == "fbneo" and cps3["alt_cores"] == [] and cps3["core_by_arch"] == {}
+    assert cps3["romset"].startswith("FBNeo")
+    # TurboGrafx-16 and -CD (D8): mednafen_pce_fast on every console, extensions from the core
+    # .info (pce|cue|ccd|chd|toc|m3u split between HuCard and CD), syscard3.pce required on CD
+    pce, pcecd = by_id["pcengine"], by_id["pcenginecd"]
+    assert (pce["name"], pce["abbr"]) == ("TurboGrafx-16", "TG16")
+    assert (pcecd["name"], pcecd["abbr"]) == ("TurboGrafx-CD", "TGCD")
+    assert pce["extensions"] == ["pce"]
+    assert pcecd["extensions"] == ["cue", "ccd", "chd", "toc", "m3u"]
+    assert sorted(pce["extensions"] + pcecd["extensions"]) == sorted(
+        "pce|cue|ccd|chd|toc|m3u".split("|"))
+    for s in (pce, pcecd):
+        assert s["core"] == "mednafen_pce_fast" and s["alt_cores"] == []
+        assert s["romset"] is None
+        for arch in ("x86_64", "aarch64", "armv7"):
+            assert catalog.default_core(s, arch) == "mednafen_pce_fast"
+    assert CAT["cores"]["mednafen_pce_fast"]["file"] == "mednafen_pce_fast_libretro.so"
+    assert pce["bios"] == []
+    assert pcecd["bios"][0]["files"] == ["syscard3.pce"]
+    assert pcecd["bios"][0]["required"] is True
     # GBA: gpsp on every target (no mgba in this version)
     for arch in ("x86_64", "aarch64", "armv7"):
         assert catalog.default_core(by_id["gba"], arch) == "gpsp"

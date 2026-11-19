@@ -355,7 +355,8 @@ mod tests {
         let nes = cat.system("nes").unwrap();
         assert_eq!(nes.emulators("x86_64"), vec![Emulator::libretro("fceumm"), Emulator::libretro("nestopia")]);
         let scd = cat.system("segacd").unwrap();
-        assert_eq!(scd.emulators("armv7")[0], Emulator::libretro("picodrive"));
+        // same core on both consoles (2026-11-19): genesis_plus_gx, picodrive as the alternative
+        assert_eq!(scd.emulators("armv7")[0], Emulator::libretro("genesis_plus_gx"));
         assert_eq!(scd.emulators("aarch64")[0], Emulator::libretro("genesis_plus_gx"));
         let love = cat.system("love").unwrap();
         assert_eq!(love.emulators("armv7"), vec![Emulator { runner: "love".into(), core: None }]);

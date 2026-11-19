@@ -6,7 +6,8 @@ set -u
 cp /keys/lume.rsa.pub /etc/apk/keys/
 apk add -q -X /repo retroarch jq libretro-fceumm libretro-nestopia libretro-gambatte \
 	libretro-gpsp libretro-snes9x2005-plus libretro-genesis-plus-gx \
-	libretro-picodrive libretro-fbneo libretro-pcsx-rearmed >/dev/null || exit 1
+	libretro-picodrive libretro-fbneo libretro-pcsx-rearmed libretro-mednafen-pce-fast \
+	>/dev/null || exit 1
 cat > /tmp/null.cfg <<'EOF'
 video_driver = "null"
 audio_driver = "null"
