@@ -46,6 +46,22 @@ def test_the_usb_network_has_its_dhcp_server():
     assert "dropbear-convert" not in packages      # no host key on the card any more (D4)
 
 
+def test_file_transfer_tools_are_in_the_common_list_and_have_no_service():
+    # game-experience-tuning D9: packages.txt is the userland of all three targets (r36s, ga36,
+    # vm); the hardware lists must not drop them, and nothing starts them at boot
+    common = [line.split("#", 1)[0].strip()
+              for line in (REPO_ROOT / "rootfs/packages.txt").read_text().splitlines()]
+    for name in ("openssh-sftp-server", "rsync"):
+        assert name in common, name
+        assert f"{name}-openrc" not in common
+        for target in ("r36s", "ga36", "vm"):
+            hw = (REPO_ROOT / f"board/{target}/hw-packages.txt")
+            if hw.exists():
+                assert name not in hw.read_text().split(), (target, name)
+        assert name not in CONFIGURE
+    assert "rsync" not in INIT and "sftp" not in INIT
+
+
 def test_root_logs_in_without_a_password_on_the_cable_only():
     # D4 (decided 2026-11-13): open root over ssh, on the USB network address only
     gadget = GADGET.read_text()

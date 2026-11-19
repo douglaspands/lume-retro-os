@@ -35,6 +35,12 @@ jq
 # Alpine adds with OpenRC is not enabled)
 umtprd
 dropbear
+# File transfer over the USB cable (game-experience-tuning D9): dropbear looks for the sftp
+# server at /usr/lib/ssh/sftp-server (openssh-sftp-server), which modern scp and sftp:// file
+# managers use; rsync runs over the same SSH session. Neither has a service: they only run
+# while a session of the cable uses them.
+openssh-sftp-server
+rsync
 # udhcpd of the USB network: in Alpine it is in busybox-extras, not in busybox
 busybox-extras
 
