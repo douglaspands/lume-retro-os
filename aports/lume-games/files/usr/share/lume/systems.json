@@ -31,8 +31,8 @@
       "abbr": "SMS",
       "extensions": ["sms", "zip", "7z"],
       "core": "genesis_plus_gx",
-      "core_by_arch": {"armv7": "picodrive"},
-      "alt_cores": [],
+      "core_by_arch": {},
+      "alt_cores": ["picodrive"],
       "emulators": [],
       "bios": [],
       "romset": null
@@ -43,8 +43,8 @@
       "abbr": "MD",
       "extensions": ["md", "gen", "bin", "smd", "zip", "7z"],
       "core": "genesis_plus_gx",
-      "core_by_arch": {"armv7": "picodrive"},
-      "alt_cores": [],
+      "core_by_arch": {},
+      "alt_cores": ["picodrive"],
       "emulators": [],
       "bios": [],
       "romset": null
@@ -55,7 +55,7 @@
       "abbr": "SCD",
       "extensions": ["cue", "chd", "iso", "m3u"],
       "core": "genesis_plus_gx",
-      "core_by_arch": {"armv7": "picodrive"},
+      "core_by_arch": {},
       "alt_cores": ["picodrive"],
       "emulators": [],
       "bios": [

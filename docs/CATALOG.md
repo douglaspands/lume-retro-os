@@ -44,6 +44,13 @@ Regras:
 - Sistema de arcade (com `romset`) não pode ter `core_by_arch`: o cartão único leva a mesma
   pasta de romsets aos dois consoles, e um romset só funciona no core da versão dele. O
   validador recusa o catálogo que quebrar a regra.
+- **Por enquanto, os mesmos cores nos dois consoles** (decisão do usuário, 2026-11-19): todo
+  `core_by_arch` está vazio, e o GA36 (armv7) e o R36S (aarch64) abrem cada sistema no mesmo
+  core. Com a evolução, cada console pode seguir o próprio caminho pelo `core_by_arch`, medido
+  no aparelho (P-24). O teste `test_same_cores_on_both_consoles_for_now` guarda a regra até
+  essa decisão mudar. Master System, Mega Drive e Sega CD usavam o `picodrive` no armv7 por
+  desempenho no A33; agora usam o `genesis_plus_gx` nos dois, com o `picodrive` como
+  alternativo (a velocidade no GA36 fica para a J2 dele).
 
 ## Emuladores do launcher
 

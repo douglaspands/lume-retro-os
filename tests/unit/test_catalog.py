@@ -27,12 +27,13 @@ def test_systems_match_design_table():
     for arch in ("x86_64", "aarch64", "armv7"):
         assert catalog.default_core(by_id["snes"], arch) == "snes9x2005_plus"
     assert not any("snes9x" in c and c != "snes9x2005_plus" for c in CAT["cores"])
-    # Sega CD: genesis_plus_gx, picodrive on the GA36 (armv7); required BIOS by region
+    # Sega CD, Master System, Mega Drive: genesis_plus_gx on every console, picodrive as the
+    # alternative (the user, 2026-11-19: same cores on both consoles at the start)
     assert by_id["segacd"]["extensions"] == ["cue", "chd", "iso", "m3u"]
-    assert catalog.default_core(by_id["segacd"], "aarch64") == "genesis_plus_gx"
-    assert catalog.default_core(by_id["segacd"], "x86_64") == "genesis_plus_gx"
-    assert catalog.default_core(by_id["segacd"], "armv7") == "picodrive"
-    assert by_id["segacd"]["alt_cores"] == ["picodrive"]
+    for sid in ("segacd", "mastersystem", "megadrive"):
+        for arch in ("x86_64", "aarch64", "armv7"):
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
+        assert by_id[sid]["alt_cores"] == ["picodrive"]
     assert by_id["segacd"]["bios"][0]["files"] == [
         "bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
     assert by_id["segacd"]["bios"][0]["required"] is True
@@ -66,6 +67,14 @@ def test_systems_match_design_table():
     assert "mame2003_plus" not in CAT["cores"]
     assert by_id["psx"]["bios"][0]["files"] == [
         "scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"]
+
+
+def test_same_cores_on_both_consoles_for_now():
+    # the user, 2026-11-19: at the start the GA36 (armv7) and the R36S (aarch64) run the same
+    # cores; each console may take its own path later through core_by_arch (the field stays)
+    for s in CAT["systems"]:
+        assert s["core_by_arch"] == {}, s["id"]
+        assert catalog.emulators(s, "armv7") == catalog.emulators(s, "aarch64"), s["id"]
 
 
 def test_vm_core_tests_cover_what_has_a_free_rom():
@@ -124,8 +133,8 @@ def test_emulators_derived_from_core_fields():
     assert catalog.emulators(by_id["nes"], "x86_64") == [
         {"runner": "retroarch", "core": "fceumm"}, {"runner": "retroarch", "core": "nestopia"}]
     assert catalog.emulators(by_id["segacd"], "armv7") == [
-        {"runner": "retroarch", "core": "picodrive"},
-        {"runner": "retroarch", "core": "genesis_plus_gx"}]
+        {"runner": "retroarch", "core": "genesis_plus_gx"},
+        {"runner": "retroarch", "core": "picodrive"}]
     assert catalog.emulators(by_id["segacd"], "aarch64") == [
         {"runner": "retroarch", "core": "genesis_plus_gx"},
         {"runner": "retroarch", "core": "picodrive"}]
