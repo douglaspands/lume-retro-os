@@ -305,8 +305,9 @@ impl Hud {
             capacity: read_num(&d.join("capacity")).map(|c| c.clamp(0, 100) as u32),
             charging: status == "Charging",
             full: status == "Full",
-            voltage_uv: read_num(&d.join("voltage_now")),
-            current_ua: read_num(&d.join("current_now")),
+            // the RK817 of the R36S has only voltage_avg and current_avg (R36S J1)
+            voltage_uv: read_num(&d.join("voltage_now")).or_else(|| read_num(&d.join("voltage_avg"))),
+            current_ua: read_num(&d.join("current_now")).or_else(|| read_num(&d.join("current_avg"))),
             charge_now: read_num(&d.join("charge_now")),
             // the AXP223 of the GA36 has only the design capacity (J1): the estimate from
             // the first 30 s, with the error of a worn battery
@@ -654,6 +655,21 @@ mod tests {
         let mut h = Hud::new(&d, 42);
         assert!(h.sample(0.0).ends_with("BAT 50% 1.9W --:--"), "{}", h.sample(0.0));
         assert!(h.sample(20.0).ends_with("--:--"), "under 30 s of samples");
+        assert!(h.sample(31.0).ends_with("BAT 50% 1.9W 2:00"), "{}", h.sample(31.0));
+    }
+
+    #[test]
+    fn battery_rk817_only_avg_fields() {
+        // the RK817 of the R36S has voltage_avg and current_avg, no *_now (R36S J1)
+        let d = tree("bat_avg");
+        battery(&d, "Discharging", 50, 0, 0, Some((1_000_000, 2_000_000)));
+        let b = d.join("sys/class/power_supply/battery");
+        fs::remove_file(b.join("voltage_now")).unwrap();
+        fs::remove_file(b.join("current_now")).unwrap();
+        fs::write(b.join("voltage_avg"), "3800000\n").unwrap();
+        fs::write(b.join("current_avg"), "-500000\n").unwrap();
+        let mut h = Hud::new(&d, 42);
+        h.sample(0.0);
         assert!(h.sample(31.0).ends_with("BAT 50% 1.9W 2:00"), "{}", h.sample(31.0));
     }
 

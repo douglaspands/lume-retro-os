@@ -912,8 +912,11 @@ sample() {
 	bpct="" bmv="" bma="" bst=""
 	if [ -n "$BAT" ]; then
 		_rd "$BAT/capacity"; bpct=$V
-		_rd "$BAT/voltage_now"; bmv=$(( ${V:-0} / 1000 ))
-		_rd "$BAT/current_now"; bma=$(( ${V:-0} / 1000 ))
+		# the RK817 of the R36S has only voltage_avg and current_avg (R36S J1)
+		bf=$BAT/voltage_now; [ -r "$bf" ] || bf=$BAT/voltage_avg
+		_rd "$bf"; bmv=$(( ${V:-0} / 1000 ))
+		bf=$BAT/current_now; [ -r "$bf" ] || bf=$BAT/current_avg
+		_rd "$bf"; bma=$(( ${V:-0} / 1000 ))
 		_rd "$BAT/status"; bst=$V
 		if [ -n "$bpct" ]; then
 			if [ "$bpct" -lt 10 ] && [ $BAT_LOW = 0 ]; then

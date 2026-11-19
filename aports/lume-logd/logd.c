@@ -1438,9 +1438,14 @@ static void sample(void)
 		if (*bat) {
 			path(p, sizeof(p), "%s/capacity", bat);
 			first_line(p, pct, sizeof(pct));
+			/* the RK817 of the R36S has only voltage_avg and current_avg (R36S J1) */
 			path(p, sizeof(p), "%s/voltage_now", bat);
+			if (!readable(p))
+				path(p, sizeof(p), "%s/voltage_avg", bat);
 			snprintf(mv, sizeof(mv), "%ld", strtol(first_line(p, v, sizeof(v)), NULL, 10) / 1000);
 			path(p, sizeof(p), "%s/current_now", bat);
+			if (!readable(p))
+				path(p, sizeof(p), "%s/current_avg", bat);
 			snprintf(ma, sizeof(ma), "%ld", strtol(first_line(p, v, sizeof(v)), NULL, 10) / 1000);
 			path(p, sizeof(p), "%s/status", bat);
 			first_line(p, bst, sizeof(bst));

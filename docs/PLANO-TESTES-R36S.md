@@ -37,7 +37,8 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
 | C2 | Regra do udev do read-ahead com o valor do R3, ou nenhuma | `device-fixes` 5.5 | R3 | — | AG | sonnet | 2 | |
 | C3 | Regra do udev do `profiling` do `panfrost` gravável pelo grupo `video`, se o R5 pediu | `lume-hud-actions` 4.4 | R5 | — | AG | sonnet | 2 | |
 | C4 | Se o R1 mostrou que o carregador acorda a suspensão: patch do `rk817_charger`; e o modo de suspensão escolhido no `lume-sleep` | `device-fixes` 2.3, 8.x | R1 | — | AG | opus | 2 | |
-| B1 | Build dos nós C1 a C4 (kernel e pacotes do R36S) e `push` | — | C1, C2, C3, C4 | CPU, MERGE | PR | — | 3 | |
+| C6 | Bateria do RK817: barra (`hud.rs`) e `logd` (C e shell) leem `voltage_avg`/`current_avg` quando não há `*_now` (achado do R5) | `lume-hud-actions` 4.2, `game-governor` 1.2 | R5 | — | AG | sonnet | 2 | |
+| B1 | Build dos nós C1 a C4 e C6 (kernel e pacotes do R36S) e `push` | — | C1, C2, C3, C4 | CPU, MERGE | PR | — | 3 | |
 | G1 | Medição dos perfis de energia: as sessões do D5 por classe e candidato no modo manual, com e sem o controlador nos pesados, tabela do `lume power report` | `game-governor` 6.1 (e as partes "no R36S" de 1.2, 2.2, 2.3, 4.2: `logd` < 1% de um núcleo, SNES no `snes9x2005_plus` com um save state antigo) | B1 | R36S, USUARIO | PR | — | 4 | J2 |
 | C5 | `r36s.conf` com os perfis escolhidos no G1, validador contra a tabela de OPP do R36S copiada do aparelho | `game-governor` 6.2 | G1 | — | AG | sonnet | 5 | |
 | B2 | Build do `lume-power` do R36S e `push` | `game-governor` 6.3 | C5 | CPU | PR | — | 6 | |
@@ -54,6 +55,23 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
   usuário joga cada uma, o PC mede); o V2 roda sozinho pelo cabo enquanto isso não ocupa o
   aparelho.
 - **J3 (~1h30):** a lista final.
+
+## Andamento
+
+- 2026-11-19, R0: push do build `20261118-234742`, boot 202 limpo, frontend em 16,8 s.
+- R3: medido (tabela no D6 da `device-fixes`); escolha provisória: regra de 512 KiB só no R36S
+  (C2, a confirmar pelo usuário).
+- R5: `drm-engine-*` só com `profiling=1`, arquivo `root 0644` → C3 feito (regra
+  `90-lume-gpu-profiling.rules`, conferida no aparelho: `root:video rw-rw-r--`). O RK817 só tem
+  `current_avg`/`voltage_avg` (carregando: positivo) → C6 feito, com testes. Sem Yama no kernel.
+  Falta o sinal da corrente descarregando.
+- R1 (parte automática): `mem_sleep` = `s2idle [deep]`; 10 de 10 em `freeze` e 10 de 10 em
+  `mem` pelo alarme do RTC, nenhum despertar antes da hora (fora do carregador). Faltam: o
+  despertar pelo botão, o carregador ligado durante a suspensão e a corrente suspenso
+  (precisa de uma suspensão longa: o contador de carga do RK817 só atualiza de tempos em
+  tempos).
+- Fuso do cartão (`system/etc/timezone`) posto em `America/Sao_Paulo` a pedido do usuário; a
+  hora UTC do R36S estava certa.
 
 ## Fora deste plano (lembrar)
 

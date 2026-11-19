@@ -209,6 +209,17 @@ def test_header_and_first_sample_are_the_frozen_shell_ones(exe, world):
     assert any(re.fullmatch(r"fe=stopped pid=- gpu_mhz= vblank=", t) for t in world.trace())
 
 
+def test_battery_avg_fields_when_now_is_missing(exe, world):
+    # the RK817 of the R36S has only voltage_avg and current_avg (R36S J1)
+    (world.bat / "voltage_now").unlink()
+    (world.bat / "current_now").unlink()
+    (world.bat / "voltage_avg").write_text("3825180\n")
+    (world.bat / "current_avg").write_text("405920\n")
+    r = world.run(exe, 1)
+    assert r.returncode == 0, r.stderr
+    assert ",9,3825,405,Discharging," in world.metrics()[0], world.metrics()[0]
+
+
 def test_cpu_load_temperature_events_and_negative_temperature(exe, world):
     # one run: the cpu difference needs the previous sample, so the files change between
     # samples through the fake network command... here two runs show the first-sample rule
