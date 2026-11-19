@@ -85,8 +85,8 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
   à mão e de ouvido (R1 botão e carregador, R7, fone, suspensões do GA36, `flash --full`,
   VBUS falso, barra e dica legíveis, `fn_hold_ms`, botões segurados no GA36) foram feitas
   pelo usuário e anotadas em cada tarefa; o P-103 foi concluído. As janelas J2 e J3 que sobram
-  são pelo cabo. Fica com o usuário só a sessão curta de volume da 7.7 (o 100% do R36S perto
-  de estourar) e o R2 em andamento (5 min desligado).
+  são pelo cabo. O R2 passou (RTC com 0 s de diferença) e a 7.7 fechou sem mudança (o
+  volume do R36S é alto e limpo, julgado pelo usuário): não sobra prova com o usuário.
 
 ## Fora deste plano (lembrar)
 
