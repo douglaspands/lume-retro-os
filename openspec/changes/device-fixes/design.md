@@ -163,10 +163,13 @@ de três:
 |---|---|---|---|---|---|
 | GA36 | PS1, 133 MB | 6,36 s | 6,19 s | 6,14 s | 6,07 s |
 | GA36 | Neo Geo, 38 MB | 1,89 s | 1,83 s | 1,81 s | 1,79 s |
-| R36S | (pendente, J1 do R36S) | | | | |
+| R36S | PS1, 133 MB | 6,48 s | 6,18 s | 5,99 s | 5,90 s |
+| R36S | Neo Geo, 38 MB | 1,90 s | 1,81 s | 1,76 s | 1,76 s |
 
 O cartão lê ~21 MB/s no GA36 e o read-ahead maior ganha no máximo ~5% (0,3 s numa ROM grande):
-nenhum ganho claro no GA36.
+nenhum ganho claro no GA36. No R36S (J1, 2026-11-19, mesmo cartão, `/proc/uptime` com
+resolução de 10 ms) o ganho é um pouco maior: 512 KiB tira ~7,5% nos dois arquivos (0,5 s no de
+PS1) e o Neo Geo para de cair ali; 1024 só tira mais 1,5% no PS1.
 
 ### D7. Nomes `lume` (nós TREE)
 
