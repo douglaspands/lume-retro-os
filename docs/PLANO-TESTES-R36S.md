@@ -81,6 +81,13 @@ Recursos: `R36S` (aparelho no cabo), `USUARIO` (olho e mãos), `CPU` (build), `M
   `logd`, ociosidade, `reload`): resultados no `docs/BRINGUP-R36S.md`. B1 em build com C2,
   C3, C6 e a correção do Dock no `lume-ui`.
 
+- **Decisão do usuário (2026-11-19): nas changes só ficam provas automatizáveis.** As provas
+  à mão e de ouvido (R1 botão e carregador, R7, fone, suspensões do GA36, `flash --full`,
+  VBUS falso, barra e dica legíveis, `fn_hold_ms`, botões segurados no GA36) foram feitas
+  pelo usuário e anotadas em cada tarefa; o P-103 foi concluído. As janelas J2 e J3 que sobram
+  são pelo cabo. Fica com o usuário só a sessão curta de volume da 7.7 (o 100% do R36S perto
+  de estourar) e o R2 em andamento (5 min desligado).
+
 ## Fora deste plano (lembrar)
 
 - No GA36 ainda abertos: a J2 da `device-fixes` (10.2, P-103), a V1 da `virtual-gamepad`
