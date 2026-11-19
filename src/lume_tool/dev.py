@@ -26,6 +26,10 @@ refuses before running anything when the cable has the other one (build-speed 3.
   `delay max=<ms> mean=<ms> events=<n>`; a recording of the other console is refused before
   anything is sent.
 
+- `roms push [DIR]`: copy the test set (default var/roms_test/) to the card without deleting
+  or overwriting, SHA256 checked, game lists merged; counts per system only
+  (lume_tool.roms_push, game-experience-tuning D10).
+
 - `run <script>`: run a device test script (lume_tool.dev_run, lume_tool.scripts): one line
   `passo <n> <name>: ok|FALHOU (<reason>)` per step, stops at the first failure, refuses a
   console the script does not list before any button, reads events.log only from the start
@@ -697,6 +701,10 @@ def main_dev(args) -> int:
             return cmd_check(host, args.console)
         if args.dev_command == "replay":
             return cmd_replay(host, args.action, args.slot)
+        if args.dev_command == "roms":
+            from lume_tool.roms_push import cmd_roms_push
+
+            return cmd_roms_push(host, args.dir, args.method)
         if args.dev_command == "watch":
             from lume_tool.dev_watch import cmd_watch
 
