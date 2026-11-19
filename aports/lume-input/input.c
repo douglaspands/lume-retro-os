@@ -209,6 +209,8 @@ struct profile {
 	char old_ctl[64];
 	struct vol_control old;
 	int backlight_max;	/* raw ceiling of the backlight (0: none): 100% of the launcher */
+	int backlight_boot;	/* raw level the start brings a higher one down to, with no saved
+				 * brightness (0: none); the keys still reach the top */
 	int deadzone_pct;	/* sticks: dead zone around the centre, % of the axis span */
 	int has_deadzone;	/* "deadzone" given; else the flat of the source axis is used */
 };
@@ -492,6 +494,9 @@ static int load_profile(const char *path, struct profile *p)
 			p->has_deadzone = 1;
 		} else if (!strcmp(s, "backlight_max") && sscanf(arg, "%d", &p->backlight_max) == 1) {
 			if (p->backlight_max < 1)
+				goto bad;
+		} else if (!strcmp(s, "backlight_boot") && sscanf(arg, "%d", &p->backlight_boot) == 1) {
+			if (p->backlight_boot < 1)
 				goto bad;
 		} else {
 			goto bad;
@@ -1129,19 +1134,23 @@ static long backlight_raw(long top, long pct)
 	return v > top ? top : v;
 }
 
-/* At start: a backlight above the profile's ceiling comes down to it (the kernel starts the
- * GA36 at level 8 from its device tree; above 7 the panel flickers). */
+/* At start, with no saved brightness: a backlight above the profile's boot level (or its
+ * ceiling) comes down to it (the kernel starts the GA36 at level 8 from its device tree; from
+ * level 7 up this GA36 can show a broken picture, P-95). */
 static void clamp_backlight(const struct profile *p)
 {
 	char dir[400];
 	long cur;
+	int limit = p->backlight_boot > 0 ? p->backlight_boot : p->backlight_max;
 
-	if (p->backlight_max <= 0 || find_backlight(dir, sizeof(dir)) < 0)
+	if (p->backlight_max > 0 && p->backlight_max < limit)
+		limit = p->backlight_max;
+	if (limit <= 0 || find_backlight(dir, sizeof(dir)) < 0)
 		return;
 	cur = read_long(dir, "brightness");
-	if (cur > p->backlight_max) {
-		write_backlight(dir, p->backlight_max);
-		logline("backlight %ld above the ceiling, set to %d", cur, p->backlight_max);
+	if (cur > limit) {
+		write_backlight(dir, limit);
+		logline("backlight %ld above the start level, set to %d", cur, limit);
 	}
 }
 

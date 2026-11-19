@@ -35,6 +35,7 @@ menu do sistema da `device-fixes` já mesclado.
 | 2.1 | 1.1, 1.3, 1.4 | — | AG | sonnet | 2 | J1, J2 |
 | 3.1 | — | USUARIO | AG+PR | sonnet | 0 | |
 | 2.3 | 3.1 (protótipo) | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
+| 2.4 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 (protótipo), 2 (código) | J1, J2 |
 | 3.2 | `device-fixes` 9.1 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
 | 3.3 | 3.1, 3.2 | — | AG | sonnet (a aprovar) | 2 | J1, J2 |
 | 5.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
@@ -91,6 +92,8 @@ Modelos aprovados pelo usuário em 2026-11-17.
 - [ ] 2.2 `lume-ui`, logo colorido do cartão (D7): `icons/<sistema>.color.png` desenhado como imagem RGBA, reduzido ao tamanho do tile na decodificação, com prioridade sobre a máscara e a mesma busca na cadeia `extends`; o teto do cache de ícones vale para os dois tipos; teste do pacote que recusa qualquer PNG em `themes/` da imagem. Verificação: testes de unidade (um tema de teste com `snes.color.png` e `nes.png`: SNES colorido, NES em máscara; cache dentro do teto com logos grandes) e o teste do pacote; no aparelho, um tema do cartão com um logo colorido (J1).
 
 - [ ] 2.3 (Protótipo feito e mesclado em 2026-11-18: o contador numa linha própria entre o nome em foco e as dicas, alinhado à direita, x da borda direita 620,8 e y 418,7; a grade perde 23 px e mantém 2 fileiras. Visto pelo usuário na captura da grade; falta a aprovação formal ao retomar a change.) Contador de jogos na lista (pedido do usuário, 2026-11-18): o contador sai do meio do rodapé e vai para o canto inferior direito, logo acima das dicas dos botões, sem cobrir as dicas nem o nome do jogo em foco; primeiro no protótipo (com a 3.1), depois no `lume-ui`. Verificação: o usuário aprova no navegador; teste de tela e de régua da grade (o `footer_centered_and_counter_in_the_middle` muda para a posição nova); no aparelho, J1 e J2.
+
+- [ ] 2.4 Zona de risco do brilho na barra (pedido do usuário, 2026-11-18): o GA36 ficou com os 10 níveis liberados (sem o `backlight_max`, só o `backlight_boot 7` para o boot sem brilho salvo); a barra do brilho (a linha da borda esquerda do Fn + volume, desenhada pelo `lume-menu` e pelo patch 0011 do RetroArch, e a barra de Brilho das Configurações) mostra os níveis a partir de um limite do perfil (proposta: `backlight_warn 8` no `ga36.conf`) em outra cor (vermelho ou âmbar do tema), ou um ponto no limite; as duas variações no protótipo primeiro, para o usuário escolher. O aprendizado do limite por aparelho continua na change do P-95. Verificação: o usuário escolhe e aprova no navegador; testes de tela e do `lume-input` (a linha nova, a cor na zona); no aparelho, J1 e J2.
 
 ## 3. Relógio na tela e acerto da hora (P-102, incluído pelo usuário em 2026-11-18)
 

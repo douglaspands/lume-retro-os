@@ -796,11 +796,12 @@ def test_start_applies_the_saved_brightness(daemon_exe, tmp_path):
         d.stop()
 
 
-def test_a_saved_brightness_never_goes_above_the_ceiling(daemon_exe, tmp_path):
-    # GA36 ceiling 7 is 100%: a saved 100 is level 7 (the fake starts at 153), 60% is 4
+def test_a_saved_brightness_wins_over_the_boot_level(daemon_exe, tmp_path):
+    # GA36 since 2026-11-18: no ceiling; a saved 100 is the top (255 of the fake), not the
+    # boot level 7, and 60% is 153
     d = _with_saved_brightness(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"], "100\n")
     try:
-        assert _wait_level(d, 7) == 7
+        assert _wait_level(d, 255) == 255
     finally:
         d.stop()
     (tmp_path / "display" / "brightness").write_text("60\n")
@@ -808,7 +809,7 @@ def test_a_saved_brightness_never_goes_above_the_ceiling(daemon_exe, tmp_path):
     d = Daemon(daemon_exe, tmp_path / "again", "ga36", ["GA36-MB Gamepad", "1c22800.lradc"],
                env_extra={"LUME_INPUT_BRIGHTNESS_FILE": str(tmp_path / "display" / "brightness")})
     try:
-        assert _wait_level(d, 4) == 4
+        assert _wait_level(d, 153) == 153
     finally:
         d.stop()
 
@@ -853,11 +854,42 @@ def test_levels_ask_retroarch_for_the_line_over_a_game(r36s):
     assert r36s.ra.recv(64) == b"LUME_LEVEL right 80 D0BCFF"
 
 
-def test_ga36_backlight_ceiling_is_100_percent(daemon_exe, tmp_path):
-    # GA36: above level 7 of 10 the panel flickers (2026-11-15); the profile's backlight_max
-    # makes level 7 the 100%, a higher level comes down when the daemon starts and on the
-    # next step
+def test_ga36_backlight_boot_level_and_full_range(daemon_exe, tmp_path):
+    # GA36 (2026-11-18): no ceiling, all 10 levels; with no saved brightness the start brings
+    # the kernel's higher level down to the profile's backlight_boot (7)
     d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"])
+    try:
+        level = lambda: int((d.backlight / "panel/brightness").read_text())
+        for _ in range(100):
+            if level() == 7:
+                break
+            time.sleep(0.02)
+        assert level() == 7
+        (d.backlight / "panel/max_brightness").write_text("10\n")
+        (d.backlight / "panel/brightness").write_text("7\n")
+        fn, up, down = CODES["BTN_MODE"], CODES["KEY_VOLUMEUP"], CODES["KEY_VOLUMEDOWN"]
+        d.press("GA36-MB Gamepad", fn)
+        for want in (8, 9, 10, 10):
+            d.press("1c22800.lradc", up)
+            d.release("1c22800.lradc", up)
+            assert level() == want
+        assert d.ra.recv(64) == b"LUME_LEVEL left 80 ffffff"
+        d.press("1c22800.lradc", down)
+        d.release("1c22800.lradc", down)
+        assert level() == 9
+        d.release("GA36-MB Gamepad", fn)
+    finally:
+        d.stop()
+
+
+def test_backlight_max_ceiling_is_100_percent(daemon_exe, tmp_path):
+    # the generic backlight_max line (no board uses it since 2026-11-18): the ceiling is the
+    # 100%, a higher level comes down when the daemon starts and on the next step
+    text = (APORT / "ga36.conf").read_text().replace("backlight_boot 7", "backlight_max 7")
+    custom = tmp_path / "ceiling.conf"
+    custom.write_text(text)
+    d = Daemon(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"],
+               profile=custom)
     try:
         level = lambda: int((d.backlight / "panel/brightness").read_text())
         # the fake backlight started at 153 (of 255): brought down to the ceiling at start; the
