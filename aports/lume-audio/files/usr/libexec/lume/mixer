@@ -13,7 +13,8 @@
 # volume.sh) is applied to the volume control of the board, the one lume-input moves:
 #  - GA36: the analog "Headphone" (0-63, 63 = 0 dB, it also feeds the speaker amplifier),
 #    with its switch off at 0% (mute) and on otherwise; the digital "DAC" stays at 0 dB
-#    (160) and on. One level, "speaker" (the jack switch is mechanical). Without a level
+#    (160) and on; the "Speaker" amplifier switch is off at 0% too (it hisses otherwise)
+#    and on at any other level. One level, "speaker" (the jack switch is mechanical). Without a level
 #    file: the one-time conversion of the old volume, the DAC, while it holds a level of the
 #    old system (not at 0 dB, e.g. a restart by "lume push --hot"); else 70%.
 #  - R36S: the digital "Master" of the RK817 (0-255, 255 = 0 dB) until task 7.1, with the
@@ -61,7 +62,9 @@ case "$board" in
 		set_ctl "$c" 'Headphone Source' DAC
 		if [ "$pct" -gt 0 ]; then sw=on; else sw=off; fi
 		set_ctl "$c" 'Headphone' "$(vol_raw 0 63 1500 "$pct")" "$sw"
-		set_ctl "$c" 'Speaker' on
+		# the amplifier switch follows the level (task 7.5, "mixer_amp Speaker" in the
+			# lume-input profile): off at 0% or it hisses, on otherwise
+			set_ctl "$c" 'Speaker' "$sw"
 		;;
 	r36s)
 		# R36S (RK817 codec, simple-audio-card "rk817_int"): the speaker output and the

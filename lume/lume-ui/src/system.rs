@@ -152,6 +152,8 @@ pub struct Mixer {
     pub switch: bool,
     /// `mixer_keep <control> <values>`: set again with every level (GA36: DAC 160 on)
     pub keep: Option<(String, Vec<String>)>,
+    /// `mixer_amp <control>` (device-fixes 7.5): the amplifier switch, off at 0%, on otherwise
+    pub amp: Option<String>,
     /// `mixer_old <control> <lo> <hi> <ref> <mdb step>`: the old volume, for the one-time
     /// conversion
     pub old: Option<(String, volume::Control)>,
@@ -179,7 +181,7 @@ fn control_of(v: &[String]) -> Option<volume::Control> {
 pub fn board_mixer(profile: &Path) -> Option<Mixer> {
     let text = std::fs::read_to_string(profile).ok()?;
     let mut m: Option<Mixer> = None;
-    let (mut scale, mut switch, mut keep, mut old) = (None, false, None, None);
+    let (mut scale, mut switch, mut keep, mut old, mut amp) = (None, false, None, None, None);
     for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()) {
         let (key, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
         match key {
@@ -192,6 +194,7 @@ pub fn board_mixer(profile: &Path) -> Option<Mixer> {
                     scale: None,
                     switch: false,
                     keep: None,
+                    amp: None,
                     old: None,
                     level_dir: LEVEL_DIR.into(),
                     output_file: OUTPUT_FILE.into(),
@@ -200,11 +203,12 @@ pub fn board_mixer(profile: &Path) -> Option<Mixer> {
             "mixer_scale" => scale = control_of(&rest.split_whitespace().map(String::from).collect::<Vec<_>>()),
             "mixer_switch" => switch = true,
             "mixer_keep" => keep = ctl_and_rest(rest),
+            "mixer_amp" => amp = Some(rest.trim().to_string()).filter(|c| !c.is_empty()),
             "mixer_old" => old = ctl_and_rest(rest).and_then(|(c, v)| Some((c, control_of(&v)?))),
             _ => {}
         }
     }
-    m.map(|m| Mixer { scale, switch, keep, old, ..m })
+    m.map(|m| Mixer { scale, switch, keep, amp, old, ..m })
 }
 
 /// The first channel's raw value of an `amixer sget` output ("Playback 160 [83%]").
@@ -269,6 +273,9 @@ impl Mixer {
         let mut v = vec![first];
         if let Some((ctl, values)) = &self.keep {
             v.push([vec![ctl.clone()], values.clone()].concat());
+        }
+        if let Some(amp) = &self.amp {
+            v.push(vec![amp.clone(), if pct > 0 { "on" } else { "off" }.into()]);
         }
         v
     }
@@ -707,11 +714,14 @@ mod tests {
     fn a_level_sets_the_control_the_switch_and_the_kept_control() {
         let ga36 = profile_mixer("ga36");
         let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "51", "on"]), s(&["DAC", "160", "on"])]);
-        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "63", "on"]), s(&["DAC", "160", "on"])]);
-        // 0% is mute: the minimum and the switch off; the DAC stays on at 0 dB
-        assert_eq!(ga36.set_args(0), vec![s(&["Headphone", "0", "off"]), s(&["DAC", "160", "on"])]);
-        // R36S: the Master on the scale, no switch
+        assert_eq!(ga36.amp.as_deref(), Some("Speaker"));
+        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "51", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "63", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(5)[2], s(&["Speaker", "on"]));
+        // 0% is mute: the minimum and the switch off, the amplifier off too (7.5); the DAC
+        // stays on at 0 dB
+        assert_eq!(ga36.set_args(0), vec![s(&["Headphone", "0", "off"]), s(&["DAC", "160", "on"]), s(&["Speaker", "off"])]);
+        // R36S: the Master on the scale, no switch, no amplifier line (until 7.1)
         assert_eq!(profile_mixer("r36s").set_args(70), vec![s(&["Master", "228"])]);
         assert_eq!(profile_mixer("vm").set_args(40), vec![s(&["Master", "40%"])]);
     }

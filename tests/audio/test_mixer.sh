@@ -79,11 +79,13 @@ echo 100 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 BOARD_FILE="$W/board" $MIXER >/dev/null
 check "level: 100% is the loudest clean position (63)" 'grep -qxF -e "-c GA36MB -q sset Headphone 63 on" "$FAKE_LOG"'
+check "level: above 0 the Speaker amplifier is on" 'grep -qxF -e "-c GA36MB -q sset Speaker on" "$FAKE_LOG"'
 echo 0 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 BOARD_FILE="$W/board" $MIXER >/dev/null
 check "level: 0% is mute: Headphone at its minimum and switched off" 'grep -qxF -e "-c GA36MB -q sset Headphone 0 off" "$FAKE_LOG"'
 check "level: the DAC stays on at 0 dB with the output muted" 'grep -qxF -e "-c GA36MB -q sset DAC 160 on" "$FAKE_LOG"'
+check "level: boot with level 0 leaves the Speaker amplifier off" 'grep -qxF -e "-c GA36MB -q sset Speaker off" "$FAKE_LOG" && ! grep -qxF -e "-c GA36MB -q sset Speaker on" "$FAKE_LOG"'
 echo junk > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)

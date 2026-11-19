@@ -831,9 +831,9 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
             assert d.ra.recv(64) == f"LUME_LEVEL right {pct} 4db3ff".encode()
         assert d.amixer_calls() == [
             "-c GA36MB sget DAC", "-c GA36MB sget Headphone",
-            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on",
-            "-c GA36MB -q sset Headphone 46 on", "-c GA36MB -q sset DAC 160 on",
-            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on"]
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on",
+            "-c GA36MB -q sset Headphone 46 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on",
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on"]
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
     finally:
         d.stop()
@@ -896,6 +896,26 @@ def test_ga36_zero_is_mute_and_the_switches_come_back_on(daemon_exe, tmp_path):
         d.stop()
 
 
+def test_ga36_speaker_amplifier_is_off_at_zero_and_on_above(daemon_exe, tmp_path):
+    # task 7.5: at 0% the Speaker (amplifier) switch goes off with the Headphone, at 5% both on
+    d = _ga36(daemon_exe, tmp_path)
+    try:
+        c = d.client()
+        d.levels.mkdir()
+        (d.levels / "level-speaker").write_text("10\n")
+        d.ctl("DAC", 160)
+        d.ctl("Headphone", 40, lim="0 - 63")
+        d.ctl("Speaker", 1, lim="0 - 1")
+        _vol(d, "KEY_VOLUMEDOWN", c)   # 5%
+        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+        _vol(d, "KEY_VOLUMEDOWN", c)   # 0%
+        assert d.ctl_state("Headphone") == (0, "off") and d.ctl_state("Speaker")[1] == "off"
+        _vol(d, "KEY_VOLUMEUP", c)     # 5% again: both on
+        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+    finally:
+        d.stop()
+
+
 def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
     # 20 presses from mute to the loudest clean position (63), on the raw of volume.h, and
     # a broken level file counts as no file
@@ -919,7 +939,7 @@ def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
 
 def test_bad_mixer_scale_lines_are_refused(daemon_exe, tmp_path):
     for line in ("mixer_scale 63 0 63 1500", "mixer_scale 0 63 64 1500", "mixer_scale 0 63 63 0",
-                 "mixer_switch on", "mixer_keep 160 on", "mixer_old DAC 0 192 160"):
+                 "mixer_switch on", "mixer_amp", "mixer_keep 160 on", "mixer_old DAC 0 192 160"):
         prof = tmp_path / "p.conf"
         prof.write_text(f"name Pad\nsource Pad\npassthrough\n{line}\n")
         r = subprocess.run([str(daemon_exe), "--profile", str(prof), "--test", str(tmp_path / "o")],

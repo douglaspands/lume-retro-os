@@ -204,6 +204,7 @@ struct profile {
 	struct vol_control scale;
 	int mixer_switch;	/* "mixer_switch": 0% turns the control's switch off */
 	char keep_ctl[64], keep_val[64];	/* "mixer_keep <control> <values>" ("" none) */
+	char amp_ctl[64];	/* "mixer_amp <control>": the amplifier switch, off at 0% ("" none) */
 	int has_old;	/* "mixer_old": the control of the old volume, for the conversion */
 	char old_ctl[64];
 	struct vol_control old;
@@ -474,6 +475,8 @@ static int load_profile(const char *path, struct profile *p)
 			memmove(p->keep_ctl, c, strlen(c) + 1);
 			if (!*p->keep_ctl)
 				goto bad;
+		} else if (!strcmp(s, "mixer_amp") && *arg) {
+			snprintf(p->amp_ctl, sizeof(p->amp_ctl), "%s", arg);
 		} else if (!strcmp(s, "mixer_old") &&
 			   sscanf(arg, "%63[^0-9] %d %d %d %d", p->old_ctl, &p->old.lo, &p->old.hi, &p->old.ref,
 				  &p->old.mdb_step) == 5) {
@@ -944,6 +947,10 @@ static void level_apply(const char *amixer, const struct profile *p, int pct)
 	mixer_set(amixer, p->mixer_card, p->mixer_ctl, v);
 	if (*p->keep_ctl)
 		mixer_set(amixer, p->mixer_card, p->keep_ctl, p->keep_val);
+	/* the amplifier switch (GA36 "Speaker"): off at 0%, or it hisses with the gain at the
+	 * minimum (measured 2026-11-18); on at any other level */
+	if (*p->amp_ctl)
+		mixer_set(amixer, p->mixer_card, p->amp_ctl, pct > 0 ? "on" : "off");
 }
 
 /* One volume step. With a scale (device-fixes D9): 5% of the user scale on the active

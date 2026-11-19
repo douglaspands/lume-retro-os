@@ -446,6 +446,7 @@ leem o controle no perfil do `lume-input` (`/usr/share/lume/input/<placa>.conf`)
 | `mixer_scale <lo> <hi> <ref> <mdB por passo>` | o controle na escala desta seção (sem ela, o `amixer` em % puro, como na `vm`) |
 | `mixer_switch` | 0% desliga a chave do controle (mudo; o DAPM desliga a saída); qualquer outro nível a liga |
 | `mixer_keep <controle> <valores>` | reaplicado a cada passo (GA36: `DAC 160 on`, o digital em 0 dB e ligado) |
+| `mixer_amp <controle>` | a chave do amplificador (GA36: `Speaker`): 0% a desliga (senão o amplificador chia com o ganho no mínimo), qualquer outro nível a liga; o `mixer` do boot, o `lume-input` e as Configurações a aplicam |
 | `mixer_old <controle> <lo> <hi> <ref> <mdB por passo>` | o controle do volume antigo, para a conversão única (GA36: `DAC`) |
 
 No GA36 o controle é o `Headphone` (com a chave); no R36S, o `Master` (sem chave: 0% é o mínimo
