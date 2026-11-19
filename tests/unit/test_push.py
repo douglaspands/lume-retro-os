@@ -456,6 +456,19 @@ def test_swap_commands_keep_only_the_running_files_as_old(build, tmp_path):
     assert "r36s/SYSTEM.old" not in c.boot
 
 
+def test_probe_build_line_is_always_one_line(tmp_path):
+    # GA36, 2026-11-19: a FAT repair left /boot/VERSION empty; the build line printed nothing,
+    # every later line moved up one and the push died on int('/dev/mmcblk0')
+    import subprocess
+    line = push._PROBE.strip().splitlines()[0].replace("/boot/VERSION", str(tmp_path / "VERSION"))
+    for text, want in (("", "-"), ("Lume\nbuild: 20261119-164004\n", "20261119-164004")):
+        (tmp_path / "VERSION").write_text(text)
+        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True).stdout
+        assert out == f"{want}\n"
+    (tmp_path / "VERSION").unlink()
+    assert subprocess.run(["sh", "-c", line], capture_output=True, text=True).stdout == "-\n"
+
+
 def test_old_files_of_an_earlier_push_are_ignored_and_deleted(build, tmp_path):
     # push-boot-swap D2: after the reboot nothing holds the .old open; it is not compared
     # with the build nor sent, and it goes before the copy

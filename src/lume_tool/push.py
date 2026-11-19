@@ -224,7 +224,7 @@ class Console:
 
 
 _PROBE = r"""
-sed -n 's/^build: //p' /boot/VERSION
+b=$(sed -n 's/^build: //p' /boot/VERSION 2>/dev/null | head -n 1); echo "${b:--}"
 b=$(cat /etc/lume/board 2>/dev/null || cat /etc/r36os/board 2>/dev/null); echo "${b:--}"
 b=""; for p in /sys/class/power_supply/*; do [ "$(cat $p/type 2>/dev/null)" = Battery ] && b=$(cat $p/capacity); done; echo "${b:--}"
 df -Pk /storage | awk 'NR==2{print $4}'
