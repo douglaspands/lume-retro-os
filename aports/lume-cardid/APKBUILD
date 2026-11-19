@@ -1,0 +1,27 @@
+# Lume Retro OS: the fingerprint of the ROMS card read from the block device past the kernel
+# caches (openspec game-experience-tuning D11, task 9.3). lume-sleep takes it right before the
+# suspension and again at the wake: a card that booted on the other console meanwhile gives
+# another line, and the console restarts without writing to it. --shutdown makes the exFAT of
+# a folder refuse every write (EXFAT_IOC_SHUTDOWN, no sync) on that path.
+pkgname=lume-cardid
+pkgver=1.0
+pkgrel=0
+pkgdesc="Fingerprint of the ROMS card read past the kernel caches (Lume Retro OS)"
+url="https://example.invalid"
+arch="x86_64 armv7 aarch64"
+license="GPL-2.0-or-later"
+options="!check" # tested on the host (tests/unit/test_cardid.py)
+source="cardid.c"
+builddir="$srcdir"
+
+build() {
+	${CC:-cc} $CFLAGS $LDFLAGS -Wall -Wextra -Werror -o lume-cardid cardid.c
+}
+
+package() {
+	install -Dm755 lume-cardid "$pkgdir"/usr/bin/lume-cardid
+}
+
+sha512sums="
+ccffd6288c43fbb2634318bc06431f5619831835d6e4bdd5acd820ebb1d8bdffa2ce861c14486a65cb9d86be4fa964b62fcbccd67e31d246ba34e2bd37350cdd  cardid.c
+"

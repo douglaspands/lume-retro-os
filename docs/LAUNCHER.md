@@ -84,6 +84,9 @@ save interno nessa hora); se não sair em alguns segundos, ele e tudo o que abri
   que o toque, sem confirmação.
 - Antes de suspender, o que estava pendente de gravação vai para o cartão (`sync`): acabar a
   bateria com o console suspenso não perde o save.
+- Se o cartão sair do console suspenso e iniciar no outro console, ao voltar e acordar o
+  console reinicia em vez de continuar o jogo: seguir com a memória de antes da troca estragaria
+  os arquivos que o outro console gravou (ver "Cartão trocado durante o sono", abaixo).
 - Se a suspensão falhar, o console volta ao estado de antes com a tela acesa, e o
   `events.log` registra o motivo (`sleep FAIL ...`, ver [`docs/LOGS.md`](LOGS.md#eventslog)).
 
@@ -173,16 +176,58 @@ se ela não desligar em 30 s (frontend travado), o `lume-sleep` chama `poweroff`
 
 **Ordem da suspensão no `lume-sleep` (8.3):** `status` `suspending <seq>` e `phase`
 `suspend <seq>`; espera o `clients` (3 s); som: nada (a pausa do jogo já fecha o PCM, D9);
-`lume-clock save` se a imagem tiver (9.1); `sync` (sem remontar, D2); luz em 0 (o nível
+`lume-clock save` se a imagem tiver (9.1); `persist flush` se a imagem tiver; `sync`; o
+cartão (game-experience-tuning D11, abaixo): marca da suspensão, `ROMS` remontada só leitura
+e a impressão digital do cartão; luz em 0 (o nível
 guardado); rádio do Wi-Fi desligado, se estava ligado (`nmcli`); `suspend` na FIFO do
 `lume-power` (`/run/lume/power`); gadget USB solto do UDC (nome guardado); as fontes de
 despertar da lista do console desligadas (8.1, abaixo); o modo do console
 (`deep` em `mem_sleep` antes do `mem`); `sleep OK suspend <modo>`, `status`
-`suspended <seq> <modo>` e a gravação em `/sys/power/state`. Na volta (ou na recusa do
-kernel), ao contrário: fontes de despertar religadas, gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
+`suspended <seq> <modo>` e a gravação em `/sys/power/state`. Na volta, antes de tudo, a
+conferência do cartão (abaixo): se ele mudou, o console reinicia ali. Na volta com o mesmo
+cartão (ou na recusa do kernel), ao contrário: `ROMS` gravável de novo e a marca apagada,
+fontes de despertar religadas, gadget religado em segundo plano ~1 s depois, `resume` na FIFO do
 `lume-power`, Wi-Fi, luz no nível guardado, `status` `resuming`, `phase` `resume <seq>`,
 `status` `awake` e `sleep OK resume after <s>` (ou `sleep FAIL suspend <modo>: <motivo>`).
 Cada comando externo tem prazo de 5 s, para nenhum segurar a suspensão.
+
+**Cartão trocado durante o sono (game-experience-tuning D11, tarefa 9.3).** Um cartão serve os
+dois consoles. Enquanto um dorme, o kernel guarda na RAM a tabela de alocação do exFAT da
+`ROMS`; se o cartão inicia no outro console e volta, as primeiras gravações depois de acordar
+caem em clusters que o outro console deu a outros arquivos (as listas de jogos e o
+`events.log` de 2026-11-19). O kernel não percebe (é o mesmo cartão, mesmo CID), e uma
+leitura pelo sistema de arquivos pode vir dos caches dele (dentry, inode, buffers). Por isso:
+
+1. **Antes de suspender**, depois do `sync`: a marca `ROMS/logs/.suspended-<console>` com o
+   número do boot (gravada com o cartão ainda coerente); a `ROMS` remontada **só leitura**
+   (`mount -o remount,ro /storage`, até 5 tentativas): nenhum processo grava no cartão até a
+   conferência, e os arquivos abertos e o ponto do jogo ficam como estão; a remontagem também
+   limpa o `VolumeDirty`, então o cartão tirado do console suspenso inicia no outro sem
+   `fsck`. Por fim a impressão digital do cartão, pelo `lume-cardid` (pacote `lume-cardid`):
+   uma linha `boot=<contador> at=<cluster>:<tamanho>:<mtime> bitmap=<hash>` lida do
+   dispositivo de bloco com `O_DIRECT`, sem nenhum cache do kernel: o contador
+   `ROMS/logs/.boot` achado pelo diretório que está no cartão, a entrada dele e um hash do
+   bitmap de alocação (muda com qualquer arquivo criado ou apagado, até por um PC).
+2. **Ao acordar**, antes de qualquer outro passo: a mesma leitura. Com a `ROMS` só leitura, os
+   processos já descongelados não gravam nada até lá (o `lume-logd` e o `lume-persist` veem a
+   `ROMS` só leitura e guardam o pendente na RAM). Linha igual: `ROMS` gravável de novo, marca
+   apagada, e o resto da volta. Linha diferente, ou cartão ilegível em 5 leituras: o exFAT é
+   desligado (`lume-cardid --shutdown`, `EXFAT_IOC_SHUTDOWN` sem `sync`: nenhuma gravação passa,
+   mesmo que a `ROMS` tenha ficado gravável) e o console reinicia na hora com `reboot -n -f`
+   (sem `sync`, sem o runlevel de desligamento, sem o `logd stop`).
+3. **No boot seguinte**, o `logd start` lê as marcas: a do próprio console com o contador do
+   cartão à frente dela vira `sleep FAIL card changed during suspend ...` e é apagada; a de
+   outro console cujo boot é o anterior do cartão vira, uma vez,
+   `sleep FAIL card left a suspended console: <console>, boot <n>` (e fica no cartão, para o
+   console que dorme achar a sua); o desligamento anterior que ficou suspenso sai como
+   `shutdown FAIL previous abrupt (boot <n>): it was suspended`.
+
+Se a remontagem só leitura falhar (um arquivo aberto para escrita), a suspensão segue e a
+conferência roda do mesmo jeito, mas sem a garantia de que nada gravou antes dela
+(`sleep FAIL card: /storage not read-only ...`). Sem o `lume-cardid`, nada é conferido
+(`sleep FAIL card: no fingerprint ...`). O custo de um despertar normal: duas remontagens e a
+leitura de alguns setores mais o bitmap (o número de clusters dividido por 8: 128 KiB num
+cartão de 128 GB com clusters de 128 KiB).
 
 **Modo de cada console:** `/usr/share/lume/sleep/<placa>.conf` (pacote `lume-power`), linha
 `mode freeze` ou `mode mem` (`#` comenta); sem arquivo ou com valor inválido, `freeze`.

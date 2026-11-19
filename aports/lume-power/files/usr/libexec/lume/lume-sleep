@@ -17,7 +17,14 @@
 #   2. sound: nothing to do (D9, 7.3: the paused game already closed the PCM, and the kernel
 #      powers the DAPM down on suspend)
 #   3. clock: `lume-clock save` when the image has it (device-fixes 9.1, D15)
-#   4. sync (the card is not remounted: the console comes back to the same point, D2)
+#   4. sync, after `persist flush` when the image has it
+#   4b. the card (game-experience-tuning D11, task 9.3): the suspension mark
+#      ROMS/logs/.suspended-<console> with the boot number, ROMS remounted read-only (no
+#      process can write to the card until it is checked at the wake; the open files and the
+#      point of the game stay as they are) and the fingerprint of the card (lume-cardid: the
+#      boot counter logs/.boot, its entry and the allocation bitmap, read from the block
+#      device past the kernel caches). A remount that fails (a file open for writing) is
+#      logged and the suspension goes on, with the check at the wake all the same.
 #   5. backlight 0, the level remembered
 #   6. Wi-Fi radio off, only when it was on (NetworkManager, nmcli)
 #   7. governor: `suspend` to the FIFO of lume-power (device-fixes 8.6 adds the scenario; an
@@ -30,7 +37,14 @@
 #   9. the mode of the console (/usr/share/lume/sleep/<board>.conf: freeze, or mem = `deep`
 #      to mem_sleep first); `sleep OK suspend <mode>`, status `suspended <seq> <mode>`, and the
 #      write to /sys/power/state, where the console sleeps until the power button
-# Back (or after a refusal of the kernel: `sleep FAIL suspend <mode>: <reason>`, with the same
+# Back, first of all (the processes are already thawed, ROMS is still read-only): the
+# fingerprint read again. Another line (the card started on the other console, or another
+# card) or a card that stays unreadable: the exFAT is shut down (no write reaches the card
+# even if ROMS stayed writable) and the console restarts at once with `reboot -n -f` (no sync,
+# no shutdown runlevel: nothing is written with the stale allocation table); the mark makes the
+# next boot log `sleep FAIL card changed during suspend` (logs.sh, suspend_marks). The same
+# line: ROMS writable again and the mark removed, then the rest
+# (or after a refusal of the kernel: `sleep FAIL suspend <mode>: <reason>`, with the same
 # steps undone, so the screen is on again), backwards: the wakeup sources enabled again, the
 # gadget bound again in the background ~1 s later, governor `resume`, Wi-Fi on, backlight level back; then status `resuming`, phase
 # `resume <seq>` (lume-input drops the queued input and relays it), status `awake` and
@@ -48,7 +62,9 @@
 # SL_GROUP, SL_OWNER (uid trusted for `clients`), SL_KMSG, SL_WAIT (tenths of a second),
 # SL_STEP, SL_GUARD (centiseconds), SL_USB_DELAY, SL_POWEROFF, SL_POWEROFF_WAIT,
 # SL_SESSION_PID, SL_CLOCK, SL_NMCLI, SL_SYNC, SL_TIMEOUT, SL_POWER_FIFO, SL_UPTIME, SL_SELF,
-# SL_TRACE (one line per step and per sysfs write), BOARD_FILE, LOGS_RAM.
+# SL_TRACE (one line per step and per sysfs write), SL_PERSIST, SL_MOUNT, SL_CARDID,
+# SL_REBOOT, SL_SYSRQ, SL_RO_TRIES, SL_CARD_TRIES, BOARD_FILE, LOGS_RAM, LOGS_DIR, LOGS_MOUNT,
+# MOUNTS_FILE.
 
 SL_LIBDIR=${SL_LIBDIR:-/usr/libexec/lume}
 # lib.sh creates /run/lume when sourced (silenced for the tests, which have no /run access)
@@ -79,6 +95,15 @@ SL_POWER_FIFO=${SL_POWER_FIFO:-$SL_RUN/power}
 SL_UPTIME=${SL_UPTIME:-/proc/uptime}
 SL_SELF=${SL_SELF:-$0}
 SL_TRACE=${SL_TRACE:-}
+SL_PERSIST=${SL_PERSIST:-$SL_LIBDIR/persist}
+SL_MOUNT=${SL_MOUNT:-mount}
+SL_CARDID=${SL_CARDID:-lume-cardid}
+SL_REBOOT=${SL_REBOOT:-reboot}
+SL_SYSRQ=${SL_SYSRQ:-/proc/sysrq-trigger}
+# the read-only remount tried 5 times 0.1 s apart (a flush that has a file open for a moment);
+# an unreadable card at the wake read 5 times 0.1 s apart before it counts as changed
+SL_RO_TRIES=${SL_RO_TRIES:-5}
+SL_CARD_TRIES=${SL_CARD_TRIES:-5}
 SL_UDC_FILE=$SL_SYS/kernel/config/usb_gadget/lume/UDC
 # private state, outside the folder the game group writes to (root only)
 SL_SEQ_FILE=$SL_RUN/sleep.seq
@@ -227,6 +252,116 @@ sl_clients() {
 	sl_event FAIL "clients: lume-input did not answer within 3s"
 }
 
+# --- 4b. the card (game-experience-tuning D11, task 9.3) -------------------------------------
+# One card serves two consoles. While this one sleeps the kernel keeps the exFAT allocation
+# state of ROMS in RAM; a card that started on the other console meanwhile and came back would
+# be written with it (clusters the other console gave to other files: the game lists and the
+# events.log of 2026-11-19). The kernel cannot tell (same card, same CID), and a read through
+# the file system can come from its caches, so the check reads the block device (lume-cardid).
+
+# the device of ROMS -> SL_DEV (empty: not mounted, or read-only already, so nothing to guard)
+sl_card_dev() {
+	local dev mnt type opts rest
+	SL_DEV=
+	{
+		while read -r dev mnt type opts rest; do
+			[ "$mnt" = "$LOGS_MOUNT" ] || continue
+			SL_DEV=$dev
+			case ",$opts," in *,ro,*) SL_DEV= ;; esac
+		done <"${MOUNTS_FILE:-/proc/mounts}"
+	} 2>/dev/null
+	[ -n "$SL_DEV" ]
+}
+
+# the fingerprint of the card -> SL_ID (on failure the reason is in SL_ERR)
+sl_card_id() {
+	local rc
+	SL_ID=$($SL_TIMEOUT 5 "$SL_CARDID" "$SL_DEV" "${LOGS_DIR#"$LOGS_MOUNT"/}/.boot" 2>&1 </dev/null)
+	rc=$?
+	[ "$rc" != 0 ] || return 0
+	sl_reason "$SL_ID" "exit $rc"
+	return 1
+}
+
+# the suspension mark: this boot's number, while the card is still consistent
+sl_mark_put() {
+	local out m
+	m=$(suspend_mark)
+	boot_n_var
+	sl_trace "mark ${m##*/} $BOOT_N"
+	if out=$({ printf '%s\n' "$BOOT_N" >"$m.tmp" && fsync "$m.tmp" && mv -f "$m.tmp" "$m"; } 2>&1); then
+		SL_MARK=$m
+		return 0
+	fi
+	rm -f "$m.tmp"
+	sl_reason "$out" "write error"
+	return 1
+}
+
+sl_card_down() {
+	local n=0
+	SL_DEV= SL_RO= SL_CARD= SL_MARK=
+	sl_card_dev || return 0
+	sl_mark_put || sl_event FAIL "card: suspend mark not written ($SL_ERR)"
+	while :; do
+		if sl_run_cmd remount "$SL_MOUNT" -o remount,ro "$LOGS_MOUNT"; then
+			SL_RO=1
+			break
+		fi
+		n=$((n + 1))
+		if [ "$n" -ge "$SL_RO_TRIES" ]; then
+			sl_event FAIL "card: $LOGS_MOUNT not read-only ($SL_ERR); checked at the wake all the same"
+			break
+		fi
+		sleep "$SL_STEP"
+	done
+	if sl_card_id; then
+		SL_CARD=$SL_ID
+		sl_trace "card $SL_ID"
+	else
+		sl_event FAIL "card: no fingerprint ($SL_ERR); not checked at the wake"
+	fi
+}
+
+# the card changed: nothing more may reach it. The exFAT shut down first (when ROMS stayed
+# writable it stops the writes of the thawed processes and the kernel writeback), then the
+# restart without sync and without the shutdown runlevel. A reboot that returns: sysrq b.
+sl_card_changed() {
+	sl_trace "card changed: $1"
+	sl_kmsg "card changed during suspend ($1): restarting without writing to it"
+	$SL_TIMEOUT 5 "$SL_CARDID" --shutdown "$LOGS_MOUNT" </dev/null >/dev/null 2>&1
+	sl_trace "reboot"
+	$SL_REBOOT -n -f </dev/null >/dev/null 2>&1
+	sl_kmsg "reboot -n -f returned: sysrq b"
+	echo b >"$SL_SYSRQ" 2>/dev/null
+	exit 0
+}
+
+# sl_card_up <slept>: the first step back, before anything can write to ROMS. Without a
+# suspension (cancelled, refused by the kernel) only the undo.
+sl_card_up() {
+	local n=0
+	[ -n "$SL_DEV" ] || return 0
+	if [ -n "$1" ] && [ -n "$SL_CARD" ]; then
+		while :; do
+			if sl_card_id; then
+				[ "$SL_ID" != "$SL_CARD" ] || break
+				sl_trace "card $SL_ID"
+				sl_card_changed "fingerprint changed"
+			fi
+			n=$((n + 1))
+			[ "$n" -lt "$SL_CARD_TRIES" ] || sl_card_changed "card unreadable: $SL_ERR"
+			sleep "$SL_STEP"
+		done
+		sl_trace "card same"
+	fi
+	if [ -n "$SL_RO" ] && ! sl_run_cmd remount "$SL_MOUNT" -o remount,rw "$LOGS_MOUNT"; then
+		sl_event FAIL "card: $LOGS_MOUNT not writable again ($SL_ERR)"
+		return 0
+	fi
+	[ -z "$SL_MARK" ] || rm -f "$SL_MARK"
+}
+
 # --- 3 to 8: the steps and their undo --------------------------------------------------------
 
 sl_steps_down() {
@@ -235,8 +370,14 @@ sl_steps_down() {
 	if command -v "$SL_CLOCK" >/dev/null 2>&1; then
 		sl_run_cmd clock "$SL_CLOCK" save || sl_event FAIL "clock: $SL_ERR"
 	fi
+	# the RetroArch configuration still waiting for its debounce goes to the card now
+	if [ -x "$SL_PERSIST" ]; then
+		sl_run_cmd persist "$SL_PERSIST" flush || sl_event FAIL "persist: $SL_ERR"
+	fi
 	# sync
 	sl_run_cmd sync "$SL_SYNC" || sl_event FAIL "sync: $SL_ERR"
+	# 4b. the card: mark, read-only, fingerprint
+	sl_card_down
 	# backlight
 	SL_BL= SL_BL_LEVEL=
 	for d in "$SL_SYS"/class/backlight/*; do
@@ -384,7 +525,7 @@ sl_current() {
 }
 
 sl_suspend() {
-	local seq t0 why=
+	local seq t0 why= slept=
 	sl_current
 	case $SL_CUR in
 	awake) ;;
@@ -427,9 +568,14 @@ sl_suspend() {
 		sl_event OK "suspend $SL_MODE"
 		sl_uptime
 		t0=$SL_UP
-		sl_write "$SL_SYS/power/state" "$SL_MODE" || why="write /sys/power/state failed ($SL_ERR)"
+		if sl_write "$SL_SYS/power/state" "$SL_MODE"; then
+			slept=1
+		else
+			why="write /sys/power/state failed ($SL_ERR)"
+		fi
 	fi
-	# back: the steps backwards
+	# back: the card first (it restarts the console when it changed), then the steps backwards
+	sl_card_up "$slept"
 	sl_status "resuming $seq"
 	sl_steps_up
 	sl_phase "resume $seq"

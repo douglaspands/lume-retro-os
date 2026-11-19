@@ -93,6 +93,11 @@ lume-powerctl
 # (lume-core) execs it after the hardware snapshot; without it the shell loop runs
 lume-logd
 
+# The fingerprint of the ROMS card past the kernel caches (game-experience-tuning D11, task 9.3,
+# aports/lume-cardid): lume-sleep takes it before the suspension and at the wake, and restarts
+# the console without writing when the card started on the other console meanwhile
+lume-cardid
+
 # The default frontend (lume-launcher, aports/lume-launcher): interface, game lists and
 # supervisor
 lume-launcher
