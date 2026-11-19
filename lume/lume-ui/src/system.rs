@@ -19,6 +19,9 @@ pub trait SystemAdapter {
     fn set_volume(&mut self, pct: u8);
     fn brightness(&self) -> Option<u8>;
     fn set_brightness(&mut self, pct: u8);
+    /// Saves the current brightness on the card for the next boot (lume-input re-applies it).
+    /// Only the user's choice goes through here, never the idle dimming (device-fixes 9.15).
+    fn save_brightness(&mut self);
     /// (text key, value) pairs of the System panel
     fn info(&self) -> Vec<(&'static str, String)>;
     /// battery level in percent and whether it is charging; None without a battery
@@ -111,7 +114,13 @@ pub struct RealSystem {
     pub mixer: Option<Mixer>,
     /// the backlight's raw ceiling from the board's lume-input profile (100% of the launcher)
     pub backlight_max: Option<u64>,
+    /// where the brightness level is saved (`BRIGHTNESS_FILE`)
+    pub brightness_file: PathBuf,
 }
+
+/// The saved brightness (`ROMS/system/display/brightness`, frozen in docs/LAUNCHER.md): an
+/// integer 0-100 and a newline, in percent of the launcher's scale (the ceiling is 100%).
+pub const BRIGHTNESS_FILE: &str = "/storage/system/display/brightness";
 
 /// The `backlight_max` line of a lume-input profile (GA36: 8 of 10, the panel flickers
 /// above it).
@@ -152,6 +161,8 @@ pub struct Mixer {
     pub switch: bool,
     /// `mixer_keep <control> <values>`: set again with every level (GA36: DAC 160 on)
     pub keep: Option<(String, Vec<String>)>,
+    /// `mixer_amp <control>` (device-fixes 7.5): the amplifier switch, off at 0%, on otherwise
+    pub amp: Option<String>,
     /// `mixer_old <control> <lo> <hi> <ref> <mdb step>`: the old volume, for the one-time
     /// conversion
     pub old: Option<(String, volume::Control)>,
@@ -179,7 +190,7 @@ fn control_of(v: &[String]) -> Option<volume::Control> {
 pub fn board_mixer(profile: &Path) -> Option<Mixer> {
     let text = std::fs::read_to_string(profile).ok()?;
     let mut m: Option<Mixer> = None;
-    let (mut scale, mut switch, mut keep, mut old) = (None, false, None, None);
+    let (mut scale, mut switch, mut keep, mut old, mut amp) = (None, false, None, None, None);
     for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()) {
         let (key, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
         match key {
@@ -192,6 +203,7 @@ pub fn board_mixer(profile: &Path) -> Option<Mixer> {
                     scale: None,
                     switch: false,
                     keep: None,
+                    amp: None,
                     old: None,
                     level_dir: LEVEL_DIR.into(),
                     output_file: OUTPUT_FILE.into(),
@@ -200,11 +212,12 @@ pub fn board_mixer(profile: &Path) -> Option<Mixer> {
             "mixer_scale" => scale = control_of(&rest.split_whitespace().map(String::from).collect::<Vec<_>>()),
             "mixer_switch" => switch = true,
             "mixer_keep" => keep = ctl_and_rest(rest),
+            "mixer_amp" => amp = Some(rest.trim().to_string()).filter(|c| !c.is_empty()),
             "mixer_old" => old = ctl_and_rest(rest).and_then(|(c, v)| Some((c, control_of(&v)?))),
             _ => {}
         }
     }
-    m.map(|m| Mixer { scale, switch, keep, old, ..m })
+    m.map(|m| Mixer { scale, switch, keep, amp, old, ..m })
 }
 
 /// The first channel's raw value of an `amixer sget` output ("Playback 160 [83%]").
@@ -270,6 +283,9 @@ impl Mixer {
         if let Some((ctl, values)) = &self.keep {
             v.push([vec![ctl.clone()], values.clone()].concat());
         }
+        if let Some(amp) = &self.amp {
+            v.push(vec![amp.clone(), if pct > 0 { "on" } else { "off" }.into()]);
+        }
         v
     }
 
@@ -299,7 +315,7 @@ impl RealSystem {
     pub fn new() -> RealSystem {
         let board = std::fs::read_to_string("/etc/lume/board").unwrap_or_default();
         let profile = PathBuf::from(format!("/usr/share/lume/input/{}.conf", board.trim()));
-        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile) }
+        RealSystem { sys: "/sys".into(), proc_: "/proc".into(), mixer: this_board_mixer(), backlight_max: board_backlight_max(&profile), brightness_file: BRIGHTNESS_FILE.into() }
     }
 
     fn backlight(&self) -> Option<PathBuf> {
@@ -373,6 +389,15 @@ impl SystemAdapter for RealSystem {
                 // never fully dark, never above the board's ceiling (GA36: level 8)
                 let v = backlight_value(pct, max, self.backlight_max);
                 let _ = std::fs::write(b.join("brightness"), v.to_string());
+            }
+        }
+    }
+
+    fn save_brightness(&mut self) {
+        // the level as it reads back, so lume-input applies the same raw value at boot
+        if let Some(pct) = self.brightness() {
+            if let Err(e) = lume_core::atomic::write(&self.brightness_file, format!("{pct}\n").as_bytes()) {
+                lume_core::log::line("lume-ui", &format!("brightness not saved: {e}"));
             }
         }
     }
@@ -462,6 +487,8 @@ pub struct FakeSystem {
     pub net: (bool, bool),
     pub addr: Option<String>,
     pub free: Option<u64>,
+    /// the brightness last saved with `save_brightness` (the dimming never saves)
+    pub saved_bri: Option<u8>,
 }
 
 impl SystemAdapter for FakeSystem {
@@ -488,6 +515,9 @@ impl SystemAdapter for FakeSystem {
     }
     fn set_brightness(&mut self, pct: u8) {
         self.bri = pct;
+    }
+    fn save_brightness(&mut self) {
+        self.saved_bri = Some(self.bri);
     }
     fn info(&self) -> Vec<(&'static str, String)> {
         self.info_reads.set(self.info_reads.get() + 1);
@@ -601,6 +631,24 @@ mod tests {
     }
 
     #[test]
+    fn the_brightness_is_saved_as_it_reads_back() {
+        // GA36: 0-10 with the ceiling 7; 3 of 7 reads back as 43% and is saved as 43
+        let dir = std::env::temp_dir().join(format!("lume-bri-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let panel = dir.join("sys/class/backlight/panel");
+        std::fs::create_dir_all(&panel).unwrap();
+        std::fs::write(panel.join("max_brightness"), "10\n").unwrap();
+        std::fs::write(panel.join("brightness"), "8\n").unwrap();
+        let mut s = RealSystem { sys: dir.join("sys"), proc_: dir.join("proc"), mixer: None, backlight_max: Some(7), brightness_file: dir.join("display/brightness") };
+        s.set_brightness(50);
+        assert!(!s.brightness_file.exists(), "setting alone saves nothing (the dimming uses it)");
+        s.save_brightness();
+        assert_eq!(std::fs::read_to_string(&s.brightness_file).unwrap(), "43\n");
+        assert_eq!(std::fs::read_to_string(panel.join("brightness")).unwrap().trim(), "3");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn language_is_written_for_retroarch_and_lib_sh() {
         let p = std::env::temp_dir().join(format!("lume-ra-{}.cfg", std::process::id()));
         std::fs::write(&p, "video_driver = \"gl\"\nuser_language = \"0\"\n").unwrap();
@@ -707,11 +755,14 @@ mod tests {
     fn a_level_sets_the_control_the_switch_and_the_kept_control() {
         let ga36 = profile_mixer("ga36");
         let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "51", "on"]), s(&["DAC", "160", "on"])]);
-        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "63", "on"]), s(&["DAC", "160", "on"])]);
-        // 0% is mute: the minimum and the switch off; the DAC stays on at 0 dB
-        assert_eq!(ga36.set_args(0), vec![s(&["Headphone", "0", "off"]), s(&["DAC", "160", "on"])]);
-        // R36S: the Master on the scale, no switch
+        assert_eq!(ga36.amp.as_deref(), Some("Speaker"));
+        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "51", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "63", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(5)[2], s(&["Speaker", "on"]));
+        // 0% is mute: the minimum and the switch off, the amplifier off too (7.5); the DAC
+        // stays on at 0 dB
+        assert_eq!(ga36.set_args(0), vec![s(&["Headphone", "0", "off"]), s(&["DAC", "160", "on"]), s(&["Speaker", "off"])]);
+        // R36S: the Master on the scale, no switch, no amplifier line (until 7.1)
         assert_eq!(profile_mixer("r36s").set_args(70), vec![s(&["Master", "228"])]);
         assert_eq!(profile_mixer("vm").set_args(40), vec![s(&["Master", "40%"])]);
     }

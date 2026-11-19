@@ -204,6 +204,7 @@ struct profile {
 	struct vol_control scale;
 	int mixer_switch;	/* "mixer_switch": 0% turns the control's switch off */
 	char keep_ctl[64], keep_val[64];	/* "mixer_keep <control> <values>" ("" none) */
+	char amp_ctl[64];	/* "mixer_amp <control>": the amplifier switch, off at 0% ("" none) */
 	int has_old;	/* "mixer_old": the control of the old volume, for the conversion */
 	char old_ctl[64];
 	struct vol_control old;
@@ -474,6 +475,8 @@ static int load_profile(const char *path, struct profile *p)
 			memmove(p->keep_ctl, c, strlen(c) + 1);
 			if (!*p->keep_ctl)
 				goto bad;
+		} else if (!strcmp(s, "mixer_amp") && *arg) {
+			snprintf(p->amp_ctl, sizeof(p->amp_ctl), "%s", arg);
 		} else if (!strcmp(s, "mixer_old") &&
 			   sscanf(arg, "%63[^0-9] %d %d %d %d", p->old_ctl, &p->old.lo, &p->old.hi, &p->old.ref,
 				  &p->old.mdb_step) == 5) {
@@ -944,6 +947,10 @@ static void level_apply(const char *amixer, const struct profile *p, int pct)
 	mixer_set(amixer, p->mixer_card, p->mixer_ctl, v);
 	if (*p->keep_ctl)
 		mixer_set(amixer, p->mixer_card, p->keep_ctl, p->keep_val);
+	/* the amplifier switch (GA36 "Speaker"): off at 0%, or it hisses with the gain at the
+	 * minimum (measured 2026-11-18); on at any other level */
+	if (*p->amp_ctl)
+		mixer_set(amixer, p->mixer_card, p->amp_ctl, pct > 0 ? "on" : "off");
 }
 
 /* One volume step. With a scale (device-fixes D9): 5% of the user scale on the active
@@ -1051,6 +1058,77 @@ static void write_backlight(const char *dir, long v)
 	close(fd);
 }
 
+/* ---- the saved brightness (device-fixes 9.15) ---- */
+
+static const char *brightness_file(void)
+{
+	const char *f = getenv("LUME_INPUT_BRIGHTNESS_FILE");
+
+	return f ? f : "/storage/system/display/brightness";
+}
+
+/* The saved brightness in percent of the launcher's scale (the ceiling is 100%), 0-100;
+ * -1 without a valid file (a bad one is logged). */
+static int brightness_read(void)
+{
+	char buf[16] = "", *t, *end;
+	FILE *f = fopen(brightness_file(), "re");
+	long v;
+
+	if (!f)
+		return -1;
+	if (!fgets(buf, sizeof(buf), f))
+		buf[0] = 0;
+	fclose(f);
+	t = trim(buf);
+	v = strtol(t, &end, 10);
+	if (!*t || *end || v < 0 || v > 100) {
+		logline("brightness: ignoring the bad file %s", brightness_file());
+		return -1;
+	}
+	return (int)v;
+}
+
+/* Saves the brightness percent: a hidden file renamed over the file, as the volume level. */
+static void brightness_save(int pct)
+{
+	char tmp[600], dir[512], *slash;
+	const char *path = brightness_file();
+	FILE *f;
+
+	snprintf(dir, sizeof(dir), "%s", path);
+	slash = strrchr(dir, '/');
+	if (slash) {
+		*slash = 0;
+		mkdir(dir, 0755);
+		snprintf(tmp, sizeof(tmp), "%s/.brightness.tmp", dir);
+	} else {
+		snprintf(tmp, sizeof(tmp), ".brightness.tmp");
+	}
+	f = fopen(tmp, "we");
+	if (f) {
+		int ok = fprintf(f, "%d\n", pct) > 0;
+
+		if (fclose(f) == 0 && ok && rename(tmp, path) == 0)
+			return;
+	}
+	logline("brightness: cannot save %s (%s)", path, strerror(errno));
+}
+
+/* The raw level of a percent with `top` as 100%: rounded, never below the 5% floor nor
+ * level 1, never above top. */
+static long backlight_raw(long top, long pct)
+{
+	long v, floor_v = (top * 5 + 50) / 100;
+
+	if (floor_v < 1)
+		floor_v = 1;
+	v = (top * pct + 50) / 100;
+	if (v < floor_v)
+		v = floor_v;
+	return v > top ? top : v;
+}
+
 /* At start: a backlight above the profile's ceiling comes down to it (the kernel starts the
  * GA36 at level 8 from its device tree; above 7 the panel flickers). */
 static void clamp_backlight(const struct profile *p)
@@ -1064,6 +1142,33 @@ static void clamp_backlight(const struct profile *p)
 	if (cur > p->backlight_max) {
 		write_backlight(dir, p->backlight_max);
 		logline("backlight %ld above the ceiling, set to %d", cur, p->backlight_max);
+	}
+}
+
+/* At start: the saved brightness is applied (never above the profile's ceiling, never below
+ * the 5% floor); without a valid file the ceiling clamp of today. */
+static void restore_backlight(const struct profile *p)
+{
+	char dir[400];
+	long max, cur, v;
+	int pct = brightness_read();
+
+	if (pct < 0) {
+		clamp_backlight(p);
+		return;
+	}
+	if (find_backlight(dir, sizeof(dir)) < 0)
+		return;
+	max = read_long(dir, "max_brightness");
+	if (max <= 0)
+		return;
+	if (p->backlight_max > 0 && p->backlight_max < max)
+		max = p->backlight_max;
+	v = backlight_raw(max, pct);
+	cur = read_long(dir, "brightness");
+	if (v != cur) {
+		write_backlight(dir, v);
+		logline("backlight %ld set to the saved %d%% (%ld)", cur, pct, v);
 	}
 }
 
@@ -1103,7 +1208,9 @@ static void brightness(const struct profile *p, int up)
 		v = floor_v;
 	if (v != cur)
 		write_backlight(dir, v);
-	ra_level(1, (v * 100 + max / 2) / max);
+	pct = (v * 100 + max / 2) / max;
+	brightness_save((int)pct);
+	ra_level(1, pct);
 	send_all("brightness", 1);
 }
 
@@ -2091,7 +2198,7 @@ int main(int argc, char **argv)
 	if (getenv("LUME_SLEEP_DIR") && *getenv("LUME_SLEEP_DIR"))
 		sleep_dir = getenv("LUME_SLEEP_DIR");
 	sleep_watch();
-	clamp_backlight(&p);
+	restore_backlight(&p);
 	cal_start(&p);
 	{
 		int found = 0;

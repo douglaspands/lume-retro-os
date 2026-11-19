@@ -642,6 +642,29 @@ fn settings_panel_text_is_one_size_on_every_item() {
 }
 
 #[test]
+fn the_settings_brightness_row_saves_the_level_and_the_volume_row_does_not() {
+    // device-fixes 9.15: the user's brightness goes to the card; the volume has its own file
+    let c = card("brisave", 3, false);
+    let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
+    go_dock(&mut a, DockItem::Settings);
+    press(&mut a, Action::A);
+    let rows = a.set_rows();
+    a.settings_focus = rows.iter().position(|r| *r == SetRow::Volume).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert_eq!((a.sys.vol, a.sys.saved_bri), (55, None), "the volume row saves no brightness");
+    press(&mut a, Action::B);
+    a.settings_focus = rows.iter().position(|r| *r == SetRow::Brightness).unwrap();
+    press(&mut a, Action::Right);
+    press(&mut a, Action::Right);
+    assert_eq!((a.sys.bri, a.sys.saved_bri), (85, Some(85)));
+    press(&mut a, Action::Left);
+    assert_eq!((a.sys.bri, a.sys.saved_bri), (80, Some(80)));
+    // nothing about the levels is written to settings.toml any more
+    assert!(!card_settings_written(&c) || !fs::read_to_string(c.root.join("storage/system/lume/settings.toml")).unwrap().contains("brightness"));
+}
+
+#[test]
 fn settings_panel_takes_the_focus() {
     let c = card("panelfocus", 3, false);
     let mut a = app(&c, FakeSystem { vol: 50, bri: 80, ..Default::default() });
@@ -1961,7 +1984,7 @@ fn idle_dims_without_saving_and_the_first_button_is_consumed() {
     a.handle(Ev::Tick);
     assert!(a.idle);
     assert_eq!(a.sys.bri, 10);
-    assert_eq!(a.settings.brightness, None, "the dimming is never saved");
+    assert_eq!(a.sys.saved_bri, None, "the dimming is never saved");
     assert!(!card_settings_written(&c), "no settings file written");
     assert_eq!(drain(&mut rd), "idle\n");
     assert_eq!(a.idle_wait(), None);

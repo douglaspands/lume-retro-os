@@ -278,6 +278,7 @@ class Daemon:
                "LUME_INPUT_RA_PORT": str(self.ra.getsockname()[1]), "LUME_INPUT_LEVEL_COLORS": str(self.colors),
                "LUME_SLEEP_DIR": str(self.sleep),
                "LUME_INPUT_LEVEL_DIR": str(self.levels), "LUME_INPUT_AUDIO_OUTPUT": str(self.output),
+               "LUME_INPUT_BRIGHTNESS_FILE": str(tmp / "display" / "brightness"),
                # no calibration window unless a test asks for one (D17)
                "LUME_INPUT_CAL_MS": "0", **(env_extra or {})}
         self.proc = subprocess.Popen(args, env=env,
@@ -747,6 +748,92 @@ def test_fn_volume_on_a_coarse_backlight_moves_one_level(r36s):
     c.close()
 
 
+def test_the_brightness_keys_save_the_level_on_the_card(r36s):
+    # device-fixes 9.15: the percent of the bar, a hidden file renamed over the file
+    bfile = r36s.dir / "display" / "brightness"
+    assert not bfile.exists(), "nothing is saved until the user changes it"
+    c = r36s.client()
+    fn, up = CODES["BTN_TRIGGER_HAPPY5"], CODES["KEY_VOLUMEUP"]
+    r36s.press("gpio-keys", fn)
+    r36s.press("volume-keys", up)
+    r36s.release("volume-keys", up)
+    assert c.recv(16) == b"brightness"
+    assert bfile.read_text() == "65\n"   # 166 of 255
+    assert [p.name for p in bfile.parent.iterdir()] == ["brightness"], "no temporary left"
+    r36s.release("gpio-keys", fn)
+    c.close()
+
+
+def _with_saved_brightness(daemon_exe, tmp_path, board, sources, text):
+    (tmp_path / "display").mkdir()
+    (tmp_path / "display" / "brightness").write_text(text)
+    return Daemon(daemon_exe, tmp_path, board, sources)
+
+
+def _wait_level(d, want):
+    for _ in range(100):
+        if int((d.backlight / "panel/brightness").read_text()) == want:
+            break
+        time.sleep(0.02)
+    return int((d.backlight / "panel/brightness").read_text())
+
+
+def test_start_applies_the_saved_brightness(daemon_exe, tmp_path):
+    # the fake backlight starts at 153 of 255; 30% is 77 (rounded)
+    d = _with_saved_brightness(daemon_exe, tmp_path, "r36s", ["gpio-keys", "adc-joystick", "volume-keys"], "30\n")
+    try:
+        assert _wait_level(d, 77) == 77
+        # the 5% floor: a saved 0 is level 13 of 255
+    finally:
+        d.stop()
+    (tmp_path / "display" / "brightness").write_text("0\n")
+    (tmp_path / "again").mkdir()
+    d = Daemon(daemon_exe, tmp_path / "again", "r36s", ["gpio-keys", "adc-joystick", "volume-keys"],
+               env_extra={"LUME_INPUT_BRIGHTNESS_FILE": str(tmp_path / "display" / "brightness")})
+    try:
+        assert _wait_level(d, 13) == 13
+    finally:
+        d.stop()
+
+
+def test_a_saved_brightness_never_goes_above_the_ceiling(daemon_exe, tmp_path):
+    # GA36 ceiling 7 is 100%: a saved 100 is level 7 (the fake starts at 153), 60% is 4
+    d = _with_saved_brightness(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"], "100\n")
+    try:
+        assert _wait_level(d, 7) == 7
+    finally:
+        d.stop()
+    (tmp_path / "display" / "brightness").write_text("60\n")
+    (tmp_path / "again").mkdir()
+    d = Daemon(daemon_exe, tmp_path / "again", "ga36", ["GA36-MB Gamepad", "1c22800.lradc"],
+               env_extra={"LUME_INPUT_BRIGHTNESS_FILE": str(tmp_path / "display" / "brightness")})
+    try:
+        assert _wait_level(d, 4) == 4
+    finally:
+        d.stop()
+
+
+@pytest.mark.parametrize("junk", ["loud\n", "150\n", "-3\n", "\n", "40 50\n"])
+def test_a_bad_brightness_file_is_ignored_with_a_log_line(daemon_exe, tmp_path, junk):
+    # the behaviour of before: the ceiling clamp of the GA36 (153 comes down to 7)
+    d = _with_saved_brightness(daemon_exe, tmp_path, "ga36", ["GA36-MB Gamepad", "1c22800.lradc"], junk)
+    try:
+        assert _wait_level(d, 7) == 7
+    finally:
+        err = d.stop()
+    assert "brightness: ignoring the bad file" in err
+
+
+def test_without_a_brightness_file_the_start_is_as_before(daemon_exe, tmp_path):
+    d = Daemon(daemon_exe, tmp_path, "r36s", ["gpio-keys", "adc-joystick", "volume-keys"])
+    try:
+        time.sleep(0.3)
+        assert (d.backlight / "panel/brightness").read_text() == "153\n"
+    finally:
+        err = d.stop()
+    assert "brightness: ignoring" not in err
+
+
 def test_levels_ask_retroarch_for_the_line_over_a_game(r36s):
     # without a colors file: the default theme's accent (volume) and white (brightness)
     up, fn = CODES["KEY_VOLUMEUP"], CODES["BTN_TRIGGER_HAPPY5"]
@@ -831,9 +918,9 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
             assert d.ra.recv(64) == f"LUME_LEVEL right {pct} 4db3ff".encode()
         assert d.amixer_calls() == [
             "-c GA36MB sget DAC", "-c GA36MB sget Headphone",
-            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on",
-            "-c GA36MB -q sset Headphone 46 on", "-c GA36MB -q sset DAC 160 on",
-            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on"]
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on",
+            "-c GA36MB -q sset Headphone 46 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on",
+            "-c GA36MB -q sset Headphone 44 on", "-c GA36MB -q sset DAC 160 on", "-c GA36MB -q sset Speaker on"]
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
     finally:
         d.stop()
@@ -896,6 +983,26 @@ def test_ga36_zero_is_mute_and_the_switches_come_back_on(daemon_exe, tmp_path):
         d.stop()
 
 
+def test_ga36_speaker_amplifier_is_off_at_zero_and_on_above(daemon_exe, tmp_path):
+    # task 7.5: at 0% the Speaker (amplifier) switch goes off with the Headphone, at 5% both on
+    d = _ga36(daemon_exe, tmp_path)
+    try:
+        c = d.client()
+        d.levels.mkdir()
+        (d.levels / "level-speaker").write_text("10\n")
+        d.ctl("DAC", 160)
+        d.ctl("Headphone", 40, lim="0 - 63")
+        d.ctl("Speaker", 1, lim="0 - 1")
+        _vol(d, "KEY_VOLUMEDOWN", c)   # 5%
+        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+        _vol(d, "KEY_VOLUMEDOWN", c)   # 0%
+        assert d.ctl_state("Headphone") == (0, "off") and d.ctl_state("Speaker")[1] == "off"
+        _vol(d, "KEY_VOLUMEUP", c)     # 5% again: both on
+        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+    finally:
+        d.stop()
+
+
 def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
     # 20 presses from mute to the loudest clean position (63), on the raw of volume.h, and
     # a broken level file counts as no file
@@ -919,7 +1026,7 @@ def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
 
 def test_bad_mixer_scale_lines_are_refused(daemon_exe, tmp_path):
     for line in ("mixer_scale 63 0 63 1500", "mixer_scale 0 63 64 1500", "mixer_scale 0 63 63 0",
-                 "mixer_switch on", "mixer_keep 160 on", "mixer_old DAC 0 192 160"):
+                 "mixer_switch on", "mixer_amp", "mixer_keep 160 on", "mixer_old DAC 0 192 160"):
         prof = tmp_path / "p.conf"
         prof.write_text(f"name Pad\nsource Pad\npassthrough\n{line}\n")
         r = subprocess.run([str(daemon_exe), "--profile", str(prof), "--test", str(tmp_path / "o")],

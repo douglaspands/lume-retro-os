@@ -446,6 +446,7 @@ leem o controle no perfil do `lume-input` (`/usr/share/lume/input/<placa>.conf`)
 | `mixer_scale <lo> <hi> <ref> <mdB por passo>` | o controle na escala desta seção (sem ela, o `amixer` em % puro, como na `vm`) |
 | `mixer_switch` | 0% desliga a chave do controle (mudo; o DAPM desliga a saída); qualquer outro nível a liga |
 | `mixer_keep <controle> <valores>` | reaplicado a cada passo (GA36: `DAC 160 on`, o digital em 0 dB e ligado) |
+| `mixer_amp <controle>` | a chave do amplificador (GA36: `Speaker`): 0% a desliga (senão o amplificador chia com o ganho no mínimo), qualquer outro nível a liga; o `mixer` do boot, o `lume-input` e as Configurações a aplicam |
 | `mixer_old <controle> <lo> <hi> <ref> <mdB por passo>` | o controle do volume antigo, para a conversão única (GA36: `DAC`) |
 
 No GA36 o controle é o `Headphone` (com a chave); no R36S, o `Master` (sem chave: 0% é o mínimo
@@ -509,11 +510,32 @@ o teste `tests/unit/test_volume_scale.py` confere que as três tabelas e esta s�
 o shell dá as mesmas posições e a mesma conversão do C. Quem usa o formato são as tarefas 7.1,
 7.2 e 7.4.
 
+## Brilho salvo (change `device-fixes`, 9.15)
+
+**Arquivo.** `ROMS/system/display/brightness` (`/storage/system/display/brightness` no
+aparelho): um inteiro decimal de 0 a 100 e uma quebra de linha (`65`), na mesma escala da barra
+da borda esquerda: 100% é o teto do perfil (`backlight_max`, GA36: nível 7) ou o máximo do
+painel. Gravado como o volume, por um arquivo oculto renomeado por cima (`.brightness.tmp`).
+
+**Quem grava.** As teclas Fn + volume (`lume-input`) gravam o nível que acabaram de aplicar, e
+a linha Brilho das Configurações (`lume-ui`) grava o nível que o painel passou a ter (lido de
+volta, para o `lume-input` chegar ao mesmo nível bruto em painéis grossos como o do GA36). O
+escurecimento por inatividade do launcher **não** grava: ele só muda o painel.
+
+**Quem lê.** O `lume-input`, ao iniciar: aplica o nível salvo, nunca acima do teto do perfil e
+nunca abaixo do piso de 5%. Sem o arquivo, o comportamento anterior (um nível acima do teto
+desce ao teto). Um arquivo inválido (não é um inteiro de 0 a 100) é ignorado, com uma linha no
+log (`brightness: ignoring the bad file`).
+
+Os campos `volume` e `brightness` do `settings.toml` eram gravados pelas Configurações e lidos
+por ninguém; saíram (um arquivo antigo com eles continua carregando, os campos são ignorados).
+
 ## Arquivos do launcher no cartão
 
 | Arquivo | Conteúdo |
 |---|---|
-| `ROMS/system/lume/settings.toml` | idioma, tema, volume, brilho e as opções de Tela |
+| `ROMS/system/lume/settings.toml` | idioma, tema e as opções de Tela (o volume e o brilho não ficam aqui: ver "Volume por saída" e "Brilho salvo") |
+| `ROMS/system/display/brightness` | o brilho salvo (ver "Brilho salvo") |
 | `ROMS/system/lume/themes/` | seus temas (`<id>/theme.toml`) e logos dos consoles (`<id>/icons/<sistema>.png`); o `LEIA-ME.txt` da pasta explica o formato |
 | `ROMS/system/lume/systems/<id>.toml` | opções do console |
 | `ROMS/system/lume/games/<id>.toml` | opções de cada jogo (só o que difere) |
