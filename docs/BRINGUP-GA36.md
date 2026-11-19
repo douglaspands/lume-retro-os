@@ -462,6 +462,12 @@ D10, D11, D12, D15) e no P-95. Em resumo:
 - **`lume-index`:** aparece `crashed` no `rc-status` porque a varredura termina e o processo
   sai (o OpenRC espera um daemon). É cosmético e anterior à troca.
 
+**Brilho desde o boot (9.16, código; falta a prova no aparelho, J2):** o device tree dos dois
+painéis acende a luz de fundo no nível 7 (`default-brightness-level`, antes o 8 de fábrica;
+do 7 para cima este GA36 pode mostrar a imagem quebrada, P-95) e o initramfs aplica o brilho
+salvo (`ROMS/system/display/brightness`) logo depois de montar a ROMS, sem esperar nada; o
+`lume-input` reaplica ao subir. Ver "Brilho salvo" em [LAUNCHER.md](LAUNCHER.md).
+
 ### Kernels de experimento (`device-fixes` 6.3, P-95 e P-25)
 
 Variantes do kernel que **nunca entram na imagem padrão**, em `kernel/variants/ga36/<nome>/`

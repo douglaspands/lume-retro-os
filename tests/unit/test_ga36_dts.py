@@ -105,7 +105,7 @@ def test_backlight_and_volume_keys():
     code = _code(DTSI)
     assert "pwms = <&pwm 0 50000 0>" in code                    # PWM0, 20 kHz
     assert "brightness-levels = <0 10 20 30 40 50 60 70 80 90 100>" in code
-    assert "default-brightness-level = <8>" in code              # 80
+    assert "default-brightness-level = <7>" in code              # 70 (device-fixes 9.16)
     assert re.search(r"KEY_VOLUMEUP>;\s*channel = <0>;\s*voltage = <200000>", code)
     assert re.search(r"KEY_VOLUMEDOWN>;\s*channel = <0>;\s*voltage = <400000>", code)
 

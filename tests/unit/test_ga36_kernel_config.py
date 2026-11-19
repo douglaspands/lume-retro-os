@@ -235,3 +235,29 @@ def test_built_config():
     assert dtbs == ["sun8i-a33-ga36-mb-v1.2-panel1.dtb", "sun8i-a33-ga36-mb-v1.2-panel2.dtb"]
     # no warnings in the build (those in our own drivers already fail it)
     assert "warning:" not in (kdir / "build-warnings.log").read_text()
+
+
+GA36_DTBS = ("sun8i-a33-ga36-mb-v1.2-panel1.dtb", "sun8i-a33-ga36-mb-v1.2-panel2.dtb")
+
+
+@pytest.mark.parametrize("name", GA36_DTBS)
+def test_built_dtb_starts_the_backlight_at_level_7(name):
+    # device-fixes 9.16: the kernel lights the GA36 at level 7 (70), not the factory 8, until
+    # the initramfs applies the saved brightness; from level 7 up this GA36 can show a broken
+    # picture (P-95). These two trees are every candidate lume-bootsel has on the GA36.
+    from lume_tool import fdt
+    dtb = BUILT.parent / "dtbs" / name
+    if not dtb.exists():
+        pytest.skip("GA36 kernel not built yet")
+    root = fdt.parse(dtb.read_bytes())
+    found = [n for n in _walk(root) if "pwm-backlight" in n.strings("compatible")]
+    assert len(found) == 1
+    bl = found[0]
+    assert bl.cells("brightness-levels") == list(range(0, 101, 10))
+    assert bl.cells("default-brightness-level") == [7]
+
+
+def _walk(node):
+    yield node
+    for child in node.children.values():
+        yield from _walk(child)
