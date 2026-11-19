@@ -468,6 +468,27 @@ do 7 para cima este GA36 pode mostrar a imagem quebrada, P-95) e o initramfs apl
 salvo (`ROMS/system/display/brightness`) logo depois de montar a ROMS, sem esperar nada; o
 `lume-input` reaplica ao subir. Ver "Brilho salvo" em [LAUNCHER.md](LAUNCHER.md).
 
+### Avaliação do coletor de logs e dos laços em segundo plano (2026-11-19, build `20261119-164004`)
+
+Pedida pelo usuário para a `game-governor` 1.2 (P-60). Ticks próprios e dos filhos em
+`/proc/<pid>/stat`, 60 s por medida:
+
+| Processo | Launcher parado | Jogo de SNES |
+|---|---|---|
+| `lume-logd` (o coletor em C) | 0,85% de um núcleo (0,35 + 0,50 dos filhos) | 0,94% (0,31 + 0,63) |
+| `usb-gadget` (`lume-usb`) | — | **5,08%** (0,68 + 4,40) |
+| `persist`, `savesync`, `ssh-wifi` | — | 0,51%, 0,49%, 0,43% |
+| `lume-powerctl` | — | 0,38% |
+| `sugov:0` (`schedutil`) | 2,85% | — (governor `userspace` no jogo) |
+
+O coletor cumpre a meta de 1% (os 5,5 a 7,3% de 2026-11-18 eram do coletor anterior em shell).
+O sistema cria ~930 processos por minuto parado; quem os cria são os laços em shell de 1 s
+(`usb-gadget`, `persist`, `savesync`, `ssh-wifi`), que leem o sysfs com `$(cat ...)` e dormem
+com o `sleep` externo: P-112.
+
+**Também visto:** o `logd` sobe antes do fuso ser aplicado (`lume-persist`) e grava em UTC até o
+boot seguinte, enquanto o `lume-run` grava na hora local (P-112 cita, a corrigir junto).
+
 ### Kernels de experimento (`device-fixes` 6.3, P-95 e P-25)
 
 Variantes do kernel que **nunca entram na imagem padrão**, em `kernel/variants/ga36/<nome>/`
