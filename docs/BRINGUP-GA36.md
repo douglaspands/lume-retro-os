@@ -489,6 +489,36 @@ com o `sleep` externo: P-112.
 **Também visto:** o `logd` sobe antes do fuso ser aplicado (`lume-persist`) e grava em UTC até o
 boot seguinte, enquanto o `lume-run` grava na hora local (P-112 cita, a corrigir junto).
 
+### Laços sem processo por volta (`game-governor` 7.6, D20; 2026-11-19, builds `20261119-183440` e `-184744`, boots 219 e 220)
+
+Medido pelo cabo com o `tests/device/loops_cost.sh` (60 e 120 s; o contador `processes` de
+`/proc/stat` lido sem processo entre as duas fotos; a CPU de cada laço pelo
+`se.sum_exec_runtime` de `/proc/<pid>/sched`, o tempo exato: os ticks cobram 10 ms inteiros a
+um laço que acorda no tick do relógio):
+
+| | Antes (build `20261119-164004`) | Depois, launcher parado | Depois, jogo de SNES |
+|---|---|---|---|
+| Processos novos no sistema | 945 por minuto | **24 por minuto** | 24 por minuto |
+| Laços (`usb-gadget`, `persist`, `savesync`, `ssh-wifi`), % de um núcleo | 12,5% (ticks) | **0,78%** (0,73% em 120 s) | **0,17%** |
+| `usb-gadget` | 8,4% (1,1 + 7,3 dos filhos) | 0,41% | 0,09% |
+| `ssh-wifi` (opção desligada) | 1,1% | 0,24% | 0,05% |
+| `persist`, `savesync` | 1,5%, 1,6% | 0,05%, 0,07% | 0,01%, 0,02% |
+| `lume-logd` com os filhos | 0,7% | 0,95% em 120 s (0,51 + 0,44 dos filhos; em janelas de 60 s, 0,7 a 1,1%, conforme caem uma ou duas descargas) | 0,6% (0,29 + 0,31) |
+
+**Achado:** sem processo nenhum, a primeira versão ainda gastava 1,26% parada. O shell do
+busybox custa ~0,1 a 0,2 ms por chamada de função ou leitura do sysfs a 720 MHz, e o laço acorda
+com a CPU no clock mais baixo: ~15 ms por volta do `usb-gadget`. A volta parada passou a ler só
+o estado do UDC e o VBUS, de caminhos guardados; a guarda do FIFO olha o relógio a cada 32 voltas
+e a procura do role switch (que o GA36 não tem) a cada 16.
+
+**Funções conferidas no aparelho:** a rede e o SSH pelo cabo voltam depois dos dois reboots do
+`push`; o cabo tirado e posto de volta pelo usuário (boot 220): `network: down` e
+`device: disconnected` ao tirar, `network: up` 6 s depois de pôr e o SSH aceito 5 s depois, sem
+nada à mão; os eventos do `lume-logd` (as linhas `otg`) já saem na hora local desde o boot (7.3); um save de teste de nome neutro em `saves/` aparece no `savesync.log` em menos de 2 s (o
+jogo de SNES medido não grava save ao fechar); uma mudança de teste na configuração do RetroArch
+chega ao `ROMS/system/retroarch/` depois do debounce, e a remoção também; o `inotifyd` do
+`persist` é refeito quando o RetroArch cria uma pasta no jogo.
+
 ### Kernels de experimento (`device-fixes` 6.3, P-95 e P-25)
 
 Variantes do kernel que **nunca entram na imagem padrão**, em `kernel/variants/ga36/<nome>/`

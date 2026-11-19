@@ -295,6 +295,23 @@ sem acesso pelo cabo. Por isso a suíte `tests/usb` cobre a troca de estado do U
 a falta do UDC e o papel da porta antes de qualquer build, e o `push` guarda o conjunto anterior
 (`SLOTS.old`) para a volta pelo leitor do PC, com o SHA-256 conferido.
 
+**Medido depois (GA36, 2026-11-19, builds `20261119-183440` e `-184744`, boots 219 e 220;
+detalhes no `docs/BRINGUP-GA36.md`):**
+
+| | Antes | Depois, parado | Depois, jogo de SNES |
+|---|---|---|---|
+| Processos novos no sistema | 945 por minuto | 21 por minuto (120 s) | 24 por minuto |
+| Laços somados, % de um núcleo | 12,5% | 0,73% (120 s) | 0,17% |
+| `lume-logd` com os filhos | 0,7% | 0,95% (120 s) | 0,6% |
+
+A primeira versão sem processo ainda gastava 1,26% parada: no busybox cada passo do shell custa
+~0,1 a 0,2 ms a 720 MHz, e o laço acorda com a CPU no clock mais baixo (~15 ms por volta do
+`usb-gadget`). A volta parada passou a ler só o estado do UDC e o VBUS, de caminhos guardados, a
+guarda do FIFO olha o relógio a cada 32 voltas e o role switch ausente é procurado a cada 16;
+assim o shell chegou à meta e o vigia em C não foi preciso. Os ticks de `/proc/<pid>/stat`
+exageram esses laços curtos (cobram 10 ms a quem acorda no tick); a medida usa o
+`se.sum_exec_runtime` de `/proc/<pid>/sched`. O R36S fica no P-110.
+
 ### D9. Launcher
 
 - A thread da bateria passa de 30 s para 5 s (duas leituras pequenas do sysfs; conferir o
