@@ -510,22 +510,36 @@ o teste `tests/unit/test_volume_scale.py` confere que as três tabelas e esta s�
 o shell dá as mesmas posições e a mesma conversão do C. Quem usa o formato são as tarefas 7.1,
 7.2 e 7.4.
 
-## Brilho salvo (change `device-fixes`, 9.15)
+## Brilho salvo (change `device-fixes`, 9.15 e 9.16)
 
 **Arquivo.** `ROMS/system/display/brightness` (`/storage/system/display/brightness` no
 aparelho): um inteiro decimal de 0 a 100 e uma quebra de linha (`65`), na mesma escala da barra
-da borda esquerda: 100% é o teto do perfil (`backlight_max`, GA36: nível 7) ou o máximo do
-painel. Gravado como o volume, por um arquivo oculto renomeado por cima (`.brightness.tmp`).
+da borda esquerda: 100% é o teto do perfil (`backlight_max`), se houver, ou o máximo do painel
+(`max_brightness`). Hoje nenhum perfil tem teto: o GA36 perdeu o dele em 2026-11-18 e usa os
+10 níveis. Gravado como o volume, por um arquivo oculto renomeado por cima (`.brightness.tmp`).
 
 **Quem grava.** As teclas Fn + volume (`lume-input`) gravam o nível que acabaram de aplicar, e
 a linha Brilho das Configurações (`lume-ui`) grava o nível que o painel passou a ter (lido de
 volta, para o `lume-input` chegar ao mesmo nível bruto em painéis grossos como o do GA36). O
 escurecimento por inatividade do launcher **não** grava: ele só muda o painel.
 
-**Quem lê.** O `lume-input`, ao iniciar: aplica o nível salvo, nunca acima do teto do perfil e
-nunca abaixo do piso de 5%. Sem o arquivo, o comportamento anterior (um nível acima do teto
-desce ao teto). Um arquivo inválido (não é um inteiro de 0 a 100) é ignorado, com uma linha no
-log (`brightness: ignoring the bad file`).
+**Quem lê.** Primeiro o initramfs (9.16), logo depois de montar a ROMS, nos dois consoles
+(`initramfs/lib/brightness.sh`): uma leitura do arquivo e uma escrita no `brightness` da
+primeira luz de fundo de `/sys/class/backlight`, com a mesma conta do `lume-input`
+(arredondada, nunca abaixo do piso de 5% nem do nível 1). Não espera nada (P-58): sem ROMS,
+sem arquivo ou sem luz de fundo, não faz nada. O topo ali é só o `max_brightness`: o
+initramfs não tem o perfil do `lume-input`, e como nenhum perfil tem teto hoje a conta é a
+mesma; um perfil que voltar a ter teto precisa dele no initramfs também. Depois o
+`lume-input`, ao iniciar, aplica de novo o nível salvo, nunca acima do teto do perfil e nunca
+abaixo do piso de 5%. Sem o arquivo, o comportamento anterior (um nível acima do nível de
+início do perfil, `backlight_boot`, desce a ele). Um arquivo inválido (não é um inteiro de 0
+a 100) é ignorado pelos dois, com uma linha no log (`brightness: ignoring the bad file`; a do
+initramfs, com o prefixo `lume:`, vai para o log do kernel).
+
+**Antes do initramfs.** O kernel acende a tela no nível do device tree
+(`default-brightness-level`): no GA36, 7 de 10 (era o 8 de fábrica; do 7 para cima este GA36
+pode mostrar a imagem quebrada, P-95); na árvore nativa do R36S, 80 de 160 (50%, o de fábrica,
+sem mudança; as árvores convertidas dos fabricantes trazem o nível de cada uma).
 
 Os campos `volume` e `brightness` do `settings.toml` eram gravados pelas Configurações e lidos
 por ninguém; saíram (um arquivo antigo com eles continua carregando, os campos são ignorados).

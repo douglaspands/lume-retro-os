@@ -20,6 +20,7 @@ stty -F /dev/tty1 -echo 2>/dev/null
 
 . /lib/storage.sh
 . /lib/slots.sh
+. /lib/brightness.sh
 
 # Console of this initramfs (written by the build, one initramfs per hardware layer)
 BOARD=$(cat /etc/board 2>/dev/null)
@@ -103,6 +104,10 @@ case "$ROMS_OK" in ok*)
 	fi
 	;;
 esac
+
+# The saved brightness (device-fixes 9.16, lib/brightness.sh): one read and one sysfs write,
+# so the chosen level shows from here on instead of the device tree's until lume-input starts
+[ -n "$ROMS_MOUNTED" ] && brightness_restore /roms/system/display/brightness
 
 # Device tree selection (boot-dtb-select): lume-bootsel picks the DTB of BOOT/dtbs/<soc>/
 # and, when it is not the running one, loads this same kernel with it (status 10). Then

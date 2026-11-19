@@ -1135,7 +1135,8 @@ static long backlight_raw(long top, long pct)
 }
 
 /* At start, with no saved brightness: a backlight above the profile's boot level (or its
- * ceiling) comes down to it (the kernel starts the GA36 at level 8 from its device tree; from
+ * ceiling) comes down to it (a kernel older than device-fixes 9.16 starts the GA36 at level 8
+ * from its device tree, now at 7, and the initramfs applies a saved brightness first; from
  * level 7 up this GA36 can show a broken picture, P-95). */
 static void clamp_backlight(const struct profile *p)
 {

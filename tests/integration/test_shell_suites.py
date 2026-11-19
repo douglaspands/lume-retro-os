@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(shutil.which("podman") is None, reason="sem podm
 @pytest.mark.parametrize("script", [
     "tests/initramfs/test_storage.sh",   # 4.1-4.3
     "tests/initramfs/test_slots.sh",     # build-speed 4.0
+    "tests/initramfs/test_brightness.sh",  # device-fixes 9.16
     "tests/playlists/test_playlists.sh",  # 6.2
     "tests/logs/test_logs.sh",            # 5.5
     "tests/audio/test_mixer.sh",          # 9.8

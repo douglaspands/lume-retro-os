@@ -119,7 +119,7 @@ def build_initramfs(target: Target) -> Path:
     shutil.copy(REPO_ROOT / "initramfs/init", stage / "init")
     (stage / "init").chmod(0o755)
     # every library the init sources: a missing one stops the init (no root, kernel panic)
-    for lib in ("storage.sh", "slots.sh"):
+    for lib in ("storage.sh", "slots.sh", "brightness.sh"):
         shutil.copy(REPO_ROOT / "initramfs/lib" / lib, stage / "lib" / lib)
     # the console of this initramfs: the init mounts the slot set of BOOT/<console>/SLOTS (or the
     # old BOOT/<console>/SYSTEM) on the single card
