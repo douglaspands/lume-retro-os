@@ -56,16 +56,67 @@ logs_conf() {
 	return 0
 }
 
-# Is ROMS mounted (the logs go to the card)? Read from the mount table with the shell's own
-# read: logs_flush asks at every flush (logd cost budget, game-governor D8).
+# Is ROMS mounted and writable (the logs go to the card)? Read from the mount table with the
+# shell's own read: logs_flush asks at every flush (logd cost budget, game-governor D8).
+# Read-only is "not on disk": lume-sleep keeps ROMS read-only while the console sleeps and
+# until the card is checked at the wake (game-experience-tuning D11), and a flush then would
+# lose its batch (the buffer is moved before the append that fails); the lines wait in RAM.
 logs_on_disk() {
-	local dev mnt rest
+	local dev mnt type opts rest
 	{
-		while read -r dev mnt rest; do
-			[ "$mnt" = "$LOGS_MOUNT" ] && return 0
+		while read -r dev mnt type opts rest; do
+			[ "$mnt" = "$LOGS_MOUNT" ] || continue
+			case ",$opts," in *,ro,*) return 1 ;; esac
+			return 0
 		done < "${MOUNTS_FILE:-/proc/mounts}"
 	} 2>/dev/null
 	return 1
+}
+
+# The console in the name of its suspension mark: the board and, when it has one, the serial
+# number (two consoles of the same model on one card stay apart). Letters, digits and "-".
+console_id() {
+	local b s
+	b=$(board)
+	s=$(dtb_serial 2>/dev/null)
+	b=${b:-unknown}${s:+-$s}
+	printf '%s\n' "$b" | tr -c 'A-Za-z0-9\n-' '_'
+}
+
+# The suspension mark of this console (game-experience-tuning D11): ROMS/logs/.suspended-<id>
+# with the boot number, written by lume-sleep before the suspension (the card still
+# consistent) and removed after a wake that found the same card. The next boot reads the marks
+# (logd start, suspend_marks).
+suspend_mark() { echo "$LOGS_DIR/.suspended-$(console_id)"; }
+
+# suspend_marks <previous boot> <own mark>: the events of the marks left on the card, with the
+# previous boot number of the card (the counter before this boot). The own mark is removed;
+# the marks of other consoles stay until their console boots again. Sets SUSPENDED_PREV when
+# the previous boot of the card is the one that was left suspended (the abrupt shutdown line
+# then says why).
+suspend_marks() {
+	local prev=$1 own=$2 m n id
+	SUSPENDED_PREV=""
+	for m in "$LOGS_DIR"/.suspended-*; do
+		[ -f "$m" ] || continue
+		n=""
+		{ read -r n < "$m"; } 2>/dev/null
+		n=${n%%[!0-9]*}
+		id=${m##*/.suspended-}
+		if [ "$m" = "$own" ]; then
+			rm -f "$m"
+			[ -n "$n" ] && [ -n "$prev" ] || continue
+			if [ "$prev" = "$n" ]; then
+				SUSPENDED_PREV=1
+			elif [ "$prev" -gt "$n" ]; then
+				event sleep FAIL "card changed during suspend: boot $n slept here while the card started elsewhere (boots $((n + 1)) to $prev)"
+			fi
+		elif [ -n "$n" ] && [ "$prev" = "$n" ]; then
+			SUSPENDED_PREV=1
+			event sleep FAIL "card left a suspended console: $id, boot $n"
+		fi
+	done
+	return 0
 }
 
 # Number of this boot (0 without ROMS): boot_n prints it, boot_n_var sets BOOT_N without a

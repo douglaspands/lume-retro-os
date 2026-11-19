@@ -178,6 +178,34 @@ gravaria a tabela velha), e o boot seguinte registra o motivo. Ponto a resolver 
 `lume-sleep` pelo protocolo de clientes do sono, ou a conferência precisa vir antes do
 descongelamento.
 
+**Como ficou (9.3):**
+- *Ninguém grava antes da conferência:* a `ROMS` é remontada só leitura antes de suspender
+  (depois do `persist flush` e do `sync`). O exFAT do kernel 6.18 não tem `freeze_fs`
+  (`fs/exfat/super.c`), então o `FIFREEZE`/`fsfreeze` dá `EOPNOTSUPP` (`fs/ioctl.c:393`), e o
+  `/sys/power/freeze_filesystems` pula o exFAT e descongela antes de o `lume-sleep` voltar
+  (`fs/super.c:1198`, `kernel/power/suspend.c:378`). A remontagem não mexe nos processos nem
+  nos arquivos abertos, e limpa o `VolumeDirty` (`exfat_reconfigure`). O `lume-logd`
+  (`logs_on_disk`) e o `lume-persist` (`storage_rw`) tratam a `ROMS` só leitura como ausente e
+  guardam o pendente na RAM. Se a remontagem falhar (arquivo aberto para escrita), a
+  suspensão segue com a conferência, sem essa garantia, e a falha vai ao `events.log`.
+- *Sinal:* reler o `.boot` pelo sistema de arquivos não basta: o outro console grava o
+  contador por arquivo temporário e `rename`, e o dentry e o inode guardados no GA36 apontam
+  para o cluster antigo, que o exFAT libera sem apagar (ainda diz o número antigo). O
+  `lume-cardid` (pacote novo, C) lê o dispositivo de bloco com `O_DIRECT`: setor de boot,
+  diretório raiz, `logs/`, a entrada e o conteúdo do `.boot` e um hash do bitmap de alocação
+  (pega também um PC que copiou arquivos). A linha de antes (com a `ROMS` já só leitura, ela é
+  final) e a de depois são comparadas inteiras.
+- *Reinício sem gravar:* `lume-cardid --shutdown` (`EXFAT_IOC_SHUTDOWN` sem `sync`,
+  `fs/exfat/file.c:550`: toda gravação do exFAT falha dali em diante) e `reboot -n -f` (sem
+  `sync` e sem o runlevel, então nem o `logd stop` nem o `persist flush` rodam); `sysrq b` se o
+  `reboot` voltar.
+- *Motivo no boot seguinte:* a marca `ROMS/logs/.suspended-<placa>[-<série>]` com o número do
+  boot, gravada antes da remontagem. O `logd start` compara com o contador anterior do cartão:
+  a marca própria com o contador à frente vira `sleep FAIL card changed during suspend`; a de
+  outro console cujo boot é o anterior do cartão vira, uma vez, `sleep FAIL card left a
+  suspended console` (a marca fica para o console dono); o desligamento anterior suspenso sai
+  como `previous abrupt (boot <n>): it was suspended`.
+
 ## Risks / Trade-offs
 
 - [Medição com ruído maior que o ganho] → ordem A, B, A e o critério do spec (melhora acima da

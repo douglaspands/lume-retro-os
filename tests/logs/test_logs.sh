@@ -801,6 +801,45 @@ done
 starts=$(sed -n 's/^[^ ]* \([0-9]*\) boot OK started: \([a-z0-9]*\) .*/\1 \2/p' "$LOGS_DIR/events.log" | tr '\n' ' ')
 check "single card: three boots in one sequence, each with its console" '[ "$starts" = "1 ga36 2 r36s 3 ga36 " ]'
 check "single card: the counter is shared on ROMS" '[ "$(cat "$LOGS_DIR/.boot")" = 3 ]'
+### Card taken from a sleeping console (game-experience-tuning D11, task 9.3): the mark that
+### lume-sleep leaves before the suspension, read by the next boot of each console
+rm -f "$LOGS_RAM"/*.pending "$LOGS_DIR"/events*.log "$LOGS_DIR"/.suspended-*
+echo 3 > "$LOGS_DIR/.boot"
+echo 3 > "$LOGS_DIR/.suspended-ga36"          # boot 3 of the GA36 went to sleep
+echo r36s > "$W/board"
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "suspend mark: the other console logs that the card left a sleeping console" \
+	'grep -q " 4 sleep FAIL card left a suspended console: ga36, boot 3$" "$LOGS_DIR/events.log"'
+check "suspend mark: its shutdown line says the previous boot was suspended" \
+	'grep -q " 4 shutdown FAIL previous abrupt (boot 3): it was suspended$" "$LOGS_DIR/events.log" && ! grep -q "power loss or crash" "$LOGS_DIR/events.log"'
+check "suspend mark: the mark of the other console stays on the card" '[ "$(cat "$LOGS_DIR/.suspended-ga36")" = 3 ]'
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "suspend mark: logged once by the other console" '[ "$(grep -c " sleep " "$LOGS_DIR/events.log")" = 1 ]'
+echo ga36 > "$W/board"
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "suspend mark: the sleeping console logs the card change, with the foreign boots" \
+	'grep -q " 6 sleep FAIL card changed during suspend: boot 3 slept here while the card started elsewhere (boots 4 to 5)$" "$LOGS_DIR/events.log"'
+check "suspend mark: its own mark is removed" '[ ! -e "$LOGS_DIR/.suspended-ga36" ]'
+echo 6 > "$LOGS_DIR/.suspended-ga36"          # boot 6 sleeps and the battery runs out
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "suspend mark: back on the same console with no boot between, no card change" \
+	'grep -q " 7 shutdown FAIL previous abrupt (boot 6): it was suspended$" "$LOGS_DIR/events.log" && [ "$(grep -c " sleep " "$LOGS_DIR/events.log")" = 2 ] && [ ! -e "$LOGS_DIR/.suspended-ga36" ]'
+echo 7 > "$LOGS_DIR/.suspended-ga36-c3d9b8674f4b94f6"   # a second GA36 (another serial)
+BOARD_FILE=$W/board cmd_start >/dev/null 2>&1
+check "suspend mark: the console id keeps two consoles of one model apart" \
+	'grep -q " 8 sleep FAIL card left a suspended console: ga36-c3d9b8674f4b94f6, boot 7$" "$LOGS_DIR/events.log"'
+rm -f "$LOGS_DIR"/.suspended-*
+check "suspend mark: the console id is the board, then the serial number" \
+	'[ "$(BOARD_FILE=$W/board console_id)" = ga36 ] && [ "$(BOARD_FILE=$W/board suspend_mark)" = "$LOGS_DIR/.suspended-ga36" ]'
+# ROMS read-only (lume-sleep while the console sleeps): nothing is flushed, the lines wait
+printf '/dev/mmcblk0p3 /storage exfat ro,relatime 0 0\n' > "$W/mounts"
+event test OK "while read-only"
+MOUNTS_FILE=$W/mounts LOGS_MOUNT=/storage logs_flush
+check "read-only ROMS: no flush, the event stays in RAM" \
+	'grep -q "while read-only" "$LOGS_RAM/events.pending" && ! grep -q "while read-only" "$LOGS_DIR/events.log"'
+printf '/dev/mmcblk0p3 /storage exfat rw,relatime 0 0\n' > "$W/mounts"
+check "read-write ROMS: on disk" 'MOUNTS_FILE=$W/mounts LOGS_MOUNT=/storage logs_on_disk'
+rm -f "$LOGS_RAM/events.pending"
 check "single card: the boot log header names the console" \
 	'grep -q "echo \"== console: \$(board)\"" aports/lume-core/files/usr/libexec/lume/bootlog'
 check "single card: the hardware snapshot names the board" \

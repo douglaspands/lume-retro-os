@@ -27,9 +27,14 @@ cmd_start() {
 		n=$(( ${prev:-0} + 1 ))
 		echo "$n" > "$COUNTER.tmp" && fsync "$COUNTER.tmp" 2>/dev/null && mv -f "$COUNTER.tmp" "$COUNTER"
 		echo "$n" > "$LOGS_RAM/boot-n"
+		# the suspension marks (game-experience-tuning D11): a card that changed while this
+		# console slept, or a card taken from a console that still sleeps
+		suspend_marks "$prev" "$(suspend_mark)"
 		if [ -n "$prev" ]; then
 			if [ -f "$CLEAN_MARK" ]; then
 				event shutdown OK "previous clean (boot $prev)"
+			elif [ -n "$SUSPENDED_PREV" ]; then
+				event shutdown FAIL "previous abrupt (boot $prev): it was suspended"
 			else
 				event shutdown FAIL "previous abrupt (boot $prev): power loss or crash"
 			fi

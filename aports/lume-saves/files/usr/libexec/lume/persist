@@ -19,6 +19,19 @@ DEBOUNCE=${PERSIST_DEBOUNCE:-2}
 LIBEXEC=${PERSIST_LIBEXEC:-/usr/libexec/lume}
 
 storage_ok() { mountpoint -q "${PERSIST_MOUNT:-/storage}"; }
+# ROMS writable: lume-sleep keeps it read-only while the console sleeps and until the card is
+# checked at the wake (game-experience-tuning D11); a flush then waits, with the dirty mark
+# kept, for the next tick
+storage_rw() {
+	local m=${PERSIST_MOUNT:-/storage} dev mnt type opts rest
+	{
+		while read -r dev mnt type opts rest; do
+			[ "$mnt" = "$m" ] || continue
+			case ",$opts," in *,ro,*) return 1 ;; esac
+		done < "${MOUNTS_FILE:-/proc/mounts}"
+	} 2>/dev/null
+	return 0
+}
 
 # The build language (lume build --lang) is only the factory default: it reaches a card
 # through the factory config seeded below, on a card with no configuration yet. The menu
@@ -57,7 +70,7 @@ restore() {
 }
 
 flush() {
-	storage_ok || return 0
+	storage_ok && storage_rw || return 0
 	rm -f "$DIRTY"
 	mirror "$RAM" "$CARD"
 	sync

@@ -329,6 +329,153 @@ rm -f "$DIR/poweroff"
 fifo_lines >/dev/null
 sleep 0.8
 
+### 8b. the card (game-experience-tuning D11, task 9.3): mark, read-only and fingerprint before
+### the suspension; at the wake the fingerprint again before anything writes to ROMS
+CW=$W
+export CW
+CARD=$W/storage
+cat >"$W/bin/mount" <<'EOF'
+#!/bin/sh
+echo "mount $*" >> "$CALLS"
+if [ -e "$CW/mount.busy" ]; then echo "mount: mounting /dev/mmcblk0p3 on $3 failed: Resource busy" >&2; exit 1; fi
+case $2 in remount,ro) o=ro ;; remount,rw) o=rw ;; *) exit 1 ;; esac
+printf '/dev/mmcblk0p3 %s exfat %s,relatime 0 0\n' "$3" "$o" > "$MOUNTS_FILE"
+EOF
+# the card as lume-cardid reads it: card.before at the first call, card.after (when there is
+# one) from the second on; an empty file is an unreadable card
+cat >"$W/bin/lume-cardid" <<'EOF'
+#!/bin/sh
+echo "cardid $*" >> "$CALLS"
+[ "$1" = --shutdown ] && exit 0
+n=$(cat "$CW/cardid.n" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" > "$CW/cardid.n"
+f=$CW/card.before
+[ "$n" -gt 1 ] && [ -e "$CW/card.after" ] && f=$CW/card.after
+[ -s "$f" ] || { echo "lume-cardid: cannot read the boot sector" >&2; exit 1; }
+cat "$f"
+EOF
+printf '#!/bin/sh\necho "reboot $*" >> "$CALLS"\n' >"$W/bin/reboot"
+printf '#!/bin/sh\necho "persist $*" >> "$CALLS"\n' >"$W/bin/persist"
+chmod +x "$W/bin/"*
+card_fresh() {  # a fresh boot with ROMS mounted read-write at $CARD, boot 204
+	fresh
+	rm -rf "$CARD" "$W/cardid.n" "$W/card.after" "$W/mount.busy" "$W/sysrq" "$W/asleep"
+	mkdir -p "$CARD/logs"
+	echo 204 >"$LOGS_RAM/boot-n"
+	printf '/dev/mmcblk0p3 %s exfat rw,relatime 0 0\n' "$CARD" >"$W/mounts"
+	echo "boot=204 at=6:4:5a6b7c8d.42 bitmap=0123456789abcdef" >"$W/card.before"
+}
+# what the console looks like while it sleeps: /sys/power/state is a FIFO and this reader
+# copies the mount table and the mark before letting the write through
+asleep_watch() {
+	rm -f "$SYS/power/state" "$W/state.fifo"
+	mkfifo "$W/state.fifo"
+	ln -s "$W/state.fifo" "$SYS/power/state"
+	(
+		n=0
+		while [ $n -lt 200 ] && ! grep -q "^write power/state" "$T"; do sleep 0.05; n=$((n + 1)); done
+		{ cat "$W/mounts"; cat "$CARD/logs/.suspended-ga36" 2>/dev/null; } >"$W/asleep"
+		read -r _ <"$W/state.fifo"
+	) &
+	RD=$!
+}
+line() { grep -n "^$1" "$T" | head -n 1 | cut -d: -f1; }
+card_env() {
+	SL_MOUNT=$W/bin/mount SL_CARDID=$W/bin/lume-cardid SL_REBOOT=$W/bin/reboot SL_SYSRQ=$W/sysrq \
+		SL_PERSIST=$W/bin/persist MOUNTS_FILE=$W/mounts LOGS_MOUNT=$CARD LOGS_DIR=$CARD/logs "$@"
+}
+card_request() {
+	: >"$DIR/suspend"
+	card_env busybox sh "$S" w "$DIR" suspend
+}
+
+# the same card: the wake goes on, ROMS writable again, the mark removed
+card_fresh
+asleep_watch
+fake_input ok
+card_request
+stop_input
+wait "$RD"
+check "card: asleep with ROMS read-only and the mark holding the boot number" \
+	'grep -q " exfat ro," "$W/asleep" && [ "$(tail -n 1 "$W/asleep")" = 204 ]'
+check "card: persist flush, sync, mark, read-only, fingerprint, then the kernel" \
+	'[ "$(line "run $W/bin/persist flush")" -lt "$(line "run $W/bin/sync")" ] && [ "$(line "run $W/bin/sync")" -lt "$(line "mark .suspended-ga36 204")" ] && [ "$(line "mark ")" -lt "$(line "run $W/bin/mount -o remount,ro $CARD")" ] && [ "$(line "run $W/bin/mount -o remount,ro")" -lt "$(line "card boot=204")" ] && [ "$(line "card boot=204")" -lt "$(line "write power/state")" ]'
+check "card: at the wake the check comes first, then ROMS writable, then the rest" \
+	'[ "$(line "write power/state")" -lt "$(line "card same")" ] && [ "$(line "card same")" -lt "$(line "run $W/bin/mount -o remount,rw $CARD")" ] && [ "$(line "run $W/bin/mount -o remount,rw")" -lt "$(line "power resume")" ] && [ "$(line "run $W/bin/mount -o remount,rw")" -lt "$(line "write class/backlight/backlight/brightness 7")" ]'
+check "card: the fingerprint read twice, from the device of ROMS, the counter of the logs" \
+	'[ "$(grep -c "^cardid /dev/mmcblk0p3 logs/.boot$" "$CALLS")" = 2 ]'
+check "card: writable again, the mark gone, no restart, no failure" \
+	'grep -q " exfat rw," "$W/mounts" && [ ! -e "$CARD/logs/.suspended-ga36" ] && ! grep -q "^reboot" "$CALLS" && ! events | grep -q " sleep FAIL" && events | grep -q " sleep OK resume after"'
+fifo_lines >/dev/null
+sleep 0.8
+
+# the card started elsewhere: restart at once, nothing written, nothing undone
+card_fresh
+echo "boot=214 at=9:4:5a6b9000.10 bitmap=fedcba9876543210" >"$W/card.after"
+asleep_watch
+fake_input ok
+card_request
+stop_input
+wait "$RD"
+check "card changed: the exFAT shut down, then reboot without sync and without init" \
+	'[ "$(grep -E "^(cardid --shutdown|reboot)" "$CALLS" | tr "\n" "|")" = "cardid --shutdown $CARD|reboot -n -f|" ]'
+check "card changed: nothing after the check (no sync, no remount, no undo, no resume phase)" \
+	'[ "$(grep -c "^sync" "$CALLS")" = 1 ] && ! grep -q "remount,rw" "$CALLS" && ! grep -q "^power resume" "$T" && [ "$(cat "$SYS/class/backlight/backlight/brightness")" = 0 ] && [ "$(cat "$DIR/phase")" = "suspend 1" ]'
+check "card changed: ROMS still read-only and the mark left for the next boot" \
+	'grep -q " exfat ro," "$W/mounts" && [ "$(cat "$CARD/logs/.suspended-ga36")" = 204 ]'
+# (the fake /dev/kmsg keeps only the last line: the reason is in the trace)
+check "card changed: the reason in the trace; sysrq b when reboot returns" \
+	'grep -qx "card changed: fingerprint changed" "$T" && grep -q "lume-sleep: reboot -n -f returned: sysrq b" "$W/kmsg" && [ "$(cat "$W/sysrq")" = b ]'
+fifo_lines >/dev/null
+sleep 0.8
+
+# a card that stays unreadable at the wake counts as changed, after 5 reads
+card_fresh
+: >"$W/card.after"
+fake_input ok
+card_request
+stop_input
+check "card unreadable: read 5 times, then the restart" \
+	'[ "$(grep -c "^cardid /dev" "$CALLS")" = 6 ] && grep -qx "card changed: card unreadable: cannot read the boot sector" "$T" && grep -qx "reboot -n -f" "$CALLS"'
+fifo_lines >/dev/null
+sleep 0.8
+
+# a read-only remount that fails: logged, the suspension and the check go on
+card_fresh
+: >"$W/mount.busy"
+fake_input ok
+card_request
+stop_input
+check "card busy: 5 tries, the failure logged, the suspension and the check run" \
+	'[ "$(grep -c "remount,ro" "$CALLS")" = 5 ] && has_event "FAIL card: $CARD not read-only (Resource busy); checked at the wake all the same" && grep -qx "card same" "$T" && has_event "OK suspend freeze"'
+check "card busy: no remount back, the mark removed" '! grep -q "remount,rw" "$CALLS" && [ ! -e "$CARD/logs/.suspended-ga36" ]'
+fifo_lines >/dev/null
+sleep 0.8
+
+# the kernel refuses: no check (the card never left), ROMS writable again
+card_fresh
+rm -f "$SYS/power/state"
+mkdir "$SYS/power/state"
+fake_input ok
+card_request
+stop_input
+check "card, kernel refusal: one fingerprint, ROMS writable again, the mark removed" \
+	'[ "$(grep -c "^cardid /dev" "$CALLS")" = 1 ] && grep -q " exfat rw," "$W/mounts" && [ ! -e "$CARD/logs/.suspended-ga36" ] && ! grep -q "^reboot" "$CALLS"'
+fifo_lines >/dev/null
+sleep 0.8
+
+# no lume-cardid: logged, the old behaviour (no check), ROMS writable again
+card_fresh
+rm -f "$W/card.before"
+fake_input ok
+card_request
+stop_input
+check "card, no fingerprint: logged, no check, no restart, ROMS writable again" \
+	'has_event "FAIL card: no fingerprint (cannot read the boot sector); not checked at the wake" && ! grep -q "^reboot" "$CALLS" && grep -q " exfat rw," "$W/mounts"'
+fifo_lines >/dev/null
+sleep 0.8
+
 ### 9. poweroff: through the session, with a fallback
 fresh
 cat >"$W/session.sh" <<EOF
