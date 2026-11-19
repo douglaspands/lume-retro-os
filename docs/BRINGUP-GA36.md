@@ -567,6 +567,23 @@ limites do microcontrolador do controle e de outros chips nas linhas PB/PF/PG/PH
 desconhecidos (o A33-OLinuXino roda o DCDC1 a 3,3 V no mainline). Só o painel 1 existe neste
 aparelho: o painel 2 fica sem prova.
 
+## Cartão trocado com o console suspenso (2026-11-19)
+
+Seis `gamelist.xml` do cartão apareceram com o tamanho de um XML e conteúdo de outro arquivo
+(`game-experience-tuning` 9.1). O `events.log` e os `boot/boot-<n>.log` mostram a causa:
+
+- o GA36 suspendeu no boot 204 (`sleep OK suspend freeze`, 04:41 UTC);
+- o mesmo cartão iniciou no R36S nos boots 205 a 214 (14:28 a 16:04 -03), que gravou as listas;
+- o cartão voltou ao GA36, que acordou às 19:39 (`sleep OK resume after 53863`) e gravou com a
+  tabela de alocação do exFAT de antes da troca, guardada na RAM. As linhas do boot 204 caíram
+  sobre o começo do boot 205 no `events.log`, e os boots 207 a 214 sumiram dele.
+
+O kernel não percebe a troca (é o mesmo cartão, mesmo CID). Não foi o leitor USB do PC nem a
+gravação atômica do índice. Os `gamelist.xml.corrupt` foram apagados do cartão. A correção
+(conferir o contador de boots do cartão ao acordar e reiniciar sem gravar se ele mudou) é a
+tarefa 9.3 da mesma change. Até ela entrar: **não tirar o cartão de um console suspenso**;
+desligar antes.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |

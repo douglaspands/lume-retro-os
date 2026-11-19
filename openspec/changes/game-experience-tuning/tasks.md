@@ -34,7 +34,8 @@ são tocados pela sessão principal (nó 4.2), nunca por subagente.
 | 1.3 | 1.2 | — | AG | sonnet | 2 | J1, J2 |
 | 2.3 | 2.2 | — | AG | sonnet | 2 | J1, J2 |
 | 9.2 | 3.2 | — | AG | sonnet | 2 | |
-| 6.1 | 1.3, 2.3, 3.2, 4.1, 4.3, 5.1 | CPU, ARCH:armv7, ARCH:aarch64, ARCH:x86_64 | PR | — | 3 | |
+| 9.3 | 9.1 | — | AG | opus | 1 | J1, J2 |
+| 6.1 | 1.3, 2.3, 3.2, 4.1, 4.3, 5.1, 9.3 | CPU, ARCH:armv7, ARCH:aarch64, ARCH:x86_64 | PR | — | 3 | |
 | 6.2 | 6.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 7.1 | 6.2 | GA36 | PR | — | 5 | J1 |
 | 7.2 | 7.1 | GA36 | PR | — | 6 | J1 |
@@ -60,14 +61,14 @@ Os nós 7.x são da sessão principal porque medem no aparelho; dentro de uma ja
  4.1 ------------------------------------------+-+--> 6.1 --+--> 6.2 --> 7.1 --> 7.2/7.3/7.4 --+
  4.2 --> 4.3 ----------------------------------+            |                                  |
  5.1 ------------------------------------------+            +--> 6.3 ------------------------> 7.5 --> 8.1 --> 8.2
- 9.1 (resposta do usuário; se a causa for do sistema, a correção entra antes do 6.1)
+ 9.1 --> 9.3 (conferência do cartão ao acordar) ---------------------------+--> 6.1
 
  caminho crítico: 3.1 -> 3.2 -> 6.1 -> 6.2 -> 7.1 -> 7.2..7.4 -> 7.5 -> 8.1 -> 8.2
 ```
 
 **Ondas:**
 - Onda 0: 1.1, 2.1, 3.1, 4.1, 5.1 (AG em paralelo); 4.2 e 9.1 (PR).
-- Onda 1: 1.2, 2.2, 3.2, 4.3.
+- Onda 1: 1.2, 2.2, 3.2, 4.3, 9.3.
 - Onda 2: 1.3, 2.3, 9.2.
 - Onda 3: 6.1 (build único da imagem com todo o código).
 - Ondas 4 a 7: janelas J1 (GA36) e J2 (R36S): provas funcionais, linha de base e A/B.
@@ -96,6 +97,7 @@ Os nós 7.x são da sessão principal porque medem no aparelho; dentro de uma ja
 ## 3. TurboGrafx-16, TurboGrafx-CD e CPS-3
 
 - [ ] 3.1 Aport `aports/libretro-mednafen-pce-fast/` (D8): commit fixo do `beetle-pce-fast-libretro`, `sha512sums`, build padrão do upstream sem flags de CPU, os três arches; entra em `rootfs/packages.txt`. Verificação: `lume pkg` nos três arches sem erro, `.so` e `.info` no pacote, e o teste de paridade de manifesto passa.
+  - 2026-11-19: commit fixo `2de1ce1c`, `lume pkg` sem erro em armv7, aarch64 e x86_64, com o `.so` em `/usr/lib/libretro/`. O `.info` não vai no pacote (nenhum aport local leva): vem do `libretro-core-info` do Alpine, e o `rootfs/configure.sh` copia os dos `.so` instalados. Falta conferir na imagem da 6.1 o `.info` e a paridade de manifesto.
 - [ ] 3.2 Catálogo (D8): sistemas `pcengine` ("TurboGrafx-16", `TG16`) e `pcenginecd` ("TurboGrafx-CD", `TGCD`) com `mednafen_pce_fast` e extensões tiradas do `.info`, BIOS `syscard3.pce` obrigatória no CD; `cps3` ("CPS-3", `CPS3`) no `fbneo` com o romset do FBNeo; `LEIA-ME.txt`, `docs/CATALOG.md` e `tests/cores/run_roms.sh` atualizados. Verificação: `tests/unit/test_catalog.py` (validador aceita; arcade sem `core_by_arch`; mesmos cores nos dois consoles) e o teste do `LEIA-ME.txt`; prova no aparelho na 6.2/6.3 (um HuCard, um CD e, se o usuário tiver, um romset de CPS-3 abrem pelo launcher).
 
 ## 4. Cópia pelo cabo e conjunto de teste padrão
@@ -129,8 +131,11 @@ Os nós 7.x são da sessão principal porque medem no aparelho; dentro de uma ja
 
 ## 9. Investigação e distribuição
 
-- [ ] 9.1 Listas corrompidas de 2026-11-19 (D11): perguntar ao usuário se o cartão passou pelo leitor USB do PC à tarde; ler o `events.log` desse boot (gravações do índice e do launcher); se a causa for do sistema, abrir a correção nesta change como tarefa nova antes do 6.1. Verificação: causa anotada aqui e no `docs/BRINGUP-GA36.md`; os `gamelist.xml.corrupt` apagados do cartão depois.
+- [x] 9.1 Listas corrompidas de 2026-11-19 (D11): perguntar ao usuário se o cartão passou pelo leitor USB do PC à tarde; ler o `events.log` desse boot (gravações do índice e do launcher); se a causa for do sistema, abrir a correção nesta change como tarefa nova antes do 6.1. Verificação: causa anotada aqui e no `docs/BRINGUP-GA36.md`; os `gamelist.xml.corrupt` apagados do cartão depois.
 - [ ] 9.2 Jogos livres para os sistemas novos em `var/roms_default/` (distribuição final): registrar no `docs/PENDENCIAS.md` (tema "Emuladores, cores e RetroArch", P-NN novo) os sistemas sem jogo livre de exemplo (`pcengine`, `pcenginecd`, `cps3` e os que já faltam hoje), com a regra de que só entram jogos livres de direitos autorais. Verificação: a pendência existe com a lista e a regra.
+- [ ] 9.3 Conferência do cartão ao acordar (D11, `system-sleep`): o `lume-sleep` guarda o contador `.boot` da `ROMS` antes de suspender e, ao acordar, antes de qualquer gravação na `ROMS`, relê o contador do cartão sem o cache de página; se mudou, reinicia na hora sem `sync` e sem gravar no cartão, e o boot seguinte registra o motivo no `events.log` (por exemplo `sleep FAIL card changed during suspend`). Resolver como os gravadores da `ROMS` (`lume-logd`, `lume-persist`, launcher) esperam a conferência (protocolo de clientes do sono ou conferência antes do descongelamento). Verificação: testes de unidade e de shell do `lume-sleep` (contador igual segue; contador diferente reinicia sem gravar; nenhum gravador grava antes da conferência); no aparelho (J1, J2), suspender, levar o cartão ao outro console, devolver e acordar: reinicia, nenhuma lista nem log corrompido, linha no `events.log`; e um despertar normal segue sem atraso perceptível.
+
+Causa da 9.1 (2026-11-19): o cartão saiu do GA36 suspenso (boot 204, 04:41 UTC), iniciou no R36S (boots 205 a 214) e voltou; ao acordar às 19:39, o GA36 gravou com a tabela do exFAT de antes da troca (D11). Não foi o leitor USB nem a gravação atômica. Os seis `gamelist.xml.corrupt` foram apagados do cartão (recontagem 0). Correção na 9.3.
 
 ## Workflow follow-up
 

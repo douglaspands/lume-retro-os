@@ -41,7 +41,7 @@ Motivação em `proposal.md`. Estado de hoje, conferido no código e no GA36 (20
 - Run-ahead, shaders e filtros (custam CPU/GPU, contra a regra de bateria primeiro; shaders são a
   P-89).
 - Completar o `var/roms_default/` com jogos livres de todos os sistemas: é trabalho da
-  distribuição; esta change só lista o que falta para os sistemas novos (tarefa 9.3).
+  distribuição; esta change só lista o que falta para os sistemas novos (tarefa 9.2).
 - Um painel de configurações no launcher para essas opções (P-91).
 
 ## Decisions
@@ -85,7 +85,7 @@ boot rápido).
 esquerdo) no `factory/retroarch/retroarch.cfg`, chegando a cartões existentes pela semeadura do
 D3. O PS1 com DualShock: o `pcsx_rearmed` declara o analógico pelo tipo de controle; a chave
 `pcsx_rearmed input_player1_analog_dpad_mode=0` não serve, porque desligaria também no controle
-padrão. A tarefa 3.2 confere no aparelho o comportamento com DualShock e, se o analógico
+padrão. A tarefa 1.3 confere no aparelho o comportamento com DualShock e, se o analógico
 duplicar o direcional, usa o remap de core do RetroArch (`input_libretro_device_p1` analógico
 desliga o modo) em vez de mexer na chave global.
 
@@ -110,7 +110,7 @@ D10), espera 30 s e mede 120 s com o perfil normal do governor. Variantes:
 - opções do core escrevendo o `.opt` do usuário antes do jogo e devolvendo o original depois.
 Ordem A, B, A para cada variante (a diferença entre os dois A é o ruído). Métricas: quadros
 mostrados por segundo (fdinfo do DRM), velocidade do core (`GET_STATUS`), falhas de áudio
-(contagem de underruns do ALSA; a tarefa 2.1 fixa a fonte entre o `status` do
+(contagem de underruns do ALSA; a tarefa 5.1 fixa a fonte entre o `status` do
 `/proc/asound/card*/pcm*p/sub0` e o log do RetroArch), clock médio, CPU por núcleo e temperatura,
 tiradas do `lume-logd`. Um script em `tests/device/` agrega em `docs/tuning/<console>.md` uma
 linha por core e variante, sem jogo nem caminho.
@@ -161,6 +161,23 @@ gravação do índice ou do launcher (escrita atômica que não chegou ao cartã
 A tarefa 9.1 decide pela resposta do usuário e pelo `events.log` desse boot; se for do sistema,
 a correção entra nesta change.
 
+**Causa (9.1, 2026-11-19):** nenhuma das duas. O GA36 suspendeu no boot 204 (04:41 UTC) e só
+acordou às 19:39; nesse meio o mesmo cartão iniciou no R36S (boots 205 a 214, 14:28 a 16:04
+-03), que gravou as listas. Ao acordar, o kernel do GA36 seguiu com a tabela de alocação do
+exFAT guardada na RAM antes da troca e gravou (logs, listas) em clusters que o R36S tinha dado a
+outros arquivos: as listas ficaram com o tamanho certo e conteúdo alheio, e o `events.log` perdeu
+os boots 207 a 214 e o começo do 205 sob as linhas do 204. O kernel não percebe a troca: é o
+mesmo cartão (mesmo CID). Com um cartão para dois consoles, isso se repete.
+
+**Correção (escolha do usuário, tarefa 9.3):** antes de suspender, o `lume-sleep` guarda o
+contador `.boot` da `ROMS`; ao acordar, antes de liberar qualquer gravação, relê o contador do
+cartão sem o cache de página; se mudou, reinicia na hora sem gravar nada (sem `sync`, que
+gravaria a tabela velha), e o boot seguinte registra o motivo. Ponto a resolver na 9.3: o
+`freeze` descongela os processos antes do `lume-sleep` rodar, então quem grava na `ROMS` (o
+`lume-logd`, o `lume-persist`, o launcher) precisa esperar o "acordou e o cartão confere" do
+`lume-sleep` pelo protocolo de clientes do sono, ou a conferência precisa vir antes do
+descongelamento.
+
 ## Risks / Trade-offs
 
 - [Medição com ruído maior que o ganho] → ordem A, B, A e o critério do spec (melhora acima da
@@ -176,7 +193,7 @@ a correção entra nesta change.
 - [`mednafen_pce_fast` pesado no A33] → medido na linha de base; se não tiver velocidade cheia no
   GA36, fica registrado e a troca de core vai para a P-24.
 - [Romsets de arcade da versão errada] → o conjunto de teste só leva romsets que abriram no core
-  padrão da pasta (tarefa 8.2).
+  padrão da pasta (tarefa 4.2).
 
 ## Migration Plan
 
@@ -188,4 +205,5 @@ para a imagem antiga (são chaves e opções que o RetroArch já conhece).
 ## Open Questions
 
 - Ganhos reais de cada candidato do D7: saem das medições; o spec já diz como decidir.
-- Se o cartão passou pelo leitor USB do PC na tarde de 2026-11-19 (D11): resposta do usuário.
+- ~~Se o cartão passou pelo leitor USB do PC na tarde de 2026-11-19 (D11)~~: resolvido pelos
+  logs (troca do cartão com o GA36 suspenso).
