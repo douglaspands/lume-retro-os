@@ -948,8 +948,32 @@ def test_ga36_conf_initial_values():
     assert not any(e[0] == "profile" and e[1] == "boot" for e in entries)
     for khz in ("600000", "1008000"):
         assert khz in A33_FREQS.split()
+    # R36S (game-governor 7.4, D20): only the launcher profiles, the GA36 rate limits; games
+    # on the kernel default until P-108
     r36s = [line.split("#")[0].split() for line in R36S_CONF.read_text().splitlines()]
-    assert [e for e in r36s if e] == [["battery", "warn=5", "critical=3"]]
+    assert [e for e in r36s if e] == [
+        ["battery", "warn=5", "critical=3"],
+        ["profile", "menu", "governor=schedutil", "rate_limit_us=100000"],
+        ["profile", "idle", "governor=schedutil", "rate_limit_us=200000"],
+    ]
+
+
+def test_r36s_conf_slows_the_launcher_rate_and_leaves_games_on_the_kernel(tmp_path, services):
+    s = services(tmp_path, conf=R36S_CONF.read_text(), board="r36s")
+    su = s.sys / "devices/system/cpu/cpufreq/schedutil"
+    su.mkdir(parents=True, exist_ok=True)
+    (su / "rate_limit_us").write_text("500\n")
+    s.start()
+    s.send("menu")
+    s.wait_event("profile: menu -> menu")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "100000"
+    s.send("idle")
+    s.wait_event("profile: idle -> idle")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "200000"
+    s.send("game nes fceumm")
+    s.wait_event("profile: game -> default")
+    assert s.sysfs("devices/system/cpu/cpufreq/schedutil/rate_limit_us") == "500"
+    assert s.sysfs(f"{CF}/scaling_governor") == "schedutil"
 
 
 def test_service_is_in_the_boot_runlevel_and_supervised():
