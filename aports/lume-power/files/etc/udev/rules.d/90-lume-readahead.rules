@@ -1,0 +1,4 @@
+# Read-ahead of the card (device-fixes D6, task 5.5). Measured in the R36S J1 (2.2,
+# 2026-11-19): 512 KiB cuts ~7.5% off reading a big ROM and the gain stops there; the GA36
+# gained at most ~5% (no clear gain), so only the Rockchip MMC controller of the R36S gets it.
+SUBSYSTEM=="block", ACTION=="add|change", KERNEL=="mmcblk[0-9]", DRIVERS=="dwmmc_rockchip", ATTR{queue/read_ahead_kb}="512"
