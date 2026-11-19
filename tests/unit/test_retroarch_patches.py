@@ -20,13 +20,21 @@ PATCHES = ["0001-quit-shuts-down.patch", "0002-shut-down-asks-confirmation.patch
            "0007-config-autosave.patch", "0009-network-commands-on-localhost.patch",
            "0010-quit-label-follows-the-frontend.patch", "0011-lume-level-line.patch",
            "0012-lume-hud-hint-menu.patch", "0013-lume-menu-lock.patch",
-           "0014-alsa-close-the-stream-while-paused.patch"]
+           "0014-alsa-close-the-stream-while-paused.patch",
+           "0015-udev-joypad-read-only-fallback.patch"]
+
+
+def test_a_read_only_pad_is_still_opened():
+    # 0015 (device-fixes D16, 2026-11-18): the pads are 0640 for the games; upstream opened
+    # them only with O_RDWR and saw no pad at all, so no game read the buttons
+    text = (APORT / "0015-udev-joypad-read-only-fallback.patch").read_text()
+    assert "+      fd = open(path, O_RDONLY | O_NONBLOCK);" in text
 TOUCHED = ["menu/cbs/menu_cbs_ok.c", "intl/msg_hash_us.h", "intl/msg_hash_pt_br.h",
            "intl/msg_hash_es.h", "audio/drivers/alsa.c", "command.c",
            "gfx/widgets/gfx_widget_volume.c", "menu/menu_setting.c", "configuration.c",
            "configuration.h", "retroarch.c", "runloop.c", "audio/audio_driver.c", "msg_hash.c",
            "command.h", "gfx/gfx_widgets.c", "gfx/gfx_widgets.h", "menu/menu_driver.c",
-           "menu/menu_driver.h"]
+           "menu/menu_driver.h", "input/drivers_joypad/udev_joypad.c"]
 
 
 def test_patches_are_listed_in_order_with_matching_checksums():

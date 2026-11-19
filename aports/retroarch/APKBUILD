@@ -28,6 +28,7 @@ source="$pkgname-$pkgver.tar.gz::https://github.com/libretro/retroarch/archive/v
 	0012-lume-hud-hint-menu.patch
 	0013-lume-menu-lock.patch
 	0014-alsa-close-the-stream-while-paused.patch
+	0015-udev-joypad-read-only-fallback.patch
 	"
 subpackages="$pkgname-doc"
 builddir="$srcdir/RetroArch-$pkgver"
@@ -128,4 +129,5 @@ dc91434f4555c7c244e4c45877291d591679674776172256c65efafe8831c7287608c3a5e34e196c
 41d6e38440e31df5b51576911ac88bed988448cd2ca5dc5d028f6b0082ed01fbf9aa11baac024314bf9f29048de906b869b9301dacaed1c4ca2d21bb6552dbbd  0012-lume-hud-hint-menu.patch
 ecb97380d1e19e657168dff1e0edc156f9f1433b774e5f42be4ca24fe53b13816a13597757c2e4d8681bfbdc10536545790e7eaba29d17245e110fd67d7b50dc  0013-lume-menu-lock.patch
 b2e121b73d8286e3f76beec31f0afc11e6a55fc72dc2d55c3478c18ec0848442c1653701c1bc267c8a63298b9810c059255780c26c1e369af7d0184f427244d2  0014-alsa-close-the-stream-while-paused.patch
+b91c9bacc243f5098bd828244e41b5aaa282567345e10f552f256eb686266546e25bee78c76e749ca72b7f2684fefbd979faf4b6a6e44394d39d1a438669b11c  0015-udev-joypad-read-only-fallback.patch
 "
