@@ -50,7 +50,8 @@ menu do sistema da `device-fixes` já mesclado.
 | 8.1 | — | USUARIO | AG+PR | sonnet (a aprovar) | 0 | |
 | 8.2 | 8.1, `device-fixes` 9.9 | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
 | 9.1 | — | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
-| 4.1 | 2.1, 2.2, 2.3, 3.3, 5.3, 6.3, 7.3, 8.2, 9.1 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
+| 10.1 | — | — | AG | sonnet (a aprovar) | 1 | J1, J2 |
+| 4.1 | 2.1, 2.2, 2.3, 3.3, 5.3, 6.3, 7.3, 8.2, 9.1, 10.1 | CPU, ARCH:armv7, ARCH:aarch64 | PR | — | 3 | |
 | 4.2 | 4.1 | GA36, USUARIO | PR | — | 4 | J1 |
 | 4.3 | 4.2 | R36S, USUARIO | PR | — | 5 | J2 |
 
@@ -71,7 +72,7 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 **Ondas:**
 - Onda 0: 1.1, 1.4, 3.1, 5.1, 6.1, 7.1, 8.1 (AG, em paralelo; os protótipos terminam com a aprovação do usuário).
-- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2, 5.2, 6.2, 7.2, 8.2, 9.1.
+- Onda 1: 1.3 (termina com a aprovação do usuário), 2.2, 3.2, 5.2, 6.2, 7.2, 8.2, 9.1, 10.1.
 - Onda 2: 2.1, 2.3, 3.3, 5.3, 6.3, 7.3.
 - Onda 3: 4.1 (build dos pacotes, fila única de CPU).
 - Onda 4: 4.2 (janela J1). Onda 5: 4.3 (janela J2).
@@ -129,9 +130,13 @@ Modelos aprovados pelo usuário em 2026-11-17.
 
 - [ ] 9.1 O idioma do launcher manda; o RetroArch sempre segue. Hoje a troca em Configurações → Idioma já grava o `user_language` no `retroarch.cfg` do cartão (`set_retroarch_language`, `lume/lume-ui/src/app.rs`), mas só no momento da troca. Fazer: (a) reconciliar ao subir o launcher e antes de cada jogo do RetroArch: se o `user_language` do cartão não corresponde ao idioma do launcher (`retroarch_language` do `lume-core`), regravar com a mesma escrita atômica e uma linha no log; cobre o `retroarch.cfg` restaurado de fábrica (`user_language = "0"`), o cartão vindo de outro console e uma troca feita fora do Lume; (b) o idioma do RetroArch fora do menu dele: a opção de idioma escondida mesmo no "Modo avançado" (8.2), ou, se o usuário preferir mantê-la lá, uma troca feita no RetroArch é desfeita no jogo seguinte pela reconciliação (a), e o `docs/FRONTEND.md` diz que o idioma vem do Lume; (c) o `ui_lang` do `lib.sh` (mensagens de tela dos serviços) passa a ler o idioma do launcher, a mesma fonte, e não o `user_language`. Verificação: testes do `lume-ui` (launcher em `pt` com o cartão em `"0"` regrava `"7"` ao subir; já igual não escreve; a troca de idioma regrava como hoje) e do `lib.sh` (`ui_lang` igual ao idioma do launcher); teste do `retroarch-lume.cfg` (a opção de idioma escondida, se for o caminho escolhido); no aparelho, pelo cabo: trocar o idioma no launcher pelo `dev keys` e conferir o `user_language` e o menu do RetroArch no idioma novo pelo `dev shot`; restaurar o `retroarch.cfg` de fábrica e conferir a reconciliação no jogo seguinte (J1, J2).
 
+## 10. RetroArch sem os comandos que ficaram sem uso (decisão do usuário, 2026-11-19)
+
+- [ ] 10.1 O patch `aports/retroarch/0012-lume-hud-hint-menu.patch` (da `lume-hud-actions` 4.3 e 4.5) acrescentou os comandos `LUME_HUD` e `LUME_HINT` e os widgets da barra e da dica no RetroArch; desde a mudança de escopo de 2026-11-17/18 (tudo sobre o jogo vem do sistema) quem desenha a barra e a dica é o `lume-menu`, e o `lume-run` nunca manda esses comandos (`lume/lume-run/tests/run.rs` garante). Fazer: tirar do patch os comandos `LUME_HUD` e `LUME_HINT` e os dois widgets, mantendo o `LUME_MENU` (reserva do menu quando o `lume-menu` falha, D14 da `lume-hud-actions`); `pkgrel` novo do `retroarch`; os comentários do `lume-menu/src/bar.rs` e do `lume-run/src/menu.rs` que citam os comandos atualizados. Verificação: `tests/unit/test_retroarch_patches.py` (o patch aplica sobre a versão fixada, só o `LUME_MENU` registrado); o build do RetroArch nas duas arquiteturas entra na 4.1; no aparelho, pelo cabo, a barra e a dica do `lume-menu` continuam e o menu de reserva ainda abre com o `lume-menu` ausente (J1, J2).
+
 ## 4. Build e provas nos consoles
 
-- [ ] 4.1 Build dos pacotes mudados (`lume-launcher`, `lume-core` e o pacote do tema, se separado) nas duas arquiteturas, um `lume pkg` por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk` novos com o `pkgrel` novo no repositório local e o `push` terminando com `ok`.
+- [ ] 4.1 Build dos pacotes mudados (`lume-launcher`, `lume-core`, o `retroarch` da 10.1 e o pacote do tema, se separado) nas duas arquiteturas, um `lume pkg` por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk` novos com o `pkgrel` novo no repositório local e o `push` terminando com `ok`.
 - [ ] 4.2 Janela J1 no GA36 (D8): (a) o Dock com as cores por console contra o protótipo, com capturas pelo `lume-shot`; (b) a linha de volume e brilho sobre um jogo do RetroArch, nas cores do tema; (c) tempo até o primeiro quadro de um jogo; (d) um tema do cartão com um logo colorido. Verificação: resultado anotado no `docs/BRINGUP-GA36.md`, sem nome de jogo; o que falhar vira tarefa aqui.
 - [ ] 4.3 Janela J2 no R36S, com o mesmo cartão: as mesmas provas da 4.2, mais as medições da 9.6 da `lume-launcher` (CPU e memória com o launcher parado, tempo do fim do jogo até a grade, tempo de boot), o nome do sensor de temperatura no painel Sistema (`soc-thermal` esperado) e a mancha clara nas bordas num fundo liso (observar; se aparecer, captura e registro na P-70). Verificação: resultado anotado no `docs/BRINGUP-R36S.md`, sem nome de jogo; P-70, P-72, P-74, P-84 e P-107 movidos para "Concluídas" no `docs/PENDENCIAS.md` com o nome desta change (o que sobrar da P-70 vira P-NN nova).
 
