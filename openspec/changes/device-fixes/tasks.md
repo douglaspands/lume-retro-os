@@ -244,7 +244,7 @@ Modelos aprovados pelo usuário em 2026-11-18.
 
 ## 10. Build e provas nos consoles
 
-- [ ] 10.1 Build dos pacotes mudados nas duas arquiteturas e dos kernels (padrão e variantes de experimento da 6.3), um build por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk`, o initramfs e os kernels novos com a versão nova no repositório local, e o `push` terminando com `ok`.
+- [x] 10.1 (Feito em 2026-11-18: `lume build console` em ~2h, sem alerta de calor, build `20261118-193619`; `lume push --console ga36` mandou os dois consoles para o cartão, 621 MiB em 6m24s, SHA256 conferido, boot 195 com o build novo e o frontend em 20,6 s. As variantes de experimento da 6.3 saíram com a P-95.) Build dos pacotes mudados nas duas arquiteturas e dos kernels (padrão e variantes de experimento da 6.3), um build por vez sob a proteção de calor, e `lume push` para o cartão. Verificação: os `.apk`, o initramfs e os kernels novos com a versão nova no repositório local, e o `push` terminando com `ok`.
 - [ ] 10.2 Janela J2 no GA36. Verificação: resultado de cada item no `docs/BRINGUP-GA36.md`:
   - **cartão:** três boots com `roms OK clean: check skipped` e o tempo do boot contra o de antes (ganho anotado no P-58, frente 3); corte de energia com `dirty: checked`; "Verificar no próximo boot" consumido uma vez; "Otimizar agora"; painel Cartão contra o protótipo; `read_ahead_kb`;
   - **tela:** Mega Drive (os experimentos do P-95 e do P-25 e o brilho saíram para a change do P-95);
