@@ -322,8 +322,9 @@ Rode no PC, na raiz do repositório (`.venv/bin/lume dev <ação>`):
 | `record` / `record --stop` | liga e para o gravador `lume-evrec` no console (botões físicos, formato `.evrec`). `--stop` traz a gravação para `cache/recordings/<console>-<AAAAMMDD-HHMMSS>.evrec` (fora do git), apaga a cópia remota e imprime o caminho e o número de eventos; gravação vazia é erro e não é salva; gravar de novo com uma em andamento é erro |
 | `play <arquivo.evrec>` | envia a gravação ao console e a toca com `lume-evrec play`, imprimindo o atraso medido (`delay max=<ms> mean=<ms> events=<n>`); gravação de outro console é recusada antes de enviar; falha do player vira código de saída 1 |
 | `watch <fragmento>` | a cada arquivo salvo do fragmento: build do fragmento e `push --hot` (seção abaixo); Ctrl-C encerra |
+| `roms push [PASTA]` | copia para o cartão o conjunto de jogos de teste (padrão `var/roms_test/`), sem apagar nem sobrescrever, com SHA256 conferido e `gamelist.xml` fundido; a saída só tem contagens por sistema (seção abaixo) |
 
-`sh`, `shot`, `keys`, `log` e `check` aceitam `--console ga36|r36s` (seção acima); `wait` e
+`sh`, `shot`, `keys`, `log`, `check` e `roms push` aceitam `--console ga36|r36s` (seção acima); `wait` e
 `watch` não têm essa opção (o `watch` confere o console como o `push --hot`, sem poder
 escolher).
 
@@ -507,6 +508,50 @@ conta.
 Roteiros prontos em `tests/device/scripts/`: `open-close-<sistema>.toml` (nes, snes, gb, gbc,
 gba, megadrive, psx; o primeiro jogo de cada um) e `launcher-screens.toml` (as telas de
 referência do `dev shot`). Ex.: `lume dev run open-close-gba`.
+
+## Jogos de teste no cartão: `lume dev roms push`
+
+Change `game-experience-tuning` (D10). O conjunto de teste padrão fica em `var/roms_test/`
+(fora do git, privado) com o mesmo formato da partição ROMS: `roms/<sistema>/` (jogos,
+`gamelist.xml`, `images/`) e `bios/`. Com o console no cabo:
+
+```
+.venv/bin/lume dev roms push                     # var/roms_test/ do repositório principal
+.venv/bin/lume dev roms push outra/pasta --console ga36
+.venv/bin/lume dev roms push --method tar        # força o tar mesmo com rsync
+```
+
+Cada arquivo vai para o mesmo caminho relativo em `/storage` no console. O que o comando faz:
+
+- **O que falta:** só é copiado o arquivo cujo caminho não existe no cartão. Um caminho que já
+  existe nunca é tocado: mesmo tamanho conta como `kept`; outro tamanho (ou algo que não é
+  arquivo) conta como `kept` e `differ` (um conflito: o do cartão fica). Nada é apagado.
+  Mesmo tamanho com conteúdo diferente não é detectado (não se lê o SHA256 do que já está lá).
+- **Transferência:** `rsync --ignore-existing` pelo ssh do `lume push` quando o console e o PC
+  têm `rsync` (D9); senão um tar gerado em memória no PC (sem arquivo temporário) entra no
+  `tar -x` do console. `--method rsync|tar` força um dos dois.
+- **Conferência:** depois de `sync` e de limpar o cache de páginas do console (para ler o
+  cartão, não a RAM), o SHA256 de cada arquivo copiado é comparado com o do PC. O que diferir
+  é copiado de novo uma vez (tar, sobrescrevendo só aquele arquivo desta cópia); se continuar
+  diferente, o comando termina com código 1.
+- **`gamelist.xml`:** as entradas do cartão ficam byte a byte; as `<game>` do PC cujo `<path>`
+  não está na lista do cartão entram antes de `</gameList>`, comparadas pelo mesmo caminho
+  normalizado do índice de jogos (`normalize` do `lume-index`: relativo à pasta do sistema,
+  sem `./`). Sem lista no cartão, vai a do PC. A escrita é atômica (arquivo temporário
+  conferido por SHA256, `mv` só se a lista do cartão não mudou no meio, depois `sync`). Uma
+  lista do cartão que não é XML válido fica como está, e o comando termina com código 1. Um
+  sistema com arquivo que falhou na conferência não tem a lista mexida.
+- **Índice:** se algo mudou, o `lume-index` é reiniciado no console para o launcher ver os
+  jogos novos.
+- **Saída:** só contagens por sistema (e `bios`): arquivos do conjunto, copiados, conferidos,
+  copiados de novo, mantidos, diferentes e entradas novas na lista (`+N`; `skipped`,
+  `unreadable`, `write-failed` ou `busy` quando não fundiu). Nenhum nome de jogo, de arquivo
+  ou caminho de ROM aparece, nem em erros (a mensagem de uma falha inesperada é reduzida ao
+  tipo do erro).
+
+Prova no aparelho (tarefa 4.3, J1): num cartão recém-gravado, `lume dev roms push` termina
+com código 0, cada sistema do conjunto aparece no launcher com os jogos, nomes e capas, e
+um segundo `push` diz `transfer: nothing to copy` com `+0` em todas as listas.
 
 ## Relatório de energia: `lume power report`
 

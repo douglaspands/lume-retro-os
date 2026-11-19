@@ -123,14 +123,25 @@ def _parser() -> argparse.ArgumentParser:
     rn = ds.add_parser("run", help="run a device test script (tests/device/scripts/<name>.toml "
                                    "or a path); exit 0 only if every step passes")
     rn.add_argument("script", help="script name or path")
-    for action in (sh, st, ky, lg, ck, rp, rc, pl, rn):  # not wait: the console may still be off
+    ro = ds.add_parser("roms", help="the test set of games (var/roms_test/) on the card")
+    ros = ro.add_subparsers(dest="roms_command", required=True, metavar="<action>")
+    rop = ros.add_parser("push", help="copy the missing files of DIR (roms/<system>/, bios/) "
+                                      "to the card, check their SHA256 and add the missing "
+                                      "game list entries; never deletes or overwrites; "
+                                      "prints counts per system only")
+    rop.add_argument("dir", type=Path, nargs="?", metavar="DIR",
+                     help="the set (default: var/roms_test/ of the main repository)")
+    rop.add_argument("--method", choices=("auto", "rsync", "tar"), default="auto",
+                     help="transfer: rsync when the console and the PC have it (auto), "
+                          "else a tar stream over ssh")
+    for action in (sh, st, ky, lg, ck, rp, rc, pl, rn, rop):  # not wait: may still be off
         action.add_argument("--console", choices=("ga36", "r36s", "vm"),
                             help="refuse to run when the console on the cable is the other one")
 
     wt = ds.add_parser("watch", help="on every saved file of a lume-* fragment: "
                                      "fragment build, then push --hot (Ctrl-C ends)")
     wt.add_argument("fragment", help="fragment (aports/ name), e.g. lume-core")
-    for action in (w, sh, st, ky, lg, ck, rp, rc, pl, rn, wt):
+    for action in (w, sh, st, ky, lg, ck, rp, rc, pl, rn, rop, wt):
         # also after the action (`lume dev sh --host 127.0.0.1:2222 uname -m`); SUPPRESS
         # keeps the one given before the action when this one is absent
         action.add_argument("--host", metavar="ADDR[:PORT]", default=argparse.SUPPRESS,
