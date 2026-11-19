@@ -409,7 +409,16 @@ MEU_EMULADOR_HOME = "/storage/bios/meu-emulador"
 - `[runner.env]` (opcional) é uma tabela de nome e valor em texto; todo jogo daquele runner (e só
   ele) recebe essas variáveis, aplicadas depois de `LANG`, `LANGUAGE` e `TZ`, na ordem alfabética
   do nome. O nome segue `[A-Za-z_][A-Za-z0-9_]*` e nem o nome nem o valor aceitam o byte NUL; um
-  nome inválido (por exemplo com `=`) faz o runner ser ignorado, com uma linha no log.
+  nome inválido (por exemplo com `=`) faz o runner ser ignorado, com uma linha no log. Um valor
+  com quebra de linha não abre o jogo (o arquivo de lançamento não o comporta).
+- **Ambiente de todo jogo** (qualquer runner): o `lume-run` monta o ambiente antes de abrir o
+  jogo, a partir do próprio ambiente sem `LANG`, `LANGUAGE`, `LC_*` e `TZ`, mais `LANG` e
+  `LANGUAGE` do idioma do launcher (`en_US.UTF-8`/`en_US:en`, `pt_BR.UTF-8`/`pt_BR:pt`,
+  `es_ES.UTF-8`/`es_ES:es`; sem idioma salvo, inglês), lido do `settings.toml` a cada jogo (trocar
+  o idioma vale já no jogo seguinte), e `TZ=:/usr/share/zoneinfo/<zona>` com a zona de
+  `/etc/timezone`, só se o arquivo da zona existir. As variáveis do runner vêm por último e
+  vencem essas. `LC_ALL` nunca é definido: o musl continua em inglês, com ponto decimal, e os
+  logs não mudam.
 - Os atalhos do Fn chegam ao emulador pela tabela opcional `[runner.actions]`: `pause`,
   `app_menu`, `reset`, `save_state`, `load_state` e `screenshot`, cada uma como
   `retroarch-cmd:<COMANDO>` (comando de rede do RetroArch), `key:<KEY_*>` (uma tecla apertada e

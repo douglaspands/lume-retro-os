@@ -216,8 +216,9 @@ fn is_valid_id(id: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
-/// An environment variable name: `[A-Za-z_][A-Za-z0-9_]*`.
-fn is_valid_env_name(name: &str) -> bool {
+/// An environment variable name: `[A-Za-z_][A-Za-z0-9_]*` (also checked by lume-run on the
+/// `env=` lines of the launch file).
+pub fn is_valid_env_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
