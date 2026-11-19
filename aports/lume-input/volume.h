@@ -35,9 +35,10 @@ struct vol_control {
 	int mdb_step;	/* milli-dB of one raw step */
 };
 
-/* GA36 analog headphone gain (also feeds the speaker amplifier): 0-63, 1.5 dB per step,
- * 63 is the loudest clean one (measured, 2.5 J1) */
-static const struct vol_control VOL_GA36_HEADPHONE = { 0, 63, 63, 1500 };
+/* GA36 analog headphone gain (also feeds the speaker amplifier): 0-63, 1 dB per step (the
+ * driver's TLV, 63 is 0 dB), 54 (-9 dB) is the loudest clean one on the speaker with a
+ * full-scale game (judged by the user, 2026-11-18; 55 and up distort) */
+static const struct vol_control VOL_GA36_HEADPHONE = { 0, 63, 54, 1000 };
 /* R36S digital Master of the RK817 (rk817_codec.c: 0-255, -95 dB .. 0 dB, so 0.3725 dB per
  * step), kept until the 2.5 R36S measurement */
 static const struct vol_control VOL_R36S_MASTER = { 0, 255, 255, 373 };

@@ -50,7 +50,7 @@ SHELL_HARNESS = r"""
 . "$1"
 p=0
 while [ $p -le 100 ]; do
-	echo "raw $p $(vol_raw 0 63 1500 $p) $(vol_raw 0 255 373 $p)"
+	echo "raw $p $(vol_raw 0 54 1000 $p) $(vol_raw 0 255 373 $p)"
 	p=$((p + 1))
 done
 r=0
@@ -95,7 +95,7 @@ def test_c_and_rust_curves_agree():
         assert f"| {i * 5} | {c[i] / 1000:.1f}".replace(".", ",") in doc, i * 5
 
 
-@pytest.mark.parametrize("console,ref,lo", [("ga36", 63, 0), ("r36s", 255, 0)])
+@pytest.mark.parametrize("console,ref,lo", [("ga36", 54, 0), ("r36s", 255, 0)])
 def test_scale_ends_and_monotonic(run, console, ref, lo):
     rows, _ = run(console)
     assert rows[0][1] == lo                    # 0 is mute: the control minimum
@@ -112,7 +112,8 @@ def test_scale_ends_and_monotonic(run, console, ref, lo):
 
 def test_ga36_headphone_raw_values(run):
     rows, _ = run("ga36")
-    assert rows[100][1] == 63 and rows[95][1] == 62 and rows[50][1] == 51 and rows[5][1] == 37
+    # 1 dB per step (the driver's TLV), 100% is 54 (-9 dB), the loudest clean one (2026-11-18)
+    assert rows[100][1] == 54 and rows[95][1] == 52 and rows[50][1] == 36 and rows[5][1] == 15
 
 
 @pytest.fixture(scope="module")

@@ -11,7 +11,8 @@
 #
 # Volume (device-fixes D9, task 7.2): the user level of the output (level-<output>, see
 # volume.sh) is applied to the volume control of the board, the one lume-input moves:
-#  - GA36: the analog "Headphone" (0-63, 63 = 0 dB, it also feeds the speaker amplifier),
+#  - GA36: the analog "Headphone" (0-63, 1 dB per step, 63 = 0 dB; 100% is 54, the loudest
+#    clean one on the speaker; it also feeds the speaker amplifier),
 #    with its switch off at 0% (mute) and on otherwise; the digital "DAC" stays at 0 dB
 #    (160) and on; the "Speaker" amplifier switch is off at 0% too (it hisses otherwise)
 #    and on at any other level. One level, "speaker" (the jack switch is mechanical). Without a level
@@ -61,7 +62,7 @@ case "$board" in
 		set_ctl "$c" 'DAC' 160 on
 		set_ctl "$c" 'Headphone Source' DAC
 		if [ "$pct" -gt 0 ]; then sw=on; else sw=off; fi
-		set_ctl "$c" 'Headphone' "$(vol_raw 0 63 1500 "$pct")" "$sw"
+		set_ctl "$c" 'Headphone' "$(vol_raw 0 54 1000 "$pct")" "$sw"
 		# the amplifier switch follows the level (task 7.5, "mixer_amp Speaker" in the
 			# lume-input profile): off at 0% or it hisses, on otherwise
 			set_ctl "$c" 'Speaker' "$sw"

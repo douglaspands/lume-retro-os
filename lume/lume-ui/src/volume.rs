@@ -28,8 +28,9 @@ pub struct Control {
     pub mdb_step: i32,
 }
 
-/// GA36 analog `Headphone` of `GA36MB`: 0-63, 1.5 dB per step (measured, 2.5 J1).
-pub const GA36_HEADPHONE: Control = Control { lo: 0, hi: 63, reference: 63, mdb_step: 1500 };
+/// GA36 analog `Headphone` of `GA36MB`: 0-63, 1 dB per step (the driver's TLV, 63 is 0 dB);
+/// 54 (-9 dB) is the loudest clean one on the speaker (judged by the user, 2026-11-18).
+pub const GA36_HEADPHONE: Control = Control { lo: 0, hi: 63, reference: 54, mdb_step: 1000 };
 /// R36S digital `Master` of `rk817int` (0-255, -95 dB to 0 dB), until the 2.5 R36S measurement.
 pub const R36S_MASTER: Control = Control { lo: 0, hi: 255, reference: 255, mdb_step: 373 };
 /// GA36 digital `DAC`, the control of the old volume: 0-192, 0.75 dB per step, 160 is 0 dB.

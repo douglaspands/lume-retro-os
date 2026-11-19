@@ -486,7 +486,7 @@ mínimo `lo + 1` fora do mudo:
 
 | Console | Controle | Faixa | 0 dB (`ref`) | dB por passo | Origem |
 |---|---|---|---|---|---|
-| GA36 | `Headphone` de `GA36MB` (analógico; alimenta também o alto-falante) | 0 a 63 | 63 | 1,5 | medido (2.5, J1) |
+| GA36 | `Headphone` de `GA36MB` (analógico; alimenta também o alto-falante) | 0 a 63 | 54 | 1 | o passo pelo TLV do driver (63 é 0 dB); o 54 (−9 dB) é o mais alto limpo no alto-falante com um jogo em volume cheio, julgado pelo usuário em 2026-11-18 (55 e acima distorcem; o tom de teste da 2.5 era baixo demais para mostrar) |
 | R36S | `Master` de `rk817int` (digital) | 0 a 255 | 255 | ~0,373 | `rk817_codec.c` (-95 dB a 0 dB), até a medição da 2.5 do R36S; a 7.1 pode trocar o controle |
 | antigo | `DAC` de `GA36MB` (digital) | 0 a 192 | 160 | 0,75 | só para a conversão abaixo |
 

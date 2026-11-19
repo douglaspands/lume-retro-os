@@ -41,8 +41,9 @@ check "ga36: headphone fed by the DAC" 'grep -qxF -e "-c GA36MB -q sset Headphon
 check "ga36: speaker pin switch on" 'grep -qxF -e "-c GA36MB -q sset Speaker on" "$FAKE_LOG"'
 check "ga36: output in English, one line per control and the level" '[ "$(printf "%s\n" "$out" | grep -c "^mixer: ")" = 7 ]'
 check "ga36: six controls set" '[ "$(set_log)" = 6 ]'
-# no level file and the DAC at 0 dB (a fresh boot): the default 70% (-10 dB, Headphone 56)
-check "ga36: no file and the DAC at 0 dB: 70% on the Headphone (56), switch on" 'grep -qxF -e "-c GA36MB -q sset Headphone 56 on" "$FAKE_LOG"'
+# no level file and the DAC at 0 dB (a fresh boot): the default 70% (-10 dB under the clean
+# top 54 at 1 dB per step: Headphone 44)
+check "ga36: no file and the DAC at 0 dB: 70% on the Headphone (44), switch on" 'grep -qxF -e "-c GA36MB -q sset Headphone 44 on" "$FAKE_LOG"'
 check "ga36: the level is logged with its origin" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 70% (default)"'
 check "ga36: the DAC is read before it is set (the conversion)" '[ "$(grep -n "sget DAC" "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n "sset DAC 160 on" "$FAKE_LOG" | cut -d: -f1)" ]'
 check "ga36: no level file is written at boot" '[ ! -e "$W/audio/level-speaker" ]'
@@ -51,17 +52,17 @@ check "ga36: no level file is written at boot" '[ ! -e "$W/audio/level-speaker" 
 echo 154 > "$W/dac"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)
-check "conversion: old DAC 154 is 85% (Headphone 60)" 'grep -qxF -e "-c GA36MB -q sset Headphone 60 on" "$FAKE_LOG"'
+check "conversion: old DAC 154 is 85% (Headphone 49)" 'grep -qxF -e "-c GA36MB -q sset Headphone 49 on" "$FAKE_LOG"'
 check "conversion: logged with the old raw" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 85% (old DAC 154)"'
 check "conversion: the DAC is back at 0 dB" 'grep -qxF -e "-c GA36MB -q sset DAC 160 on" "$FAKE_LOG"'
 echo 130 > "$W/dac"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)
-check "conversion: old DAC 130 (-22.5 dB) is 39% (Headphone 48), as volume.h" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 39% (old DAC 130)" && grep -qxF -e "-c GA36MB -q sset Headphone 48 on" "$FAKE_LOG"'
+check "conversion: old DAC 130 (-22.5 dB) is 39% (Headphone 32), as volume.h" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 39% (old DAC 130)" && grep -qxF -e "-c GA36MB -q sset Headphone 32 on" "$FAKE_LOG"'
 echo 1 > "$W/dac"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)
-check "conversion: the lowest non-mute raw is 1%, not mute" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 1% (old DAC 1)" && grep -qxF -e "-c GA36MB -q sset Headphone 37 on" "$FAKE_LOG"'
+check "conversion: the lowest non-mute raw is 1%, not mute" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 1% (old DAC 1)" && grep -qxF -e "-c GA36MB -q sset Headphone 15 on" "$FAKE_LOG"'
 : > "$W/dac"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)
@@ -72,13 +73,13 @@ echo 154 > "$W/dac"
 echo 50 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 out=$(BOARD_FILE="$W/board" $MIXER)
-check "level: 50% (-18 dB) is Headphone 51, switch on" 'grep -qxF -e "-c GA36MB -q sset Headphone 51 on" "$FAKE_LOG"'
+check "level: 50% (-18 dB) is Headphone 36, switch on" 'grep -qxF -e "-c GA36MB -q sset Headphone 36 on" "$FAKE_LOG"'
 check "level: logged from the file" 'printf "%s\n" "$out" | grep -qx "mixer: speaker level 50% (level-speaker)"'
 check "level: the DAC is not read when the file exists" '! grep -q "sget" "$FAKE_LOG"'
 echo 100 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"
 BOARD_FILE="$W/board" $MIXER >/dev/null
-check "level: 100% is the loudest clean position (63)" 'grep -qxF -e "-c GA36MB -q sset Headphone 63 on" "$FAKE_LOG"'
+check "level: 100% is the loudest clean position (54)" 'grep -qxF -e "-c GA36MB -q sset Headphone 54 on" "$FAKE_LOG"'
 check "level: above 0 the Speaker amplifier is on" 'grep -qxF -e "-c GA36MB -q sset Speaker on" "$FAKE_LOG"'
 echo 0 > "$W/audio/level-speaker"
 : > "$FAKE_LOG"

@@ -934,14 +934,14 @@ def test_ga36_profile_keeps_the_codes(daemon_exe, tmp_path):
         d.release("GA36-MB Gamepad", CODES["BTN_START"])
         d.release("GA36-MB Gamepad", CODES["BTN_MODE"])
         assert d.keys() == [(CODES["BTN_A"], 1), (CODES["BTN_A"], 0)]
-        # device-fixes 7.2: the analog Headphone (0-63, 1.5 dB per step) on the user scale,
-        # the DAC set again to 0 dB and on at every step. No level file and the DAC at 0 dB
-        # (the boot mixer's): the level is the Headphone's position, 43 = -30 dB = 20%; then
-        # 25% (44), 30% (46) and back to 25%. The volume keys never reach the virtual gamepad,
-        # and each press tells the client
+        # device-fixes 7.2: the analog Headphone (0-63, 1 dB per step, 100% = 54) on the user
+        # scale, the DAC set again to 0 dB and on at every step. No level file and the DAC at
+        # 0 dB (the boot mixer's): the level is the Headphone's position, 43 = -11 dB = 65%
+        # (the tie goes to the lower percent); then 70% (44), 75% (46) and back to 70%. The
+        # volume keys never reach the virtual gamepad, and each press tells the client
         d.ctl("DAC", 160)
         d.ctl("Headphone", 43, lim="0 - 63")
-        for key, raw, pct in (("KEY_VOLUMEUP", 44, 25), ("KEY_VOLUMEUP", 46, 30), ("KEY_VOLUMEDOWN", 44, 25)):
+        for key, raw, pct in (("KEY_VOLUMEUP", 44, 70), ("KEY_VOLUMEUP", 46, 75), ("KEY_VOLUMEDOWN", 44, 70)):
             d.press("1c22800.lradc", CODES[key])
             d.release("1c22800.lradc", CODES[key])
             assert c.recv(16) == b"volume"
@@ -970,7 +970,7 @@ def _vol(d, key, client):
 
 def test_ga36_old_dac_level_converts_once(daemon_exe, tmp_path):
     # the DAC still holds a level of the old volume (154 = -4.5 dB, e.g. after "lume push
-    # --hot" restarted only lume-input): 85%, so Vol- is 80% (-6 dB, Headphone 59), the DAC
+    # --hot" restarted only lume-input): 85%, so Vol- is 80% (-6 dB, Headphone 48), the DAC
     # goes back to 0 dB and the file is the truth from then on (the DAC is not read again)
     d = _ga36(daemon_exe, tmp_path)
     try:
@@ -978,11 +978,11 @@ def test_ga36_old_dac_level_converts_once(daemon_exe, tmp_path):
         d.ctl("DAC", 154)
         d.ctl("Headphone", 43, lim="0 - 63")
         _vol(d, "KEY_VOLUMEDOWN", c)
-        assert d.ctl_state("Headphone") == (59, "on") and d.ctl_state("DAC") == (160, "on")
+        assert d.ctl_state("Headphone") == (48, "on") and d.ctl_state("DAC") == (160, "on")
         assert d.level() == "80\n"
         d.ctl("DAC", 154)   # even if something put it back
         _vol(d, "KEY_VOLUMEUP", c)
-        assert d.level() == "85\n" and d.ctl_state("Headphone") == (60, "on")
+        assert d.level() == "85\n" and d.ctl_state("Headphone") == (49, "on")
         assert d.amixer_calls().count("-c GA36MB sget DAC") == 1
         assert not any("sget Headphone" in l for l in d.amixer_calls())
     finally:
@@ -1000,7 +1000,7 @@ def test_ga36_zero_is_mute_and_the_switches_come_back_on(daemon_exe, tmp_path):
         d.ctl("DAC", 160, sw="off")
         d.ctl("Headphone", 40, lim="0 - 63", sw="off")
         _vol(d, "KEY_VOLUMEDOWN", c)
-        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("DAC") == (160, "on")
+        assert d.ctl_state("Headphone") == (15, "on") and d.ctl_state("DAC") == (160, "on")
         _vol(d, "KEY_VOLUMEDOWN", c)
         assert d.ctl_state("Headphone") == (0, "off"), "0% is mute: minimum and switch off"
         assert d.ctl_state("DAC") == (160, "on")
@@ -1010,7 +1010,7 @@ def test_ga36_zero_is_mute_and_the_switches_come_back_on(daemon_exe, tmp_path):
         _vol(d, "KEY_VOLUMEDOWN", c)   # at the bottom it stays muted
         assert d.ctl_state("Headphone") == (0, "off") and d.level() == "0\n"
         _vol(d, "KEY_VOLUMEUP", c)
-        assert d.ctl_state("Headphone") == (37, "on") and d.level() == "5\n"
+        assert d.ctl_state("Headphone") == (15, "on") and d.level() == "5\n"
     finally:
         d.stop()
 
@@ -1026,17 +1026,17 @@ def test_ga36_speaker_amplifier_is_off_at_zero_and_on_above(daemon_exe, tmp_path
         d.ctl("Headphone", 40, lim="0 - 63")
         d.ctl("Speaker", 1, lim="0 - 1")
         _vol(d, "KEY_VOLUMEDOWN", c)   # 5%
-        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+        assert d.ctl_state("Headphone") == (15, "on") and d.ctl_state("Speaker")[1] == "on"
         _vol(d, "KEY_VOLUMEDOWN", c)   # 0%
         assert d.ctl_state("Headphone") == (0, "off") and d.ctl_state("Speaker")[1] == "off"
         _vol(d, "KEY_VOLUMEUP", c)     # 5% again: both on
-        assert d.ctl_state("Headphone") == (37, "on") and d.ctl_state("Speaker")[1] == "on"
+        assert d.ctl_state("Headphone") == (15, "on") and d.ctl_state("Speaker")[1] == "on"
     finally:
         d.stop()
 
 
 def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
-    # 20 presses from mute to the loudest clean position (63), on the raw of volume.h, and
+    # 20 presses from mute to the loudest clean position (54), on the raw of volume.h, and
     # a broken level file counts as no file
     d = _ga36(daemon_exe, tmp_path)
     try:
@@ -1049,7 +1049,7 @@ def test_ga36_full_scale_in_5_percent_steps(daemon_exe, tmp_path):
         for _ in range(21):
             _vol(d, "KEY_VOLUMEUP", c)
             raws.append(d.ctl_state("Headphone")[0])
-        assert raws[:3] == [37, 39, 41] and raws[9] == 51 and raws[-2:] == [63, 63]
+        assert raws[:3] == [15, 18, 21] and raws[9] == 36 and raws[-2:] == [54, 54]
         assert raws == sorted(raws) and d.level() == "100\n"
         assert not any(p.name.startswith(".level") for p in d.levels.iterdir()), "no temporary left"
     finally:

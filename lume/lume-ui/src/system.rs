@@ -729,8 +729,9 @@ mod tests {
             }
         };
         assert_eq!(m.level_with(read(154, Some(43))), Some(85));
-        // ... else the Headphone's own position (43 = -30 dB is 20%), else 70%
-        assert_eq!(m.level_with(read(160, Some(43))), Some(20));
+        // ... else the Headphone's own position (43 = -11 dB under the clean top 54 is 67%),
+        // else 70%
+        assert_eq!(m.level_with(read(160, Some(43))), Some(67));
         assert_eq!(m.level_with(read(160, None)), Some(70));
         // the saved file wins and the mixer is not needed
         m.save(35).unwrap();
@@ -756,8 +757,8 @@ mod tests {
         let ga36 = profile_mixer("ga36");
         let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert_eq!(ga36.amp.as_deref(), Some("Speaker"));
-        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "51", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
-        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "63", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(50), vec![s(&["Headphone", "36", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
+        assert_eq!(ga36.set_args(100), vec![s(&["Headphone", "54", "on"]), s(&["DAC", "160", "on"]), s(&["Speaker", "on"])]);
         assert_eq!(ga36.set_args(5)[2], s(&["Speaker", "on"]));
         // 0% is mute: the minimum and the switch off, the amplifier off too (7.5); the DAC
         // stays on at 0 dB
