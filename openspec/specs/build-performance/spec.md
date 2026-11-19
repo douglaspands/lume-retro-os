@@ -26,7 +26,7 @@ slots) quando nada do que entra nela mudou desde o build anterior, e MUST dizer 
 etapa pulou.
 
 #### Scenario: Build repetido sem mudança
-- **WHEN** `r36os build console` roda duas vezes seguidas sem mudança no repositório
+- **WHEN** `lume build console` roda duas vezes seguidas sem mudança no repositório
 - **THEN** o segundo build não chama compilador nem `mksquashfs`, e todos os arquivos da `BOOT`, exceto o `VERSION`, saem iguais byte a byte aos do primeiro
 
 #### Scenario: Patch de driver não revalida os DTBs
@@ -42,7 +42,7 @@ O build MUST aceitar um ou mais fragmentos como alvo e MUST compilar só esses f
 só os slots que os contêm, sem gerar a imagem do cartão.
 
 #### Scenario: Só o launcher
-- **WHEN** o usuário roda `r36os build lume-launcher`
+- **WHEN** o usuário roda `lume build lume-launcher`
 - **THEN** só o `lume-launcher` é compilado (nas arquiteturas pedidas), só o slot que o contém é remontado, e o build termina com um conjunto novo pronto para o `push`, sem `.img`
 
 ### Requirement: Compilação sem emulação para o launcher
@@ -55,7 +55,7 @@ para uma change própria (P-36, P-80).
 - **THEN** o build leva perto de 1 minuto, e o launcher novo abre no GA36
 
 ### Requirement: Build em prioridade baixa
-Todos os containers do build e do `r36os pkg` MUST rodar em prioridade baixa de CPU e de disco,
+Todos os containers do build e do `lume pkg` MUST rodar em prioridade baixa de CPU e de disco,
 para o PC continuar usável durante o build.
 
 #### Scenario: Usuário usa o PC durante o build
@@ -71,11 +71,11 @@ aceitar outro valor por opção da linha de comando e por variável de ambiente.
 - **THEN** ele usa metade dos núcleos (mínimo 1) e diz quantas tarefas no começo
 
 #### Scenario: Valor escolhido
-- **WHEN** um build roda com `--jobs N` ou `R36OS_JOBS=N`
+- **WHEN** um build roda com `--jobs N` ou `LUME_JOBS=N`
 - **THEN** a compilação do kernel, dos pacotes, a compressão dos slots e a da imagem usam N tarefas
 
 ### Requirement: Proteção de calor do PC
-Durante todo build, o `r36os` MUST ler a temperatura do processador (pelo sensor do próprio
+Durante todo build, o `lume` MUST ler a temperatura do processador (pelo sensor do próprio
 processador, nunca por entradas auxiliares da placa-mãe) e a do disco onde o build grava, MUST pausar os containers do
 build acima de um limite ajustável e retomá-los abaixo de outro, e MUST abortar o build se a
 temperatura continuar subindo com os containers pausados.
@@ -102,7 +102,7 @@ imagem MUST usar a compressão máxima; um slot de uma compressão MUST NOT ser 
 do outro.
 
 #### Scenario: Slot de desenvolvimento
-- **WHEN** o usuário roda `r36os build lume-core` e depois `r36os build console`
+- **WHEN** o usuário roda `lume build lume-core` e depois `lume build console`
 - **THEN** o primeiro monta o slot do projeto com compressão rápida e o segundo o remonta com compressão máxima
 
 ### Requirement: Arquiteturas em paralelo
@@ -110,7 +110,7 @@ O build completo MUST processar as duas arquiteturas ao mesmo tempo, dividindo e
 de tarefas, sob a mesma proteção de calor.
 
 #### Scenario: Build completo
-- **WHEN** `r36os build console` roda com `--jobs 8`
+- **WHEN** `lume build console` roda com `--jobs 8`
 - **THEN** as esteiras do armv7 e do aarch64 rodam juntas, com 4 tarefas cada, e a saída de cada uma tem o prefixo da arquitetura
 
 ### Requirement: Tempo de cada etapa

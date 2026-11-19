@@ -6,7 +6,7 @@ Define como o launcher abre e encerra jogos: emuladores descritos por configura�
 ## Requirements
 
 ### Requirement: Runners declarativos
-Cada forma de abrir um jogo MUST ser um runner descrito num arquivo de dados com o comando (lista de argumentos com marcadores como a ROM e o core) e a política de encerramento. Adicionar um emulador MUST exigir só um arquivo de runner e uma entrada no catálogo, sem recompilar o launcher.
+Cada forma de abrir um jogo MUST ser um runner descrito num arquivo de dados com o comando (lista de argumentos com marcadores como a ROM e o core), a política de encerramento, as ações do jogo que ele suporta (`pause`, `app_menu`, `reset`, `save_state`, `load_state`, `screenshot`), cada uma com a forma de executá-la (comando de rede do RetroArch, a pausa do RetroArch conferida pelo estado dele, tecla enviada pelo controle virtual ou sinal ao processo), e se sabe desenhar a barra e a dica dos acordes. Adicionar um emulador MUST exigir só um arquivo de runner e uma entrada no catálogo, sem recompilar o launcher. Um runner sem ações declaradas MUST continuar válido.
 
 #### Scenario: Emulador novo pelo cartão
 - **WHEN** o usuário coloca um arquivo de runner em `ROMS/system/lume/runners.d/` e o cita num sistema
@@ -15,6 +15,14 @@ Cada forma de abrir um jogo MUST ser um runner descrito num arquivo de dados com
 #### Scenario: Nome de arquivo com espaço
 - **WHEN** a ROM se chama `Meu Jogo (Rev 1).zip`
 - **THEN** o emulador recebe o caminho inteiro como um único argumento
+
+#### Scenario: Ação por tecla num emulador standalone
+- **WHEN** o arquivo de um runner declara `save_state` pela tecla F2 e o usuário aperta Fn+R1 num jogo desse runner
+- **THEN** o emulador recebe um toque de F2 pelo controle virtual
+
+#### Scenario: Runner antigo sem ações
+- **WHEN** um arquivo de runner do cartão só tem o comando e a política de encerramento
+- **THEN** o runner continua aparecendo e abrindo jogos, Fn+B, Fn+R1 e Fn+L1 não fazem nada nele, o toque no Fn abre o menu do Lume com o jogo congelado pelo sistema, e Fn+Start continua encerrando
 
 ### Requirement: Runner inválido não derruba o launcher
 Um arquivo de runner inválido ou que cite um executável ausente MUST ser ignorado com uma linha no log, e os demais runners MUST continuar funcionando.
@@ -49,11 +57,15 @@ Aberto pelo launcher, o RetroArch MUST carregar só o core e o conteúdo pedidos
 - **THEN** nenhum histórico ou registro de tempo do RetroArch é gravado no cartão
 
 ### Requirement: Interface fora da memória durante o jogo
-Antes de abrir um jogo, a interface MUST encerrar e liberar a tela, o áudio e a memória. Durante o jogo, além do jogo, MUST ficar só o supervisor e o daemon de entrada.
+Antes de abrir um jogo, a interface MUST encerrar e liberar a tela, o áudio e a memória. Com o jogo rodando, além do jogo, MUST ficar só o supervisor, o daemon de entrada e o processo que desenha o menu do Lume, a barra e a dica (device-fixes 9.14: ele nasce com o jogo e reserva a memória de vídeo uma vez, antes de o jogo ocupá-la). Esse processo MUST ficar parado na leitura da sua entrada, sem CPU, enquanto nada dele está na tela, e MUST terminar com o jogo.
 
 #### Scenario: Processos durante o jogo
-- **WHEN** um jogo está aberto
-- **THEN** não existe processo da interface, e o supervisor tem menos de 2 MB de memória residente
+- **WHEN** um jogo está aberto e o menu do Lume, a barra e a dica estão fechados
+- **THEN** não existe processo da interface, o processo do menu está dormindo (estado S, sem tempo de CPU somado entre duas leituras), e o supervisor tem menos de 2 MB de memória residente
+
+#### Scenario: Menu fechado não deixa nada rodando
+- **WHEN** o usuário abre o menu do Lume e volta ao jogo
+- **THEN** o jogo continua com o mesmo FPS de antes, o processo do menu volta a dormir sem ter reservado memória de vídeo nova, e ele termina quando o jogo termina
 
 ### Requirement: Volta à interface quando o jogo termina
 Quando o jogo termina, por saída normal, erro, falha ou Fn+Start, o supervisor MUST reabrir a interface. Uma falha do jogo MUST NOT contar como falha do frontend.
@@ -80,17 +92,6 @@ Fn+Start MUST primeiro pedir a saída pela política do runner (no RetroArch, o 
 - **WHEN** o usuário aperta Fn+Start num jogo do RetroArch com save interno alterado
 - **THEN** o save é gravado no cartão antes de o RetroArch fechar
 
-### Requirement: Fn sozinho continua abrindo o menu
-O Fn apertado e solto sem outra tecla MUST continuar abrindo o menu do RetroArch dentro do jogo. A combinação Fn+Start MUST NOT abrir esse menu.
-
-#### Scenario: Fn sozinho
-- **WHEN** o usuário aperta e solta o Fn durante um jogo do RetroArch
-- **THEN** o menu do RetroArch abre
-
-#### Scenario: Fn+Start
-- **WHEN** o usuário segura Fn e aperta Start
-- **THEN** o jogo encerra sem o menu do RetroArch aparecer
-
 ### Requirement: Fn+Start sem jogo não faz nada
 Fn+Start fora de um jogo, com o launcher na tela, MUST ser ignorado.
 
@@ -111,3 +112,25 @@ Cada início e fim de jogo MUST virar uma linha do `events.log`, em inglês, com
 #### Scenario: Linha de fim
 - **WHEN** um jogo de SNES aberto no core `snes9x` é encerrado por Fn+Start
 - **THEN** o `events.log` tem uma linha com `snes`, `retroarch`, `snes9x` e `quit-combo`, sem o nome do jogo
+
+### Requirement: Aviso de início e fim do jogo ao sistema
+O supervisor MUST avisar o sistema antes de iniciar cada jogo, com o sistema e o core, e depois que todos os processos do jogo terminarem, qualquer que seja o motivo do fim. O aviso MUST NOT atrasar a abertura do jogo esperando resposta, e um aviso que falhe MUST NOT impedir o jogo.
+
+#### Scenario: Aviso no início e no fim
+- **WHEN** um jogo de Game Boy é aberto no core `gambatte` e depois encerrado por Fn+Start
+- **THEN** o sistema recebe o início com `gb` e `gambatte` antes do jogo aparecer, e o fim depois que o último processo do jogo saiu
+
+#### Scenario: Ninguém escutando
+- **WHEN** o serviço que recebe os avisos não está rodando e um jogo é aberto
+- **THEN** o jogo abre no mesmo tempo de antes
+
+### Requirement: Prioridade do jogo
+Durante o jogo, os processos do jogo MUST ter prioridade de CPU e de disco acima dos serviços em segundo plano do sistema (índice de jogos, playlists, sincronização de saves, logs), sem passar à prioridade de tempo real. O daemon de entrada MUST ter prioridade acima do jogo, para o Fn+Start continuar encerrando um jogo travado.
+
+#### Scenario: Serviço de fundo com o jogo aberto
+- **WHEN** o índice de jogos roda enquanto um jogo está aberto
+- **THEN** os processos do jogo têm prioridade maior que o índice, e nenhum deles roda em tempo real
+
+#### Scenario: Jogo travado
+- **WHEN** um jogo trava ocupando a CPU inteira e o usuário aperta Fn+Start
+- **THEN** o jogo é encerrado e o launcher volta

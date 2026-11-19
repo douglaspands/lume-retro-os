@@ -47,7 +47,7 @@ O painel interno MUST mostrar imagem a 640x480 desde as mensagens do kernel, com
 - **THEN** ele usa renderização GLES acelerada pela GPU, e não renderização por software
 
 ### Requirement: Controle integrado
-O console MUST expor seus botões e direcionais como um único controle de jogo do Linux, com A, B, X, Y, L1, R1, L2, R2, Start, Select, direcional e os analógicos presentes no aparelho.
+O console MUST expor seus botões e direcionais como um único controle de jogo do Linux, com A, B, X, Y, L1, R1, L2, R2, Start, Select, direcional e os analógicos presentes no aparelho. Os analógicos MUST ser calibrados no início, pelo repouso lido no próprio aparelho, para que um stick solto fique no centro em qualquer unidade do mesmo modelo.
 
 #### Scenario: Controle serial do GA36
 - **WHEN** o GA36 termina o boot
@@ -57,15 +57,27 @@ O console MUST expor seus botões e direcionais como um único controle de jogo 
 - **WHEN** o R36S termina o boot
 - **THEN** existe um único dispositivo de entrada de jogo chamado "R36S Gamepad", com os botões e os eixos dos dois analógicos, e o RetroArch o configura sozinho
 
+#### Scenario: Stick solto no centro
+- **WHEN** o console termina o boot com os sticks soltos
+- **THEN** os eixos dos dois analógicos ficam no centro, dentro da zona morta
+
+#### Scenario: Stick segurado no boot
+- **WHEN** o usuário segura um analógico durante o boot
+- **THEN** o console usa o centro de fábrica para esse eixo e registra o aviso no log
+
 ### Requirement: Áudio
-Cada console MUST reproduzir som no alto-falante interno e na saída de fone, com volume ajustável pelos botões de volume do aparelho.
+Cada console MUST reproduzir som no alto-falante interno e na saída de fone, com volume ajustável pelos botões de volume do aparelho. Onde o hardware oferecer, o volume MUST ser o ganho analógico da saída ativa, com o volume digital em 0 dB (capability `audio-output`).
 
 #### Scenario: Volume pelos botões
 - **WHEN** o botão de aumentar volume é pressionado durante um jogo
 - **THEN** o volume do sistema aumenta e o som continua saindo
 
+#### Scenario: Volume analógico no GA36
+- **WHEN** o botão de baixar volume é pressionado no GA36
+- **THEN** o ganho analógico da saída cai e o volume digital continua em 0 dB
+
 ### Requirement: Bateria e desligamento
-Cada console MUST informar o nível de bateria pela interface padrão de fonte de energia do Linux e cortar a energia de fato ao desligar.
+Cada console MUST informar o nível de bateria pela interface padrão de fonte de energia do Linux e cortar a energia de fato ao desligar. Segurar o botão de energia por 2 s MUST desligar o console pelo caminho limpo, e um toque curto MUST suspender (capability `system-sleep`).
 
 #### Scenario: Desligar corta a energia
 - **WHEN** o sistema executa o desligamento
@@ -75,8 +87,12 @@ Cada console MUST informar o nível de bateria pela interface padrão de fonte d
 - **WHEN** o nível de bateria é consultado em uso
 - **THEN** o sistema informa uma porcentagem entre 0 e 100
 
+#### Scenario: Desligar pelo botão segurado
+- **WHEN** o usuário segura o botão de energia por 2 s
+- **THEN** o pendente é gravado e o aparelho desliga como pelo item Desligar
+
 ### Requirement: Frequência da CPU e proteção térmica
-Cada console MUST variar a frequência da CPU conforme a carga, com a tabela de frequências e tensões e as temperaturas-limite do device tree mainline do SoC, sem valores próprios, e com o governor padrão do kernel. Acima do limite térmico, o clock MUST ser reduzido.
+Cada console MUST variar a frequência da CPU conforme a carga e o cenário de uso, pelos perfis de energia (ver `power-profiles`), sempre dentro da tabela de frequências e tensões e com as temperaturas-limite do device tree mainline do SoC, sem valores próprios de frequência, tensão ou temperatura. Sem perfil válido, MUST valer o governor padrão do kernel. Acima do limite térmico, o clock MUST ser reduzido.
 
 #### Scenario: Frequência acompanha a carga
 - **WHEN** um jogo está rodando e depois o console volta ao menu parado
@@ -85,6 +101,10 @@ Cada console MUST variar a frequência da CPU conforme a carga, com a tabela de 
 #### Scenario: Proteção térmica ativa
 - **WHEN** as zonas térmicas são consultadas no console
 - **THEN** existe uma zona da CPU com limite passivo ligado à CPU como dispositivo de resfriamento e um limite crítico
+
+#### Scenario: Sem perfil válido
+- **WHEN** o arquivo de perfis do console falta ou é recusado
+- **THEN** a CPU usa o governor padrão do kernel, como antes dos perfis
 
 ### Requirement: Serial de debug
 O console MUST mandar as mensagens do bootloader e do kernel para sua serial de debug, numa única velocidade do início ao fim: 115200 baud no GA36 e 1500000 baud no R36S, a velocidade do bootloader de fábrica do R36S.

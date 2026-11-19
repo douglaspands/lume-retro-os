@@ -14,7 +14,7 @@ assinados com a chave dos pacotes locais, e o sistema do console MUST ser montad
 pacotes.
 
 #### Scenario: Pacotes depois de um build
-- **WHEN** `r36os build console` termina
+- **WHEN** `lume build console` termina
 - **THEN** `out/repo/armv7/` e `out/repo/aarch64/` têm `lume-kernel`, `lume-modules`, `lume-dtbs` e os fragmentos do projeto, e os índices os listam
 
 #### Scenario: Mesmo conteúdo no cartão

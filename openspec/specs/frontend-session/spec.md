@@ -25,10 +25,10 @@ O frontend MUST ser escolhido por uma única configuração do serviço de sess�
 - **THEN** no boot seguinte esse frontend sobe no lugar do RetroArch, com as mesmas pastas de jogos, saves e estados
 
 ### Requirement: Sair desliga o console
-Quando o frontend encerrar normalmente por ação do usuário, o sistema MUST desligar o aparelho. No lume-launcher, essa ação é o item Desligar das Configurações; encerrar um jogo ou o menu do RetroArch aberto pelo launcher MUST voltar ao launcher, não desligar.
+Quando o frontend encerrar normalmente por ação do usuário, o sistema MUST desligar o aparelho. No lume-launcher, essa ação é o item Desligar do menu do sistema (aberto pelo toque no Fn); encerrar um jogo ou o menu do RetroArch aberto pelo launcher MUST voltar ao launcher, não desligar.
 
 #### Scenario: Sair pelo menu
-- **WHEN** o usuário escolhe Desligar nas Configurações do launcher e confirma
+- **WHEN** o usuário escolhe Desligar no menu do sistema do launcher e confirma
 - **THEN** o sistema grava o que estiver pendente e desliga
 
 #### Scenario: Desligar pede confirmação por padrão
@@ -91,15 +91,19 @@ O menu do RetroArch MUST rodar sem miniaturas nesta versão. Abrir o menu do Ret
 - **THEN** o jogo fica pausado até o menu ser fechado
 
 ### Requirement: Atalhos de controle padronizados
-O menu do RetroArch MUST abrir em qualquer jogo pela combinação Start + Select. Fn+Start MUST encerrar o jogo e voltar ao launcher. Nenhuma combinação de botões MUST desligar o console.
+O menu do RetroArch MUST abrir em qualquer jogo pela combinação Fn+B ou pelo item dele no menu do Lume (aberto pelo toque no Fn), e a combinação Start + Select MUST chegar ao jogo sem abrir o menu. Fn+Start MUST encerrar o jogo e voltar ao launcher, sem confirmação. Nenhuma combinação de botões MUST desligar o console.
 
 #### Scenario: Abrir o menu no jogo
-- **WHEN** o usuário pressiona Start + Select durante um jogo
+- **WHEN** o usuário pressiona Fn+B durante um jogo
 - **THEN** o menu do RetroArch abre e o jogo fica pausado
 
+#### Scenario: Start + Select é do jogo
+- **WHEN** o usuário pressiona Start + Select durante um jogo
+- **THEN** o jogo recebe os dois botões e o menu do RetroArch não abre
+
 #### Scenario: Sem saída acidental
-- **WHEN** o usuário pressiona Start + Select, Fn+Start ou Esc durante um jogo
-- **THEN** o console não desliga
+- **WHEN** o usuário pressiona Start + Select, toca o Fn, segura o Fn, pressiona Fn+B ou Esc durante um jogo
+- **THEN** o console não desliga e o jogo não é encerrado
 
 #### Scenario: Fn+Start volta ao launcher
 - **WHEN** o usuário pressiona Fn+Start durante um jogo do RetroArch
@@ -119,3 +123,14 @@ A configuração do RetroArch persistida na `ROMS` MUST servir aos dois consoles
 #### Scenario: Chave fixada em só um console
 - **WHEN** os arquivos de chaves fixas por console são conferidos pelos testes
 - **THEN** o teste falha se uma chave estiver fixada para um console e não para o outro
+
+### Requirement: Reiniciar pelo frontend
+O contrato de sessão MUST ter um fim de frontend que pede reinício, distinto do fim normal que desliga e dos fins com erro. Pedido o reinício, o sistema MUST gravar o pendente e reiniciar o aparelho, sem contar como falha do frontend. Um frontend que não usa esse fim MUST continuar funcionando como antes.
+
+#### Scenario: Reiniciar pelo launcher
+- **WHEN** o usuário escolhe Reiniciar no menu do sistema do launcher e confirma
+- **THEN** o sistema grava o que estiver pendente, reinicia, e o `events.log` registra o reinício pedido pelo usuário, não uma falha
+
+#### Scenario: RetroArch como frontend
+- **WHEN** o frontend configurado é o RetroArch e o usuário sai pelo menu dele
+- **THEN** o aparelho desliga, como antes
