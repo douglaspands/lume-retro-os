@@ -785,8 +785,25 @@ trace_sample() {
 			if [ "$RECOVER_N" -lt "$RECOVER_MAX" ]; then
 				RECOVER_N=$((RECOVER_N + 1))
 				logs_flush      # the evidence first, then the kill
-				kill -9 "$pid" 2>/dev/null
-				event frontend OK "recovery $RECOVER_N of $RECOVER_MAX: killed the hung retroarch pid $pid; the session restarts the frontend"
+				# the whole group, SIGCONT first (lume-hud-actions 3.5: a stopped group
+				# survived the kill of one pid), and the death checked
+				pg=$(cut -d' ' -f5 "/proc/$pid/stat" 2>/dev/null)
+				# never our own group (a test runs the fake game in it)
+				if [ -n "$pg" ] && [ "$pg" -gt 1 ] && [ "$pg" != "$(cut -d' ' -f5 /proc/$$/stat)" ]; then
+					kill -CONT -- "-$pg" 2>/dev/null
+					kill -9 -- "-$pg" 2>/dev/null
+				else
+					kill -CONT "$pid" 2>/dev/null
+					kill -9 "$pid" 2>/dev/null
+				fi
+				sleep 1
+				# still running: it exists and is not a zombie (a zombie holds nothing)
+				st=$(sed -n 's/.*) \(.\).*/\1/p' "/proc/$pid/stat" 2>/dev/null)
+				if kill -0 "$pid" 2>/dev/null && [ "$st" != Z ]; then
+					event frontend FAIL "recovery $RECOVER_N of $RECOVER_MAX: killed the hung retroarch pid $pid (group ${pg:-?}) but it is still alive; the session restarts the frontend"
+				else
+					event frontend OK "recovery $RECOVER_N of $RECOVER_MAX: killed the hung retroarch pid $pid (group ${pg:-?}); the session restarts the frontend"
+				fi
 				PREV_PID=""
 			fi
 		fi

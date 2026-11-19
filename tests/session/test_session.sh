@@ -190,6 +190,46 @@ run_end 1 ""
 check "exit 1: no power off nor reboot, one failure counted, the loop goes on" '[ "$(calls)" = "returned n=1|" ]'
 check "exit 1: the failure in the events and in the frontend log" \
 	'grep -q " frontend FAIL retroarch terminated with error (code 1): failure 1 of 3 in 60s$" "$LOGS_RAM/events.pending" && grep -q "terminated with error (code 1), failure 1 of 3$" "$W/frontend.log"'
+### lume-hud-actions 3.5: a frontend that ended with an error left a stopped game in the
+### lume/ subtree; it is woken up and killed before the restart (a fake subtree, no cgroup.kill)
+mkdir -p "$W/cgl/lume/session" "$W/cgl/lume/game1"
+sleep 300 &
+LEFT=$!
+kill -STOP $LEFT
+echo $LEFT > "$W/cgl/lume/game1/cgroup.procs"
+: > "$W/cgl/lume/session/cgroup.procs"
+: > "$W/kmsg"
+rm -f "$LOGS_RAM"/*.pending
+(
+	SESSION_LIB=1
+	SESSION_LIBDIR=$L
+	STORAGE=$W/storage
+	. aports/lume-core/files/usr/libexec/lume/session
+	kmsg() { echo "$*" >> "$W/kmsg"; }
+	CG_PROCS=$W/cgl/lume/session/cgroup.procs
+	end_leftovers
+)
+sleep 0.2
+st=$(sed -n 's/.*) \(.\).*/\1/p' /proc/$LEFT/stat 2>/dev/null)
+check "leftovers: the stopped game is killed (gone or a zombie)" '[ -z "$st" ] || [ "$st" = Z ]'
+check "leftovers: counted in the kernel log and the events" \
+	'grep -qx "frontend left 1 process(es) running: ended before the restart" "$W/kmsg" && grep -q " frontend OK retroarch left 1 process(es) running: ended before the restart$" "$LOGS_RAM/events.pending"'
+wait $LEFT 2>/dev/null
+: > "$W/kmsg"
+(
+	SESSION_LIB=1
+	SESSION_LIBDIR=$L
+	STORAGE=$W/storage
+	. aports/lume-core/files/usr/libexec/lume/session
+	kmsg() { echo "$*" >> "$W/kmsg"; }
+	CG_PROCS=$W/cgl/lume/session/cgroup.procs
+	: > "$W/cgl/lume/game1/cgroup.procs"
+	end_leftovers
+)
+check "leftovers: an empty subtree logs nothing" '[ ! -s "$W/kmsg" ]'
+check "session: a failed frontend ends its leftovers before the restart" \
+	'grep -q "^	end_leftovers$" $S'
+
 rm -f "$W/bin/poweroff" "$W/bin/reboot" "$W/bin/lume-clock"
 check "session: the loop hands every end to frontend_ended, reboot called once" \
 	'grep -q "^	frontend_ended$" $S && [ "$(grep -c "^[[:space:]]*reboot$" $S)" = 1 ] && grep -q "^EXIT_RESTART=66$" $S'

@@ -130,6 +130,20 @@ static char *first_line(const char *p, char *buf, size_t n)
 
 static int readable(const char *p) { return access(p, R_OK) == 0; }
 
+/* A process that still runs: it exists and is not a zombie (a zombie holds nothing). The
+ * real /proc, not proc_root: the pid is the one the kernel was just asked to kill. */
+static int still_running(pid_t pid)
+{
+	char p[64], b[256], *r;
+
+	if (kill(pid, 0) != 0)
+		return 0;
+	snprintf(p, sizeof(p), "/proc/%d/stat", (int)pid);
+	if (slurp(p, b, sizeof(b)) <= 0 || !(r = strrchr(b, ')')))
+		return 1;
+	return r[1] != ' ' || r[2] != 'Z';
+}
+
 static long file_size(const char *p)
 {
 	struct stat st;
@@ -1295,10 +1309,28 @@ static void trace_sample(void)
 			if (recover_n < recover_max) {
 				recover_n++;
 				logs_flush();
-				kill(pid, SIGKILL);
-				event("frontend", "OK",
-				      "recovery %d of %d: killed the hung retroarch pid %d; the session restarts the frontend",
-				      recover_n, recover_max, (int)pid);
+				/* the whole group (lume-hud-actions 3.5: "retroarch" is also the name of a
+				 * wrapper, and a stopped group survived the kill of one pid); SIGCONT first,
+				 * then SIGKILL, and the death checked */
+				{
+					pid_t pg = getpgid(pid);
+
+					/* never our own group (a test runs the fake game in it) */
+					if (pg > 1 && pg != getpgrp()) {
+						kill(-pg, SIGCONT);
+						kill(-pg, SIGKILL);
+					} else {
+						kill(pid, SIGCONT);
+						kill(pid, SIGKILL);
+					}
+					usleep(500000);
+					int alive = still_running(pid);
+
+					event("frontend", alive ? "FAIL" : "OK",
+					      "recovery %d of %d: killed the hung retroarch pid %d (group %d)%s; the session restarts the frontend",
+					      recover_n, recover_max, (int)pid, (int)pg,
+					      alive ? " but it is still alive" : "");
+				}
 				prev_pid = 0;
 			}
 		}

@@ -150,7 +150,15 @@ fn serve(pgid: i32, hints: (String, String), warn: Option<String>) -> ExitCode {
             srv.handle(&line, &mut |l| say(l));
         }
     }
-    srv.finish();
+    if srv.finish() {
+        // stdin ended with the menu open: lume-run is gone while the game was stopped for the
+        // menu (lume-hud-actions 3.5). Wake the group up, or it stays stopped and holds the
+        // screen; the session ends what is left before it starts the launcher again.
+        eprintln!("lume-menu: lume-run ended with the menu open; SIGCONT to the game's group {pgid}");
+        unsafe {
+            libc::kill(-pgid, libc::SIGCONT);
+        }
+    }
     ExitCode::SUCCESS
 }
 

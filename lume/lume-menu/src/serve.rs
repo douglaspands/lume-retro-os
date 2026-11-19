@@ -185,14 +185,18 @@ impl<G: Gpu> Server<G> {
         }
     }
 
-    /// The end of stdin: the screen back as the game left it.
-    pub fn finish(&mut self) {
+    /// The end of stdin: the screen back as the game left it. True when the menu was open,
+    /// that is lume-run ended (killed) while the game was stopped for it: the caller wakes
+    /// the game up, nobody else will (lume-hud-actions 3.5).
+    pub fn finish(&mut self) -> bool {
         self.overlay_off(Slot::Hint);
         self.overlay_off(Slot::Bar);
         if self.menu_open {
             self.gpu.give_back();
             self.menu_open = false;
+            return true;
         }
+        false
     }
 
     fn menu(&mut self, arg: &str, out: &mut dyn FnMut(&str)) {
@@ -681,9 +685,11 @@ mod tests {
         assert_eq!(s.gpu.overlays.len(), n, "no hint over the menu");
         // the end of stdin gives everything back
         run(&mut s, "bar FPS 60");
-        s.finish();
+        assert!(s.finish(), "the menu was open: the caller wakes the game up");
         assert_eq!(s.gpu.overlays.last(), Some(&(Slot::Bar, None)));
         assert_eq!(s.gpu.given_back, 1);
+        // a second end (nothing open) asks for nothing
+        assert!(!s.finish());
     }
 
     #[test]

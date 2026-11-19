@@ -177,6 +177,34 @@ restart() {
 	reboot
 }
 
+# end_leftovers: what a frontend that ended with an error left running in the lume/ subtree
+# (lume-hud-actions 3.5: a lume-run killed with the Lume menu open left its game stopped and
+# holding the screen, so every lume-ui after it failed and the session gave up). SIGCONT
+# first (a stopped process does nothing until it runs again), then cgroup.kill (SIGKILL to
+# the whole subtree; kill -KILL one by one without it), and up to 2 s for it to empty, so the
+# next frontend finds the screen free.
+end_leftovers() {
+	local cg pids p n i=0
+	[ -n "${CG_PROCS:-}" ] || return 0
+	cg=${CG_PROCS%/session/cgroup.procs}
+	pids=$(find "$cg" -name cgroup.procs -exec cat {} + 2>/dev/null)
+	[ -n "$pids" ] || return 0
+	n=$(echo $pids | wc -w)
+	for p in $pids; do kill -CONT "$p" 2>/dev/null; done
+	if [ -w "$cg/cgroup.kill" ]; then
+		echo 1 > "$cg/cgroup.kill"
+	else
+		for p in $pids; do kill -KILL "$p" 2>/dev/null; done
+	fi
+	while [ $i -lt 20 ]; do
+		[ -z "$(find "$cg" -name cgroup.procs -exec cat {} + 2>/dev/null)" ] && break
+		sleep 0.1
+		i=$((i + 1))
+	done
+	kmsg "frontend left $n process(es) running: ended before the restart"
+	event frontend OK "$FRONTEND left $n process(es) running: ended before the restart"
+}
+
 # frontend_ended: what the session does with the end of the frontend ($rc, $closed_by).
 # Exit 0 or the power button held powers off (the button wins over any code), 66 reboots;
 # any other code is one more failure in the window ($fail_times, $n) and the MAX_FAILS-th
@@ -200,6 +228,7 @@ frontend_ended() {
 	# also in the frontend log: a frontend that fails silently leaves the log empty
 	echo "lume: $(date '+%Y-%m-%d %H:%M:%S') $FRONTEND terminated with error (code $rc), failure $n of $MAX_FAILS" >> "$LOG"
 	[ "$n" -ge $MAX_FAILS ] && give_up "$rc"
+	end_leftovers
 	return 0
 }
 
