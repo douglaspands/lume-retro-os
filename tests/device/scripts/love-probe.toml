@@ -1,0 +1,112 @@
+description = """LÖVE environment probe (game-experience-tuning 2.3). Installs tests/device/love-probe as the \
+first game of the love system, runs it from the launcher with the language set to en and then pt, and \
+checks LANG, LANGUAGE, the preferred locales, TZ and the local time it wrote to /run/lume/love-probe.txt. \
+Restores the launcher language and removes the probe and its output at the end. If a step fails the run \
+stops before the cleanup: run it again (the language backup is kept) or run the three cleanup steps by hand."""
+consoles = ["ga36", "r36s"]
+
+# --- setup: back up the language, install the probe under a name that sorts first ----------------
+
+[[step]]
+name = "back up the launcher language"
+type = "sh"
+command = '''f=/storage/system/lume/settings.toml; b=/run/lume/love-probe.settings.bak; if [ ! -e $b ] && [ ! -e $b.none ]; then if [ -e $f ]; then cp -p $f $b; else : > $b.none; fi; fi'''
+
+[[step]]
+name = "make the love folder"
+type = "sh"
+command = "mkdir -p /storage/roms/love"
+
+[[step]]
+name = "send the probe"
+type = "push_love"
+source = "tests/device/love-probe"
+dest = "/storage/roms/love/0-lume-probe.love"
+
+[[step]]
+name = "give the probe to the games user and reindex"
+type = "sh"
+command = '''chown 1000 /storage/roms/love/0-lume-probe.love; rc-service lume-index restart >/dev/null 2>&1; for i in $(seq 1 30); do grep -aq 0-lume-probe.love /storage/system/lume/cache/index/love.bin 2>/dev/null && exit 0; sleep 1; done; exit 1'''
+timeout = 60
+
+# --- language en -----------------------------------------------------------------------------------
+
+[[step]]
+name = "set the language to en"
+type = "sh"
+command = '''f=/storage/system/lume/settings.toml; t=/run/lume/love-probe.tmp; if grep -q '^language' $f 2>/dev/null; then sed 's/^language *=.*/language = "en"/' $f > $t && cat $t > $f; else echo 'language = "en"' >> $f; fi; rm -f $t; : > /run/lume/love-probe.txt; chmod 666 /run/lume/love-probe.txt'''
+
+[[step]]
+name = "go to the home (en)"
+type = "home"
+
+[[step]]
+name = "open the probe (en)"
+type = "open_game"
+system = "love"
+position = 1
+
+[[step]]
+name = "wait for the probe to quit (en)"
+type = "wait_event"
+pattern = '\b(OK|FAIL) love .*\bend='
+category = "game"
+
+[[step]]
+name = "check the values (en)"
+type = "sh"
+command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=en_US.UTF-8' $o && grep -qx 'LANGUAGE=en_US:en' $o && grep -q '^locales=en' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
+
+[[step]]
+name = "check the time against the console (en)"
+type = "sh"
+command = '''export TZ=:/usr/share/zoneinfo/$(head -n 1 /etc/timezone); t=$(sed -n 's/^time=//p' /run/lume/love-probe.txt); n=$(date +'%Y-%m-%d %H:%M'); p=$(date -d @$(( $(date +%s) - 60 )) +'%Y-%m-%d %H:%M'); [ "$t" = "$n" ] || [ "$t" = "$p" ]'''
+
+# --- language pt -----------------------------------------------------------------------------------
+
+[[step]]
+name = "set the language to pt"
+type = "sh"
+command = '''f=/storage/system/lume/settings.toml; t=/run/lume/love-probe.tmp; if grep -q '^language' $f 2>/dev/null; then sed 's/^language *=.*/language = "pt"/' $f > $t && cat $t > $f; else echo 'language = "pt"' >> $f; fi; rm -f $t; : > /run/lume/love-probe.txt; chmod 666 /run/lume/love-probe.txt'''
+
+[[step]]
+name = "go to the home (pt)"
+type = "home"
+
+[[step]]
+name = "open the probe (pt)"
+type = "open_game"
+system = "love"
+position = 1
+
+[[step]]
+name = "wait for the probe to quit (pt)"
+type = "wait_event"
+pattern = '\b(OK|FAIL) love .*\bend='
+category = "game"
+
+[[step]]
+name = "check the values (pt)"
+type = "sh"
+command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=pt_BR.UTF-8' $o && grep -qx 'LANGUAGE=pt_BR:pt' $o && grep -q '^locales=pt' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
+
+[[step]]
+name = "check the time against the console (pt)"
+type = "sh"
+command = '''export TZ=:/usr/share/zoneinfo/$(head -n 1 /etc/timezone); t=$(sed -n 's/^time=//p' /run/lume/love-probe.txt); n=$(date +'%Y-%m-%d %H:%M'); p=$(date -d @$(( $(date +%s) - 60 )) +'%Y-%m-%d %H:%M'); [ "$t" = "$n" ] || [ "$t" = "$p" ]'''
+
+# --- cleanup: leave the card as it was ---------------------------------------------------------------
+
+[[step]]
+name = "back to the home"
+type = "home"
+
+[[step]]
+name = "restore the launcher language"
+type = "sh"
+command = '''f=/storage/system/lume/settings.toml; b=/run/lume/love-probe.settings.bak; if [ -e $b ]; then cat $b > $f; rm -f $b; elif [ -e $b.none ]; then rm -f $f $b.none; fi'''
+
+[[step]]
+name = "remove the probe and its output"
+type = "sh"
+command = '''rm -f /storage/roms/love/0-lume-probe.love /run/lume/love-probe.txt /run/lume/love-probe.tmp; rc-service lume-index restart >/dev/null 2>&1; exit 0'''
