@@ -1,8 +1,9 @@
 # Afinação dos cores por configuração
 
 Método da medição A/B da change `game-experience-tuning` (D6). Os relatórios por console são
-[`ga36.md`](ga36.md) e [`r36s.md`](r36s.md); a tarefa 8.1 completa este arquivo com os ajustes
-aceitos e a ligação com a P-10 (otimização por compilação).
+[`ga36.md`](ga36.md) e [`r36s.md`](r36s.md); os ajustes aceitos e a ligação com a P-10
+(otimização por compilação) estão no fim deste arquivo (tarefa 8.1). O aprendizado do melhor
+core por jogo fica só no cartão ([`aprendizado-cores.md`](aprendizado-cores.md)).
 
 ## Como rodar
 
@@ -31,6 +32,17 @@ de um core é medida sozinha quando o relatório do console ainda não tem a del
    `game OK <sistema> retroarch <core> start`, que o core é o do plano.
 3. Espera 30 s e mede 120 s (amostrador no console + linhas do `lume-logd` da mesma janela).
 4. Fecha o jogo e devolve os arquivos salvos.
+
+A pasta das opções de um core é a do `library_name` que o próprio core informa ao RetroArch. Num
+build `_lume` ela é a mesma do core do upstream (só o `corename` do `.info` ganha " (Lume)"),
+então a ferramenta tira o sufixo, como o `frontends/retroarch` (conferido no GA36, 2026-11-20).
+
+**LÖVE (tarefa 7.4).** Uma entrada com `process = "love"` aceita só variantes `env = { NOME =
+"valor" }`: em B, o `ROMS/system/lume/runners.d/love.toml` do cartão (que vence o da imagem)
+ganha um `[runner.env]`. O launcher lê os runners uma vez, quando volta depois de um jogo, então
+cada execução do LÖVE grava o arquivo da execução **seguinte** antes de fechar o jogo (o jogo
+aberto já tem o ambiente fixado), e a restauração entre execuções não mexe nele; no fim do grupo
+o arquivo volta como estava.
 
 O `frontends/retroarch` grava as chaves do `retroarch-extra.cfg` na configuração do usuário
 (não só na execução), por isso a configuração inteira é salva antes da sequência e devolvida
@@ -132,6 +144,12 @@ usado direto (contagem exata). Se o áudio passar pelo `dmix` (memória comparti
 alsa-lib, chave `0x0056a4d5`), o stream do hardware nunca sofre underrun: a métrica sai como
 não medida e a variante fica "inconclusivo".
 
+**Ponto cego: `audio_driver = "alsathread"`** (teste de ouvido do usuário no GA36,
+2026-11-20). A thread do driver alimenta a ALSA a partir de um buffer próprio do RetroArch: o
+stream do hardware não sofre underrun e a medida dá zero, mas o som picota igual quando o core
+não acompanha (o mesmo jogo lento estalou igual com `alsa` e com `alsathread`). Variante com
+`alsathread` não é medida por esta fonte; precisa de outra que veja o buffer do RetroArch.
+
 ## Critério de aceite (spec `core-tuning`, "Ajuste aceito só com ganho medido")
 
 Para cada métrica, o ruído é a diferença entre os dois A, nunca menor que um piso (quadros/s
@@ -147,3 +165,28 @@ comparado com a média dos dois A. A variante é **aceita** quando:
 
 Senão é **recusada**, com os motivos na coluna "decisão". Sem a medida de áudio (dmix, stream
 não achado), fica **inconclusivo** e não entra na imagem.
+
+## Ajustes aceitos e o que entrou na imagem (tarefa 8.1)
+
+Uma linha "aceito" do relatório é candidata; entra na imagem só com a decisão do usuário, que
+fica registrada aqui. Estado no GA36 em 2026-11-20:
+
+| Ajuste | Relatório | Decisão |
+|---|---|---|
+| `audio_driver = "alsathread"` | "aceito" em vários cores | **fora**: ponto cego da medida de áudio (acima); o ouvido mostrou o mesmo picote |
+| `video_max_swapchain_images = 2` | recusado em todos | fora |
+| `audio_resampler_quality = 1` | recusado (sem ganho acima do ruído) | fora |
+| `audio_latency = 96` | aceito só no `gambatte` (GBC: +1,4 quadros/s) | a decidir pelo usuário (ganho pequeno, só num core) |
+| `video_threaded = false` | travou o GA36 (fora das medições) | fora; o PS1 já roda sem thread de vídeo por estabilidade (`retroarch-core.keys`) |
+| core por placa de arcade | comparação de cores (10.2) | aplicado: catálogo (10.5) e core por jogo no cartão do usuário |
+| build `_lume` (flags do processador) | comparação de cores (11.3) | aplicado: `genesis_plus_gx_lume`, `snes9x2005_plus_lume`, `pcsx_rearmed_lume` |
+| BIOS oficial e abertura | pedido do usuário (1.5), não é ganho de desempenho | aplicado (`.opt` de fábrica e `new-defaults`) |
+
+Faltam as medições das opções do `fbneo` (`fbneo-options.toml`, 7.3) e do LÖVE
+(`love-runner.toml`, 7.4), e todo o R36S (7.5).
+
+## Ligação com a P-10
+
+A P-10 (otimização por compilação: flags, PGO) usa estes relatórios como linha de base. As
+flags do processador já viraram os builds `_lume` (P-114, tarefa 11); o PGO fica para depois,
+medido com o mesmo método e os mesmos jogos.

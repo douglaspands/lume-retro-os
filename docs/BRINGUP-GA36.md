@@ -584,6 +584,33 @@ gravação atômica do índice. Os `gamelist.xml.corrupt` foram apagados do cart
 tarefa 9.3 da mesma change. Até ela entrar: **não tirar o cartão de um console suspenso**;
 desligar antes.
 
+## Afinação dos jogos: provas da J1 (`game-experience-tuning`, 2026-11-19 e 20)
+
+Provas pelo cabo, no cartão do usuário (conjunto de teste privado; jogos citados só pela posição
+na lista). Os detalhes e as medições estão no `tasks.md` da change e em `docs/tuning/ga36.md`.
+
+| Prova | Resultado | Boot |
+|---|---|---|
+| `lume push` e boot conferido | builds `20261120-123859` a `-142940`, cada um com o boot e o frontend conferidos pelo `push` (~20 s do kernel ao frontend) | 231 a 236 |
+| Analógico como direcional (1.3, 1.4) | cartão antigo recebeu `input_player1..4_analog_dpad_mode = "1"` uma vez, manteve menu e idioma do usuário; o analógico e o direcional movem o personagem no 1º jogo de NES e no de Mega Drive (com o usuário). Falta o PS1 com DualShock | 230 |
+| BIOS oficial e abertura (1.5) | aberturas vistas pelo usuário: GB, GBC, GBA, PS1, Master System (logo SEGA) e o texto de licença do Mega Drive; sem BIOS (pasta vazia só no teste) os cinco sistemas abrem com a BIOS própria do core | 232, 233 |
+| Idioma, fuso e LÖVE (2.3) | o probe passou em `en` e `pt` (`LANG`, `LANGUAGE`, `TZ` e a hora iguais às do console); o LÖVE 11.5 não tem `getPreferredLocales` (o probe grava `n/a`) | 228 |
+| TurboGrafx e CPS-3 (3.2) | HuCard abre no `mednafen_pce_fast` (100,7% da velocidade, 600 MHz); o conjunto de teste não tem jogo de TurboGrafx-CD nem de CPS-3 | J1 (build `20261120-000302`) |
+| Cópia pelo cabo (4.1) | `scp` sem `-O`, `sftp` (linha de comando e GVfs) e `rsync` interrompido e retomado com o mesmo SHA256; nada roda sem cabo | 221 |
+| Cartão limpo (4.3) | **pendente**: precisa de um segundo cartão vazio | - |
+| Cores novos (10.5, 11.5) | um jogo de cada sistema abre no core novo (`fbalpha2012` no arcade, CPS-1, CPS-2 e Neo Geo; os três `_lume`); os `_lume` usam as pastas de opções do core do upstream (o RetroArch nomeia a pasta pelo `library_name` do core) | 231 |
+| Despertar normal (9.3) | acordou rápido (com o usuário), `resume after 19`; a `ROMS` não ficou só leitura antes de suspender (`Resource busy`): tarefa 9.4 | 230 |
+
+**Travamento com o FBNeo (P-115):** o jogo de arcade nº 4 trava o console inteiro no `fbneo`
+depois de 3 a 6,5 min, a 1008, 912 e 816 MHz (a tensão da CPU não é a causa); no
+`mame2003_plus`, o core dele no cartão, roda 12 min sem travar. O console reinicia sozinho e o
+cartão sai limpo em todos os casos.
+
+**Suspensão sem o usuário perto:** o `lume-sleep` desliga o despertar pelo RTC, pelo
+carregador e pela bateria; só o botão acorda o console, e o cabo some junto com o gadget USB.
+O kernel do GA36 não tem `/sys/power/pm_test` nem `/sys/power/wake_lock`. Não pedir suspensão
+pelo cabo sem alguém para apertar o botão.
+
 ## 5. Checklist de conferência
 
 | Item | Como conferir | Onde ver |
