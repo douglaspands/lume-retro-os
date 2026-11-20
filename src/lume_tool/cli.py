@@ -183,6 +183,11 @@ def _parser() -> argparse.ArgumentParser:
                    help="compile even when the inputs did not change (a same content is "
                         "still not published)")
 
+    cl = sub.add_parser("cores-lume", help="generate the aports/libretro-*-lume/APKBUILD files "
+                                           "(CPU-flag builds of the cores) from the upstream aports")
+    cl.add_argument("--check", action="store_true",
+                    help="only list the generated files that are out of date (exit 1)")
+
     for cmd in (b, u, k):
         cmd.add_argument("--jobs", type=int, metavar="N",
                          help="parallel jobs for make, abuild, mksquashfs and zstd "
@@ -338,6 +343,10 @@ def _main(args: argparse.Namespace) -> int:
             _heat_guarded(lambda: build_packages(target, args.names, checksum=args.checksum,
                                                  force=args.force))
             return 0
+        if args.command == "cores-lume":
+            from lume_tool.cores_lume import main as cores_lume_main
+
+            return cores_lume_main(check=args.check)
         if args.command == "vm":
             from lume_tool.vm import run_vm
 

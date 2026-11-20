@@ -51,6 +51,26 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba` não entra
 nesta versão: o GBA usa o `gpsp` em todos os alvos.
 
+### Builds `_lume` dos cores (`game-experience-tuning` 11.1, P-114)
+
+Cada um dos 16 cores da imagem ganha um pacote `libretro-<core>-lume`: o mesmo código e o
+mesmo nível de otimização do upstream (sem `-Ofast`, sem LTO), com as flags do processador
+acrescentadas ao `CFLAGS` e ao `CXXFLAGS` (armv7, Cortex-A7: `-marm -mcpu=cortex-a7
+-mfpu=neon-vfpv4 -mfloat-abi=hard`; aarch64, Cortex-A35: `-mcpu=cortex-a35`; x86_64: nenhuma,
+é o build do upstream, que não é construído). O id do core muda: `<core>_lume_libretro.so` e
+`<core>_lume_libretro.info`, com o `corename` do upstream mais ` (Lume)`. Fora do catálogo
+até a tarefa 11.5.
+
+Os 18 `aports/libretro-*-lume/APKBUILD` são **gerados** por `lume cores-lume` (módulo
+`lume_tool.cores_lume`) a partir do aport do upstream de cada core, e um teste falha se algum
+estiver fora de data: não se edita o arquivo, e sim o aport do upstream ou o gerador. A cópia
+do aport do Alpine dos quatro cores que a imagem tinha do Alpine (`fceumm`, `nestopia`,
+`gambatte`, `gpsp`, no mesmo commit de hoje) fica em `aports/_upstream/` e não é um aport.
+O `.info` vem do `libretro-core-info` (dependência de build); no armv7 o `package()` confere
+que o `.so` tem NEON. Variantes só no armv7, com o Cyclone (68000) e o DrZ80 (Z80) em
+assembly ARM: `libretro-mame2000-cyclone-lume` e `libretro-mame2003-plus-cyclone-lume`
+(`mame2000_cyclone_lume`, `mame2003_plus_cyclone_lume`), em `board/ga36/hw-packages.txt`.
+
 O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
 do catálogo nesta versão (pendência 12.1 do `tasks.md`). O arcade usa o `fbneo` em todos os
 consoles, o mesmo romset nos dois aparelhos do cartão único. O `fbalpha2012` completo, o

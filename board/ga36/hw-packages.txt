@@ -6,6 +6,12 @@
 # Register access for the display freeze recovery (lume-logd, task 9.8)
 lume-devmem
 
+# Cyclone (68000) and DrZ80 (Z80) assembly CPU cores of the two MAME cores: armv7 only, under
+# measurement with the CPU-flag builds of rootfs/packages.txt (game-experience-tuning 11, not in
+# the catalog until 11.5)
+libretro-mame2000-cyclone-lume
+libretro-mame2003-plus-cyclone-lume
+
 # Firmware of the USB Wi-Fi and Bluetooth dongles (usb-device-access D9, D10): Realtek rtw88
 # (RTL8821CU) and rtl8xxxu, Atheros ath9k_htc, Realtek Bluetooth (no MediaTek: 28 MiB).
 # The same list as the R36S; the vm has no dongle.
