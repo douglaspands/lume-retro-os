@@ -46,10 +46,22 @@ PMIC, não da CPU).
 
 ## O datasheet
 
-O datasheet do A33 (release 1.0, 2014) traz "Recommended Operating Conditions" na página 29
-([linux-sunxi](https://wiki.linux-sunxi.org/A33/A33_Datasheet_release1.0.pdf)). Em 2026-11-20 o site
-respondia HTTP 521 e os valores de VDD-CPUX (recomendado e máximo absoluto) **não foram lidos**: a
-conferir quando o site voltar.
+A33 Datasheet (Allwinner, 2014), capítulo 5 "Electrical Characteristics", lido em 2026-11-20 na
+cópia que o usuário baixou (o PDF não vai para o repositório; cópia pública em
+[linux-sunxi](https://wiki.linux-sunxi.org/A33/A33_Datasheet_release1.0.pdf)):
+
+| Item (página) | Mínimo | Típico | Máximo |
+|---|---|---|---|
+| VDD-CPU, "Recommended Operating Conditions" (5.2, p. 30) | 0,9 V | 1,1 V | **1,4 V** |
+| VDD-CPU, "Absolute Maximum Ratings" (5.1, p. 29) | −0,3 V | — | **1,5 V** |
+| VDD-SYS (domínio do sistema e da GPU), recomendado (p. 30) | 0,9 V | 1,1 V | 1,4 V |
+| VDD-SYS, máximo absoluto (p. 29) | −0,3 V | — | 1,5 V |
+| Temperatura ambiente de operação, comercial (p. 29) | −20 °C | — | 75 °C |
+
+Leitura: os 1,20 V de 912/1008 MHz e os 1,32 V que o upstream pede para 1104/1200 MHz ficam dentro
+da faixa recomendada (até 1,4 V); o DTS do GA36 limita o regulador a 1,32 V, abaixo dela. O
+"Absolute Maximum" de 1,5 V é limite de dano, não de uso. A página 29 avisa que operar fora das
+condições recomendadas por tempo longo pode afetar a confiabilidade.
 
 ## O que se sabe pela P-115 (2026-11-20)
 
