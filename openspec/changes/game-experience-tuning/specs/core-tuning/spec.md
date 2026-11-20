@@ -63,13 +63,19 @@ MUST ser salva no cartão e mantida em imagens novas.
 - **THEN** a opção continua com o valor do usuário
 
 ### Requirement: Padrões novos em cartões existentes
-Um padrão de fábrica novo (chave do RetroArch ou opção de core) MUST chegar a um cartão que já tem
-configuração salva quando o cartão ainda não tem essa chave ou opção, e MUST NOT mudar uma chave
-ou opção que já está no cartão.
+Um padrão de fábrica novo (chave do RetroArch ou opção de core) MUST ser aplicado uma única vez a
+cada cartão, mesmo que o arquivo do cartão já traga essa chave ou opção com o valor padrão do
+RetroArch ou do core (o RetroArch grava todas as chaves e opções ao sair). O cartão MUST guardar
+quais padrões já foram aplicados; depois da primeira aplicação, o valor do cartão MUST NOT ser
+mudado pela distro. Um padrão que muda de valor numa imagem seguinte conta como padrão novo.
 
 #### Scenario: Cartão de antes da mudança
-- **WHEN** um cartão sem a chave do analógico como direcional inicia a imagem nova
-- **THEN** a chave aparece com o valor de fábrica, e as outras chaves do usuário ficam como estavam
+- **WHEN** um cartão cujo `retroarch.cfg` traz `input_player1_analog_dpad_mode = "0"` (gravado pelo RetroArch) inicia a imagem nova pela primeira vez
+- **THEN** a chave passa ao valor de fábrica, o cartão registra que esse padrão foi aplicado, e as outras chaves do usuário ficam como estavam
+
+#### Scenario: Padrão aplicado não volta
+- **WHEN** o padrão já foi aplicado num cartão e o RetroArch volta a gravar o arquivo com todas as chaves
+- **THEN** a distro não aplica o padrão de novo
 
 #### Scenario: Usuário já escolheu
 - **WHEN** o usuário desligou o analógico como direcional no menu e o cartão recebe outra imagem

@@ -76,6 +76,17 @@ medição pedir um valor diferente por console para uma opção, ele vai como ch
 quando o RetroArch tiver chave equivalente, e senão fica registrado como pendência (o `.opt` é
 um arquivo só no cartão compartilhado).
 
+**Revisão (J1, 2026-11-19):** "copiar só o que falta" não funciona num cartão real. O RetroArch
+grava todas as chaves no `retroarch.cfg` ao sair (e todas as opções no `.opt` do core), então o
+cartão do GA36 já tinha `input_player1_analog_dpad_mode = "0"` e o padrão de fábrica `"1"` nunca
+entrou (o analógico só andou no FBNeo, que lê o analógico por conta própria). Decisão do usuário:
+**aplicar cada padrão uma única vez por cartão** (tarefa 1.4). Um registro no cartão
+(`ROMS/system/lume/factory-applied`, uma linha `<arquivo> <chave>=<valor>` por padrão aplicado)
+diz o que já foi aplicado; na primeira vez o valor de fábrica vence o do arquivo do cartão, e
+depois nunca mais. Um padrão que muda de valor numa imagem seguinte tem outra linha, então é
+aplicado de novo uma vez. Um cartão novo, que recebe a cópia da fábrica, registra todos os
+padrões como aplicados.
+
 *Alternativa:* semear no `lume-persist` no boot. Recusada: o frontend já faz o merge das chaves
 fixas a cada início e conhece o caminho do usuário; o boot não ganha trabalho novo (prioridade do
 boot rápido).
