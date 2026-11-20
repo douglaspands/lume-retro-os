@@ -26,17 +26,25 @@
 # when RetroArch ends; if it was killed, at the start of the next run. RetroArch saves its
 # whole config, so without this the run's value would become the user's.
 #
-# New factory defaults reach cards that already have a saved config (game-experience-tuning
-# D3): every start adds to the user config the keys of factory/retroarch/retroarch.cfg it
-# lacks, and a game run adds to the core's options (config/<corename>/<corename>.opt, the
-# folder RetroArch uses) the options of factory/retroarch/config/<corename>/<corename>.opt it
-# lacks. A key or option the user already has is never changed.
-# BOARD_FILE, LUME_SHARE, LUME_INFO, LUME_EXTRA_CFG and LUME_RESTORE only change for the tests.
+# Factory defaults are applied once per card (game-experience-tuning D3, revised after J1):
+# RetroArch saves every key on exit (and every option of a core in its .opt), so a card
+# always "has" a key and adding only the missing ones never brings a new default in. Every
+# key of factory/retroarch/retroarch.cfg (every start) and every option of
+# factory/retroarch/config/<corename>/<corename>.opt (a game run of that core; the folder
+# RetroArch uses) is written over the card's value once, and recorded in APPLIED on the card,
+# one "<file> <key>=<value>" line each (retroarch.cfg or opt:<corename>). A recorded default
+# is never applied again, so the user's later choice stays (it only comes back to a card that
+# lacks the key, as the "#unset" of a run leaves it); a factory value that changes in a
+# new image is a new line and is applied once more. user_language is only added when
+# missing: the build language never overrides the one picked in the menu (FRONTEND.md).
+# BOARD_FILE, LUME_SHARE, LUME_INFO, LUME_EXTRA_CFG, LUME_RESTORE and LUME_FACTORY_APPLIED
+# only change for the tests.
 SHARE=${LUME_SHARE:-/usr/share/lume}
 FACTORY=$SHARE/factory/retroarch
 # the .info files of the installed cores (rootfs/configure.sh, libretro_info_path)
 INFO=${LUME_INFO:-/usr/share/lume/libretro-info}
 RESTORE=${LUME_RESTORE:-/storage/system/lume/retroarch-restore.cfg}
+APPLIED=${LUME_FACTORY_APPLIED:-/storage/system/lume/factory-applied}
 EXTRA=${LUME_EXTRA_CFG:-/run/lume/retroarch-extra.cfg}
 USER_CFG=$HOME/.config/retroarch/retroarch.cfg
 DEFAULTS=${XDG_RUNTIME_DIR:-/tmp}/retroarch-defaults.cfg
@@ -64,6 +72,8 @@ merge_fixed() {  # user_cfg fixed_cfg...
 # "#unset KEY" lines remove it (the user had none); then the file goes away.
 restore_user_keys() {
 	[ -f "$RESTORE" ] || return 0
+	# no user config yet (it is restored before the fixed keys create it): keep the file
+	[ -f "$USER_CFG" ] || return 0
 	awk '
 		function key(l) { if (match(l, /^[A-Za-z0-9_]+[ \t]*=/)) { k = substr(l, 1, RLENGTH - 1); sub(/[ \t]+$/, "", k); return k } return "" }
 		FILENAME != USER { if ($1 == "#unset") { del[$2] = 1; next } k = key($0); if (k != "") { if (!(k in val)) order[++n] = k; val[k] = $0 } next }
@@ -73,30 +83,80 @@ restore_user_keys() {
 		rm -f "$RESTORE"
 }
 
-# Adds to a user file the "KEY = value" lines of a factory file whose key it lacks, after
-# its own lines; a key the user file has keeps its value. One awk per pair of files, and the
-# user file is only rewritten (temp file + mv in its folder) when a key was missing. A user
-# file that does not exist is born as a copy of the factory one.
-seed_missing() {  # user_file factory_file
-	[ -f "$2" ] || return 0
-	if [ ! -f "$1" ]; then
-		mkdir -p "${1%/*}"
-		cp "$2" "$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"
-		return 0
+# Applies to a user file the "KEY = value" lines of a factory file that APPLIED does not list
+# yet for this file id: the factory line replaces the user's (in place; a repeated key keeps
+# one line) or is appended, and "<id> KEY=value" is added to APPLIED. A recorded default (and
+# a key in keep_keys, never recorded) is only added when the user file lacks it, as the "#unset"
+# of a run leaves it; the user's value is never changed again. A user file that does not exist
+# is born as a copy of the factory one, and its defaults are recorded. One awk per pair of
+# files, reading APPLIED once; nothing is written when every default is already recorded.
+# The user file is written first and APPLIED after it (each temp file + mv in its folder),
+# so a cut between the two applies the same values again on the next start. Without a
+# writable APPLIED (no card) nothing is applied.
+seed_defaults() {  # id user_file factory_file [keep_keys]
+	local id=$1 user=$2 factory=$3 keep=${4:-} new="" rc
+	[ -f "$factory" ] || return 0
+	set -- "$factory"
+	if [ -f "$APPLIED" ]; then
+		set -- "$APPLIED" "$@"
+	else
+		mkdir -p "${APPLIED%/*}" 2>/dev/null
 	fi
-	# exit 1: nothing missing, nothing written
+	if [ -f "$user" ]; then
+		set -- "$@" "$user"
+	else
+		new=1
+		mkdir -p "${user%/*}"
+	fi
+	# exit 1: nothing to apply, nothing written
 	awk '
 		function key(l) { if (match(l, /^[A-Za-z0-9_]+[ \t]*=/)) { k = substr(l, 1, RLENGTH - 1); sub(/[ \t]+$/, "", k); return k } return "" }
-		FILENAME == FACTORY { k = key($0); if (k != "") { if (!(k in want)) order[++n] = k; want[k] = $0 } next }
+		FILENAME == APPLIED { done[$0] = 1; old[++o] = $0; next }
+		FILENAME == FACTORY {
+			fl[++f] = $0
+			k = key($0)
+			if (k == "") next
+			v = substr($0, index($0, "=") + 1); sub(/^[ \t]+/, "", v); sub(/[ \t\r]+$/, "", v)
+			if (!(k in want)) order[++n] = k
+			want[k] = $0; ent[k] = ID " " k "=" v
+			next
+		}
 		{ line[++m] = $0; k = key($0); if (k != "") have[k] = 1 }
 		END {
-			for (i = 1; i <= n; i++) if (!(order[i] in have)) miss[++c] = want[order[i]]
-			if (!c) exit 1
-			for (i = 1; i <= m; i++) print line[i] > OUT
-			for (i = 1; i <= c; i++) print miss[i] > OUT
+			for (i = 1; i <= n; i++) {
+				k = order[i]
+				if (!index(KEEP, " " k " ") && !(ent[k] in done)) { put[k] = 1; rec[++r] = ent[k]; c++ }
+				else if (!NEW && !(k in have)) { add[k] = 1; c++ }
+			}
+			if (!c && !NEW) exit 1
+			if (NEW) for (i = 1; i <= f; i++) print fl[i] > OUT
+			else {
+				for (i = 1; i <= m; i++) {
+					k = key(line[i])
+					if (k != "" && (k in put)) { if (!(k in wrote)) print want[k] > OUT; wrote[k] = 1 }
+					else print line[i] > OUT
+				}
+				for (i = 1; i <= n; i++) { k = order[i]; if (((k in put) || (k in add)) && !(k in wrote)) print want[k] > OUT }
+			}
 			close(OUT)
+			if (!r) exit 0
+			for (i = 1; i <= o; i++) print old[i] > LOUT
+			for (i = 1; i <= r; i++) print rec[i] > LOUT
+			close(LOUT)
 		}
-	' FACTORY="$2" OUT="$1.tmp.$$" "$2" "$1" && mv -f "$1.tmp.$$" "$1"
+	' ID="$id" KEEP=" $keep " NEW="$new" APPLIED="$APPLIED" FACTORY="$factory" \
+		OUT="$user.tmp.$$" LOUT="$APPLIED.tmp.$$" "$@"
+	rc=$?
+	[ "$rc" = 1 ] && return 0
+	if [ "$rc" != 0 ]; then
+		rm -f "$user.tmp.$$" "$APPLIED.tmp.$$"
+		return 0
+	fi
+	mv -f "$user.tmp.$$" "$user"
+	if [ -f "$APPLIED.tmp.$$" ]; then
+		sync "$APPLIED.tmp.$$" 2>/dev/null
+		mv -f "$APPLIED.tmp.$$" "$APPLIED"
+	fi
 	return 0
 }
 
@@ -119,13 +179,14 @@ core_name() {  # core
 	done < "$INFO/${1}_libretro.info"
 }
 
-# shellcheck disable=SC2086
-merge_fixed "$USER_CFG" $CFGS
 # a run killed before it could put the user's values back
 restore_user_keys
-# factory defaults the card does not have yet (D3); after the restore, so a key the user
-# never had (the "#unset" of a run) gets the factory value
-seed_missing "$USER_CFG" "$FACTORY/retroarch.cfg"
+# factory defaults not yet applied on this card (D3); after the restore, so a key the user
+# never had (the "#unset" of a run) gets the factory value, and before the fixed keys, so a
+# board key that is also a factory default (video_threaded) keeps the board's value
+seed_defaults retroarch.cfg "$USER_CFG" "$FACTORY/retroarch.cfg" user_language
+# shellcheck disable=SC2086
+merge_fixed "$USER_CFG" $CFGS
 # distro defaults for the reset: factory config + fixed keys (skipped if the runtime dir
 # is not writable; the reset then behaves as upstream)
 if cp "$FACTORY/retroarch.cfg" "$DEFAULTS" 2>/dev/null; then
@@ -177,12 +238,12 @@ for a in "$@"; do
 	[ "$prev" = -L ] && CORE=${a##*/} && CORE=${CORE%_libretro.so}
 	prev=$a
 done
-# the factory options of this core that its options file lacks (D3); nothing to do (no
+# the factory options of this core not yet applied on this card (D3); nothing to do (no
 # process at all) for a core without factory options
 if [ -n "$CORE" ] && [ -d "$FACTORY/config" ]; then
 	core_name "$CORE"
 	if [ -n "$CORE_NAME" ] && [ -f "$FACTORY/config/$CORE_NAME/$CORE_NAME.opt" ]; then
-		seed_missing "$HOME/.config/retroarch/config/$CORE_NAME/$CORE_NAME.opt" \
+		seed_defaults "opt:$CORE_NAME" "$HOME/.config/retroarch/config/$CORE_NAME/$CORE_NAME.opt" \
 			"$FACTORY/config/$CORE_NAME/$CORE_NAME.opt"
 	fi
 fi

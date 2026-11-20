@@ -98,6 +98,22 @@ item "Desligar" do menu desliga o console (com confirmação). O mesmo script
 (`frontends/retroarch`) é o runner `retroarch` do launcher: ele grava as chaves fixas antes de
 cada execução e, quando o launcher pede, as chaves de uma execução só (aspecto, slot).
 
+Padrões de fábrica em cartões existentes (`game-experience-tuning`, D3): o RetroArch grava
+todas as chaves no `retroarch.cfg` ao sair (e todas as opções do core no `.opt` dele), então
+"acrescentar só o que falta" nunca traria um padrão novo. O script aplica cada chave do
+`factory/retroarch/retroarch.cfg` (a cada início) e cada opção do
+`factory/retroarch/config/<corename>/<corename>.opt` (num jogo daquele core) **uma única vez
+por cartão**, por cima do valor gravado, e registra em `ROMS/system/lume/factory-applied` uma
+linha `<arquivo> <chave>=<valor>` por padrão aplicado (`retroarch.cfg` ou `opt:<corename>`;
+gravação atômica, só quando há padrão novo). Depois disso o valor do cartão é do usuário e não
+muda mais; só volta o valor de fábrica de uma chave que sumiu do arquivo. Um padrão cujo valor
+muda numa imagem nova tem outra linha e é aplicado de novo, uma vez. Um cartão novo (arquivo
+nascido da cópia de fábrica) registra todos como aplicados. O `user_language` fica de fora: só
+entra quando falta, para o idioma do build nunca trocar o escolhido (ver Idioma). As chaves
+fixas entram depois, então uma chave da placa que também é padrão de fábrica (`video_threaded`)
+fica sempre com o valor da placa. Sem cartão gravável, nada é aplicado. Custo por início: uma
+leitura do registro num `awk` por par de arquivos, nada gravado quando não há padrão novo.
+
 ## Idioma
 
 O idioma da interface é o `user_language` do RetroArch, persistido em
