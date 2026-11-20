@@ -252,8 +252,14 @@ def test_arch_and_placement_in_the_lists():
         # the arch of the upstream aport (all: x86_64 is the upstream build, not built)
         assert aport_arches(cl.target_path(v)) == aport_arches(cl.upstream_path(v.upstream))
         assert v.package in common
+    ga36_text = (REPO_ROOT / "board/ga36/hw-packages.txt").read_text()
     for v in CYCLONE:
-        assert v.package in ga36 and v.package not in common and v.package not in r36s
+        assert v.package not in common and v.package not in r36s
+        if v.package in cl.SUSPENDED:
+            # out of the image for a recorded reason, the line kept commented out
+            assert v.package not in ga36 and f"#{v.package}" in ga36_text
+        else:
+            assert v.package in ga36
     for t in ("vm", "r36s", "ga36"):
         names = local_aports(get_target(t))
         assert all(v.package in names for v in PLAIN), t

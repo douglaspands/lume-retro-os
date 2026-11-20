@@ -78,6 +78,14 @@ VARIANTS = tuple(Variant(c) for c in CORES) + (
             "armv7"),
 )
 
+# Variants whose aport is kept but which are out of the image (commented out in their package
+# list), with the reason. GA36, 2026-11-20: abuild refuses the Cyclone/DrZ80 builds for text
+# relocations (the assembly is not position independent); the user decides the way out (P-114).
+SUSPENDED = {
+    "libretro-mame2000-cyclone-lume": "text relocations (P-114)",
+    "libretro-mame2003-plus-cyclone-lume": "text relocations (P-114)",
+}
+
 
 class CoresLumeError(Exception):
     pass

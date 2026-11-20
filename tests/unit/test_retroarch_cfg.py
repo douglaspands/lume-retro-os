@@ -914,7 +914,10 @@ def test_corename_fixture_covers_every_installed_core():
                 for line in path.read_text().splitlines()]
     cores = {p.removeprefix("libretro-").replace("-", "_") for p in packages
              if p.startswith("libretro-") and p != "libretro-core-info"}
-    assert cores == set(_corenames())
+    # suspended _lume variants (out of the image for a recorded reason) keep their fixture line
+    from lume_tool import cores_lume
+    suspended = {p.removeprefix("libretro-").replace("-", "_") for p in cores_lume.SUSPENDED}
+    assert cores == set(_corenames()) - suspended
 
 
 def test_factory_option_folders_are_corenames_of_installed_cores():
