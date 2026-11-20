@@ -67,9 +67,9 @@ condições recomendadas por tempo longo pode afetar a confiabilidade.
 
 O GA36 travou por inteiro com o FBNeo num jogo pesado de arcade, ~6,5 min depois de abrir, a
 1008 MHz (três vezes) e também com o teto em **912 MHz** (uma vez), a ~50 °C. Os dois clocks usam
-1,20 V. Ainda não se sabe se é tensão: o próximo teste que separa as causas é o mesmo jogo com o
-teto em **816 MHz (1,10 V)**; se travar também, a tensão sai da lista e sobram o vídeo e o core.
-Ver a P-115 em `docs/PENDENCIAS.md`.
+1,20 V. O teste que separava as causas, o mesmo jogo com o teto em **816 MHz (1,10 V)**, travou
+também (~3 min, boot 234): a tensão da CPU **não** é a causa; sobram o core, o vídeo e o que não
+é CPU. Ver a P-115 em `docs/PENDENCIAS.md`.
 
 ## Caminhos para explorar
 
