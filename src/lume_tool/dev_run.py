@@ -130,7 +130,8 @@ class Context:
         self.shot = self.shot or self._default_shot
         self.play = self.play or self._default_play
         self.push_love = self.push_love or self._default_push_love
-        games = dev_game.GameDriver(self.run, lambda seq: self.keys(seq))
+        games = dev_game.GameDriver(self.run, lambda seq: self.keys(seq),
+                                    sleep=lambda s: self.sleep(s), now=lambda: self.now())
         self.open_game = self.open_game or games.open
         self.close_game = self.close_game or games.close
         self.home = self.home or games.home

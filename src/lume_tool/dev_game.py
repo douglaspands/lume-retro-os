@@ -23,6 +23,7 @@ Navigation model, derived from lume/lume-ui/src/app.rs (see docs/BUILD.md):
 from __future__ import annotations
 
 import re
+import time
 
 from lume_tool.dev import DevError
 
@@ -37,6 +38,10 @@ INFO_LINE = re.compile(r"dock_index=(\d+) dock_count=(\d+) games=(\d+) focus=(\d
 SETTLE_MS = 300             # let the Dock/grid animations and the menu finish
 GRID_MS = 500               # the grid maps the index before it takes input
 CLOSE_SEQUENCE = "fn+start"
+STATUS_FILE = "/run/user/$u/lume/status"   # lume-run: ui | game:<runner> | off
+READY_TIMEOUT_S = 30.0      # the launcher starts again within a few seconds after a game
+READY_POLL_S = 0.5
+READY_SETTLE_S = 0.5        # first frame and the Dock state after the input is open
 
 
 def info_command(system: str) -> str:
@@ -112,14 +117,55 @@ def home_sequence(from_focus: int, dock_count: int) -> str:
     return ",".join(parts)
 
 
-class GameDriver:
-    """`open` and `close` hooks of the runner's Context; `run` and `keys` are injectable."""
+def ready_command() -> str:
+    """Remote POSIX sh command: `ready` when the launcher is back on the screen and takes
+    input, else `wait <state>` (task 6.4). Ready = lume-run's status file says `ui` (written
+    before it starts lume-ui, read by lume-logd for the frontend state) AND a lume-ui process
+    holds an evdev node open (lume-ui input.rs opens /dev/input/event* at start; a key sent
+    before that is lost, which is how open_game right after close_game hit the previous
+    game's menu). Prints only the state word (`ui`, `game:<runner>`, `off`)."""
+    return (
+        "u=$(id -u game 2>/dev/null || echo 0); "
+        f"s=$(head -n 1 {STATUS_FILE} 2>/dev/null); s=${{s%% *}}; "
+        "r=\"wait ${s:-none}\"; "
+        "if [ \"$s\" = ui ]; then r='wait no-input'; "
+        "for p in $(pidof lume-ui 2>/dev/null); do "
+        "for f in /proc/$p/fd/*; do case \"$(readlink \"$f\" 2>/dev/null)\" in "
+        "/dev/input/event*) r=ready; break 2;; esac; done; done; fi; "
+        "echo \"$r\""
+    )
 
-    def __init__(self, run, keys):
+
+class GameDriver:
+    """`open` and `close` hooks of the runner's Context; `run`, `keys`, `sleep` and `now` are
+    injectable."""
+
+    def __init__(self, run, keys, sleep=time.sleep, now=time.monotonic,
+                 ready_timeout: float = READY_TIMEOUT_S, settle_s: float = READY_SETTLE_S):
         self.run = run
         self.keys = keys
+        self.sleep = sleep
+        self.now = now
+        self.ready_timeout = ready_timeout
+        self.settle_s = settle_s
+
+    def wait_ready(self) -> None:
+        """Wait until the launcher is back on the screen (task 6.4), instead of a fixed
+        time: after close_game the launcher takes a moment to start again."""
+        end = self.now() + self.ready_timeout
+        while True:
+            state = self.run(ready_command()).strip()
+            if state == "ready":
+                if self.settle_s:
+                    self.sleep(self.settle_s)
+                return
+            if self.now() >= end:
+                raise DevError(f"the launcher is not back on the screen after "
+                               f"{self.ready_timeout:g}s ({state or 'no answer'})")
+            self.sleep(READY_POLL_S)
 
     def open(self, system: str, position: int) -> None:
+        self.wait_ready()
         dock_index, dock_count, games, focus = parse_info(self.run(info_command(system)))
         if games == 0 or dock_index == 0:
             raise DevError(f"system {system} has no games in the launcher index")
@@ -132,5 +178,6 @@ class GameDriver:
 
     def home(self) -> None:
         """Back to the Dock with the focus on Favorites (tile 0), from wherever it is."""
+        self.wait_ready()
         _, dock_count, _, focus = parse_info(self.run(info_command("none")))
         self.keys(home_sequence(focus % dock_count, dock_count))
