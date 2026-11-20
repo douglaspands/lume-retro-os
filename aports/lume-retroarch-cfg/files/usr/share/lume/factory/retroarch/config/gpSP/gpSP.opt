@@ -1,0 +1,2 @@
+gpsp_bios = "auto"
+gpsp_boot_mode = "bios"

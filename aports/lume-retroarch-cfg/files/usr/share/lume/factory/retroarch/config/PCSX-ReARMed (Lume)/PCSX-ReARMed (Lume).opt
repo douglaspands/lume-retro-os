@@ -1,0 +1,2 @@
+pcsx_rearmed_bios = "auto"
+pcsx_rearmed_show_bios_bootlogo = "enabled"

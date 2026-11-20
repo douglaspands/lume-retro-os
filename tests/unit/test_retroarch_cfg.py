@@ -648,7 +648,12 @@ def _new_defaults() -> list[tuple[str, str]]:
 def test_new_defaults_list_names_keys_of_the_factory_files():
     # "<file-id> <key>": retroarch.cfg or opt:<corename>, each key in that factory file
     entries = _new_defaults()
-    assert entries == [("retroarch.cfg", k) for k in ANALOG_KEYS]
+    # the analog stick (D4) and the official BIOS with its opening (the user, 2026-11-20)
+    assert entries == [("retroarch.cfg", k) for k in ANALOG_KEYS] + [
+        ("opt:Gambatte", "gambatte_gb_bootloader"), ("opt:gpSP", "gpsp_bios"),
+        ("opt:gpSP", "gpsp_boot_mode"), ("opt:Genesis Plus GX (Lume)", "genesis_plus_gx_bios"),
+        ("opt:PCSX-ReARMed (Lume)", "pcsx_rearmed_bios"),
+        ("opt:PCSX-ReARMed (Lume)", "pcsx_rearmed_show_bios_bootlogo")]
     assert len(entries) == len(set(entries))
     for file_id, key in entries:
         if file_id == "retroarch.cfg":
@@ -921,7 +926,10 @@ def test_first_run_of_a_lume_core_brings_the_users_options_and_remaps(tmp_path):
     _frontend(tmp_path, "ga36", "", args=GPGX_LUME, env_extra=env)
     lume = cfg / "Genesis Plus GX (Lume)"
     assert sorted(p.name for p in lume.iterdir()) == ["Genesis Plus GX (Lume).opt", "x.opt"]
-    assert (lume / "Genesis Plus GX (Lume).opt").read_text() == 'genesis_plus_gx_bram = "per game"\n'
+    # the user's options come first; then the factory options of the _lume core apply on
+    # them as on any old card (only the new-defaults keys: the official BIOS)
+    assert (lume / "Genesis Plus GX (Lume).opt").read_text().splitlines() == [
+        'genesis_plus_gx_bram = "per game"', 'genesis_plus_gx_bios = "enabled"']
     remaps = cfg / "remaps/Genesis Plus GX (Lume)"
     assert sorted(p.name for p in remaps.iterdir()) == ["Genesis Plus GX (Lume).rmp", "megadrive.rmp"]
     # the upstream folders stay (the user may go back to the upstream core)
@@ -931,19 +939,26 @@ def test_first_run_of_a_lume_core_brings_the_users_options_and_remaps(tmp_path):
     (lume / "Genesis Plus GX (Lume).opt").write_text('genesis_plus_gx_bram = "per cart"\n')
     (cfg / "Genesis Plus GX/new.opt").write_text("")
     _frontend(tmp_path, "ga36", args=GPGX_LUME, env_extra=env)
-    assert (lume / "Genesis Plus GX (Lume).opt").read_text() == 'genesis_plus_gx_bram = "per cart"\n'
+    assert 'genesis_plus_gx_bram = "per cart"' in (lume / "Genesis Plus GX (Lume).opt").read_text()
     assert not (lume / "new.opt").exists()
 
 
 def test_lume_core_without_upstream_folders_or_an_upstream_core_copies_nothing(tmp_path):
     env = _opt_env(tmp_path, {}, cores={"genesis_plus_gx_lume": "Genesis Plus GX (Lume)"})
     _frontend(tmp_path, "ga36", "", args=GPGX_LUME, env_extra=env)
-    assert not (tmp_path / "home/.config/retroarch/config/Genesis Plus GX (Lume)").exists()
+    # only the factory file is born (nothing of the upstream core to copy)
+    lume = tmp_path / "home/.config/retroarch/config/Genesis Plus GX (Lume)"
+    assert [p.name for p in lume.iterdir()] == ["Genesis Plus GX (Lume).opt"]
+    assert lume.joinpath("Genesis Plus GX (Lume).opt").read_text() == (
+        SHARE / "factory/retroarch/config/Genesis Plus GX (Lume)/Genesis Plus GX (Lume).opt").read_text()
     # an upstream core run never copies anything
     cfg = tmp_path / "home/.config/retroarch/config"
     (cfg / "Genesis Plus GX").mkdir(parents=True)
+    before = lume.joinpath("Genesis Plus GX (Lume).opt").read_text()
     _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
-    assert sorted(p.name for p in cfg.iterdir()) == ["Genesis Plus GX"]
+    assert sorted(p.name for p in cfg.iterdir()) == ["Genesis Plus GX", "Genesis Plus GX (Lume)"]
+    assert list((cfg / "Genesis Plus GX").iterdir()) == []
+    assert lume.joinpath("Genesis Plus GX (Lume).opt").read_text() == before
 
 
 def test_corename_is_read_with_any_spacing(tmp_path):

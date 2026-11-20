@@ -132,6 +132,11 @@ ADDED_AFTER_MOVE = {
     "etc/init.d/lume-card",
     # game-experience-tuning 1.4: the factory defaults old cards get once (lume-retroarch-cfg)
     "usr/share/lume/factory/new-defaults",
+    # 2026-11-20, the user: the official BIOS and its opening in every core that offers it
+    "usr/share/lume/factory/retroarch/config/Gambatte/Gambatte.opt",
+    "usr/share/lume/factory/retroarch/config/gpSP/gpSP.opt",
+    "usr/share/lume/factory/retroarch/config/Genesis Plus GX (Lume)/Genesis Plus GX (Lume).opt",
+    "usr/share/lume/factory/retroarch/config/PCSX-ReARMed (Lume)/PCSX-ReARMed (Lume).opt",
 }
 
 
