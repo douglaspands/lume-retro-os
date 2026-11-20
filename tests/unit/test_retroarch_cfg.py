@@ -582,6 +582,35 @@ def test_factory_key_of_a_run_the_user_never_had_gets_the_factory_value(tmp_path
     assert cfg.count("video_threaded") == 1
 
 
+ANALOG_KEYS = [f"input_player{n}_analog_dpad_mode" for n in range(1, 5)]
+
+
+def test_analog_stick_replaces_the_dpad_by_default_for_four_players():
+    # game-experience-tuning D4: RetroArch ANALOG_DPAD_LSTICK = 1; a user default, never fixed
+    for key in ANALOG_KEYS:
+        assert f'{key} = "1"' in FACTORY.splitlines(), key
+        assert key not in CFG
+    fixed_layers = [SHARE / "retroarch-core.keys", *SHARE.glob("retroarch-*.cfg")]
+    for path in fixed_layers:
+        assert "analog_dpad_mode" not in path.read_text(), path.name
+
+
+def test_analog_dpad_mode_reaches_an_old_card_and_keeps_the_users_zero(tmp_path):
+    _, cfg, _ = _frontend(tmp_path, "ga36", 'menu_driver = "xmb"\n')
+    lines = cfg.splitlines()
+    for key in ANALOG_KEYS:
+        assert f'{key} = "1"' in lines, key
+    # a user who turned it off in the menu keeps "0" on the next starts
+    user = 'input_player1_analog_dpad_mode = "0"\n'
+    (tmp_path / "b").mkdir()
+    _, cfg, _ = _frontend(tmp_path / "b", "r36s", user)
+    lines = cfg.splitlines()
+    assert 'input_player1_analog_dpad_mode = "0"' in lines
+    assert 'input_player1_analog_dpad_mode = "1"' not in lines
+    assert sum(1 for line in lines if line.startswith("input_player1_analog_dpad_mode")) == 1
+    assert 'input_player2_analog_dpad_mode = "1"' in lines
+
+
 def _opt_env(tmp_path, opts: dict[str, str], cores: dict[str, str] | None = None,
              info_text=None) -> dict:
     """A share with factory .opt files ({corename: text}) and .info files for the cores."""
