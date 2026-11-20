@@ -45,7 +45,8 @@ são tocados pela sessão principal (nó 4.2), nunca por subagente.
 | 6.3 | 6.1 | R36S, USUARIO | PR | — | 4 | J2 |
 | 7.5 | 6.3, 7.2, 7.3, 7.4 | R36S | PR | — | 7 | J2 |
 | 8.1 | 7.2, 7.3, 7.4, 7.5 | — | AG | sonnet | 8 | |
-| 8.2 | 8.1 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S, USUARIO | PR | — | 9 | J3 |
+| 9.5 | 9.4 | — (código); GA36, R36S, USUARIO (prova única) | AG+PR | opus (a aprovar) | 8 | J3 |
+| 8.2 | 8.1, 9.5 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S, USUARIO | PR | — | 9 | J3 |
 
 Modelos: aprovados pelo usuário em 2026-11-19 (ondas 0, 1 e 2, sem trocas, em paralelo; a 9.2 só registra a pendência, feita na sessão principal).
 
@@ -133,6 +134,8 @@ Estado em 2026-11-19, antes da 6.1: o código de 1.3, 2.3, 3.1, 4.1, 4.3 e 9.3 e
   - 2026-11-20: feita na 10.2 (`GameDriver.open` espera o launcher pronto); no GA36 (boot 228) os 37 romsets abriram e fecharam em sequência sem a espera de 3 s.
 - [x] 6.3 J2, R36S: o mesmo da 6.2 no R36S. Verificação: anotado no `docs/BRINGUP-R36S.md`.
   - 2026-11-20 (boot 237, build `20261120-142940`, o cartão do GA36 desligado normalmente): boot conferido (desligamento anterior limpo, cartão limpo, 121 jogos no índice, frontend em 18,9 s); o roteiro `new-cores.toml` passou (os seis sistemas abrem no core novo, os três `_lume` aarch64); 2.3 passou; BIOS carregadas (1.5). Linha de base (7.5) em andamento.
+
+- [ ] 9.5 Acordar o console sem o botão, para as provas de suspensão serem automáticas (pedido do usuário, 2026-11-20, depois de o GA36 dormir com ele longe): (a) **despertar pelo RTC num modo de teste do `lume-sleep`:** um arquivo `/run/lume/sleep.test-wake` (dono root, modo 0600; outro dono ou modo é ignorado e registrado), com os segundos até acordar, faz a suspensão seguinte manter o RTC fora da lista `nowake`, armar o alarme (`/sys/class/rtc/rtc0/wakealarm`) e apagar o arquivo; sem ele, nada muda no uso normal (só o botão acorda); o evento diz `sleep OK test wake armed <s>`; a ferramenta (`lume dev run`, passo novo `suspend` com `wake_after`) cria o arquivo, pede a suspensão e espera o console voltar; (b) **despertar pelo cabo:** investigar se o cabo USB pode acordar o console (o `musb` do GA36 arma a interrupção como despertar, mas o gadget é desligado antes do sono, `ga36.conf`; no R36S, o OTG do RK3326) e, se der, oferecer como segunda opção; se não der, anotar por quê. Verificação: testes de shell do `lume-sleep` (arquivo do root arma o RTC e some; arquivo de outro dono é ignorado; sem arquivo, o RTC continua na lista); prova única com o usuário perto em cada console (se não acordar, ele aperta o botão); depois, a 9.4 refeita sozinha pela ferramenta: 10 suspensões seguidas no GA36, do launcher e de dentro de um jogo, com a `ROMS` só leitura enquanto dorme.
 
 Validação do usuário (2026-11-20): "está tudo funcionando, posso dar como validado por mim" as provas no aparelho que dependiam dele: o PS1 com DualShock (1.3), as aberturas das BIOS no R36S (1.5), o cartão limpo (4.3, 6.2), a troca do cartão com o console suspenso (9.3) e as suspensões seguidas (9.4). Para automatizar as provas de suspensão do GA36 no futuro: o despertar pelo alarme do RTC (desligado de propósito pelo `lume-sleep`) precisa de uma prova única com o usuário perto e de um modo de teste no `lume-sleep` (arquivo em `/run`, só root, que mantém o RTC ligado numa suspensão).
 
