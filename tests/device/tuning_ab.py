@@ -63,12 +63,34 @@ def resolve_plan(ref: str) -> Path:
 
 
 def _events_from_now(ctx: dev_run.Context) -> None:
-    """Only the events written from now on count (what dev_run.run_script does first)."""
+    """Only the events written from now on count (what dev_run.run_script does first). The
+    line offset alone is not enough: a card log with old lines past the offset (J1, 2026-11-20:
+    an end of a game of the boot before was read as the end of the game just opened) would
+    match, so the current boot and console time are kept too (see _game_events)."""
     try:
         ctx.start_lines = ctx.seen = int(ctx.run(dev_run.count_command()).strip() or 0)
     except (dev.DevError, ValueError):
         ctx.start_lines = ctx.seen = 0
     ctx.seen_lines = set(dev_run.read_pending(ctx))
+    try:
+        boot, now = ctx.run(NOW_COMMAND).split()
+    except (dev.DevError, ValueError):
+        boot, now = "", ""
+    ctx.events_boot, ctx.events_since = boot, now
+
+
+# the boot number and the console time, as the event lines write them
+NOW_COMMAND = "cat /storage/logs/.boot 2>/dev/null || echo -; date +%Y-%m-%dT%H:%M:%S"
+
+
+def _is_current(ctx: dev_run.Context, line: str) -> bool:
+    """A cut event line of this boot written at or after _events_from_now."""
+    boot = getattr(ctx, "events_boot", "")
+    since = getattr(ctx, "events_since", "")
+    parts = line.split()
+    if len(parts) < 2 or not boot or boot == "-" or not since:
+        return True
+    return parts[1] == boot and parts[0] >= since
 
 
 def open_game(ctx: dev_run.Context, core: tuning.CorePlan) -> None:
@@ -112,7 +134,8 @@ def _game_events(ctx: dev_run.Context) -> list[str]:
     except dev.DevError as e:
         raise tuning.TuningError(f"events of the console: {e}") from None
     return [ln for ln in lines
-            if len(ln.split()) >= 3 and ln.split()[2] == dev_run.GAME_CATEGORY]
+            if len(ln.split()) >= 3 and ln.split()[2] == dev_run.GAME_CATEGORY
+            and _is_current(ctx, ln)]
 
 
 def watch_warmup(ctx: dev_run.Context, system: str, seconds: float) -> str | None:

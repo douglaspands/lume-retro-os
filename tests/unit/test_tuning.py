@@ -832,6 +832,8 @@ class EventConsole:
             return ""
         if cmd == tuning.build_id_command():
             return "b42\n"
+        if "date +%Y" in cmd:                       # tuning_ab.NOW_COMMAND
+            return getattr(self, "now_answer", "-\nT\n")
         if "_libretro.so ]" in cmd:
             return tuning.MISSING + "\n" if "fbalpha2012" in cmd else tuning.INSTALLED + "\n"
         return "saved applied\n"
@@ -865,6 +867,19 @@ def test_open_core_reports_why_b_did_not_open(events, reason):
     ctx = event_ctx(console, lambda: console.lines.extend(events))
     with pytest.raises(mod.NotOpened, match=f"^{reason}$"):
         mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
+
+
+def test_an_old_end_of_another_boot_is_not_the_end_of_the_game_just_opened():
+    # J1, 2026-11-20: the card log had the end of a game of the boot before past the line
+    # offset, and the comparison stopped at once with "did not stay open"
+    mod = load_script()
+    console = EventConsole()
+    console.now_answer = "225\n2026-11-20T00:09:20\n"
+    ctx = event_ctx(console, lambda: console.lines.extend([
+        "2026-11-19T22:28:23 223 game OK arcade retroarch fbneo exit=0 end=menu-quit secs=57",
+        "2026-11-20T00:09:10 225 game OK arcade retroarch fbneo exit=0 end=menu-quit secs=5",
+        "2026-11-20T00:09:21 225 game OK arcade retroarch mame2000 start"]))
+    mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
 
 
 def test_open_core_passes_when_the_game_stays_open():
