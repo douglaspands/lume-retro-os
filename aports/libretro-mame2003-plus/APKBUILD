@@ -1,14 +1,17 @@
-# Pacote local do Lume Retro OS (não existe no Alpine).
+# Lume Retro OS local package (not in Alpine).
+# MAME 2003-Plus (MAME 0.78 plus backports): an alternative arcade core under measurement
+# against fbneo on the GA36 (game-experience-tuning 10; it was disabled on 2026-11-11, when
+# the arcade went to fbneo on every console). Default upstream build (Makefile, platform unix,
+# -O2), no per-CPU flags: they wait for P-10. The commit is the newest of master (2026-11-19).
+# MAME non-commercial license (LICENSE.md, installed in /usr/share/licenses/). The info file
+# comes from libretro-core-info (mame2003_plus_libretro.info), copied by rootfs/configure.sh.
 pkgname=libretro-mame2003-plus
-pkgver=0_git20261109
-pkgrel=2
-_commit="4f6b3b46a36fa486c4887b0d172bca8c34e670e7"
-pkgdesc="MAME 0.78 com melhorias, core arcade leve para libretro"
+pkgver=0_git20261119
+pkgrel=0
+_commit="2a60eda71ae0fea543a76a43b5d58086a5485256"
+pkgdesc="MAME 2003-Plus (MAME 0.78 with backports), arcade core for libretro"
 url="https://github.com/libretro/mame2003-plus-libretro"
-# Disabled (Alpine convention: empty arch) on the user's request (2026-11-11): the arcade
-# uses fbneo on every console. To bring it back: arch="all", libretro-mame2003-plus in
-# rootfs/packages.txt and the core in systems.json.
-arch=""
+arch="all"
 license="custom:MAME"
 makedepends="linux-headers"
 source="$pkgname-$_commit.tar.gz::https://github.com/libretro/mame2003-plus-libretro/archive/$_commit.tar.gz"
@@ -17,9 +20,9 @@ options="!check" # No tests
 
 prepare() {
 	default_prepare
-	# O vídeo do ST-V força TLS initial-exec, que o musl recusa num .so carregado
-	# por dlopen ("initial-exec TLS resolves to dynamic definition"). Sem o
-	# atributo, o compilador usa o modelo dinâmico, que funciona no musl.
+	# The ST-V video forces initial-exec TLS, which musl refuses in a .so opened by dlopen
+	# ("initial-exec TLS resolves to dynamic definition"). Without the attribute the
+	# compiler uses the dynamic model, which works on musl.
 	sed -i 's/__thread __attribute__((tls_model("initial-exec")))/__thread/' \
 		src/vidhrdw/stvvid.c
 	grep -q 'tls_model("initial-exec")' src/vidhrdw/stvvid.c && return 1
@@ -32,7 +35,8 @@ build() {
 
 package() {
 	install -Dm644 mame2003_plus_libretro.so "$pkgdir"/usr/lib/libretro/mame2003_plus_libretro.so
+	install -Dm644 LICENSE.md "$pkgdir"/usr/share/licenses/$pkgname/LICENSE.md
 }
 sha512sums="
-b26e58817c27a627604fb19506ae55beac93b83798fe22fb719535f579ec95da5f124dd0f2ab4a3d842ab8277bb63102caf25c334e4c3cf8dd161fe5b629b16f  libretro-mame2003-plus-4f6b3b46a36fa486c4887b0d172bca8c34e670e7.tar.gz
+0917477950aea327c735a5655b1bc4aead70e1d179c4f8e9dc2254472a4fa092a2f139a3963c044007d71537cb96b29610b8bb34a4931b0a131f34928a541abc  libretro-mame2003-plus-2a60eda71ae0fea543a76a43b5d58086a5485256.tar.gz
 "

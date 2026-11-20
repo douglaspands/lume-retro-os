@@ -25,5 +25,6 @@ def test_local_cores_load():
     )
     print(r.stdout)
     assert r.returncode == 0, r.stdout + r.stderr
-    # 5 local cores of the catalog + the 3 fbalpha2012_* (catalog-arcade-sega)
-    assert r.stdout.count("PASS") == 8
+    # 5 local cores of the catalog + the 3 fbalpha2012_* (catalog-arcade-sega) + mednafen_pce_fast
+    # (game-experience-tuning D8) + the 3 alternative arcade cores (game-experience-tuning 10)
+    assert r.stdout.count("PASS") == 12
