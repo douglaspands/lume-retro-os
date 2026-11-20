@@ -152,25 +152,35 @@ def test_baseline_plan_file_is_valid():
 
 # --- sequences / dry run ---------------------------------------------------------------
 
-def test_sequences_baseline_first_then_aba_per_variant():
+def test_sequences_take_the_baseline_from_the_first_aba_of_a_core_with_variants():
+    # a core with variants needs no separate A, A: the A1 and A2 of its first A, B, A are the
+    # baseline (user, 2026-11-20); a core without variants still gets A, A
     plan = tuning.validate_plan(PLAN)
     seqs = tuning.build_sequences(plan, "ga36", baselines=set())
-    assert [(s.core.core, s.name) for s in seqs] == [
-        ("fceumm", "baseline"), ("fceumm", "threaded-off"), ("fceumm", "sound-high"),
-        ("gpsp", "baseline")]
-    assert [r.label for r in seqs[0].runs] == ["A1", "A2"]
-    assert [(r.label, r.variant is not None) for r in seqs[1].runs] == [
+    assert [(s.core.core, s.name, s.also_baseline) for s in seqs] == [
+        ("fceumm", "threaded-off", True), ("fceumm", "sound-high", False),
+        ("gpsp", "baseline", False)]
+    assert [(r.label, r.variant is not None) for r in seqs[0].runs] == [
         ("A1", False), ("B", True), ("A2", False)]
+    assert [r.label for r in seqs[2].runs] == ["A1", "A2"]
 
 
 def test_sequences_skip_a_measured_baseline_and_filter():
     plan = tuning.validate_plan(PLAN)
     seqs = tuning.build_sequences(plan, "ga36", baselines={"fceumm", "gpsp"})
-    assert [s.name for s in seqs] == ["threaded-off", "sound-high"]
+    assert [(s.name, s.also_baseline) for s in seqs] == [
+        ("threaded-off", False), ("sound-high", False)]
     only = tuning.build_sequences(plan, "ga36", {"fceumm"}, only="fceumm:sound-high")
     assert [s.name for s in only] == ["sound-high"]
     again = tuning.build_sequences(plan, "ga36", {"fceumm"}, rebaseline=True, only="fceumm")
-    assert [s.name for s in again] == ["baseline", "threaded-off", "sound-high"]
+    assert [(s.name, s.also_baseline) for s in again] == [
+        ("threaded-off", True), ("sound-high", False)]
+    # asking for the baseline alone still measures A, A
+    base = tuning.build_sequences(plan, "ga36", set(), only="fceumm:baseline")
+    assert [(s.name, len(s.runs)) for s in base] == [("baseline", 2)]
+    # a filtered variant of a core without a baseline carries it
+    one = tuning.build_sequences(plan, "ga36", set(), only="fceumm:sound-high")
+    assert [(s.name, s.also_baseline) for s in one] == [("sound-high", True)]
     with pytest.raises(TuningError):
         tuning.build_sequences(plan, "ga36", set(), only="nestopia")
     with pytest.raises(TuningError):
@@ -180,8 +190,9 @@ def test_sequences_skip_a_measured_baseline_and_filter():
 def test_dry_run_text_names_no_game():
     plan = tuning.validate_plan(PLAN)
     text = tuning.format_sequences(tuning.build_sequences(plan, "ga36", set()), "ga36")
-    assert "console ga36: 4 sequence(s), 10 run(s) of 30+120 s" in text
+    assert "console ga36: 3 sequence(s), 8 run(s) of 30+120 s" in text
     assert "fceumm threaded-off: system nes game #1 (retroarch)" in text
+    assert "A1 and A2 are also the baseline of the core (no separate A, A)" in text
     assert "B: apply ra:video_threaded=false; open; wait 30 s; measure 120 s" in text
 
 
@@ -323,7 +334,7 @@ def core_plan(core="fceumm", system="nes", position=1):
 def test_report_files_have_the_generated_header():
     for console in ("ga36", "r36s"):
         text = (REPO / f"docs/tuning/{console}.md").read_text(encoding="utf-8")
-        assert text == tuning.report_header(console)       # header only, no measurement yet
+        assert text.startswith(tuning.report_header(console))  # measured rows follow it
 
 
 def test_rows_are_appended_and_parsed(tmp_path):

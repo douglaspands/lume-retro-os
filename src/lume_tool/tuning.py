@@ -281,6 +281,9 @@ class Sequence:
     core: CorePlan
     variant: Variant | None         # None = baseline
     runs: tuple[Run, ...]
+    # the A1 and A2 of this A, B, A sequence are also the core's baseline (written before the
+    # variant row), so a core with variants needs no separate A, A sequence (user, 2026-11-20)
+    also_baseline: bool = False
 
     @property
     def name(self) -> str:
@@ -289,9 +292,11 @@ class Sequence:
 
 def build_sequences(plan: Plan, console: str, baselines: set[str], rebaseline: bool = False,
                     only: str | None = None) -> list[Sequence]:
-    """The measurement sequences for `console`. A core gets a baseline (A, A) when the report
-    has none for it (`baselines`, the cores with one) or with `rebaseline`; every variant is
-    A, B, A, after the baseline. `only` is `core` or `core:variant`."""
+    """The measurement sequences for `console`. A core needs a baseline when the report has
+    none for it (`baselines`, the cores with one) or with `rebaseline`: a core with variants
+    takes it from the A1 and A2 of its first A, B, A sequence (`also_baseline`); a core with
+    none (or `only` asking for the baseline) gets a separate A, A. Every variant is A, B, A.
+    `only` is `core` or `core:variant`."""
     if console not in plan.consoles:
         raise TuningError(f"plan is for {', '.join(plan.consoles)}, not {console}")
     want_core, _, want_variant = (only or "").partition(":")
@@ -299,13 +304,16 @@ def build_sequences(plan: Plan, console: str, baselines: set[str], rebaseline: b
     for c in plan.cores:
         if want_core and c.core != want_core:
             continue
-        if not c.compares_cores and (rebaseline or c.core not in baselines):
+        needs_base = not c.compares_cores and (rebaseline or c.core not in baselines)
+        variants = [v for v in c.variants if not want_variant or v.name == want_variant]
+        if needs_base and (want_variant == BASELINE or not variants):
             if not want_variant or want_variant == BASELINE:
                 out.append(Sequence(c, None, (Run("A1", None), Run("A2", None))))
-        for v in c.variants:
-            if want_variant and v.name != want_variant:
-                continue
-            out.append(Sequence(c, v, (Run("A1", None), Run("B", v), Run("A2", None))))
+            needs_base = False
+        for v in variants:
+            out.append(Sequence(c, v, (Run("A1", None), Run("B", v), Run("A2", None)),
+                                also_baseline=needs_base))
+            needs_base = False
     if only and not out:
         raise TuningError(f"nothing in the plan matches {only}")
     return out
@@ -322,6 +330,8 @@ def format_sequences(seqs: list[Sequence], console: str, warmup: int = WARMUP_S,
         c = s.core
         lines.append(f"{n}. {c.core} {s.name}: system {c.system} game #{c.position}"
                      f" ({c.process})")
+        if s.also_baseline:
+            lines.append("   A1 and A2 are also the baseline of the core (no separate A, A)")
         if s.variant is not None and s.variant.core:
             lines.append(f"   check: core {s.variant.core} installed, else the sequence is "
                          f"\"not installed\"")

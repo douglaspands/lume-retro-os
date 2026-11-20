@@ -290,6 +290,11 @@ def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: 
         if seq.variant is None:
             row = tuning.baseline_row(date, build, seq.core, *results)
         else:
+            if seq.also_baseline:
+                # the two A runs of this sequence are the core's baseline, written first
+                tuning.append_row(report, console,
+                                  tuning.baseline_row(date, build, seq.core, results[0],
+                                                      results[2]))
             row = tuning.variant_row(date, build, seq.core, seq.variant, *results)
         tuning.append_row(report, console, row)
         print(f"  -> {row.decision}", flush=True)
