@@ -1,0 +1,92 @@
+description = "The cores of game-experience-tuning 10.5 and 11.5: the first game of each changed system opens in the expected core, runs 15 s and closes (no game is named)."
+consoles = ["ga36", "r36s"]
+
+[[step]]
+name = "open the first megadrive game"
+type = "open_game"
+system = "megadrive"
+position = 1
+
+[[step]]
+name = "started in genesis_plus_gx_lume"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK megadrive retroarch ' | grep ' start' | tail -n 1 | grep -q ' genesis_plus_gx_lume start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
+
+[[step]]
+name = "open the first snes game"
+type = "open_game"
+system = "snes"
+position = 1
+
+[[step]]
+name = "started in snes9x2005_plus_lume"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK snes retroarch ' | grep ' start' | tail -n 1 | grep -q ' snes9x2005_plus_lume start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
+
+[[step]]
+name = "open the first psx game"
+type = "open_game"
+system = "psx"
+position = 1
+
+[[step]]
+name = "started in pcsx_rearmed_lume"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK psx retroarch ' | grep ' start' | tail -n 1 | grep -q ' pcsx_rearmed_lume start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
+
+[[step]]
+name = "open the first cps1 game"
+type = "open_game"
+system = "cps1"
+position = 1
+
+[[step]]
+name = "started in fbalpha2012"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK cps1 retroarch ' | grep ' start' | tail -n 1 | grep -q ' fbalpha2012 start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
+
+[[step]]
+name = "open the first neogeo game"
+type = "open_game"
+system = "neogeo"
+position = 1
+
+[[step]]
+name = "started in fbalpha2012"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK neogeo retroarch ' | grep ' start' | tail -n 1 | grep -q ' fbalpha2012 start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
+
+[[step]]
+name = "open the first arcade game"
+type = "open_game"
+system = "arcade"
+position = 1
+
+[[step]]
+name = "started in fbalpha2012"
+type = "sh"
+command = "sleep 15; cat /storage/logs/events.log /run/lume/logs/events.pending 2>/dev/null | grep ' game OK arcade retroarch ' | grep ' start' | tail -n 1 | grep -q ' fbalpha2012 start'"
+
+[[step]]
+name = "close the game"
+type = "close_game"
