@@ -907,7 +907,11 @@ def test_corename_is_read_with_any_spacing(tmp_path):
 
 def test_corename_fixture_covers_every_installed_core():
     # the core files of the libretro-* packages (package name with "_" for "-")
-    packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
+    # (the common list and the hardware lists: the armv7-only Cyclone builds are in the GA36's)
+    packages = [line.split("#", 1)[0].strip()
+                for path in [REPO_ROOT / "rootfs/packages.txt",
+                             *sorted((REPO_ROOT / "board").glob("*/hw-packages.txt"))]
+                for line in path.read_text().splitlines()]
     cores = {p.removeprefix("libretro-").replace("-", "_") for p in packages
              if p.startswith("libretro-") and p != "libretro-core-info"}
     assert cores == set(_corenames())

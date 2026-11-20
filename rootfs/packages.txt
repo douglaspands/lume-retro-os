@@ -128,3 +128,27 @@ libretro-mednafen-pce-fast
 libretro-fbalpha2012
 libretro-mame2003-plus
 libretro-mame2000
+
+# CPU-flag builds under measurement, game-experience-tuning 11, not in the catalog until 11.5.
+# Generated from the aports above by `lume cores-lume` (the four Alpine cores from
+# aports/_upstream): the same code and optimisation level with the CPU flags of the console
+# (armv7 -marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard, aarch64 -mcpu=cortex-a35),
+# core ids <core>_lume. For x86_64 they are the upstream build (the vm is out of the build cycle
+# and they are not built for it). The armv7-only Cyclone/DrZ80 builds of the two MAME cores are in
+# board/ga36/hw-packages.txt.
+libretro-fceumm-lume
+libretro-nestopia-lume
+libretro-gambatte-lume
+libretro-gpsp-lume
+libretro-snes9x2005-plus-lume
+libretro-genesis-plus-gx-lume
+libretro-picodrive-lume
+libretro-fbneo-lume
+libretro-fbalpha2012-cps1-lume
+libretro-fbalpha2012-cps2-lume
+libretro-fbalpha2012-neogeo-lume
+libretro-pcsx-rearmed-lume
+libretro-mednafen-pce-fast-lume
+libretro-fbalpha2012-lume
+libretro-mame2003-plus-lume
+libretro-mame2000-lume
