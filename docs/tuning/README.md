@@ -176,14 +176,17 @@ fica registrada aqui. Estado no GA36 em 2026-11-20:
 | `audio_driver = "alsathread"` | "aceito" em vários cores | **fora**: ponto cego da medida de áudio (acima); o ouvido mostrou o mesmo picote |
 | `video_max_swapchain_images = 2` | recusado em todos | fora |
 | `audio_resampler_quality = 1` | recusado (sem ganho acima do ruído) | fora |
-| `audio_latency = 96` | aceito só no `gambatte` (GBC: +1,4 quadros/s) | a decidir pelo usuário (ganho pequeno, só num core) |
+| `audio_latency = 96` | aceito só no `gambatte` (GBC: +1,4 quadros/s) no GA36; recusado no R36S (GBC e GB, sem ganho) | **fora** (recomendação; 32 ms a mais de atraso do som para um jogo de um console) |
 | `video_threaded = false` | travou o GA36 (fora das medições) | fora; o PS1 já roda sem thread de vídeo por estabilidade (`retroarch-core.keys`) |
 | core por placa de arcade | comparação de cores (10.2) | aplicado: catálogo (10.5) e core por jogo no cartão do usuário |
 | build `_lume` (flags do processador) | comparação de cores (11.3) | aplicado: `genesis_plus_gx_lume`, `snes9x2005_plus_lume`, `pcsx_rearmed_lume` |
 | BIOS oficial e abertura | pedido do usuário (1.5), não é ganho de desempenho | aplicado (`.opt` de fábrica e `new-defaults`) |
 
-Faltam as medições das opções do `fbneo` (`fbneo-options.toml`, 7.3) e do LÖVE
-(`love-runner.toml`, 7.4), e todo o R36S (7.5).
+Medidos também: as opções do `fbneo` e do `mame2003_plus` nos jogos lentos (7.3, todas
+recusadas: limite da CPU do A33), as variáveis do LÖVE (7.4, recusadas) e o R36S (7.5, nenhuma
+chave aceita). **Velocidade no R36S:** a tela de 59,02 Hz fica dentro dos 5% de
+`audio_max_timing_skew`, e o RetroArch põe o core no ritmo dela; a velocidade é medida contra a
+taxa da tela nesse caso (`tuning.target_fps`).
 
 ## Ligação com a P-10
 
