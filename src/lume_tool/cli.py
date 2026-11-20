@@ -220,8 +220,12 @@ def _heat_guarded(fn):
     printed here. A HeatAbort replaces whatever error the killed containers caused, and
     nothing stays paused when this returns.
     """
-    from lume_tool import heat
+    import time
 
+    from lume_tool import heat, jobs
+
+    used, forced = jobs.jobs(), jobs.source() == "option"
+    started = time.monotonic()
     guard = heat.guard_from_env().start()
     heat.ACTIVE = guard
     try:
@@ -237,6 +241,17 @@ def _heat_guarded(fn):
             for line in guard.summary.lines():
                 print(line, flush=True)
         heat.ACTIVE = None
+        # the healthy parallelism for the next builds (jobs.py); a log-only guard never
+        # pauses, so it says nothing about the heat the pauses would show
+        if not guard.log_only:
+            s = guard.summary
+            try:
+                line = jobs.learn(used, time.monotonic() - started, s.pauses, s.max_cpu,
+                                  guard.limit, aborted=guard.error is not None, forced=forced)
+            except OSError as e:
+                line = f"jobs learning: not recorded ({e})"
+            if line:
+                print(line, flush=True)
     guard.check()
     return result
 

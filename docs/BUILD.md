@@ -139,7 +139,25 @@ O número de tarefas em paralelo vem de um só lugar (`src/lume_tool/jobs.py`):
 
 1. a opção `--jobs N` (aceita por `build`, `pkg` e `push`), que vence tudo;
 2. a variável de ambiente `LUME_JOBS`;
-3. o padrão: **metade dos núcleos** (mínimo 1).
+3. o valor **aprendido** pelos builds anteriores (abaixo);
+4. o padrão: **metade dos núcleos** (mínimo 1).
+
+**Paralelismo aprendido** (pedido do usuário, 2026-11-20: um build que pausa pelo calor o
+tempo todo fica mais lento). Ao fim de todo build de pelo menos 5 minutos, o `lume` olha o que
+a proteção de calor viu e define as tarefas dos próximos builds em `.cache/build-jobs.json`
+(com o histórico das últimas 30 execuções):
+
+| O build teve | Próximos builds |
+|---|---|
+| 3 ou mais pausas de calor (ou o aborto por calor) | 2 tarefas a menos |
+| 1 ou 2 pausas | 1 a menos |
+| nenhuma pausa e pico abaixo do ponto de retomada (limite − 10 °C, hoje 75 °C) | 1 a mais, até o número de núcleos |
+| nenhuma pausa e pico entre 75 e 85 °C | mantém: é o ponto saudável |
+
+Assim o build sobe enquanto fica frio e desce até um calor tolerável. Uma execução com
+`--jobs`/`LUME_JOBS` entra no histórico mas não muda o valor aprendido; apagar o arquivo volta
+ao padrão. No fim do build sai uma linha `jobs learning: 8 -> 6 for the next builds (21 heat
+pauses, peak 85.2 C)`, e no começo `jobs: 6 (16 cores, learned from past builds)`.
 
 ```
 uv run lume build console --jobs 4
