@@ -426,6 +426,11 @@ def fake_root(tmp_path, monkeypatch):
     monkeypatch.setattr(tuning, "SAVE_DIR", str(tmp_path / "run/tuning"))
     monkeypatch.setattr(tuning, "LOGS_RAM", str(tmp_path / "run/logs"))
     monkeypatch.setattr(tuning, "LOGS_DIR", str(tmp_path / "storage/logs"))
+    monkeypatch.setattr(tuning, "CARD_RUNNERS", str(tmp_path / "card/runners.d"))
+    image = tmp_path / "image/runners.d"
+    image.mkdir(parents=True)
+    (image / "love.toml").write_text('[runner]\nid = "love"\nkind = "native"\n')
+    monkeypatch.setattr(tuning, "IMAGE_RUNNERS", str(image))
     (tmp_path / "run").mkdir()
     return tmp_path, home
 
@@ -457,6 +462,76 @@ def test_variant_is_applied_and_every_file_comes_back(fake_root):
     assert (root / "run/tuning").is_dir()
     sh(tuning.restore_command(keep=False))
     assert not (root / "run/tuning").exists()
+
+
+def test_love_env_variant_writes_the_card_runner_and_it_goes_away(fake_root):
+    # task 7.4: the card's runner file wins over the image's; the B run gets [runner.env]
+    root, _ = fake_root
+    card = root / "card/runners.d/love.toml"
+    v = tuning.Variant("glthread", env=(("mesa_glthread", "true"),))
+    assert v.change() == "env:mesa_glthread=true"
+    assert sh(tuning.save_command("love")).strip() == "saved"
+    assert sh(tuning.apply_command("love", v)).strip() == "applied"
+    assert card.read_text() == ('[runner]\nid = "love"\nkind = "native"\n'
+                                '\n[runner.env]\nmesa_glthread = "true"\n')
+    assert not (root / "run/retroarch-extra.cfg").exists()
+    sh(tuning.restore_command(keep=False))
+    assert not card.exists()                      # there was none before
+    # a card runner the user had comes back as it was
+    card.write_text("# the user's own\n")
+    sh(tuning.save_command("love"))
+    sh(tuning.apply_command("love", v))
+    sh(tuning.restore_command(keep=False))
+    assert card.read_text() == "# the user's own\n"
+
+
+def test_love_runner_of_the_next_run_survives_the_restores_between_runs(fake_root):
+    # the launcher reads the runners when it starts after a game: the next run's file is
+    # written before the current game closes, and the restores between runs leave it alone
+    root, _ = fake_root
+    card = root / "card/runners.d/love.toml"
+    sh(tuning.save_command("love"))
+    assert sh(tuning.runner_next_command((("mesa_glthread", "true"),))).strip() == "applied"
+    sh(tuning.restore_command(keep=True, keep_runner=True))
+    assert 'mesa_glthread = "true"' in card.read_text()
+    # back to as saved (none) for the A run after it
+    assert sh(tuning.runner_next_command(())).strip() == "applied"
+    assert not card.exists()
+    # a plain restore between runs (not LÖVE) and the end of the group put it back too
+    sh(tuning.runner_next_command((("A", "1"),)))
+    sh(tuning.restore_command(keep=False))
+    assert not card.exists()
+
+
+def test_love_takes_only_env_variants_and_retroarch_never():
+    base = {"description": "x", "consoles": ["ga36"]}
+    ok = tuning.validate_plan({**base, "core": [{
+        "core": "love", "system": "love", "position": 1, "process": "love",
+        "variant": [{"name": "glthread", "env": {"mesa_glthread": "true"}}]}]})
+    assert ok.cores[0].variants[0].env == (("mesa_glthread", "true"),)
+    with pytest.raises(TuningError, match="only `env`"):
+        tuning.validate_plan({**base, "core": [{
+            "core": "love", "system": "love", "position": 1, "process": "love",
+            "variant": [{"name": "x", "retroarch": {"video_threaded": "false"}}]}]})
+    with pytest.raises(TuningError, match="native runner"):
+        tuning.validate_plan({**base, "core": [{
+            "core": "fceumm", "system": "nes", "position": 1,
+            "variant": [{"name": "x", "env": {"A": "1"}}]}]})
+
+
+def test_options_of_a_lume_core_go_to_the_upstream_folder(fake_root):
+    # RetroArch names the folder after the library_name the core reports, which the _lume
+    # build keeps; only its .info corename carries " (Lume)" (GA36, 2026-11-20)
+    root, home = fake_root
+    (root / "info/fceumm_lume_libretro.info").write_text('corename = "FCE Ultra (Lume)"\n')
+    opt = home / "config/FCE Ultra/FCE Ultra.opt"
+    opt.write_text('fceumm_sndquality = "Low"\n')
+    sh(tuning.save_command("fceumm_lume"))
+    sh(tuning.apply_command("fceumm_lume", tuning.Variant("v", options=(("fceumm_sndquality", "High"),))))
+    assert opt.read_text() == 'fceumm_sndquality = "High"\n'
+    assert not (home / "config/FCE Ultra (Lume)").exists()
+    sh(tuning.restore_command(keep=False))
+    assert opt.read_text() == 'fceumm_sndquality = "Low"\n'
 
 
 def test_an_interrupted_save_is_put_back_before_a_new_one(fake_root):
@@ -919,6 +994,26 @@ def test_open_core_passes_when_the_game_stays_open():
     mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
 
 
+def test_love_group_hands_each_run_the_variables_of_the_next(tmp_path, monkeypatch):
+    # task 7.4: A1 prepares B1, B1 prepares B2, B2 puts it back for A2, A2 prepares nothing
+    mod = load_script()
+    plan = tuning.validate_plan({"consoles": ["ga36"], "core": [
+        {"core": "love", "system": "love", "position": 1, "process": "love", "variant": [
+            {"name": "glthread", "env": {"mesa_glthread": "true"}},
+            {"name": "sdl-noaudio", "env": {"SDL_AUDIODRIVER": "dummy"}}]}]})
+    seqs = tuning.build_sequences(plan, "ga36", set())   # A1 and A2 are also the baseline
+    seen = []
+
+    def fake_one(ctx, cons, seq, run, warmup, measure, next_env=None):
+        seen.append((run.label, next_env))
+        return run_metrics()
+    monkeypatch.setattr(mod, "one_run", fake_one)
+    assert mod.run_sequences("h", "ga36", seqs, tmp_path / "ga36.md", 30, 120,
+                             ctx=event_ctx(EventConsole(), None)) == 0
+    assert seen == [("A1", (("mesa_glthread", "true"),)), ("B", (("SDL_AUDIODRIVER", "dummy"),)),
+                    ("B", ()), ("A2", None)]
+
+
 def test_config_variants_of_one_game_share_one_a1_and_one_a2(tmp_path, monkeypatch, capsys):
     # user, 2026-11-20: A1, a B per variant, A2; the baseline row comes from those A runs
     mod = load_script()
@@ -930,7 +1025,7 @@ def test_config_variants_of_one_game_share_one_a1_and_one_a2(tmp_path, monkeypat
     console = EventConsole()
     runs = []
 
-    def fake_one(ctx, cons, seq, run, warmup, measure):
+    def fake_one(ctx, cons, seq, run, warmup, measure, next_env=None):
         runs.append((run.label, run.variant.name if run.variant else None))
         return run_metrics(clock=800 if run.variant else 1000)
     monkeypatch.setattr(mod, "one_run", fake_one)

@@ -289,11 +289,16 @@ def core_groups(seqs: list[tuning.Sequence]) -> list[list[tuning.Sequence]]:
 
 
 def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tuning.Run,
-            warmup: int, measure: int) -> tuning.RunMetrics:
+            warmup: int, measure: int, next_env: tuple | None = None) -> tuning.RunMetrics:
+    """One run. A LÖVE run (task 7.4) never writes its own variables: the launcher reads the
+    runners once, when it starts again after the previous game, so the card's runner file of
+    THIS run was written before the previous game closed, and this run writes the one of the
+    next run (`next_env`; empty: back as saved) before it closes."""
     core = seq.core
+    love = core.process == "love"
     print(f"  {run.label}: {run.variant.change() if run.variant else 'as is'}", flush=True)
-    ctx.run(tuning.restore_command(keep=True) + "true")
-    if run.variant:
+    ctx.run(tuning.restore_command(keep=True, keep_runner=love) + "true")
+    if run.variant and not love:
         ctx.run(tuning.apply_command(core.core, run.variant))
     open_game(ctx, core)
     try:
@@ -301,8 +306,11 @@ def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tunin
         window = tuning.parse_window(ctx.run(tuning.sampler_command(core.process, measure)))
         rows = tuning.parse_metrics(ctx.run(tuning.metrics_command(window.t0, window.t1)))
     finally:
+        if love and next_env is not None:
+            tuning.expect_applied(ctx.run(tuning.runner_next_command(next_env)),
+                                  "runner of the next run")
         close_game(ctx)
-        ctx.run(tuning.restore_command(keep=True) + "true")
+        ctx.run(tuning.restore_command(keep=True, keep_runner=love) + "true")
     m = tuning.aggregate(window, rows)
     print(f"     drawn {tuning._f(m.drawn_fps)} fps, speed {tuning._pct(m.speed)}, audio "
           f"{m.audio_failures if m.audio_failures is not None else '-'} ({m.audio_source}), "
@@ -334,11 +342,13 @@ def run_config_group(ctx: dev_run.Context, console: str, group: list[tuning.Sequ
     print(f"{tag} {first.core.core} {first.core.system} game #{first.core.position}: "
           f"{', '.join(s.name for s in group)}", flush=True)
     ctx.run(tuning.save_command(first.core.core))
+    # the variables of the run that follows each run (LÖVE only, see one_run): A1, the Bs, A2
+    envs = [()] + [s.variant.env for s in group] + [()]
     try:
-        a1 = one_run(ctx, console, first, tuning.Run("A1", None), warmup, measure)
-        bs = [one_run(ctx, console, s, tuning.Run("B", s.variant), warmup, measure)
-              for s in group]
-        a2 = one_run(ctx, console, first, tuning.Run("A2", None), warmup, measure)
+        a1 = one_run(ctx, console, first, tuning.Run("A1", None), warmup, measure, envs[1])
+        bs = [one_run(ctx, console, s, tuning.Run("B", s.variant), warmup, measure, envs[i + 2])
+              for i, s in enumerate(group)]
+        a2 = one_run(ctx, console, first, tuning.Run("A2", None), warmup, measure, None)
     finally:
         ctx.run(tuning.restore_command(keep=False) + "true")
     if any(s.also_baseline for s in group):

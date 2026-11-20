@@ -113,12 +113,14 @@ class Variant:
     retroarch: tuple[tuple[str, str], ...] = ()   # keys for /run/lume/retroarch-extra.cfg
     options: tuple[tuple[str, str], ...] = ()     # core options for the user's .opt
     core: str | None = None                       # another core for this game (task 10.2)
+    env: tuple[tuple[str, str], ...] = ()         # [runner.env] of a native runner (task 7.4)
 
     def change(self) -> str:
-        """The change as written in the report: `ra:key=value; opt:key=value` or
-        `core:<name>`."""
+        """The change as written in the report: `ra:key=value; opt:key=value`,
+        `env:NAME=value` or `core:<name>`."""
         parts = [f"ra:{k}={v}" for k, v in self.retroarch]
         parts += [f"opt:{k}={v}" for k, v in self.options]
+        parts += [f"env:{k}={v}" for k, v in self.env]
         if self.core:
             parts.append(f"core:{self.core}")
         return CHANGE_SEP.join(parts) or "-"
@@ -205,9 +207,10 @@ def validate_plan(data: dict) -> Plan:
             vw = f"{where} variant {j}"
             if not isinstance(v, dict):
                 raise TuningError(f"{vw}: must be a table")
-            unknown = set(v) - {"name", "retroarch", "options", "core"}
+            unknown = set(v) - {"name", "retroarch", "options", "core", "env"}
             if unknown:
                 raise TuningError(f"{vw}: unknown field(s): {', '.join(sorted(unknown))}")
+            env = _pairs(v.get("env"), f"{vw} env")
             alt = v.get("core")
             if alt is not None:
                 alt = _ident(alt, f"{vw} core", CORE_RE)
@@ -221,12 +224,15 @@ def validate_plan(data: dict) -> Plan:
                 raise TuningError(f"{vw}: a core variant changes only the core")
             if alt == core:
                 raise TuningError(f"{vw}: core {alt} is already the default of this entry")
-            if not ra and not opts and alt is None:
-                raise TuningError(f"{vw}: a variant changes at least one key, option or core")
-            if process != "retroarch":
-                raise TuningError(f"{vw}: variants of the {process} runner are not supported "
-                                  f"yet (baseline only)")
-            variants.append(Variant(name, ra, opts, alt))
+            if not ra and not opts and alt is None and not env:
+                raise TuningError(f"{vw}: a variant changes at least one key, option, "
+                                  f"variable or core")
+            # a native runner (LÖVE) takes only environment variables; RetroArch never does
+            if process != "retroarch" and (ra or opts or alt is not None):
+                raise TuningError(f"{vw}: the {process} runner takes only `env` variants")
+            if process == "retroarch" and env:
+                raise TuningError(f"{vw}: `env` is for a native runner (process = \"love\")")
+            variants.append(Variant(name, ra, opts, alt, env))
         if variants and any(v.core for v in variants) and not all(v.core for v in variants):
             raise TuningError(f"{where}: core variants and key/option variants go in separate "
                               f"entries")
@@ -377,10 +383,18 @@ def build_id_command() -> str:
 
 
 def _opt_vars(core: str) -> str:
-    # the folder of the core options is the corename of the core's .info (RetroArch)
+    # the folder of the core options is the corename of the core's .info (RetroArch); a _lume
+    # build keeps the upstream library_name, which names the folder, and only its .info
+    # corename has the " (Lume)" suffix (GA36, 2026-11-20): dropped, as frontends/retroarch does
+    strip = ' n="${n% (*)}";' if core.endswith("_lume") else ""
     return (f"n=$(sed -n 's/^corename *= *\"\\(.*\\)\"/\\1/p' {INFO_DIR}/{core}_libretro.info"
-            f" 2>/dev/null | head -n 1); [ -n \"$n\" ] || n={core}; "
+            f" 2>/dev/null | head -n 1);{strip} [ -n \"$n\" ] || n={core}; "
             f"opt=\"{OPT_ROOT}/$n/$n.opt\"; ")
+
+
+# the card's own runner files win over the image's with the same id (lume-core runner.rs)
+CARD_RUNNERS = f"{CARD}/runners.d"
+IMAGE_RUNNERS = "/usr/share/lume/runners.d"
 
 
 def save_command(core: str, games_system: str | None = None) -> str:
@@ -393,23 +407,28 @@ def save_command(core: str, games_system: str | None = None) -> str:
     if games_system is not None:
         _ident(games_system, "system", CORE_RE)
         games = f" games:{GAMES_DIR}/{games_system}.toml"
+    # the card's LÖVE runner file too: an env variant (task 7.4) writes it for its B run
+    runner = f" runner:{CARD_RUNNERS}/love.toml"
     return (restore_command(keep=False) +
             f"mkdir -p {SAVE_DIR}; " + _opt_vars(core) +
-            f"for p in cfg:{USER_CFG} extra:{EXTRA_CFG} \"opt:$opt\"{games}; do "
+            f"for p in cfg:{USER_CFG} extra:{EXTRA_CFG} \"opt:$opt\"{games}{runner}; do "
             "t=${p%%:*}; f=${p#*:}; "
             f"printf '%s\\n' \"$f\" > {SAVE_DIR}/$t.path; "
             f"if [ -f \"$f\" ]; then cp -p \"$f\" {SAVE_DIR}/$t; fi; "
             "done; echo saved")
 
 
-def restore_command(keep: bool = True) -> str:
+def restore_command(keep: bool = True, keep_runner: bool = False) -> str:
     """Put the saved files back (one absent at the save is removed). With keep the save
     stays (between runs); without it is deleted (end of a sequence), and so is the tuning
-    systems.d file of a core comparison. Nothing to do when there is no save."""
+    systems.d file of a core comparison. Nothing to do when there is no save. With
+    keep_runner the card's LÖVE runner file is left as it is (between the runs of a LÖVE
+    group: it already holds the next run's variables, see runner_next_command)."""
     end = "" if keep else f"rm -rf {SAVE_DIR}; "
     tail = "" if keep else f"rm -f {TUNING_SYSTEMS}; "
+    skip = 'case "$pf" in */runner.path) continue;; esac; ' if keep_runner else ""
     return (f"if [ -d {SAVE_DIR} ]; then "
-            f"for pf in {SAVE_DIR}/*.path; do [ -f \"$pf\" ] || continue; "
+            f"for pf in {SAVE_DIR}/*.path; do [ -f \"$pf\" ] || continue; {skip}"
             "t=${pf%.path}; read -r f < \"$pf\"; [ -n \"$f\" ] || continue; "
             "if [ -f \"$t\" ]; then cp -p \"$t\" \"$f\"; else rm -f \"$f\"; fi; "
             f"done; {end}fi; {tail}")
@@ -507,7 +526,29 @@ def apply_command(core: str, variant: Variant) -> str:
             f"printf '%s' {shlex.quote(body)} >> \"$opt.tmp\"; "
             "cat \"$opt.tmp\" > \"$opt\"; rm -f \"$opt.tmp\"; "
             "chown game:game \"$opt\" 2>/dev/null; ")
+    if variant.env:
+        parts.append(_runner_env(variant.env))
     return "".join(parts) + "echo applied"
+
+
+def _runner_env(env) -> str:
+    # the card's love runner: the image's file with a [runner.env] (the card wins)
+    body = "\n[runner.env]\n" + "".join(f'{k} = "{v}"\n' for k, v in env)
+    card = f"{CARD_RUNNERS}/love.toml"
+    return (f"mkdir -p {CARD_RUNNERS}; cp {IMAGE_RUNNERS}/love.toml {card}.tmp; "
+            f"printf '%s' {shlex.quote(body)} >> {card}.tmp; mv -f {card}.tmp {card}; ")
+
+
+def runner_next_command(env) -> str:
+    """The card's LÖVE runner file for the NEXT run, written while the current game still
+    runs: the launcher reads the runners once, when it starts again right after a game closes
+    (lume-core catalog::load_all), and the running game's environment was fixed at its spawn.
+    `env` empty: the file as it was at the save (an A run comes next)."""
+    if env:
+        return _runner_env(env) + "echo applied"
+    card = f"{CARD_RUNNERS}/love.toml"
+    return (f"if [ -f {SAVE_DIR}/runner ]; then cp -p {SAVE_DIR}/runner {card}; "
+            f"else rm -f {card}; fi; echo applied")
 
 
 SAMPLER = r"""
@@ -920,8 +961,9 @@ def check_row_privacy(row: Row) -> None:
                 _ident(kv, "change core", CORE_RE)
                 continue
             k, eq, v = kv.partition("=")
-            if kind not in ("ra", "opt") or not eq:
-                raise TuningError(f"change {tok!r} is not ra:key=value or opt:key=value")
+            if kind not in ("ra", "opt", "env") or not eq:
+                raise TuningError(f"change {tok!r} is not ra:key=value, opt:key=value or "
+                                  f"env:NAME=value")
             _ident(k, "change key", KEY_RE)
             _ident(v, "change value", VALUE_RE)
     for text in (row.runs, row.decision, *row.cells.values()):
