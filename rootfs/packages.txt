@@ -123,3 +123,8 @@ libretro-fbalpha2012-neogeo
 libretro-pcsx-rearmed
 # PC Engine / TurboGrafx-16 and PCE-CD (game-experience-tuning D8)
 libretro-mednafen-pce-fast
+# Alternative arcade cores under measurement against fbneo (game-experience-tuning 10); not in
+# the catalog until the measurement picks them (task 10.5)
+libretro-fbalpha2012
+libretro-mame2003-plus
+libretro-mame2000

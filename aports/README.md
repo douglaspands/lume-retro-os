@@ -42,7 +42,9 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | libretro-genesis-plus-gx | testing (edge) | `b72b8c96` |
 | libretro-picodrive | testing, atualizado + submódulos | `1890c293` |
 | libretro-fbneo | testing, atualizado (zlib embutido) | `77016b4d` |
-| libretro-mame2003-plus | novo; **desativado** (`arch=""`) desde 2026-11-11, a pedido do usuário | `4f6b3b46` |
+| libretro-mame2003-plus | novo; core de arcade alternativo em medição contra o `fbneo` (`game-experience-tuning` 10; desativado de 2026-11-11 a 2026-11-19); build padrão do upstream, sem flags por CPU; licença MAME não comercial | `2a60eda7` |
+| libretro-mame2000 | novo; core de arcade alternativo em medição (`game-experience-tuning` 10; MAME 0.37b5); build padrão do upstream, sem flags por CPU e sem `ARM=1` (só liga assembly ARM de 32 bits); licença MAME não comercial | `181b42e5` |
+| libretro-fbalpha2012 | novo; o FB Alpha 2012 completo (todas as placas), core de arcade alternativo em medição (`game-experience-tuning` 10); build padrão do upstream, sem flags por CPU; licença do FB Alpha, não comercial | `0ce31536` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
 | libretro-mednafen-pce-fast | novo, PC Engine/TurboGrafx-16 e PCE-CD (`game-experience-tuning` D8; build padrão do upstream, sem flags por CPU; o `.info` vem do `libretro-core-info`) | `2de1ce1c` |
 
@@ -50,9 +52,11 @@ Os cores `fceumm`, `nestopia`, `gambatte` e `gpsp` vêm do Alpine v3.24. O `mgba
 nesta versão: o GBA usa o `gpsp` em todos os alvos.
 
 O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
-do catálogo nesta versão (pendência 12.1 do `tasks.md`). O `libretro-mame2003-plus` também,
-a pedido do usuário (2026-11-11): o arcade usa o `fbneo` em todos os consoles, o mesmo
-romset nos dois aparelhos do cartão único. O SNES usa o `snes9x2005_plus`, sem alternativo
+do catálogo nesta versão (pendência 12.1 do `tasks.md`). O arcade usa o `fbneo` em todos os
+consoles, o mesmo romset nos dois aparelhos do cartão único. O `fbalpha2012` completo, o
+`mame2003-plus` e o `mame2000` entram na imagem só para a medição da `game-experience-tuning`
+(tarefa 10.4) e ficam fora do catálogo até ela escolher (tarefa 10.5); o `.info` de cada um
+vem do `libretro-core-info` do Alpine v3.24. O SNES usa o `snes9x2005_plus`, sem alternativo
 (o aport do `snes9x` foi removido).
 
 Ajustes para o musl:

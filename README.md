@@ -498,11 +498,17 @@ versão 2, `GPL-2.0-only`); o texto está em [LICENSE](LICENSE).
   goodluckOS (GPL-2.0), e os patches do kernel seguem a GPL-2.0, como o próprio Linux.
 - Cada pacote em `aports/` mantém a licença do upstream (o `APKBUILD` declara a de cada
   um); os patches desses pacotes seguem a licença do projeto que modificam.
-- Os cores **FB Alpha 2012** (`aports/libretro-fbalpha2012-*`) têm licença própria, **não
+- Os cores **FB Alpha 2012** (`aports/libretro-fbalpha2012*`: os recortes por placa e, em
+  medição, o core completo) têm licença própria, **não
   comercial**: o FB Alpha proíbe a venda e o pedido de doações. Por isso o Lume Retro OS é
   distribuído de graça e **sem doações**, e o texto da licença vai junto com o binário, em
-  `/usr/share/licenses/libretro-fbalpha2012-*/license.txt`. Quem redistribuir a imagem
+  `/usr/share/licenses/libretro-fbalpha2012*/license.txt`. Quem redistribuir a imagem
   herda a restrição.
+- Os cores **MAME 2003-Plus** e **MAME 2000** (`aports/libretro-mame2003-plus` e
+  `aports/libretro-mame2000`), em medição como alternativa de arcade, seguem a licença
+  clássica do MAME, também **não comercial** (proíbe a venda; o código-fonte precisa estar
+  disponível); o texto vai em `/usr/share/licenses/libretro-mame2003-plus/` e
+  `/usr/share/licenses/libretro-mame2000/`.
 - Os bootloaders dos fabricantes (boot0 e U-Boot da Allwinner no GA36; `idbloader`,
   `uboot.img` e `trust.img` da Rockchip no R36S) são binários fechados e **não são
   distribuídos**: cada um os extrai do cartão original do próprio aparelho
