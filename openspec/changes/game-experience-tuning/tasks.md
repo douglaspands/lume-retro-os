@@ -147,6 +147,24 @@ Estado em 2026-11-19, antes da 6.1: o código de 1.3, 2.3, 3.1, 4.1, 4.3 e 9.3 e
 
 Causa da 9.1 (2026-11-19): o cartão saiu do GA36 suspenso (boot 204, 04:41 UTC), iniciou no R36S (boots 205 a 214) e voltou; ao acordar às 19:39, o GA36 gravou com a tabela do exFAT de antes da troca (D11). Não foi o leitor USB nem a gravação atômica. Os seis `gamelist.xml.corrupt` foram apagados do cartão (recontagem 0). Correção na 9.3.
 
+## 10. Cores alternativos de arcade (pedido do usuário, 2026-11-19)
+
+O `fbneo` rodou jogos da pasta `arcade` abaixo da velocidade cheia no GA36 com a CPU no máximo e um núcleo a 100% (J1). O usuário pediu outros cores no lugar dele e a escolha do mais rápido para os jogos dele. Cada core pede romsets da sua versão (FB Alpha 0.2.97.29, MAME 0.78, MAME 0.37b5): o teste mostra quais abrem. Nós aprovados em 2026-11-19 (10.1 e 10.2 em paralelo).
+
+| Nó | Depende de | Recursos | Executor | Modelo | Onda | Janela |
+|---|---|---|---|---|---|---|
+| 10.1 | — | — | AG | opus | A1 | |
+| 10.2 | 5.1 | — | AG | opus | A1 | |
+| 10.3 | 10.1 | CPU, ARCH:armv7 | PR | — | A2 | |
+| 10.4 | 10.2, 10.3 | GA36 | PR | — | A3 | J1 |
+| 10.5 | 10.4 | — | AG | sonnet | A4 | |
+
+- [ ] 10.1 Aports `libretro-fbalpha2012` (completo), `libretro-mame2003-plus` e `libretro-mame2000`: commit fixo, `sha512sums`, build padrão do upstream sem flags de CPU, os três arches; em `rootfs/packages.txt` e nos slots. Verificação: testes de manifesto e de slots; pacote com o `.so`; o `.info` de cada um no `libretro-core-info` da imagem (ou a falta registrada).
+- [ ] 10.2 Variante "core" na medição A/B (`src/lume_tool/tuning.py`, `tests/device/tuning_ab.py`): a variante troca o core de um jogo só durante a execução (pela opção por jogo do launcher, devolvida depois), registra se o jogo abriu e mede como as outras variantes; o relatório agrega por core e família de hardware, sem nome de jogo. Verificação: testes de unidade (aplicar e devolver a opção por jogo; jogo que não abre vira "não abre" sem derrubar a sequência; relatório sem nomes).
+- [ ] 10.3 Build armv7 dos três cores (fila de build, proteção de calor) e envio ao GA36. Verificação: `lume pkg` sem erro; `.so` no console.
+- [ ] 10.4 Medição no GA36: cada jogo da pasta `arcade` do conjunto de teste em `fbneo`, `fbalpha2012`, `mame2003-plus` e `mame2000` (abre, velocidade cheia, quadros mostrados, clock, som). Verificação: linhas agregadas por core e família em `docs/tuning/ga36.md`; a escolha por jogo fica só no cartão do usuário.
+- [ ] 10.5 Catálogo: os cores aprovados entram como `alt_cores` da pasta `arcade` (ou o padrão muda, se um vencer em todas as famílias), com o romset de cada um no `LEIA-ME.txt`. Verificação: `tests/unit/test_catalog.py` e o teste do `LEIA-ME.txt`.
+
 ## Workflow follow-up
 
 - Branch `feature/game-experience-tuning` a partir da `main`; merge na `main` por PR com squash, só quando o usuário pedir.
