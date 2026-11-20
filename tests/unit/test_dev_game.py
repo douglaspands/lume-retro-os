@@ -1,5 +1,7 @@
 """Unit tests of open_game / close_game (virtual-gamepad D5): sequence building and the
 console query parsed from a fake index answer. No device, no ssh."""
+import subprocess
+
 import pytest
 
 from lume_tool import dev, dev_game, dev_run, scripts
@@ -120,8 +122,90 @@ def test_sequence_from_the_tile_already_focused_has_no_dock_move():
 
 def make_driver(answer):
     asked, keys = [], []
-    driver = dev_game.GameDriver(lambda cmd: asked.append(cmd) or answer, keys.append)
+
+    def run(cmd):
+        if cmd == dev_game.ready_command():
+            return "ready\n"
+        asked.append(cmd)
+        return answer
+    driver = dev_game.GameDriver(run, keys.append, sleep=lambda s: None, now=lambda: 0.0)
     return driver, asked, keys
+
+
+# --- task 6.4: open_game waits for the launcher to be back on the screen ---------------
+
+class SlowLauncher:
+    """The console after close_game: the status file says `game:retroarch` for a while, then
+    `ui` before lume-ui has its input open, then ready."""
+
+    def __init__(self, states):
+        self.states = list(states)
+        self.keys = []
+        self.t = 0.0
+
+    def run(self, cmd):
+        if cmd == dev_game.ready_command():
+            return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        return "dock_index=2 dock_count=9 games=5 focus=0\n"
+
+    def press(self, seq):
+        # no key may reach the console before the launcher is ready
+        assert self.states == ["ready\n"], "key sent too early"
+        self.keys.append(seq)
+
+    def sleep(self, s):
+        self.t += s
+
+    def now(self):
+        return self.t
+
+
+def test_open_waits_until_the_launcher_takes_input():
+    slow = SlowLauncher(["wait game:retroarch\n"] * 6 + ["wait no-input\n"] * 3 + ["ready\n"])
+    driver = dev_game.GameDriver(slow.run, slow.press, sleep=slow.sleep, now=slow.now)
+    driver.open("gba", 1)
+    assert slow.keys == [seq_of(0, 2, 9, 1)]
+    # 9 polls of 0.5 s, then the settle time
+    assert slow.t == pytest.approx(9 * dev_game.READY_POLL_S + dev_game.READY_SETTLE_S)
+
+
+def test_open_fails_when_the_launcher_never_comes_back():
+    slow = SlowLauncher(["wait game:retroarch\n"])
+    driver = dev_game.GameDriver(slow.run, slow.press, sleep=slow.sleep, now=slow.now,
+                                 ready_timeout=5)
+    with pytest.raises(dev.DevError, match=r"not back on the screen after 5s \(wait game:retroarch\)"):
+        driver.open("gba", 1)
+    assert slow.keys == []
+
+
+def ready_fixture(tmp_path, status, fd_target):
+    """Run ready_command against a fake status file and a fake lume-ui fd table."""
+    st = tmp_path / "status"
+    if status is not None:
+        st.write_text(status + "\n")
+    fds = tmp_path / "proc/4242/fd"
+    fds.mkdir(parents=True)
+    if fd_target:
+        (fds / "5").symlink_to(fd_target)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "pidof").write_text("#!/bin/sh\necho 4242\n")
+    (bindir / "pidof").chmod(0o755)
+    cmd = (dev_game.ready_command().replace(dev_game.STATUS_FILE, str(st))
+           .replace("/proc/$p/fd", str(tmp_path) + "/proc/$p/fd"))
+    r = subprocess.run(["/bin/sh", "-c", f"PATH={bindir}:$PATH; {cmd}"], capture_output=True,
+                       text=True)
+    return r.stdout.strip()
+
+
+@pytest.mark.parametrize("status,fd,expected", [
+    ("ui", "/dev/input/event3", "ready"),
+    ("ui", "/dev/null", "wait no-input"),
+    ("game:retroarch", "/dev/input/event3", "wait game:retroarch"),
+    (None, "/dev/input/event3", "wait none"),
+])
+def test_ready_command_reads_the_status_and_the_input_fd(tmp_path, status, fd, expected):
+    assert ready_fixture(tmp_path, status, fd) == expected
 
 
 def test_open_builds_the_sequence_from_the_reported_focus():
@@ -199,6 +283,8 @@ class FakeConsole:
         self.keys = []
 
     def __call__(self, cmd):
+        if cmd == dev_game.ready_command():
+            return "ready\n"
         if cmd == dev_run.pending_command():
             return "\n".join(self.pending) + "\n"
         if cmd == dev_run.count_command():
