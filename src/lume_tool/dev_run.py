@@ -80,9 +80,11 @@ def cut_content(line: str) -> str:
 
 def events_command(skip: int) -> str:
     """Remote command: the events.log lines after the first `skip`, cut at ` content=` on the
-    console, then a closing `@@count <total lines>` marker."""
+    console, then a closing `@@count <total lines>` marker. A log that is gone for a moment
+    (rotated to events.1.log between two polls, GA36 2026-11-20) reads as nothing new: no
+    marker, so the offset stays and the next poll sees the new file."""
     return (f"awk -v s={int(skip)} 'NR > s {{ sub(/ ?content=.*/, \"\"); print }} "
-            f"END {{ print \"{COUNT_MARK}\" NR }}' {EVENTS_LOG} 2>/dev/null")
+            f"END {{ print \"{COUNT_MARK}\" NR }}' {EVENTS_LOG} 2>/dev/null || true")
 
 
 def pending_command() -> str:
