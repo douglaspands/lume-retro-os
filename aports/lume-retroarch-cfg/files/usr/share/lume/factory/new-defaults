@@ -1,0 +1,19 @@
+# Factory defaults that cards from before the factory-applied record get once
+# (frontends/retroarch, game-experience-tuning D3 and task 1.4).
+#
+# A card whose ROMS/system/lume/factory-applied has no line for a file yet (an old card, or a
+# core options file the user already had) keeps every value it has: each factory line is
+# recorded as applied without touching the card, except the lines listed here, which win
+# once over the value RetroArch saved. A factory default added after the record exists needs
+# no line here: a factory line missing from the record is applied once on every card that
+# has a record for that file.
+#
+# One "<file-id> <key>" per line. file-id is retroarch.cfg (factory/retroarch/retroarch.cfg)
+# or opt:<corename> (factory/retroarch/config/<corename>/<corename>.opt). Every key listed
+# must exist in that factory file (tests/unit/test_retroarch_cfg.py).
+#
+# The left analog stick drives the d-pad (D4): old cards had "0" saved by RetroArch.
+retroarch.cfg input_player1_analog_dpad_mode
+retroarch.cfg input_player2_analog_dpad_mode
+retroarch.cfg input_player3_analog_dpad_mode
+retroarch.cfg input_player4_analog_dpad_mode
