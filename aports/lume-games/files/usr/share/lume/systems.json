@@ -141,7 +141,7 @@
       "id": "pcengine",
       "name": "TurboGrafx-16",
       "abbr": "TG16",
-      "extensions": ["pce"],
+      "extensions": ["pce", "zip", "7z"],
       "core": "mednafen_pce_fast",
       "core_by_arch": {},
       "alt_cores": [],

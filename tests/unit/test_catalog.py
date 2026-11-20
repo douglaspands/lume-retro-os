@@ -71,13 +71,16 @@ def test_systems_match_design_table():
     assert cps3["core"] == "fbneo" and cps3["alt_cores"] == [] and cps3["core_by_arch"] == {}
     assert cps3["romset"].startswith("FBNeo")
     # TurboGrafx-16 and -CD (D8): mednafen_pce_fast on every console, extensions from the core
-    # .info (pce|cue|ccd|chd|toc|m3u split between HuCard and CD), syscard3.pce required on CD
+    # .info (pce|cue|ccd|chd|toc|m3u split between HuCard and CD), syscard3.pce required on CD.
+    # The HuCard also takes zip and 7z like every cartridge system: RetroArch extracts the
+    # archive before the core sees it (J1, 2026-11-19: the test set's HuCards are zips)
     pce, pcecd = by_id["pcengine"], by_id["pcenginecd"]
     assert (pce["name"], pce["abbr"]) == ("TurboGrafx-16", "TG16")
     assert (pcecd["name"], pcecd["abbr"]) == ("TurboGrafx-CD", "TGCD")
-    assert pce["extensions"] == ["pce"]
+    assert pce["extensions"] == ["pce", "zip", "7z"]
     assert pcecd["extensions"] == ["cue", "ccd", "chd", "toc", "m3u"]
-    assert sorted(pce["extensions"] + pcecd["extensions"]) == sorted(
+    archives = {"zip", "7z"}
+    assert sorted([e for e in pce["extensions"] if e not in archives] + pcecd["extensions"]) == sorted(
         "pce|cue|ccd|chd|toc|m3u".split("|"))
     for s in (pce, pcecd):
         assert s["core"] == "mednafen_pce_fast" and s["alt_cores"] == []
