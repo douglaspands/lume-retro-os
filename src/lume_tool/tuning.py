@@ -88,7 +88,7 @@ FLOOR = {"drawn_fps": 0.3, "clock_mhz": 10.0, "temp_c": 0.5, "speed": 0.005, "cp
 DIRECTION = {"drawn_fps": +1, "clock_mhz": -1, "temp_c": -1, "speed": +1, "cpu_total": -1}
 GAIN_METRICS = ("drawn_fps", "clock_mhz", "temp_c")      # the spec's "melhora" metrics
 GUARD_METRICS = ("drawn_fps", "clock_mhz", "temp_c", "speed", "cpu_total")
-LABEL_PT = {"drawn_fps": "quadros/s", "clock_mhz": "clock", "temp_c": "temperatura",
+LABEL_PT = {"drawn_fps": "quadros por segundo", "clock_mhz": "clock", "temp_c": "temperatura",
             "speed": "velocidade", "cpu_total": "CPU"}
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.+-]{0,39}$")

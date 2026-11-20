@@ -302,6 +302,20 @@ def test_loss_of_full_speed_is_refused():
     assert "sem velocidade cheia (95.0%)" in d.text and "piora: velocidade" in d.text
 
 
+def test_a_refusal_for_fewer_frames_can_be_written_to_the_report(tmp_path):
+    # GA36, 2026-11-20: "piora: quadros/s" carried a slash, which the report refuses
+    a = run_metrics(drawn=37.5, speed=0.626)
+    b = run_metrics(drawn=35.5, speed=0.592)
+    report = tmp_path / "ga36.md"
+    tuning.append_row(report, "ga36", tuning.baseline_row(
+        "2026-11-20", "b", core_plan("fbneo", "arcade"), a, a))
+    row = tuning.variant_row("2026-11-20", "b", core_plan("fbneo", "arcade"),
+                             tuning.Variant("threaded-off", (("video_threaded", "false"),)),
+                             a, b, a)
+    assert "quadros por segundo" in row.decision
+    tuning.append_row(report, "ga36", row)
+
+
 def test_gain_with_another_metric_worse_is_refused():
     d = tuning.decide(run_metrics(temp=50), run_metrics(temp=48, clock=1000),
                       run_metrics(temp=50.2))
