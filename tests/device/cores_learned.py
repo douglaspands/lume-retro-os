@@ -19,6 +19,10 @@ CONSOLE = sys.argv[1] if len(sys.argv) > 1 else "ga36"
 SSH = ["ssh", "-o", "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no",
        "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "root@10.55.0.1"]
 DEST = "/storage/system/lume/cores-learned.toml"
+# the file only replaces: one entry per game and console, the newest wins, so it grows with the
+# number of games, never with the number of measurements (~800 bytes per game and console);
+# refuse anything above this ceiling rather than fill the card (user, 2026-11-20)
+MAX_BYTES = 1024 * 1024
 RESULTS = pathlib.Path(f"out/tuning/{CONSOLE}-cores.jsonl")
 FAMILIES = tomllib.loads(pathlib.Path("var/roms_test/families.toml").read_text())
 
@@ -81,6 +85,29 @@ for (system, pos, core), r in sorted(last.items()):
 def q(s):
     return json.dumps(s, ensure_ascii=False)
 
+
+def entry_lines(game: dict) -> list[str]:
+    """One [[game]] with its [[game.result]] tables, from a parsed entry."""
+    lines = ["[[game]]"]
+    for k, v in game.items():
+        if k != "result":
+            lines.append(f"{k} = {q(v)}")
+    lines.append("")
+    for res in game.get("result", []):
+        lines.append("[[game.result]]")
+        for k, v in res.items():
+            lines.append(f"{k} = {q(v) if isinstance(v, str) else str(v).lower() if isinstance(v, bool) else v}")
+        lines.append("")
+    return lines
+
+
+def kept_entries() -> list[dict]:
+    """The entries of OTHER consoles already on the card (a card serves several consoles)."""
+    r = subprocess.run([*SSH, f"cat {DEST} 2>/dev/null"], capture_output=True, text=True)
+    if not r.stdout.strip():
+        return []
+    return [g for g in tomllib.loads(r.stdout).get("game", []) if g.get("console") != CONSOLE]
+
 out = ["# Lume Retro OS: what the measurements learned about the cores of each game on this card.",
        "# Private data of this card (game names and files); written by the PC tool",
        "# (game-experience-tuning, tests/device/tuning_ab.py) and read by future features (P-116).",
@@ -103,8 +130,15 @@ for (system, pos), g in sorted(games.items()):
                 continue
             out.append(f"{k} = {q(v) if isinstance(v, str) else str(v).lower() if isinstance(v, bool) else v}")
         out.append("")
+others = kept_entries()
+for g in others:
+    out += entry_lines(g)
 text = "\n".join(out)
 tomllib.loads(text)                                # valid TOML before it reaches the card
+if len(text.encode()) > MAX_BYTES:
+    sys.exit(f"refused: {len(text.encode())} bytes is above the {MAX_BYTES}-byte ceiling; "
+             f"nothing written to the card")
 subprocess.run([*SSH, f"cat > {DEST}.tmp && sync && mv -f {DEST}.tmp {DEST} && sync"],
                input=text, text=True, check=True)
-print(f"{len(games)} games written to {DEST} ({len(text)} bytes)")
+print(f"{len(games)} games of {CONSOLE} and {len(others)} of other consoles written to {DEST} "
+      f"({len(text.encode())} bytes, ceiling {MAX_BYTES})")

@@ -48,6 +48,14 @@ temp_c = 49.8
 
 O arquivo é do cartão: o nome dos jogos nunca vai para o repositório.
 
+**Espaço no cartão (pedido do usuário, 2026-11-20):** o arquivo só substitui, nunca acumula. Há
+uma entrada por jogo e por console, a medição nova troca a antiga, e as entradas dos outros
+consoles são mantidas como estão. Ele cresce com o número de jogos medidos (~800 bytes por jogo e
+console: 24 jogos = 19 KB; 1000 jogos nos dois consoles ≈ 1,6 MB) e nunca com o número de
+medições. Gravação atômica (arquivo temporário e `mv`) e um teto de 1 MiB: acima disso nada é
+gravado e o motivo aparece. Quem escrever nesse arquivo no futuro (P-116) segue as mesmas
+regras.
+
 ## Perguntas em aberto
 
 - A mesma placa se comporta igual com outros jogos? (medir mais jogos por placa)
