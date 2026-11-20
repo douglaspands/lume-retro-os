@@ -50,6 +50,18 @@ confirmar com mais jogos da mesma placa.
 A medir na J2. Hipótese: mais rápido por núcleo, a escolha pode mudar (menos placas no limite; o
 critério passa a ser o clock).
 
+## O aprendizado por jogo no cartão
+
+O resultado por jogo, com o nome e o arquivo, fica no **cartão do usuário**, em
+`ROMS/system/lume/cores-learned.toml` (pedido do usuário, 2026-11-20), para uma funcionalidade
+futura usar como parâmetro (P-116): um `[[game]]` por jogo medido (`system`, `file`, `name`,
+`board`, `console`, `date`, `default_core`, `best`) com um `[[game.result]]` por core (`opens`,
+`speed`, `fps`, `clock_mhz`, `audio_failures`, `temp_c`, ou `reason` quando não abre). Quem grava é
+`tests/device/cores_learned.py <console>` (lê `out/tuning/<console>-cores.jsonl`, o índice do
+launcher no cartão para o arquivo de cada posição, o `gamelist.xml` e o mapa de famílias do
+conjunto de teste); rodar de novo depois de cada comparação de cores. É dado do cartão, nunca do
+repositório.
+
 ## Perguntas em aberto
 
 - A mesma placa se comporta igual com outros jogos? (medir 3+ jogos por placa)
