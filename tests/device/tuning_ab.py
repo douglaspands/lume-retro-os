@@ -311,6 +311,45 @@ def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tunin
     return m
 
 
+def run_config_group(ctx: dev_run.Context, console: str, group: list[tuning.Sequence],
+                     report: Path, build: str, warmup: int, measure: int, tag: str) -> None:
+    """The configuration variants of one core and game in a row (user, 2026-11-20): A1 as
+    is, a B per variant, A2 as is; every variant row uses the same A1 and A2. A baseline
+    sequence (A, A) runs alone. The files come back after every run and at the end."""
+    date = datetime.date.today().isoformat()
+    first = group[0]
+    if first.variant is None:
+        print(f"{tag} {first.core.core} baseline", flush=True)
+        ctx.run(tuning.save_command(first.core.core))
+        try:
+            runs = [one_run(ctx, console, first, r, warmup, measure) for r in first.runs]
+        finally:
+            ctx.run(tuning.restore_command(keep=False) + "true")
+        row = tuning.baseline_row(date, build, first.core, *runs)
+        tuning.append_row(report, console, row)
+        print(f"  -> {row.decision}", flush=True)
+        if len(group) > 1:
+            run_config_group(ctx, console, group[1:], report, build, warmup, measure, tag)
+        return
+    print(f"{tag} {first.core.core} {first.core.system} game #{first.core.position}: "
+          f"{', '.join(s.name for s in group)}", flush=True)
+    ctx.run(tuning.save_command(first.core.core))
+    try:
+        a1 = one_run(ctx, console, first, tuning.Run("A1", None), warmup, measure)
+        bs = [one_run(ctx, console, s, tuning.Run("B", s.variant), warmup, measure)
+              for s in group]
+        a2 = one_run(ctx, console, first, tuning.Run("A2", None), warmup, measure)
+    finally:
+        ctx.run(tuning.restore_command(keep=False) + "true")
+    if any(s.also_baseline for s in group):
+        # the two A runs are the core's baseline, written before the variant rows
+        tuning.append_row(report, console, tuning.baseline_row(date, build, first.core, a1, a2))
+    for s, b in zip(group, bs):
+        row = tuning.variant_row(date, build, s.core, s.variant, a1, b, a2)
+        tuning.append_row(report, console, row)
+        print(f"  {s.name} -> {row.decision}", flush=True)
+
+
 def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: Path,
                   warmup: int, measure: int, results: Path | None = None,
                   families: dict | None = None, ctx: dev_run.Context | None = None) -> int:
@@ -335,25 +374,8 @@ def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: 
                                        families or {})
             compared = True
             continue
-        for seq in group:
-            print(f"{n}/{len(groups)} {seq.core.core} {seq.name}", flush=True)
-            ctx.run(tuning.save_command(seq.core.core))
-            try:
-                runs = [one_run(ctx, console, seq, r, warmup, measure) for r in seq.runs]
-            finally:
-                ctx.run(tuning.restore_command(keep=False) + "true")
-            date = datetime.date.today().isoformat()
-            if seq.variant is None:
-                row = tuning.baseline_row(date, build, seq.core, *runs)
-            else:
-                if seq.also_baseline:
-                    # the two A runs of this sequence are the core's baseline, written first
-                    tuning.append_row(report, console,
-                                      tuning.baseline_row(date, build, seq.core, runs[0],
-                                                          runs[2]))
-                row = tuning.variant_row(date, build, seq.core, seq.variant, *runs)
-            tuning.append_row(report, console, row)
-            print(f"  -> {row.decision}", flush=True)
+        run_config_group(ctx, console, group, report, build, warmup, measure,
+                         f"{n}/{len(groups)}")
     if compared:
         # private: positions only, on the PC; the choice per game goes to the user's card
         print(f"fastest core at full speed per game (from {results}):")

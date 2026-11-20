@@ -191,7 +191,8 @@ def test_sequences_skip_a_measured_baseline_and_filter():
 def test_dry_run_text_names_no_game():
     plan = tuning.validate_plan(PLAN)
     text = tuning.format_sequences(tuning.build_sequences(plan, "ga36", set()), "ga36")
-    assert "console ga36: 3 sequence(s), 8 run(s) of 30+120 s" in text
+    # fceumm's two variants as one group (A1, B, B, A2) plus gpsp's baseline (A, A)
+    assert "console ga36: 3 sequence(s), 6 run(s) of 30+120 s" in text
     assert "fceumm threaded-off: system nes game #1 (retroarch)" in text
     assert "A1 and A2 are also the baseline of the core (no separate A, A)" in text
     assert "B: apply ra:video_threaded=false; open; wait 30 s; measure 120 s" in text
@@ -902,6 +903,30 @@ def test_open_core_passes_when_the_game_stays_open():
     ctx = event_ctx(console, lambda: console.lines.append(
         "T 1 game OK arcade retroarch mame2000 start"))
     mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
+
+
+def test_config_variants_of_one_game_share_one_a1_and_one_a2(tmp_path, monkeypatch, capsys):
+    # user, 2026-11-20: A1, a B per variant, A2; the baseline row comes from those A runs
+    mod = load_script()
+    plan = tuning.validate_plan({"consoles": ["ga36"], "core": [
+        {"core": "fceumm", "system": "nes", "position": 1, "variant": [
+            {"name": "alsathread", "retroarch": {"audio_driver": "alsathread"}},
+            {"name": "threaded-off", "retroarch": {"video_threaded": "false"}}]}]})
+    seqs = tuning.build_sequences(plan, "ga36", set())
+    console = EventConsole()
+    runs = []
+
+    def fake_one(ctx, cons, seq, run, warmup, measure):
+        runs.append((run.label, run.variant.name if run.variant else None))
+        return run_metrics(clock=800 if run.variant else 1000)
+    monkeypatch.setattr(mod, "one_run", fake_one)
+    report = tmp_path / "ga36.md"
+    assert mod.run_sequences("h", "ga36", seqs, report, 30, 120,
+                             ctx=event_ctx(console, None)) == 0
+    assert runs == [("A1", None), ("B", "alsathread"), ("B", "threaded-off"), ("A2", None)]
+    rows = tuning.parse_report(report.read_text())
+    assert [r["variante"] for r in rows] == ["baseline", "alsathread", "threaded-off"]
+    assert sum(1 for c in console.commands if c.startswith("if [ -d")) >= 1
 
 
 def test_not_open_and_not_installed_do_not_stop_the_sequence(tmp_path, monkeypatch, capsys):

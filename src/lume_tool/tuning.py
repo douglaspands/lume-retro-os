@@ -323,11 +323,12 @@ def format_sequences(seqs: list[Sequence], console: str, warmup: int = WARMUP_S,
                      measure: int = MEASURE_S) -> str:
     """The dry-run text: one block per sequence, one line per run (no game names: the game
     is the position in the system's list)."""
-    # a core comparison runs the default core once before and once after every alternative
-    # of the same game (tuning_ab.run_core_group): 2 runs per game plus one per alternative
-    games = {id(s.core) for s in seqs if s.core.compares_cores}
-    runs = (sum(len(s.runs) for s in seqs if not s.core.compares_cores)
-            + sum(1 for s in seqs if s.core.compares_cores) + 2 * len(games))
+    # the variants of one core and game run as a group (tuning_ab.run_core_group and
+    # run_config_group): the default once before and once after, a B per variant; a separate
+    # baseline is A, A
+    games = {id(s.core) for s in seqs if s.variant is not None}
+    runs = (sum(len(s.runs) for s in seqs if s.variant is None)
+            + sum(1 for s in seqs if s.variant is not None) + 2 * len(games))
     lines = [f"console {console}: {len(seqs)} sequence(s), {runs} run(s) of {warmup}+{measure}"
              f" s, at most {round(runs * (warmup + measure + RUN_OVERHEAD_S) / 60)} min"]
     for n, s in enumerate(seqs, 1):

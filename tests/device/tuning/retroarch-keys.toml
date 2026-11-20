@@ -1,0 +1,287 @@
+# RetroArch keys on the default core of every system (game-experience-tuning 7.2, asked by
+# the user on 2026-11-20): each candidate against the configuration as it is, the variants
+# of one game as a group (A1, a B per key, A2).
+#   alsathread        audio_driver = alsathread (the ALSA write in its own thread)
+#   threaded-off      video_threaded = false (the boards set true; pcsx_rearmed already false)
+#   swapchain-2       video_max_swapchain_images = 2 (default 3)
+#   latency-96        audio_latency = 96 ms (more room for a busy core, later sound)
+#   resampler-lowest  audio_resampler_quality = 1 (cheaper resampler, lower sound quality:
+#                     the tool counts audio failures, not quality; the user judges it)
+# Run: .venv/bin/python tests/device/tuning_ab.py retroarch-keys --console ga36 --measure 60
+description = "A/B: RetroArch key candidates on the default core of every system"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+positions = [1, 2]
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "fbalpha2012_cps1"
+system = "cps1"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "fbalpha2012_cps2"
+system = "cps2"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "fbalpha2012_neogeo"
+system = "neogeo"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "fceumm"
+system = "nes"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "snes9x2005_plus"
+system = "snes"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "genesis_plus_gx"
+system = "megadrive"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "gambatte"
+system = "gbc"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "gpsp"
+system = "gba"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "pcsx_rearmed"
+system = "psx"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
+
+[[core]]
+core = "mednafen_pce_fast"
+system = "pcengine"
+position = 1
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
+
+[[core.variant]]
+name = "swapchain-2"
+retroarch = { video_max_swapchain_images = "2" }
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "resampler-lowest"
+retroarch = { audio_resampler_quality = "1" }
