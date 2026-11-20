@@ -112,6 +112,8 @@ Os nós 7.x são da sessão principal porque medem no aparelho; dentro de uma ja
 
 ## 6. Imagem e provas funcionais
 
+Estado em 2026-11-19, antes da 6.1: o código de 1.3, 2.3, 3.1, 4.1, 4.3 e 9.3 está mesclado; cada um espera a imagem (3.1: `.info` e paridade de manifesto) ou a prova no aparelho (1.3, 2.3, 4.1, 4.3, 9.3, na J1/J2). Pacote novo a construir na 6.1: `lume-cardid`.
+
 - [ ] 6.1 Build dos pacotes (`armv7`, `aarch64`, `x86_64`) e das imagens `ga36` e `r36s` com os nós 1 a 5 mesclados, sob a proteção de calor. Verificação: build sem erro e `lume test-vm` passa (o RetroArch abre um jogo de TurboGrafx-16 na VM com o `run_roms.sh`).
 - [ ] 6.2 J1, GA36: `lume push` com o boot conferido; `lume dev roms push` num cartão limpo; provas de 1.3, 2.3, 3.2, 4.1 e 4.3. Verificação: cada prova anotada no `docs/BRINGUP-GA36.md` (sem nome de jogo).
 - [ ] 6.3 J2, R36S: o mesmo da 6.2 no R36S. Verificação: anotado no `docs/BRINGUP-R36S.md`.
