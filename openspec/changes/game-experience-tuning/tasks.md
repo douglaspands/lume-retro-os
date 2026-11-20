@@ -166,6 +166,24 @@ O `fbneo` rodou jogos da pasta `arcade` abaixo da velocidade cheia no GA36 com a
 - [ ] 10.4 Medição no GA36: cada jogo da pasta `arcade` do conjunto de teste em `fbneo`, `fbalpha2012`, `mame2003-plus` e `mame2000` (abre, velocidade cheia, quadros mostrados, clock, som). Verificação: linhas agregadas por core e família em `docs/tuning/ga36.md`; a escolha por jogo fica só no cartão do usuário.
 - [ ] 10.5 Catálogo: os cores aprovados entram como `alt_cores` da pasta `arcade` (ou o padrão muda, se um vencer em todas as famílias), com o romset de cada um no `LEIA-ME.txt`. Verificação: `tests/unit/test_catalog.py` e o teste do `LEIA-ME.txt`.
 
+## 11. Cores `_lume` com as flags do processador (decisão do usuário, 2026-11-20)
+
+O usuário trocou a decisão de 2026-11-17 (cores só no build do upstream): todos os cores ganham um build `_lume` com as flags do processador, ao lado do build do upstream, medido contra ele antes de substituí-lo; o PGO fica para depois (P-10). Sufixo `_lume` no id, no `.so` e no pacote (P-114). Flags: GA36 (armv7, Cortex-A7) `-marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard`; R36S (aarch64, Cortex-A35) `-mcpu=cortex-a35`; sem `-Ofast` nem LTO. Os dois MAME ganham também uma variante com o Cyclone (68000) e o DrZ80 (Z80) em assembly ARM, só no armv7.
+
+| Nó | Depende de | Recursos | Executor | Modelo | Onda | Janela |
+|---|---|---|---|---|---|---|
+| 11.1 | 10.1 | — | AG | sonnet | B1 | |
+| 11.2 | 11.1 | CPU, ARCH:armv7 | PR | — | B2 | |
+| 11.3 | 11.2, 10.4 | GA36 | PR | — | B3 | J1 |
+| 11.4 | 11.1 | CPU, ARCH:aarch64 | PR | — | B4 | |
+| 11.5 | 11.3 | — | AG | sonnet | B5 | |
+
+- [ ] 11.1 Builds `_lume` dos 16 cores da imagem: um jeito único de gerar o pacote `libretro-<core>-lume` (com `<core>_lume_libretro.so` e o `.info` com o `corename` próprio) a partir do aport do upstream de cada core, com as flags por arquitetura acima e nada mais mudado; aports locais novos para os 4 cores que hoje vêm do Alpine (`fceumm`, `nestopia`, `gambatte`, `gpsp`), com commit fixo; variante Cyclone/DrZ80 dos dois MAME só no armv7 (`<core>_cyclone_lume`). Fora do catálogo até a 11.5. Verificação: testes de aport (flags por arquitetura, nenhuma outra mudança no build, nomes com `_lume`), manifesto e slots.
+- [ ] 11.2 Build armv7 dos cores `_lume` (arcade primeiro), envio ao GA36. Verificação: `lume pkg` sem erro; `.so` no console.
+- [ ] 11.3 Medição no GA36: cada core `_lume` contra o build do upstream, nos mesmos jogos do conjunto de teste (comparação de cores da 10.2). Verificação: linhas agregadas em `docs/tuning/ga36.md`.
+- [ ] 11.4 Build aarch64 dos cores `_lume` (R36S). Verificação: `lume pkg` sem erro.
+- [ ] 11.5 Catálogo e imagem: o core `_lume` que vencer substitui o do upstream (migração das opções, saves, estados e remaps do usuário para o `corename` novo, com teste); o do upstream sai da imagem. Verificação: testes do catálogo e da migração.
+
 ## Workflow follow-up
 
 - Branch `feature/game-experience-tuning` a partir da `main`; merge na `main` por PR com squash, só quando o usuário pedir.
