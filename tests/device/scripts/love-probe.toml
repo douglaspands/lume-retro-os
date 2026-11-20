@@ -55,7 +55,7 @@ category = "game"
 [[step]]
 name = "check the values (en)"
 type = "sh"
-command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=en_US.UTF-8' $o && grep -qx 'LANGUAGE=en_US:en' $o && grep -q '^locales=en' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
+command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=en_US.UTF-8' $o && grep -qx 'LANGUAGE=en_US:en' $o && grep -qE '^locales=(en|n/a)' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
 
 [[step]]
 name = "check the time against the console (en)"
@@ -88,7 +88,7 @@ category = "game"
 [[step]]
 name = "check the values (pt)"
 type = "sh"
-command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=pt_BR.UTF-8' $o && grep -qx 'LANGUAGE=pt_BR:pt' $o && grep -q '^locales=pt' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
+command = '''o=/run/lume/love-probe.txt; grep -qx 'LANG=pt_BR.UTF-8' $o && grep -qx 'LANGUAGE=pt_BR:pt' $o && grep -qE '^locales=(pt|n/a)' $o && grep -q '^TZ=:/usr/share/zoneinfo/' $o'''
 
 [[step]]
 name = "check the time against the console (pt)"

@@ -74,7 +74,11 @@ def test_value_check_commands_work_against_a_probe_output(tmp_path):
     assert run() == 0
     out.write_text(good.replace("pt_BR.UTF-8", "en_US.UTF-8"))
     assert run() != 0
+    # LÖVE 11.5 (the image) has no love.system.getPreferredLocales (GA36, 2026-11-20): the probe
+    # writes n/a and LANG/LANGUAGE carry the language; a wrong locale still fails
     out.write_text(good.replace("locales=pt_BR,pt", "locales=n/a"))
+    assert run() == 0
+    out.write_text(good.replace("locales=pt_BR,pt", "locales=en_US,en"))
     assert run() != 0
     out.write_text("")
     assert run() != 0
