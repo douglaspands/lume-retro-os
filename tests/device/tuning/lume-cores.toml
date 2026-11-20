@@ -1,0 +1,120 @@
+# The _lume builds (CPU flags of the console, game-experience-tuning 11.3) against the upstream
+# cores, on the same games as the other comparisons: every game of the arcade folder (each
+# arcade core in its _lume build), three games of CPS-1, CPS-2 and Neo Geo (the board cut and
+# the full FB Alpha 2012, both _lume), and the first game of every other system. The default
+# core of each system is the A runs; the B runs are the _lume cores for that game only.
+# Run: .venv/bin/python tests/device/tuning_ab.py lume-cores --console ga36 --measure 60
+description = "The _lume builds against the upstream cores of every system"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+positions = [1, 2, 3, 4, 5, 6, 7, 8]
+
+[[core.variant]]
+core = "fbneo_lume"
+
+[[core.variant]]
+core = "fbalpha2012_lume"
+
+[[core.variant]]
+core = "mame2003_plus_lume"
+
+[[core.variant]]
+core = "mame2000_lume"
+
+[[core]]
+core = "fbalpha2012_cps1"
+system = "cps1"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012_cps1_lume"
+
+[[core.variant]]
+core = "fbalpha2012_lume"
+
+[[core]]
+core = "fbalpha2012_cps2"
+system = "cps2"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012_cps2_lume"
+
+[[core.variant]]
+core = "fbalpha2012_lume"
+
+[[core]]
+core = "fbalpha2012_neogeo"
+system = "neogeo"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012_neogeo_lume"
+
+[[core.variant]]
+core = "fbalpha2012_lume"
+
+[[core]]
+core = "fceumm"
+system = "nes"
+position = 1
+
+[[core.variant]]
+core = "fceumm_lume"
+
+[[core.variant]]
+core = "nestopia_lume"
+
+[[core]]
+core = "snes9x2005_plus"
+system = "snes"
+position = 1
+
+[[core.variant]]
+core = "snes9x2005_plus_lume"
+
+[[core]]
+core = "genesis_plus_gx"
+system = "megadrive"
+position = 1
+
+[[core.variant]]
+core = "genesis_plus_gx_lume"
+
+[[core.variant]]
+core = "picodrive_lume"
+
+[[core]]
+core = "gambatte"
+system = "gbc"
+position = 1
+
+[[core.variant]]
+core = "gambatte_lume"
+
+[[core]]
+core = "gpsp"
+system = "gba"
+position = 1
+
+[[core.variant]]
+core = "gpsp_lume"
+
+[[core]]
+core = "pcsx_rearmed"
+system = "psx"
+position = 1
+
+[[core.variant]]
+core = "pcsx_rearmed_lume"
+
+[[core]]
+core = "mednafen_pce_fast"
+system = "pcengine"
+position = 1
+
+[[core.variant]]
+core = "mednafen_pce_fast_lume"
