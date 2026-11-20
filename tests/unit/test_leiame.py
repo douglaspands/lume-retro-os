@@ -28,13 +28,14 @@ def _section(text: str, folder: str) -> str:
 def test_arcade_folders_say_the_romset():
     # catalog-arcade-sega: each arcade folder names the romset of the default core
     text = leiame.render()
-    for sid in ("cps1", "cps2", "neogeo"):
+    for sid in ("arcade", "cps1", "cps2", "neogeo"):
         block = _section(text, sid)
         assert "Romset: FB Alpha v0.2.97.29" in block
-        assert "Core alternativo: fbneo" in block and "outro romset" in block
-    block = _section(text, "arcade")
-    assert "Romset: FBNeo" in block
-    assert "Core alternativo" not in block
+        assert "Core alternativo: fbneo" in block and "outro romset (FBNeo" in block
+    # game-experience-tuning 10.5: MAME 2003-Plus is the arcade folder's other alternative
+    assert "Core alternativo: mame2003_plus" in _section(text, "arcade")
+    assert "outro romset (MAME 2003-Plus)" in _section(text, "arcade")
+    assert "mame2003_plus" not in _section(text, "cps1")
     # the other systems do not get a romset line
     assert "Romset" not in _section(text, "nes")
 

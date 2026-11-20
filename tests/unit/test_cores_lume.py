@@ -52,10 +52,13 @@ def _sums(text: str) -> list[tuple[str, str]]:
 def test_every_core_of_the_image_has_a_lume_build():
     # the 16 cores of the image: 12 local aports and the 4 that come from Alpine
     assert len(PLAIN) == 16
-    image = {p for p in _lines(REPO_ROOT / "rootfs/packages.txt")
-             if p.startswith("libretro-") and not p.endswith("-lume")
-             and p != "libretro-core-info"}
-    assert {v.upstream for v in PLAIN} == image
+    image = [p for p in _lines(REPO_ROOT / "rootfs/packages.txt")
+             if p.startswith("libretro-") and p != "libretro-core-info"]
+    # each core of the image in one build only: the upstream one or its adopted _lume
+    bases = [p.removesuffix("-lume") for p in image]
+    assert len(bases) == len(set(bases))
+    assert set(bases) <= {v.upstream for v in PLAIN}
+    assert {p for p in image if p.endswith("-lume")} == set(cl.ADOPTED)
     assert CYCLONE_IDS == ["libretro-mame2000-cyclone-lume", "libretro-mame2003-plus-cyclone-lume"]
 
 
@@ -251,7 +254,10 @@ def test_arch_and_placement_in_the_lists():
     for v in PLAIN:
         # the arch of the upstream aport (all: x86_64 is the upstream build, not built)
         assert aport_arches(cl.target_path(v)) == aport_arches(cl.upstream_path(v.upstream))
-        assert v.package in common
+        # only the adopted _lume builds are in the image, in place of the upstream build
+        assert (v.package in common) is (v.package in cl.ADOPTED), v.package
+        if v.package in cl.ADOPTED:
+            assert v.upstream not in common, v.upstream
     ga36_text = (REPO_ROOT / "board/ga36/hw-packages.txt").read_text()
     for v in CYCLONE:
         assert v.package not in common and v.package not in r36s

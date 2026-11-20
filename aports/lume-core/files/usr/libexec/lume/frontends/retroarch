@@ -193,6 +193,36 @@ core_name() {  # core
 	done < "$INFO/${1}_libretro.info"
 }
 
+# A _lume build of a core (cores_lume.py) has its own corename, "<corename> (<label>)", so
+# RetroArch keeps its options (config/<corename>/) and remaps (config/remaps/<corename>/) in
+# new folders. The first run of the _lume core on a card copies the upstream core's folders,
+# renaming the core-wide files (<corename>.opt, <corename>.rmp, ...), so the user's choices
+# come along; per-game and per-folder files keep their names. Saves and states are sorted by
+# game, not by core: nothing to move. Once the folder exists nothing runs (no process).
+migrate_lume_core() {  # core
+	case $1 in *_lume) ;; *) return 0 ;; esac
+	core_name "$1"
+	local name=$CORE_NAME base dir src dst tmp f
+	case $name in *" ("*")") ;; *) return 0 ;; esac
+	base=${name% (*)}
+	for dir in config config/remaps; do
+		src=$HOME/.config/retroarch/$dir/$base
+		dst=$HOME/.config/retroarch/$dir/$name
+		[ -d "$src" ] || continue
+		[ -e "$dst" ] && continue
+		tmp=$dst.tmp.$$
+		rm -rf "$tmp"
+		if ! cp -a "$src" "$tmp"; then
+			rm -rf "$tmp"
+			continue
+		fi
+		for f in "$tmp/$base".*; do
+			[ -f "$f" ] && mv -f "$f" "$tmp/$name.${f##*.}"
+		done
+		mv "$tmp" "$dst"
+	done
+}
+
 # a run killed before it could put the user's values back
 restore_user_keys
 # factory defaults not yet applied on this card (D3); after the restore, so a key the user
@@ -252,6 +282,7 @@ for a in "$@"; do
 	[ "$prev" = -L ] && CORE=${a##*/} && CORE=${CORE%_libretro.so}
 	prev=$a
 done
+[ -n "$CORE" ] && migrate_lume_core "$CORE"
 # the factory options of this core not yet applied on this card (D3); nothing to do (no
 # process at all) for a core without factory options
 if [ -n "$CORE" ] && [ -d "$FACTORY/config" ]; then

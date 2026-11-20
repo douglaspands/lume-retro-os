@@ -88,7 +88,9 @@ def test_alternative_arcade_aport(name):
     for t in ("vm", "r36s", "ga36"):
         assert name in local_aports(get_target(t))
     packages = (REPO_ROOT / "rootfs/packages.txt").read_text().split()
-    assert name in packages
+    # 10.5 (the user, 2026-11-20): mame2000 lost on every board but one and left the image;
+    # its aport stays to measure it again
+    assert (name in packages) is (name != "libretro-mame2000")
 
 
 def test_mame2003_plus_drops_the_initial_exec_tls():

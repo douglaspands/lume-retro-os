@@ -113,42 +113,22 @@ libretro-gambatte
 libretro-gpsp
 
 # Cores locais (aports/)
-libretro-snes9x2005-plus
-libretro-genesis-plus-gx
 libretro-picodrive
 libretro-fbneo
-libretro-fbalpha2012-cps1
-libretro-fbalpha2012-cps2
-libretro-fbalpha2012-neogeo
-libretro-pcsx-rearmed
 # PC Engine / TurboGrafx-16 and PCE-CD (game-experience-tuning D8)
 libretro-mednafen-pce-fast
-# Alternative arcade cores under measurement against fbneo (game-experience-tuning 10); not in
-# the catalog until the measurement picks them (task 10.5)
+# Arcade, CPS-1, CPS-2 and Neo Geo (game-experience-tuning 10, the user, 2026-11-20): the full
+# FB Alpha 2012 is the default (as fast as the per-board cuts, which left the image, and faster
+# than fbneo on every measured board); MAME 2003-Plus is the arcade alternative (best on the
+# Konami and Irem M92 boards), fbneo the one that opens what the others do not
 libretro-fbalpha2012
 libretro-mame2003-plus
-libretro-mame2000
 
-# CPU-flag builds under measurement, game-experience-tuning 11, not in the catalog until 11.5.
-# Generated from the aports above by `lume cores-lume` (the four Alpine cores from
-# aports/_upstream): the same code and optimisation level with the CPU flags of the console
-# (armv7 -marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard, aarch64 -mcpu=cortex-a35),
-# core ids <core>_lume. For x86_64 they are the upstream build (the vm is out of the build cycle
-# and they are not built for it). The armv7-only Cyclone/DrZ80 builds of the two MAME cores are in
-# board/ga36/hw-packages.txt.
-libretro-fceumm-lume
-libretro-nestopia-lume
-libretro-gambatte-lume
-libretro-gpsp-lume
+# CPU-flag builds that won against the upstream build on the GA36 (game-experience-tuning 11.3,
+# 11.5) and replace it in the image: generated from the aports by `lume cores-lume` (armv7
+# -marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard, aarch64 -mcpu=cortex-a35), core ids
+# <core>_lume. For x86_64 they are the upstream build (the vm is out of the build cycle). The
+# other _lume aports (even or slower, docs/tuning/ga36.md) stay in aports/ out of the image.
 libretro-snes9x2005-plus-lume
 libretro-genesis-plus-gx-lume
-libretro-picodrive-lume
-libretro-fbneo-lume
-libretro-fbalpha2012-cps1-lume
-libretro-fbalpha2012-cps2-lume
-libretro-fbalpha2012-neogeo-lume
 libretro-pcsx-rearmed-lume
-libretro-mednafen-pce-fast-lume
-libretro-fbalpha2012-lume
-libretro-mame2003-plus-lume
-libretro-mame2000-lume

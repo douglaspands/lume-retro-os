@@ -30,6 +30,10 @@ CORE_SYSTEM_OVERRIDE: dict[str, str] = {}
 # tests/cores/load_cores.sh), and CPS-3 shares fbneo with the arcade folder.
 NO_TEST_ROM = {"segacd", "sega32x", "cps1", "cps2", "cps3", "neogeo", "gamegear", "sg1000",
                "pcengine", "pcenginecd"}
+# Arcade cores with no verified free romset: Gridlee is checked on fbneo only, so the full FB
+# Alpha 2012 and MAME 2003-Plus (game-experience-tuning 10.5) are only loaded with no content
+# (tests/cores/load_cores.sh)
+NO_TEST_CORE = {"fbalpha2012", "mame2003_plus"}
 SIZE_MIB = 64
 
 
@@ -55,7 +59,7 @@ def core_tests(cat: dict | None = None) -> dict[str, tuple[str, str]]:
     for s in cat["systems"]:
         for core in sorted(catalog.core_refs(s)):
             system = CORE_SYSTEM_OVERRIDE.get(core, s["id"])
-            if system in NO_TEST_ROM:
+            if system in NO_TEST_ROM or core in NO_TEST_CORE:
                 continue
             tests.setdefault(core, (system, roms[system]))
     return tests

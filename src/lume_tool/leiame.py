@@ -40,7 +40,8 @@ Sistemas
 
 
 # Romset accepted by each alternative core offered in the arcade folders.
-_ALT_ROMSET = {"fbneo": "FBNeo, da versão do core da imagem"}
+_ALT_ROMSET = {"fbneo": "FBNeo, da versão do core da imagem",
+               "mame2003_plus": "MAME 2003-Plus"}
 
 
 def render(cat: dict | None = None) -> str:

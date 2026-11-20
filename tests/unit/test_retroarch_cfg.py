@@ -895,6 +895,49 @@ def test_core_options_only_for_the_core_of_the_run(tmp_path):
     assert not _user_opt(tmp_path / "b").exists()
 
 
+GPGX_LUME = ("-L", "/usr/lib/libretro/genesis_plus_gx_lume_libretro.so",
+             "/storage/roms/megadrive/x.md")
+
+
+def test_first_run_of_a_lume_core_brings_the_users_options_and_remaps(tmp_path):
+    # the _lume build has its own corename, so RetroArch would start it with empty folders
+    env = _opt_env(tmp_path, {}, cores={"genesis_plus_gx": "Genesis Plus GX",
+                                        "genesis_plus_gx_lume": "Genesis Plus GX (Lume)"})
+    cfg = tmp_path / "home/.config/retroarch/config"
+    (cfg / "Genesis Plus GX").mkdir(parents=True)
+    (cfg / "Genesis Plus GX/Genesis Plus GX.opt").write_text('genesis_plus_gx_bram = "per game"\n')
+    (cfg / "Genesis Plus GX/x.opt").write_text('genesis_plus_gx_ym2612 = "mame (ym2612)"\n')
+    (cfg / "remaps/Genesis Plus GX").mkdir(parents=True)
+    (cfg / "remaps/Genesis Plus GX/Genesis Plus GX.rmp").write_text('input_player1_btn_a = "1"\n')
+    (cfg / "remaps/Genesis Plus GX/megadrive.rmp").write_text('input_player1_btn_b = "0"\n')
+    _frontend(tmp_path, "ga36", "", args=GPGX_LUME, env_extra=env)
+    lume = cfg / "Genesis Plus GX (Lume)"
+    assert sorted(p.name for p in lume.iterdir()) == ["Genesis Plus GX (Lume).opt", "x.opt"]
+    assert (lume / "Genesis Plus GX (Lume).opt").read_text() == 'genesis_plus_gx_bram = "per game"\n'
+    remaps = cfg / "remaps/Genesis Plus GX (Lume)"
+    assert sorted(p.name for p in remaps.iterdir()) == ["Genesis Plus GX (Lume).rmp", "megadrive.rmp"]
+    # the upstream folders stay (the user may go back to the upstream core)
+    assert (cfg / "Genesis Plus GX/Genesis Plus GX.opt").exists()
+    assert not list(cfg.glob("*.tmp.*")) and not list((cfg / "remaps").glob("*.tmp.*"))
+    # once: the _lume folder is the user's from now on, a later upstream change is not copied
+    (lume / "Genesis Plus GX (Lume).opt").write_text('genesis_plus_gx_bram = "per cart"\n')
+    (cfg / "Genesis Plus GX/new.opt").write_text("")
+    _frontend(tmp_path, "ga36", args=GPGX_LUME, env_extra=env)
+    assert (lume / "Genesis Plus GX (Lume).opt").read_text() == 'genesis_plus_gx_bram = "per cart"\n'
+    assert not (lume / "new.opt").exists()
+
+
+def test_lume_core_without_upstream_folders_or_an_upstream_core_copies_nothing(tmp_path):
+    env = _opt_env(tmp_path, {}, cores={"genesis_plus_gx_lume": "Genesis Plus GX (Lume)"})
+    _frontend(tmp_path, "ga36", "", args=GPGX_LUME, env_extra=env)
+    assert not (tmp_path / "home/.config/retroarch/config/Genesis Plus GX (Lume)").exists()
+    # an upstream core run never copies anything
+    cfg = tmp_path / "home/.config/retroarch/config"
+    (cfg / "Genesis Plus GX").mkdir(parents=True)
+    _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
+    assert sorted(p.name for p in cfg.iterdir()) == ["Genesis Plus GX"]
+
+
 def test_corename_is_read_with_any_spacing(tmp_path):
     for i, fmt in enumerate(('corename="{}"\n', 'corename\t=\t"{}"  \n', 'corename = {}\n')):
         base = tmp_path / str(i)
@@ -914,10 +957,14 @@ def test_corename_fixture_covers_every_installed_core():
                 for line in path.read_text().splitlines()]
     cores = {p.removeprefix("libretro-").replace("-", "_") for p in packages
              if p.startswith("libretro-") and p != "libretro-core-info"}
-    # suspended _lume variants (out of the image for a recorded reason) keep their fixture line
+    # the fixture also names the cores whose aport is kept out of the image (the _lume builds
+    # not adopted, the suspended ones, the upstream builds they replaced): every line is a core
+    # with an aport (test_cores_lume reads them)
     from lume_tool import cores_lume
-    suspended = {p.removeprefix("libretro-").replace("-", "_") for p in cores_lume.SUSPENDED}
-    assert cores == set(_corenames()) - suspended
+    aports = {p.removeprefix("libretro-").replace("-", "_")
+              for v in cores_lume.VARIANTS for p in (v.upstream, v.package)}
+    assert cores <= set(_corenames())
+    assert set(_corenames()) <= aports
 
 
 def test_factory_option_folders_are_corenames_of_installed_cores():

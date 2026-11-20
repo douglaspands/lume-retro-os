@@ -87,6 +87,16 @@ SUSPENDED = {
 }
 
 
+# The _lume builds that won against the upstream build (game-experience-tuning 11.3, the
+# user's decision of 2026-11-20) and replace it in the image (rootfs/packages.txt) and in the
+# catalog. Every other _lume aport stays out of the image, ready to be measured again.
+ADOPTED = (
+    "libretro-snes9x2005-plus-lume",
+    "libretro-genesis-plus-gx-lume",
+    "libretro-pcsx-rearmed-lume",
+)
+
+
 class CoresLumeError(Exception):
     pass
 

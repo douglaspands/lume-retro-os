@@ -21,19 +21,20 @@ def test_systems_match_design_table():
                    "sega32x", "gb", "gbc", "gba", "pcengine", "pcenginecd", "arcade", "cps1",
                    "cps2", "cps3", "neogeo", "psx", "love", "ports"]
     by_id = {s["id"]: s for s in CAT["systems"]}
-    # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap
-    assert by_id["snes"]["core"] == "snes9x2005_plus"
+    # SNES (game-governor D15): snes9x2005_plus everywhere, no alternatives, no per-arch swap;
+    # its CPU-flag build since game-experience-tuning 11.5 (the user, 2026-11-20)
+    assert by_id["snes"]["core"] == "snes9x2005_plus_lume"
     assert by_id["snes"]["alt_cores"] == []
     assert by_id["snes"]["core_by_arch"] == {}
     for arch in ("x86_64", "aarch64", "armv7"):
-        assert catalog.default_core(by_id["snes"], arch) == "snes9x2005_plus"
-    assert not any("snes9x" in c and c != "snes9x2005_plus" for c in CAT["cores"])
-    # Sega CD, Master System, Mega Drive: genesis_plus_gx on every console, picodrive as the
-    # alternative (the user, 2026-11-19: same cores on both consoles at the start)
+        assert catalog.default_core(by_id["snes"], arch) == "snes9x2005_plus_lume"
+    assert not any("snes9x" in c and c != "snes9x2005_plus_lume" for c in CAT["cores"])
+    # Sega CD, Master System, Mega Drive: genesis_plus_gx (the _lume build, 11.5) on every
+    # console, picodrive as the alternative (the user, 2026-11-19: same cores on both consoles)
     assert by_id["segacd"]["extensions"] == ["cue", "chd", "iso", "m3u"]
     for sid in ("segacd", "mastersystem", "megadrive"):
         for arch in ("x86_64", "aarch64", "armv7"):
-            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx_lume"
         assert by_id[sid]["alt_cores"] == ["picodrive"]
     # Game Gear and SG-1000 (the user, 2026-11-19): the same genesis_plus_gx as the rest of the
     # Sega 8/16-bit family, so one core to optimize
@@ -41,7 +42,11 @@ def test_systems_match_design_table():
     assert by_id["sg1000"]["extensions"] == ["sg", "zip", "7z"]
     for sid in ("gamegear", "sg1000"):
         for arch in ("x86_64", "aarch64", "armv7"):
-            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx"
+            assert catalog.default_core(by_id[sid], arch) == "genesis_plus_gx_lume"
+    # the upstream builds the _lume ones replaced are out of the catalog
+    for core in ("genesis_plus_gx", "snes9x2005_plus", "pcsx_rearmed"):
+        assert core not in CAT["cores"] and f"{core}_lume" in CAT["cores"]
+    assert by_id["psx"]["core"] == "pcsx_rearmed_lume"
     assert by_id["segacd"]["bios"][0]["files"] == [
         "bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"]
     assert by_id["segacd"]["bios"][0]["required"] is True
@@ -49,19 +54,20 @@ def test_systems_match_design_table():
     assert by_id["sega32x"]["extensions"] == ["32x", "zip", "7z"]
     for arch in ("x86_64", "aarch64", "armv7"):
         assert catalog.default_core(by_id["sega32x"], arch) == "picodrive"
-    # CPS-1, CPS-2, Neo Geo: FB Alpha 2012 cut per board, fbneo as the only alternative
+    # CPS-1, CPS-2, Neo Geo: the full FB Alpha 2012 (as fast as the per-board cuts on the GA36,
+    # game-experience-tuning 10.5), fbneo as the only alternative; the cuts left the catalog
     for sid in ("cps1", "cps2", "neogeo"):
         assert by_id[sid]["extensions"] == ["zip"]
         assert by_id[sid]["core_by_arch"] == {}
         assert by_id[sid]["alt_cores"] == ["fbneo"]
         assert by_id[sid]["romset"] == "FB Alpha v0.2.97.29"
         for arch in ("x86_64", "aarch64", "armv7"):
-            assert catalog.default_core(by_id[sid], arch) == f"fbalpha2012_{sid}"
-        assert f"fbalpha2012_{sid}" in CAT["cores"]
+            assert catalog.default_core(by_id[sid], arch) == "fbalpha2012"
+        assert f"fbalpha2012_{sid}" not in CAT["cores"]
     assert by_id["neogeo"]["bios"][0]["files"] == ["neogeo.zip"]
     assert by_id["neogeo"]["bios"][0]["required"] is True
     assert "roms/neogeo/" in by_id["neogeo"]["bios"][0]["note"]
-    assert by_id["arcade"]["romset"].startswith("FBNeo")
+    assert by_id["arcade"]["romset"] == "FB Alpha v0.2.97.29"
     # only the arcade systems carry a romset
     assert {s["id"] for s in CAT["systems"] if s["romset"]} == {
         "arcade", "cps1", "cps2", "cps3", "neogeo"}
@@ -95,11 +101,14 @@ def test_systems_match_design_table():
     for arch in ("x86_64", "aarch64", "armv7"):
         assert catalog.default_core(by_id["gba"], arch) == "gpsp"
     assert "mgba" not in CAT["cores"]
-    # arcade: fbneo on every console, so a romset works on both consoles of the single card
-    # (mame2003_plus left out on the user's request, 2026-11-11)
+    # arcade (game-experience-tuning 10.5, the user, 2026-11-20): the full FB Alpha 2012 on every
+    # console (fastest on the measured boards), MAME 2003-Plus (best on Konami and Irem M92) and
+    # fbneo (the only one that opens some boards) as alternatives; the same on both consoles of
+    # the single card. mame2000 left the catalog
     for arch in ("x86_64", "aarch64", "armv7"):
-        assert catalog.default_core(by_id["arcade"], arch) == "fbneo"
-    assert "mame2003_plus" not in CAT["cores"]
+        assert catalog.default_core(by_id["arcade"], arch) == "fbalpha2012"
+    assert by_id["arcade"]["alt_cores"] == ["mame2003_plus", "fbneo"]
+    assert "mame2000" not in CAT["cores"]
     assert by_id["psx"]["bios"][0]["files"] == [
         "scph5500.bin", "scph5501.bin", "scph5502.bin", "scph1001.bin"]
 
@@ -114,14 +123,15 @@ def test_same_cores_on_both_consoles_for_now():
 
 def test_vm_core_tests_cover_what_has_a_free_rom():
     # the VM self-test runs a core with a ROM the build can generate (or Gridlee for fbneo);
-    # fbalpha2012_* have no free romset: they are only checked by tests/cores/load_cores.sh
+    # fbalpha2012 and mame2003_plus have no verified free romset: they are only checked by
+    # tests/cores/load_cores.sh
     from lume_tool import testdata
 
     tests = testdata.core_tests(CAT)
     assert tests["fbneo"] == ("arcade", "roms/arcade/gridlee.zip")
     assert tests["picodrive"][0] in ("mastersystem", "megadrive")
-    assert tests["genesis_plus_gx"][0] in ("mastersystem", "megadrive")
-    assert not any(core.startswith("fbalpha2012_") for core in tests)
+    assert tests["genesis_plus_gx_lume"][0] in ("mastersystem", "megadrive")
+    assert not any(core.startswith(("fbalpha2012", "mame")) for core in tests)
     assert all(system not in testdata.NO_TEST_ROM for system, _ in tests.values())
 
 
@@ -168,10 +178,10 @@ def test_emulators_derived_from_core_fields():
     assert catalog.emulators(by_id["nes"], "x86_64") == [
         {"runner": "retroarch", "core": "fceumm"}, {"runner": "retroarch", "core": "nestopia"}]
     assert catalog.emulators(by_id["segacd"], "armv7") == [
-        {"runner": "retroarch", "core": "genesis_plus_gx"},
+        {"runner": "retroarch", "core": "genesis_plus_gx_lume"},
         {"runner": "retroarch", "core": "picodrive"}]
     assert catalog.emulators(by_id["segacd"], "aarch64") == [
-        {"runner": "retroarch", "core": "genesis_plus_gx"},
+        {"runner": "retroarch", "core": "genesis_plus_gx_lume"},
         {"runner": "retroarch", "core": "picodrive"}]
     for s in CAT["systems"]:
         for arch in ("x86_64", "aarch64", "armv7"):
