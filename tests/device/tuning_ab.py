@@ -23,11 +23,24 @@ variant as A, B, A. One run:
 At the end of each sequence the aggregated row goes to docs/tuning/<console>.md. The saved
 files are put back on any error or Ctrl+C, and a save left by an interrupted run is put back
 at the next start. The lume-power manual mode is refused (the normal profile is measured).
+
+Core comparison (task 10.2, a plan entry whose variants are `core = "<name>"`): no separate
+baseline; per game and core, A1 in the default core (the system's per-game options file
+cleared), B in the variant's core through the launcher's per-game option (written on the
+console from the index, the path never crosses the cable), A2. The launcher's options file is
+saved with the rest and put back; our systems.d/zz-lume-tuning.toml offers the core to the
+system during the sequence and is removed at the end. A core without its library is
+`not-installed` (nothing runs); B without its start event, with start-failed, another core,
+or ended before the measurement is over is `not-open` with the reason class (A2 skipped), and
+the next sequence goes on. Results per game go to the private out/tuning/<console>-cores.jsonl;
+the report gets the cores section aggregated by core and hardware family (families file:
+--families, default var/roms_test/families.toml, out of git).
 """
 from __future__ import annotations
 
 import argparse
 import datetime
+import re
 import sys
 import time
 from pathlib import Path
@@ -37,6 +50,10 @@ from lume_tool import dev, dev_run, scripts, tuning
 REPO = Path(__file__).resolve().parents[2]
 PLANS = REPO / "tests" / "device" / "tuning"
 REPORTS = REPO / "docs" / "tuning"
+RESULTS = REPO / "out" / "tuning"                       # private, out of git
+FAMILIES = REPO / "var" / "roms_test" / "families.toml"   # private, kept by the user
+WATCH_S = 5.0                                           # events polled during a warm-up
+OPEN_TIMEOUT_S = 90.0                                   # the start event of a core run
 
 
 def resolve_plan(ref: str) -> Path:
@@ -82,6 +99,145 @@ def close_game(ctx: dev_run.Context) -> None:
         raise tuning.TuningError(f"close the game: {e}") from None
 
 
+# --- core comparison (task 10.2) --------------------------------------------------------
+
+class NotOpened(Exception):
+    """B did not open in its core; the message is the reason class (no log line)."""
+
+
+def _game_events(ctx: dev_run.Context) -> list[str]:
+    """The new lume-run/logd lines of the `game` category (cut at content=)."""
+    try:
+        lines = dev_run.read_new_events(ctx)
+    except dev.DevError as e:
+        raise tuning.TuningError(f"events of the console: {e}") from None
+    return [ln for ln in lines
+            if len(ln.split()) >= 3 and ln.split()[2] == dev_run.GAME_CATEGORY]
+
+
+def watch_warmup(ctx: dev_run.Context, system: str, seconds: float) -> str | None:
+    """The warm-up of a comparison run, watching the events: the cut end line when the game
+    ended before it was over, None when it is still running."""
+    pattern = re.compile(dev_run.closed_pattern(system))
+    end = ctx.now() + seconds
+    while True:
+        left = end - ctx.now()
+        if left <= 0:
+            return None
+        ctx.sleep(min(WATCH_S, left))
+        for line in _game_events(ctx):
+            if pattern.search(line):
+                return line
+
+
+def open_core(ctx: dev_run.Context, core: tuning.CorePlan, expected: str, warmup: int) -> None:
+    """Open game N in `expected` and survive the warm-up; NotOpened(reason) otherwise. The
+    launcher's own failures (no index, position past the games) stay a TuningError. The start
+    and the end of a game that fails at once may come in the same poll: both are seen."""
+    _events_from_now(ctx)
+    try:
+        ctx.open_game(core.system, core.position)
+    except dev.DevError as e:
+        raise tuning.TuningError(f"open game {core.position} of {core.system}: {e}") from None
+    ctx.last_system = core.system
+    opened = re.compile(dev_run.opened_pattern(core.system))
+    failed = re.compile(dev_run.start_failed_pattern(core.system))
+    closed = re.compile(dev_run.closed_pattern(core.system))
+    deadline = ctx.now() + OPEN_TIMEOUT_S
+    start, rest = None, []
+    while start is None:
+        lines = _game_events(ctx)
+        for i, line in enumerate(lines):
+            if failed.search(line):
+                raise NotOpened("start-failed")
+            if opened.search(line):
+                start, rest = line, lines[i + 1:]
+                break
+        if start is None:
+            if ctx.now() >= deadline:
+                raise NotOpened("timeout")
+            ctx.sleep(dev_run.POLL_S)
+    ended = next((ln for ln in rest if closed.search(ln)), None)
+    if tuning.started_core(start) != expected:
+        if ended is None:
+            close_game(ctx)
+        raise NotOpened("other-core")
+    if ended is None:
+        ended = watch_warmup(ctx, core.system, warmup)
+    if ended is not None:
+        raise NotOpened(tuning.exit_class(ended))
+
+
+def core_run(ctx: dev_run.Context, seq: tuning.Sequence, run: tuning.Run, warmup: int,
+             measure: int) -> tuning.RunMetrics:
+    """One run of a core comparison: A in the default core (per-game options cleared), B in
+    the variant's core for this game only. A that does not open is an error of the whole
+    measurement; B that does not open raises NotOpened."""
+    core = seq.core
+    alt = run.variant.core if run.variant else None
+    print(f"  {run.label}: core {alt or core.core}", flush=True)
+    ctx.run(tuning.restore_command(keep=True) + "true")
+    if alt:
+        tuning.expect_applied(ctx.run(tuning.game_core_command(core.system, core.position,
+                                                               alt)), "per-game core")
+    else:
+        tuning.expect_applied(ctx.run(tuning.default_core_command(core.system)),
+                              "per-game options")
+    try:
+        try:
+            open_core(ctx, core, alt or core.core, warmup)
+        except NotOpened as e:
+            if alt:
+                raise
+            raise tuning.TuningError(f"game {core.position} of {core.system} did not stay "
+                                     f"open in its default core ({e})") from None
+        try:
+            window = tuning.parse_window(ctx.run(tuning.sampler_command(core.process,
+                                                                        measure)))
+        except (tuning.TuningError, dev.DevError):
+            if alt:
+                raise NotOpened("ended-early") from None
+            raise
+        rows = tuning.parse_metrics(ctx.run(tuning.metrics_command(window.t0, window.t1)))
+        close_game(ctx)
+    finally:
+        ctx.run(tuning.restore_command(keep=True) + "true")
+    m = tuning.aggregate(window, rows)
+    print(f"     drawn {tuning._f(m.drawn_fps)} fps, speed {tuning._pct(m.speed)}, clock "
+          f"{tuning._f(m.clock_mhz, 0)} MHz", flush=True)
+    return m
+
+
+def run_core_sequence(ctx: dev_run.Context, seq: tuning.Sequence, build: str, warmup: int,
+                      measure: int) -> tuning.CoreResult:
+    """A1, B, A2 of one game and one core. A core that is not installed is `not-installed`
+    (nothing runs); B that does not open is `not-open` with its reason class and A2 is
+    skipped. Every file comes back at the end, also on an error or Ctrl+C."""
+    core, alt = seq.core, seq.variant.core
+    date = datetime.date.today().isoformat()
+
+    def result(status, reason="", a=(), b=None):
+        return tuning.CoreResult(date, build, core.system, core.position, core.core, alt,
+                                 status, reason, tuple(a), b)
+    if ctx.run(tuning.core_installed_command(alt)).strip() != tuning.INSTALLED:
+        print(f"  core {alt} is not installed", flush=True)
+        return result(tuning.NOT_INSTALLED)
+    ctx.run(tuning.save_command(core.core, games_system=core.system))
+    try:
+        tuning.expect_applied(ctx.run(tuning.card_cores_command(core.system, [alt])),
+                              "systems.d file")
+        a1 = core_run(ctx, seq, seq.runs[0], warmup, measure)
+        try:
+            b = core_run(ctx, seq, seq.runs[1], warmup, measure)
+        except NotOpened as e:
+            print(f"  -> does not open ({e})", flush=True)
+            return result(tuning.NOT_OPEN, str(e), (a1,))
+        a2 = core_run(ctx, seq, seq.runs[2], warmup, measure)
+    finally:
+        ctx.run(tuning.restore_command(keep=False) + "true")
+    return result(tuning.OPENED, "", (a1, a2), b)
+
+
 def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tuning.Run,
             warmup: int, measure: int) -> tuning.RunMetrics:
     core = seq.core
@@ -106,15 +262,25 @@ def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tunin
 
 
 def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: Path,
-                  warmup: int, measure: int) -> int:
-    ctx = dev_run.Context(host, console=console)
+                  warmup: int, measure: int, results: Path | None = None,
+                  families: dict | None = None, ctx: dev_run.Context | None = None) -> int:
+    ctx = ctx or dev_run.Context(host, console=console)
     manual = ctx.run(tuning.power_check_command()).strip()
     if manual:
         raise tuning.TuningError(f"lume-power is in manual mode ({manual}); run "
                                  f"`lume-power auto` on the console first")
     build = ctx.run(tuning.build_id_command()).strip() or "-"
+    results = results or RESULTS / f"{console}-cores.jsonl"
+    compared = False
     for n, seq in enumerate(seqs, 1):
-        print(f"{n}/{len(seqs)} {seq.core.core} {seq.name}", flush=True)
+        print(f"{n}/{len(seqs)} {seq.core.core} {seq.name}"
+              f"{f' game #{seq.core.position}' if seq.core.compares_cores else ''}", flush=True)
+        if seq.core.compares_cores:
+            tuning.save_result(results, run_core_sequence(ctx, seq, build, warmup, measure))
+            tuning.write_cores_section(report, console, tuning.load_results(results),
+                                       families or {})
+            compared = True
+            continue
         ctx.run(tuning.save_command(seq.core.core))
         try:
             results = [one_run(ctx, console, seq, r, warmup, measure) for r in seq.runs]
@@ -127,6 +293,11 @@ def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: 
             row = tuning.variant_row(date, build, seq.core, seq.variant, *results)
         tuning.append_row(report, console, row)
         print(f"  -> {row.decision}", flush=True)
+    if compared:
+        # private: positions only, on the PC; the choice per game goes to the user's card
+        print(f"fastest core at full speed per game (from {results}):")
+        for (system, pos), core in tuning.picks(tuning.load_results(results)).items():
+            print(f"  {system} #{pos}: {core}")
     return 0
 
 
@@ -142,9 +313,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--warmup", type=int, default=tuning.WARMUP_S)
     ap.add_argument("--measure", type=int, default=tuning.MEASURE_S)
     ap.add_argument("--report-dir", type=Path, default=REPORTS)
+    ap.add_argument("--results", type=Path, default=None,
+                    help="private results of a core comparison (default "
+                         "out/tuning/<console>-cores.jsonl)")
+    ap.add_argument("--families", type=Path, default=FAMILIES,
+                    help="private file position -> hardware family (default "
+                         "var/roms_test/families.toml; absent = group by core only)")
     args = ap.parse_args(argv)
     try:
         plan = tuning.load_plan(resolve_plan(args.plan))
+        # only a core comparison reads the private families file
+        families = (tuning.load_families(args.families)
+                    if any(c.compares_cores for c in plan.cores) else {})
         if args.dry_run:
             if not args.console:
                 raise tuning.TuningError("--dry-run needs --console")
@@ -157,10 +337,14 @@ def main(argv: list[str] | None = None) -> int:
         seqs = tuning.build_sequences(plan, console, tuning.baselines_in(text),
                                       args.rebaseline, args.only)
         print(tuning.format_sequences(seqs, console, args.warmup, args.measure), flush=True)
+        if any(s.core.compares_cores for s in seqs):
+            print("core comparison: report grouped by "
+                  f"{'core and hardware family' if families else 'core only (no families file)'}")
         if args.dry_run:
             return 0
         started = time.monotonic()
-        rc = run_sequences(host, console, seqs, report, args.warmup, args.measure)
+        rc = run_sequences(host, console, seqs, report, args.warmup, args.measure,
+                           args.results, families)
         print(f"done in {(time.monotonic() - started) / 60:.0f} min; report: {report}")
         return rc
     except (tuning.TuningError, dev.DevError) as e:

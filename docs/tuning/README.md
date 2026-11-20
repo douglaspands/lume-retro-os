@@ -38,6 +38,66 @@ depois de cada execução; uma sequência interrompida é desfeita no início da
 
 Ordem: linha de base `A, A`; cada variante `A, B, A`. A diferença entre os dois A é o ruído.
 
+## Comparação de cores (tarefa 10.2)
+
+Uma entrada do plano cujas variantes são `core = "<nome>"` compara cores num mesmo jogo
+(plano `arcade-cores.toml`: os jogos 1 a 8 da pasta `arcade` em `fbneo`, `fbalpha2012`,
+`mame2003_plus` e `mame2000`). `positions = [1, 2, ...]` cria uma entrada por jogo. Não há
+linha de base separada: em cada sequência `A, B, A`, os A rodam o core padrão do sistema e
+são a referência daquele jogo.
+
+```
+.venv/bin/python tests/device/tuning_ab.py arcade-cores --console ga36 --dry-run
+.venv/bin/python tests/device/tuning_ab.py arcade-cores --console ga36 --only fbneo:mame2000
+```
+
+- **Troca do core só durante a execução:** o core vai pela opção por jogo do próprio launcher
+  (`ROMS/system/lume/games/<sistema>.toml`, `options.rs` do `lume-core`), escrita **no
+  console**: o comando remoto acha o caminho do jogo N no índice do launcher
+  (`cache/index/<sistema>.bin`, a mesma ordem da grade), escapa o caminho para TOML lá mesmo e
+  responde só `applied`; o caminho nunca passa pelo cabo. O arquivo original vai para
+  `/run/lume/tuning` junto com a configuração do RetroArch e volta depois de cada execução, no
+  fim da sequência, num erro ou Ctrl+C, e no início da medição seguinte se uma ficou
+  interrompida. Nos A o arquivo fica vazio (o jogo abre no core padrão); em B, só com o jogo
+  medido.
+- **Core fora do catálogo:** o launcher só aceita o core guardado se o sistema o oferecer;
+  enquanto ele não está em `alt_cores` (tarefa 10.5), o arquivo
+  `ROMS/system/lume/systems.d/zz-lume-tuning.toml` o oferece durante a sequência (o launcher lê
+  o catálogo quando volta depois do A1) e é apagado no fim.
+- **Não instalado:** sem `/usr/lib/libretro/<core>_libretro.so`, a sequência inteira fica
+  "não instalado" e nada roda.
+- **Não abre:** B sem o evento `game OK <sistema> retroarch <core> start` em 90 s, com
+  `start-failed`, aberto em outro core ou terminado antes do fim da medição. Fica registrado só
+  o motivo (`start-failed`, `timeout`, `other-core`, `ended-early` ou `exit=<código>
+  end=<como>` do evento de fim do `lume-run`), o A2 é pulado e a medição segue para a próxima
+  sequência.
+- **Resultados por jogo:** em `out/tuning/<console>-cores.jsonl` (fora do git; só posição,
+  core, motivo e métricas). No fim, a ferramenta mostra no PC o core escolhido por jogo (pela
+  posição): o de menor clock médio entre os que rodam com velocidade cheia e sem mais falhas de
+  áudio que o padrão (empate: mais quadros); sem nenhum com velocidade cheia, o mais rápido. A
+  escolha vai para o cartão do usuário, nunca para o repositório.
+- **Relatório:** a seção "Cores alternativos por família de hardware" de
+  `docs/tuning/<console>.md` é reescrita a partir dos resultados depois de cada sequência: uma
+  linha por core e família, com jogos, quantos abrem, quantos com velocidade cheia, médias,
+  diferença contra o padrão nos mesmos jogos e em quantos jogos o core foi o escolhido.
+
+### Arquivo de famílias (privado)
+
+A família de hardware de cada posição do conjunto de teste é dado privado: fica num arquivo
+fora do git, por padrão `var/roms_test/families.toml` (`--families` muda o caminho). Uma tabela
+por sistema, posição do jogo na grade = nome curto da família (`[a-z0-9_.+-]`, sem nome de
+jogo):
+
+```toml
+[arcade]
+1 = "cps1"
+2 = "neogeo"
+3 = "irem"
+```
+
+Sem o arquivo, o relatório agrupa só por core (família `todas`); uma posição que falta no
+arquivo entra como `sem-familia`.
+
 ## Métricas e fontes
 
 | Métrica | Fonte |

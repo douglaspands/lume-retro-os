@@ -482,3 +482,423 @@ def test_sampler_is_valid_sh_and_names_the_process():
     subprocess.run(["sh", "-n", "-c", cmd], check=True)
     with pytest.raises(TuningError):
         tuning.sampler_command("bash", 1)
+
+
+# --- core comparison (task 10.2) --------------------------------------------------------
+
+CORE_PLAN = {
+    "consoles": ["ga36"],
+    "core": [{"core": "fbneo", "system": "arcade", "positions": [1, 2],
+              "variant": [{"core": "mame2003_plus"}, {"name": "m2000", "core": "mame2000"}]}],
+}
+
+
+def test_core_plan_expands_positions_and_names_variants_by_core():
+    plan = tuning.validate_plan(CORE_PLAN)
+    assert [(c.core, c.position) for c in plan.cores] == [("fbneo", 1), ("fbneo", 2)]
+    assert all(c.compares_cores for c in plan.cores)
+    v = plan.cores[0].variants
+    assert [(x.name, x.core, x.change()) for x in v] == [
+        ("mame2003_plus", "mame2003_plus", "core:mame2003_plus"),
+        ("m2000", "mame2000", "core:mame2000")]
+
+
+@pytest.mark.parametrize("entry", [
+    {"core": "fbneo", "system": "arcade", "position": 1,
+     "variant": [{"core": "mame2000", "retroarch": {"a": "1"}}]},          # core + keys
+    {"core": "fbneo", "system": "arcade", "position": 1,
+     "variant": [{"core": "fbneo"}]},                                        # the default
+    {"core": "fbneo", "system": "arcade", "position": 1,
+     "variant": [{"core": "mame2000"}, {"name": "k", "retroarch": {"a": "1"}}]},   # mixed
+    {"core": "fbneo", "system": "arcade", "position": 1, "positions": [2]},
+    {"core": "fbneo", "system": "arcade", "positions": [1, 1]},
+    {"core": "fbneo", "system": "arcade", "positions": []},
+    {"core": "fbneo", "system": "arcade", "position": 1,
+     "variant": [{"core": "mame-2000"}]},
+    {"core": "fbneo", "system": "arcade", "position": 1,
+     "variant": [{"core": "x.zip"}]},
+])
+def test_core_plan_refusals(entry):
+    with pytest.raises(TuningError):
+        tuning.validate_plan({"consoles": ["ga36"], "core": [entry]})
+
+
+def test_same_core_on_the_same_game_twice_is_refused():
+    with pytest.raises(TuningError, match="appears twice"):
+        tuning.validate_plan({"consoles": ["ga36"], "core": [
+            {"core": "fbneo", "system": "arcade", "positions": [1, 2]},
+            {"core": "fbneo", "system": "arcade", "position": 2}]})
+
+
+def test_arcade_cores_plan_file_is_valid():
+    plan = tuning.load_plan(REPO / "tests/device/tuning/arcade-cores.toml")
+    assert [c.position for c in plan.cores] == list(range(1, 9))
+    assert {c.core for c in plan.cores} == {"fbneo"} and plan.cores[0].system == "arcade"
+    assert [v.core for v in plan.cores[0].variants] == ["fbalpha2012", "mame2003_plus",
+                                                         "mame2000"]
+    seqs = tuning.build_sequences(plan, "ga36", baselines=set())
+    assert len(seqs) == 24 and all(s.name != tuning.BASELINE for s in seqs)
+
+
+def test_core_comparison_has_no_baseline_sequence_and_dry_run_text():
+    plan = tuning.validate_plan(CORE_PLAN)
+    seqs = tuning.build_sequences(plan, "ga36", baselines=set())
+    assert [(s.core.position, s.name) for s in seqs] == [
+        (1, "mame2003_plus"), (1, "m2000"), (2, "mame2003_plus"), (2, "m2000")]
+    assert [r.label for r in seqs[0].runs] == ["A1", "B", "A2"]
+    assert [s.name for s in tuning.build_sequences(plan, "ga36", set(), only="fbneo:m2000")] \
+        == ["m2000", "m2000"]
+    text = tuning.format_sequences(seqs, "ga36")
+    assert "console ga36: 4 sequence(s), 12 run(s) of 30+120 s, at most 36 min" in text
+    assert "1. fbneo mame2003_plus: system arcade game #1 (retroarch)" in text
+    assert "check: core mame2003_plus installed" in text
+    assert "A1: default core fbneo (per-game options cleared); open; wait 30 s" in text
+    assert "B: core mame2003_plus for this game only (launcher per-game option)" in text
+
+
+def test_core_plan_dry_run_through_the_script(tmp_path, capsys):
+    mod = load_script()
+    assert mod.main(["arcade-cores", "--console", "ga36", "--dry-run",
+                     "--report-dir", str(tmp_path),
+                     "--families", str(tmp_path / "none.toml")]) == 0
+    out = capsys.readouterr().out
+    assert "console ga36: 24 sequence(s), 72 run(s)" in out
+    assert "core comparison: report grouped by core only (no families file)" in out
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location("tuning_ab", REPO / "tests/device/tuning_ab.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# the launcher index (lume-index index.rs): 32-byte header, 32-byte records sorted by name,
+# then the string table; and paths that need escaping in a TOML key
+GAME_PATHS = ["./alpha.zip", './Quote "B" \\ back.zip', "./sub/gamma.zip"]
+
+
+def write_index(path: Path, paths=GAME_PATHS) -> None:
+    import struct
+    strings, records = b"", b""
+    for i, p in enumerate(paths):
+        name = f"Game {i}".encode()
+        raw = p.encode()
+        noff = len(strings)
+        strings += name
+        poff = len(strings)
+        strings += raw
+        records += struct.pack("<8I", noff, len(name), poff, len(raw), 0, 0, 0, 0xFFFFFFFF)
+    head = b"LUMEIDX1" + struct.pack("<IIQII", len(paths), len(strings), 0, 0, 0)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(head + records + strings)
+
+
+@pytest.fixture
+def card(fake_root, monkeypatch):
+    root, home = fake_root
+    lume = root / "storage/system/lume"
+    monkeypatch.setattr(tuning, "INDEX_DIR", str(lume / "cache/index"))
+    monkeypatch.setattr(tuning, "GAMES_DIR", str(lume / "games"))
+    monkeypatch.setattr(tuning, "TUNING_SYSTEMS", str(lume / "systems.d/zz-lume-tuning.toml"))
+    monkeypatch.setattr(tuning, "CORES_DIR", str(root / "libretro"))
+    write_index(lume / "cache/index/arcade.bin")
+    return root, lume
+
+
+@pytest.mark.parametrize("position", [1, 2, 3])
+def test_game_core_is_written_for_the_game_path_and_never_printed(card, position):
+    import tomllib
+    root, lume = card
+    out = sh(tuning.game_core_command("arcade", position, "mame2000"))
+    assert out.strip() == "applied"
+    assert "alpha" not in out and "Quote" not in out and "gamma" not in out
+    games = tomllib.loads((lume / "games/arcade.toml").read_text())
+    # the key the launcher looks up: the index path of game N (options::game)
+    assert games == {GAME_PATHS[position - 1]: {
+        "emulator": {"runner": "retroarch", "core": "mame2000"}}}
+
+
+def test_game_core_past_the_index_is_an_error_without_a_path(card):
+    root, lume = card
+    out = sh(tuning.game_core_command("arcade", 4, "mame2000"))
+    assert out.strip() == "error game 4 of arcade is not in the launcher index"
+    with pytest.raises(TuningError, match="not in the launcher index"):
+        tuning.expect_applied(out, "per-game core")
+    assert not (lume / "games/arcade.toml").exists()
+    out = sh(tuning.game_core_command("nes", 1, "fceumm"))         # no index at all
+    assert out.startswith("error ")
+
+
+def test_per_game_option_is_applied_and_given_back(card):
+    root, lume = card
+    games = lume / "games/arcade.toml"
+    games.parent.mkdir(parents=True)
+    original = '["./alpha.zip"]\naspect = "4:3"\n'
+    games.write_text(original)
+    assert sh(tuning.save_command("fbneo", games_system="arcade")).strip() == "saved"
+    sh(tuning.card_cores_command("arcade", ["mame2000"]))
+    systems = lume / "systems.d/zz-lume-tuning.toml"
+    import tomllib
+    assert tomllib.loads(systems.read_text()) == {"system": [
+        {"id": "arcade", "emulators": [{"runner": "retroarch", "core": "mame2000"}]}]}
+    # A: no per-game option; B: only the measured game in the other core
+    assert sh(tuning.default_core_command("arcade")).strip() == "applied"
+    assert not games.exists()
+    sh(tuning.restore_command(keep=True))
+    assert games.read_text() == original
+    sh(tuning.game_core_command("arcade", 2, "mame2000"))
+    assert "mame2000" in games.read_text()
+    sh(tuning.restore_command(keep=True))                        # between runs
+    assert games.read_text() == original and systems.exists()
+    sh(tuning.restore_command(keep=False))                       # end of the sequence
+    assert games.read_text() == original and not systems.exists()
+    assert not (root / "run/tuning").exists()
+
+
+def test_interrupted_comparison_is_given_back_at_the_next_save(card):
+    root, lume = card
+    games = lume / "games/arcade.toml"
+    sh(tuning.save_command("fbneo", games_system="arcade"))     # no games file before
+    sh(tuning.card_cores_command("arcade", ["mame2000"]))
+    sh(tuning.game_core_command("arcade", 1, "mame2000"))
+    assert games.exists()
+    sh(tuning.save_command("fceumm"))                            # crash, then another plan
+    assert not games.exists()
+    assert not (lume / "systems.d/zz-lume-tuning.toml").exists()
+
+
+def test_core_installed_command(card):
+    root, _ = card
+    assert sh(tuning.core_installed_command("mame2000")).strip() == tuning.MISSING
+    (root / "libretro").mkdir()
+    (root / "libretro/mame2000_libretro.so").write_bytes(b"\x7fELF")
+    assert sh(tuning.core_installed_command("mame2000")).strip() == tuning.INSTALLED
+    with pytest.raises(TuningError):
+        tuning.core_installed_command("../x")
+
+
+def test_exit_class_keeps_only_the_code_and_the_way_it_ended():
+    line = "2026-11-20T10:00:00 51 game FAIL arcade retroarch mame2000 exit=1 end=normal secs=2"
+    assert tuning.exit_class(line) == "exit=1 end=normal"
+    assert tuning.exit_class("2026-11-20T10:00:00 51 game FAIL arcade x y z") == "ended"
+
+
+# --- results, picks and the report by core and family ----------------------------------
+
+def core_result(pos, core, status=tuning.OPENED, b=None, a=None, reason=""):
+    a = a if a is not None else (run_metrics(clock=1000, drawn=50), run_metrics(clock=990,
+                                                                                drawn=50))
+    return tuning.CoreResult("2026-11-20", "b42", "arcade", pos, "fbneo", core, status,
+                             reason, a if status != tuning.NOT_INSTALLED else (), b)
+
+
+RESULTS = [
+    core_result(1, "mame2003_plus", b=run_metrics(clock=700, drawn=60)),
+    core_result(1, "mame2000", tuning.NOT_OPEN, a=(run_metrics(clock=1000, drawn=50),),
+                reason="exit=1 end=normal"),
+    core_result(2, "mame2003_plus", b=run_metrics(clock=800, speed=0.9, drawn=45)),
+    core_result(2, "mame2000", b=run_metrics(clock=900, drawn=52)),
+    core_result(1, "fbalpha2012", tuning.NOT_INSTALLED),
+    core_result(2, "fbalpha2012", tuning.NOT_INSTALLED),
+]
+
+
+def test_results_round_trip_through_the_private_file(tmp_path):
+    path = tmp_path / "out/ga36-cores.jsonl"
+    for r in RESULTS:
+        tuning.save_result(path, r)
+    with path.open("a") as f:
+        f.write('{"broken": \n')                                 # an interrupted write
+    back = tuning.load_results(path)
+    assert back == RESULTS
+    with pytest.raises(TuningError):
+        tuning.save_result(path, core_result(1, "mame2000", reason="Some Game (USA)"))
+
+
+def test_pick_is_the_lowest_clock_at_full_speed():
+    chosen = tuning.picks(RESULTS)
+    assert chosen == {("arcade", 1): "mame2003_plus", ("arcade", 2): "mame2000"}
+    # nothing at full speed: the highest core speed
+    slow = [core_result(3, "mame2000", b=run_metrics(speed=0.8),
+                        a=(run_metrics(speed=0.7), run_metrics(speed=0.7)))]
+    assert tuning.picks(slow) == {("arcade", 3): "mame2000"}
+
+
+def test_latest_measurement_replaces_the_old_one():
+    old = core_result(1, "mame2000", tuning.NOT_OPEN, reason="timeout")
+    new = core_result(1, "mame2000", b=run_metrics(clock=600))
+    assert tuning.latest_results([old, new]) == [new]
+
+
+def test_families_file_format(tmp_path):
+    f = tmp_path / "families.toml"
+    f.write_text('[arcade]\n1 = "cps1"\n2 = "neogeo"\n')
+    fam = tuning.load_families(f)
+    assert fam == {"arcade": {1: "cps1", 2: "neogeo"}}
+    assert tuning.family_of(fam, "arcade", 2) == "neogeo"
+    assert tuning.family_of(fam, "arcade", 5) == tuning.UNKNOWN_FAMILY
+    assert tuning.family_of({}, "arcade", 1) == tuning.NO_FAMILY
+    assert tuning.load_families(tmp_path / "absent.toml") == {}
+    for bad in ('[arcade]\nx = "cps1"\n', '[arcade]\n1 = "Some Game.zip"\n',
+                '[arcade]\n1 = "a/b"\n', 'arcade = 3\n'):
+        f.write_text(bad)
+        with pytest.raises(TuningError):
+            tuning.load_families(f)
+
+
+def test_report_section_by_core_and_family_has_no_game(tmp_path):
+    report = tmp_path / "ga36.md"
+    fam = {"arcade": {1: "cps1", 2: "neogeo"}}
+    tuning.write_cores_section(report, "ga36", RESULTS, fam)
+    text = report.read_text()
+    assert text.startswith(tuning.report_header("ga36"))
+    rows = {(r["core"], r["família"]): r for r in tuning.parse_cores_section(text)}
+    assert set(rows) == {("fbneo", "cps1"), ("fbneo", "neogeo"), ("mame2003_plus", "cps1"),
+                         ("mame2003_plus", "neogeo"), ("mame2000", "cps1"),
+                         ("mame2000", "neogeo"), ("fbalpha2012", "cps1"),
+                         ("fbalpha2012", "neogeo")}
+    m1 = rows[("mame2000", "cps1")]
+    assert (m1["jogos"], m1["abrem"], m1["velocidade cheia"]) == ("1", "0 de 1", "0 de 1")
+    # against the mean of every A run of that game (1000, 990 and 1000 MHz)
+    assert rows[("mame2003_plus", "cps1")]["contra o padrão"] == "clock -297; quadros +10.0"
+    assert rows[("mame2003_plus", "cps1")]["escolhido em"] == "1"
+    assert rows[("mame2003_plus", "neogeo")]["velocidade cheia"] == "0 de 1"
+    assert rows[("fbalpha2012", "neogeo")]["abrem"] == "não instalado"
+    assert rows[("fbneo", "cps1")]["contra o padrão"] == "padrão"
+    for word in ("Quote", "gamma", ".zip", "#1", "#2", "exit=1"):
+        assert word not in text.split(tuning.CORES_BEGIN)[1]
+    assert tuning.parse_report(text) == []                       # not A/B rows
+
+
+def test_report_section_without_families_groups_by_core(tmp_path):
+    report = tmp_path / "ga36.md"
+    tuning.write_cores_section(report, "ga36", RESULTS, {})
+    rows = tuning.parse_cores_section(report.read_text())
+    assert {r["família"] for r in rows} == {tuning.NO_FAMILY}
+    m3 = next(r for r in rows if r["core"] == "mame2003_plus")
+    assert (m3["jogos"], m3["abrem"], m3["velocidade cheia"]) == ("2", "2 de 2", "1 de 2")
+
+
+def test_ab_rows_and_the_cores_section_live_together(tmp_path):
+    report = tmp_path / "ga36.md"
+    tuning.write_cores_section(report, "ga36", RESULTS[:1], {})
+    a1, a2 = run_metrics(clock=1000), run_metrics(clock=990)
+    tuning.append_row(report, "ga36", tuning.baseline_row("2026-11-20", "b1", core_plan(),
+                                                          a1, a2))
+    tuning.write_cores_section(report, "ga36", RESULTS, {})     # rewritten, rows kept
+    text = report.read_text()
+    assert [r["variante"] for r in tuning.parse_report(text)] == ["baseline"]
+    assert text.index("| fceumm |") < text.index(tuning.CORES_BEGIN)
+    assert text.count(tuning.CORES_BEGIN) == 1 and len(tuning.parse_cores_section(text)) == 4
+
+
+def test_report_section_refuses_a_name_in_a_family():
+    with pytest.raises(TuningError):
+        tuning.cores_section(RESULTS, {"arcade": {1: "Some Game.zip"}})
+
+
+# --- the driver: B that does not open does not stop the measurement ---------------------
+
+class EventConsole:
+    """events.log and the other answers of the console for open_core / run_sequences."""
+
+    def __init__(self):
+        self.lines = []
+        self.commands = []
+
+    def __call__(self, cmd):
+        from lume_tool import dev_run
+        self.commands.append(cmd)
+        if cmd == dev_run.pending_command():
+            return ""
+        if cmd == dev_run.count_command():
+            return f"{len(self.lines)}\n"
+        if "-v s=" in cmd:
+            skip = int(cmd.split("-v s=")[1].split()[0])
+            return "\n".join(self.lines[skip:] + [f"{dev_run.COUNT_MARK}{len(self.lines)}"])
+        if cmd == tuning.power_check_command():
+            return ""
+        if cmd == tuning.build_id_command():
+            return "b42\n"
+        if "_libretro.so ]" in cmd:
+            return tuning.MISSING + "\n" if "fbalpha2012" in cmd else tuning.INSTALLED + "\n"
+        return "saved applied\n"
+
+
+def event_ctx(console, on_open):
+    from lume_tool import dev_run
+
+    class Clock:
+        t = 0.0
+    clock = Clock()
+
+    def sleep(s):
+        clock.t += s
+    return dev_run.Context("h", run=console, keys=lambda s: None, sleep=sleep,
+                           now=lambda: clock.t, open_game=lambda s, p: on_open(),
+                           close_game=lambda: console.lines.append(
+                               "T 1 game OK arcade retroarch x exit=0 end=quit-combo secs=9"))
+
+
+@pytest.mark.parametrize("events,reason", [
+    (["T 1 game FAIL arcade retroarch mame2000 start-failed no core"], "start-failed"),
+    ([], "timeout"),
+    (["T 1 game OK arcade retroarch fbneo start"], "other-core"),
+    (["T 1 game OK arcade retroarch mame2000 start",
+      "T 2 game FAIL arcade retroarch mame2000 exit=1 end=normal secs=1"], "exit=1 end=normal"),
+])
+def test_open_core_reports_why_b_did_not_open(events, reason):
+    mod = load_script()
+    console = EventConsole()
+    ctx = event_ctx(console, lambda: console.lines.extend(events))
+    with pytest.raises(mod.NotOpened, match=f"^{reason}$"):
+        mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
+
+
+def test_open_core_passes_when_the_game_stays_open():
+    mod = load_script()
+    console = EventConsole()
+    ctx = event_ctx(console, lambda: console.lines.append(
+        "T 1 game OK arcade retroarch mame2000 start"))
+    mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
+
+
+def test_not_open_and_not_installed_do_not_stop_the_sequence(tmp_path, monkeypatch, capsys):
+    mod = load_script()
+    plan = tuning.validate_plan({"consoles": ["ga36"], "core": [
+        {"core": "fbneo", "system": "arcade", "positions": [1, 2],
+         "variant": [{"core": "mame2000"}, {"core": "fbalpha2012"}]}]})
+    seqs = tuning.build_sequences(plan, "ga36", set())
+    console = EventConsole()
+    runs = []
+
+    def fake_run(ctx, seq, run, warmup, measure):
+        runs.append((seq.core.position, run.label, run.variant.core if run.variant else None))
+        if run.variant and seq.core.position == 1:
+            raise mod.NotOpened("exit=1 end=normal")
+        return run_metrics(clock=800 if run.variant else 1000)
+    monkeypatch.setattr(mod, "core_run", fake_run)
+    report, results = tmp_path / "ga36.md", tmp_path / "out/ga36-cores.jsonl"
+    rc = mod.run_sequences("h", "ga36", seqs, report, 30, 120, results,
+                           {"arcade": {1: "cps1", 2: "neogeo"}}, ctx=event_ctx(console, None))
+    assert rc == 0
+    # game 1: A1, B (does not open), no A2; fbalpha2012 is not installed: nothing runs
+    assert runs == [(1, "A1", None), (1, "B", "mame2000"),
+                    (2, "A1", None), (2, "B", "mame2000"), (2, "A2", None)]
+    got = [(r.position, r.core, r.status, r.reason) for r in tuning.load_results(results)]
+    assert got == [(1, "mame2000", "not-open", "exit=1 end=normal"),
+                   (1, "fbalpha2012", "not-installed", ""),
+                   (2, "mame2000", "opened", ""),
+                   (2, "fbalpha2012", "not-installed", "")]
+    # every opened sequence is given back: one final restore per installed core
+    assert sum(1 for c in console.commands if "rm -f " + tuning.TUNING_SYSTEMS in c
+               and c.startswith("if [ -d")) >= 2
+    rows = {(r["core"], r["família"]): r for r in tuning.parse_cores_section(report.read_text())}
+    assert rows[("mame2000", "cps1")]["abrem"] == "0 de 1"
+    assert rows[("mame2000", "neogeo")]["abrem"] == "1 de 1"
+    assert rows[("fbalpha2012", "cps1")]["abrem"] == "não instalado"
+    out = capsys.readouterr().out
+    assert "-> does not open (exit=1 end=normal)" in out
+    assert "core fbalpha2012 is not installed" in out
+    assert "arcade #2: mame2000" in out and "arcade #1: fbneo" in out

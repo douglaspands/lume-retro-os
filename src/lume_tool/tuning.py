@@ -12,7 +12,11 @@ tests (tests/unit/test_tuning.py) cover it without a console:
 - parsing those outputs into one aggregate per run;
 - the acceptance criterion of the spec (core-tuning, "Ajuste aceito só com ganho medido");
 - the report docs/tuning/<console>.md: one aggregated row per core and variant, which refuses
-  anything that looks like a game name or a path.
+  anything that looks like a game name or a path;
+- the core comparison (task 10.2): a `core = "<name>"` variant swaps the core of one game
+  through the launcher's per-game option, written and put back on the console; whether B
+  opened, the private results per game (out of git) and the report section aggregated by core
+  and hardware family.
 
 Where each metric comes from (one run = the measurement window after the warm-up):
 
@@ -44,10 +48,11 @@ underruns, so the metric is then reported as not measured and no variant is acce
 """
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from lume_tool import scripts
@@ -66,6 +71,13 @@ SAVE_DIR = "/run/lume/tuning"
 LOGS_RAM = "/run/lume/logs"
 LOGS_DIR = "/storage/logs"
 POWER_STATE = "/run/lume/power.state"
+# the launcher's folder on the card (lume-core paths::card) and the cores (paths::cores_dir)
+CARD = "/storage/system/lume"
+INDEX_DIR = f"{CARD}/cache/index"          # lume-index: <system>.bin, records sorted for the grid
+GAMES_DIR = f"{CARD}/games"                # options::Options, per-game exceptions by path
+TUNING_SYSTEMS = f"{CARD}/systems.d/zz-lume-tuning.toml"   # our own file, never the user's
+CORES_DIR = "/usr/lib/libretro"
+RUN_OVERHEAD_S = 30                        # open, close and restore of one run (dry-run estimate)
 DMIX_IPC_KEY = 0x0056A4D5          # alsa-lib dmix default ipc_key (5678293)
 
 # acceptance (spec: full core speed, continuous sound, a gain beyond the noise)
@@ -100,11 +112,15 @@ class Variant:
     name: str
     retroarch: tuple[tuple[str, str], ...] = ()   # keys for /run/lume/retroarch-extra.cfg
     options: tuple[tuple[str, str], ...] = ()     # core options for the user's .opt
+    core: str | None = None                       # another core for this game (task 10.2)
 
     def change(self) -> str:
-        """The change as written in the report: `ra:key=value; opt:key=value`."""
+        """The change as written in the report: `ra:key=value; opt:key=value` or
+        `core:<name>`."""
         parts = [f"ra:{k}={v}" for k, v in self.retroarch]
         parts += [f"opt:{k}={v}" for k, v in self.options]
+        if self.core:
+            parts.append(f"core:{self.core}")
         return CHANGE_SEP.join(parts) or "-"
 
 
@@ -115,6 +131,12 @@ class CorePlan:
     position: int
     process: str = "retroarch"
     variants: tuple[Variant, ...] = ()
+
+    @property
+    def compares_cores(self) -> bool:
+        """Every variant swaps the core (task 10.2): the A runs of each sequence are the
+        game's reference in the default core, so no separate baseline sequence."""
+        return bool(self.variants) and all(v.core for v in self.variants)
 
 
 @dataclass(frozen=True)
@@ -169,42 +191,68 @@ def validate_plan(data: dict) -> Plan:
         where = f"core {i}"
         if not isinstance(c, dict):
             raise TuningError(f"{where}: must be a table")
-        unknown = set(c) - {"core", "system", "position", "process", "variant"}
+        unknown = set(c) - {"core", "system", "position", "positions", "process", "variant"}
         if unknown:
             raise TuningError(f"{where}: unknown field(s): {', '.join(sorted(unknown))}")
         core = _ident(c.get("core"), f"{where} core", CORE_RE)
         system = _ident(c.get("system"), f"{where} system", CORE_RE)
-        pos = c.get("position")
-        if isinstance(pos, bool) or not isinstance(pos, int) or pos < 1:
-            raise TuningError(f"{where}: `position` must be an integer >= 1")
+        positions = _positions(c, where)
         process = c.get("process", "retroarch")
         if process not in PROCESSES:
             raise TuningError(f"{where}: `process` must be one of {', '.join(PROCESSES)}")
-        if core in seen:
-            raise TuningError(f"{where}: core {core} appears twice")
-        seen.add(core)
         variants, names = [], set()
         for j, v in enumerate(c.get("variant", []) or [], 1):
             vw = f"{where} variant {j}"
             if not isinstance(v, dict):
                 raise TuningError(f"{vw}: must be a table")
-            unknown = set(v) - {"name", "retroarch", "options"}
+            unknown = set(v) - {"name", "retroarch", "options", "core"}
             if unknown:
                 raise TuningError(f"{vw}: unknown field(s): {', '.join(sorted(unknown))}")
-            name = _ident(v.get("name"), f"{vw} name", NAME_RE)
+            alt = v.get("core")
+            if alt is not None:
+                alt = _ident(alt, f"{vw} core", CORE_RE)
+            name = _ident(v.get("name", alt), f"{vw} name", NAME_RE)
             if name == BASELINE or name in names:
                 raise TuningError(f"{vw}: name {name} is reserved or repeated")
             names.add(name)
             ra = _pairs(v.get("retroarch"), f"{vw} retroarch")
             opts = _pairs(v.get("options"), f"{vw} options")
-            if not ra and not opts:
-                raise TuningError(f"{vw}: a variant changes at least one key or option")
+            if alt is not None and (ra or opts):
+                raise TuningError(f"{vw}: a core variant changes only the core")
+            if alt == core:
+                raise TuningError(f"{vw}: core {alt} is already the default of this entry")
+            if not ra and not opts and alt is None:
+                raise TuningError(f"{vw}: a variant changes at least one key, option or core")
             if process != "retroarch":
                 raise TuningError(f"{vw}: variants of the {process} runner are not supported "
                                   f"yet (baseline only)")
-            variants.append(Variant(name, ra, opts))
-        out.append(CorePlan(core, system, pos, process, tuple(variants)))
+            variants.append(Variant(name, ra, opts, alt))
+        if variants and any(v.core for v in variants) and not all(v.core for v in variants):
+            raise TuningError(f"{where}: core variants and key/option variants go in separate "
+                              f"entries")
+        for pos in positions:
+            key = (core, system, pos)
+            if key in seen:
+                raise TuningError(f"{where}: core {core} on game {pos} of {system} appears "
+                                  f"twice")
+            seen.add(key)
+            out.append(CorePlan(core, system, pos, process, tuple(variants)))
     return Plan(tuple(consoles), tuple(out), desc)
+
+
+def _positions(c: dict, where: str) -> list[int]:
+    """`position = N` or `positions = [N, ...]` (one entry per game, task 10.2)."""
+    if ("position" in c) == ("positions" in c):
+        raise TuningError(f"{where}: give exactly one of `position` or `positions`")
+    raw = [c["position"]] if "position" in c else c["positions"]
+    if not isinstance(raw, list) or not raw:
+        raise TuningError(f"{where}: `positions` must be a non-empty list")
+    for pos in raw:
+        if isinstance(pos, bool) or not isinstance(pos, int) or pos < 1:
+            raise TuningError(f"{where}: a position must be an integer >= 1")
+    if len(set(raw)) != len(raw):
+        raise TuningError(f"{where}: a position appears twice")
+    return raw
 
 
 def load_plan(path: str | Path) -> Plan:
@@ -251,7 +299,7 @@ def build_sequences(plan: Plan, console: str, baselines: set[str], rebaseline: b
     for c in plan.cores:
         if want_core and c.core != want_core:
             continue
-        if rebaseline or c.core not in baselines:
+        if not c.compares_cores and (rebaseline or c.core not in baselines):
             if not want_variant or want_variant == BASELINE:
                 out.append(Sequence(c, None, (Run("A1", None), Run("A2", None))))
         for v in c.variants:
@@ -267,15 +315,27 @@ def format_sequences(seqs: list[Sequence], console: str, warmup: int = WARMUP_S,
                      measure: int = MEASURE_S) -> str:
     """The dry-run text: one block per sequence, one line per run (no game names: the game
     is the position in the system's list)."""
-    lines = [f"console {console}: {len(seqs)} sequence(s), "
-             f"{sum(len(s.runs) for s in seqs)} run(s) of {warmup}+{measure} s"]
+    runs = sum(len(s.runs) for s in seqs)
+    lines = [f"console {console}: {len(seqs)} sequence(s), {runs} run(s) of {warmup}+{measure}"
+             f" s, at most {round(runs * (warmup + measure + RUN_OVERHEAD_S) / 60)} min"]
     for n, s in enumerate(seqs, 1):
         c = s.core
         lines.append(f"{n}. {c.core} {s.name}: system {c.system} game #{c.position}"
                      f" ({c.process})")
+        if s.variant is not None and s.variant.core:
+            lines.append(f"   check: core {s.variant.core} installed, else the sequence is "
+                         f"\"not installed\"")
         for r in s.runs:
-            what = f"apply {r.variant.change()}" if r.variant else "configuration as is"
-            lines.append(f"   {r.label}: {what}; open; wait {warmup} s; measure "
+            if r.variant is not None and r.variant.core:
+                what = (f"core {r.variant.core} for this game only (launcher per-game option)"
+                        f"; open, not opening = \"does not open\" and A2 is skipped")
+            elif r.variant:
+                what = f"apply {r.variant.change()}; open"
+            elif c.compares_cores:
+                what = f"default core {c.core} (per-game options cleared); open"
+            else:
+                what = "configuration as is; open"
+            lines.append(f"   {r.label}: {what}; wait {warmup} s; measure "
                          f"{measure} s; close; restore")
     return "\n".join(lines)
 
@@ -308,14 +368,19 @@ def _opt_vars(core: str) -> str:
             f"opt=\"{OPT_ROOT}/$n/$n.opt\"; ")
 
 
-def save_command(core: str) -> str:
+def save_command(core: str, games_system: str | None = None) -> str:
     """Save in RAM the user's RetroArch config, the extra config and the core's options:
     `<tag>` is the copy (missing when the file did not exist) and `<tag>.path` the original
-    path. A save left by an interrupted run is put back first, so the originals are never
-    lost, whatever core that run measured."""
+    path. With `games_system` (a core comparison, task 10.2) the launcher's per-game options
+    file of that system is saved too. A save left by an interrupted run is put back first, so
+    the originals are never lost, whatever core that run measured."""
+    games = ""
+    if games_system is not None:
+        _ident(games_system, "system", CORE_RE)
+        games = f" games:{GAMES_DIR}/{games_system}.toml"
     return (restore_command(keep=False) +
             f"mkdir -p {SAVE_DIR}; " + _opt_vars(core) +
-            f"for p in cfg:{USER_CFG} extra:{EXTRA_CFG} \"opt:$opt\"; do "
+            f"for p in cfg:{USER_CFG} extra:{EXTRA_CFG} \"opt:$opt\"{games}; do "
             "t=${p%%:*}; f=${p#*:}; "
             f"printf '%s\\n' \"$f\" > {SAVE_DIR}/$t.path; "
             f"if [ -f \"$f\" ]; then cp -p \"$f\" {SAVE_DIR}/$t; fi; "
@@ -324,14 +389,89 @@ def save_command(core: str) -> str:
 
 def restore_command(keep: bool = True) -> str:
     """Put the saved files back (one absent at the save is removed). With keep the save
-    stays (between runs); without it is deleted (end of a sequence). Nothing to do when
-    there is no save."""
+    stays (between runs); without it is deleted (end of a sequence), and so is the tuning
+    systems.d file of a core comparison. Nothing to do when there is no save."""
     end = "" if keep else f"rm -rf {SAVE_DIR}; "
+    tail = "" if keep else f"rm -f {TUNING_SYSTEMS}; "
     return (f"if [ -d {SAVE_DIR} ]; then "
             f"for pf in {SAVE_DIR}/*.path; do [ -f \"$pf\" ] || continue; "
             "t=${pf%.path}; read -r f < \"$pf\"; [ -n \"$f\" ] || continue; "
             "if [ -f \"$t\" ]; then cp -p \"$t\" \"$f\"; else rm -f \"$f\"; fi; "
-            f"done; {end}fi; ")
+            f"done; {end}fi; {tail}")
+
+
+# --- core comparison (task 10.2) --------------------------------------------------------
+#
+# The core of one game is swapped through the launcher's own per-game option (lume-core
+# options.rs: ROMS/system/lume/games/<system>.toml, keyed by the game's path in the index),
+# written ON THE CONSOLE: the remote command resolves "game N of system S" to its path from
+# the launcher index, the same records the grid shows, and prints only `applied` or an
+# error. The path never crosses the cable. The launcher resolves a stored emulator only when
+# the system offers it (options::resolve_layers), so a core that is not yet an `alt_cores` of
+# the catalog is offered by our own card file systems.d/zz-lume-tuning.toml, written at the
+# start of the sequence: the launcher reads the catalog when it starts again after A1.
+
+INSTALLED, MISSING = "installed", "missing"
+
+
+def core_installed_command(core: str) -> str:
+    """`installed` when the core's library is on the console, `missing` otherwise."""
+    _ident(core, "core", CORE_RE)
+    return (f"if [ -f {CORES_DIR}/{core}_libretro.so ]; then echo {INSTALLED}; "
+            f"else echo {MISSING}; fi")
+
+
+def card_cores_command(system: str, cores) -> str:
+    """Our systems.d file: the cores offered to `system` during the comparison."""
+    _ident(system, "system", CORE_RE)
+    cores = [_ident(c, "core", CORE_RE) for c in cores]
+    body = ("# written by tests/device/tuning_ab.py for a core comparison; removed at the end\n"
+            "[[system]]\n"
+            f'id = "{system}"\n'
+            "emulators = [" + ", ".join(f'{{ runner = "retroarch", core = "{c}" }}'
+                                        for c in cores) + "]\n")
+    return (f"mkdir -p {TUNING_SYSTEMS.rsplit('/', 1)[0]}; "
+            f"printf '%s' {shlex.quote(body)} > {TUNING_SYSTEMS}.tmp; "
+            f"mv -f {TUNING_SYSTEMS}.tmp {TUNING_SYSTEMS}; echo applied")
+
+
+def default_core_command(system: str) -> str:
+    """The A runs of a comparison: no per-game option in the system (the saved file comes
+    back at the end), so the game opens in the default core."""
+    _ident(system, "system", CORE_RE)
+    return f"rm -f {GAMES_DIR}/{system}.toml; echo applied"
+
+
+def game_core_command(system: str, position: int, core: str) -> str:
+    """The B run: the per-game options file of `system` holds only game `position` (1-based,
+    grid order) with `core`. The index record gives the path offset and length in the string
+    table (lume-index index.rs); the path is escaped for a TOML basic string ON THE CONSOLE
+    and never printed."""
+    _ident(system, "system", CORE_RE)
+    _ident(core, "core", CORE_RE)
+    if isinstance(position, bool) or not isinstance(position, int) or position < 1:
+        raise TuningError("position must be an integer >= 1")
+    idx, games = f"{INDEX_DIR}/{system}.bin", f"{GAMES_DIR}/{system}.toml"
+    entry = '["%s"]\\nemulator = { runner = "retroarch", core = "%s" }\\n'
+    return (f"f={idx}; n=$(od -An -tu4 -j8 -N4 \"$f\" 2>/dev/null | tr -d ' '); "
+            f"if ! [ \"${{n:-0}}\" -ge {position} ] 2>/dev/null; then "
+            f"echo 'error game {position} of {system} is not in the launcher index'; exit 0; fi; "
+            f"set -- $(od -An -tu4 -j{32 + (position - 1) * 32 + 8} -N8 \"$f\"); "
+            "p=$(dd if=\"$f\" bs=1 skip=$((32 + n * 32 + $1)) count=$2 2>/dev/null "
+            "| sed 's/[\\\\\"]/\\\\&/g'); "
+            "case \"$p\" in ''|*[[:cntrl:]]*) echo 'error unusable game path'; exit 0;; esac; "
+            f"mkdir -p {GAMES_DIR}; "
+            f"printf '{entry}' \"$p\" {core} > {games}.tmp; "
+            f"mv -f {games}.tmp {games}; echo applied")
+
+
+def expect_applied(out: str, what: str) -> None:
+    """A remote command answers `applied` or `error <reason>` (never a path)."""
+    for line in out.splitlines():
+        if line.startswith("error "):
+            raise TuningError(f"{what}: {line[6:]}")
+    if "applied" not in out.split():
+        raise TuningError(f"{what}: unexpected answer from the console")
 
 
 def apply_command(core: str, variant: Variant) -> str:
@@ -761,6 +901,9 @@ def check_row_privacy(row: Row) -> None:
     if row.change != "-":
         for tok in row.change.split(CHANGE_SEP):
             kind, _, kv = tok.partition(":")
+            if kind == "core":
+                _ident(kv, "change core", CORE_RE)
+                continue
             k, eq, v = kv.partition("=")
             if kind not in ("ra", "opt") or not eq:
                 raise TuningError(f"change {tok!r} is not ra:key=value or opt:key=value")
@@ -807,9 +950,9 @@ def append_row(path: Path, console: str, row: Row) -> None:
     text = path.read_text(encoding="utf-8") if path.exists() else report_header(console)
     if row.variant != BASELINE and row.core not in baselines_in(text):
         raise TuningError(f"no baseline of {row.core} in {path.name}: measure it first")
-    if not text.endswith("\n"):
-        text += "\n"
-    path.write_text(text + line + "\n", encoding="utf-8")
+    main, cores = _split_cores_section(text)
+    main = main.rstrip("\n") + "\n" + line + "\n"
+    path.write_text(main + ("\n" + cores if cores else ""), encoding="utf-8")
 
 
 def _f(x: float | None, nd: int = 1) -> str:
@@ -878,3 +1021,345 @@ def variant_row(date: str, build: str, core: CorePlan, variant: Variant, a1: Run
     }
     return Row(date, build, core.core, core.system, core.position, variant.name,
                variant.change(), "A,B,A", cells, dec.text)
+
+
+# --- core comparison: results, families and the aggregated report (task 10.2) ----------
+#
+# One sequence (A1, B, A2) gives one CoreResult: the game (system and position, never a name
+# or a path), the default core of the A runs, the core of B and whether B opened. The results
+# go to a private file out of git (out/tuning/<console>-cores.jsonl): the choice per game is
+# the user's, on his card. The report (docs/tuning/<console>.md) gets only the aggregate per
+# core and hardware family, rewritten from that file after every sequence.
+
+OPENED, NOT_OPEN, NOT_INSTALLED = "opened", "not-open", "not-installed"
+STATUSES = (OPENED, NOT_OPEN, NOT_INSTALLED)
+# why B did not open (or the class of its end): lume-run start-failed, no start event, another
+# core started, the game ended before or during the measurement (`exit=<code> end=<how>`)
+REASON_RE = re.compile(r"^[A-Za-z0-9_.=-]{1,24}( [A-Za-z0-9_.=-]{1,24})?$")
+NO_FAMILY = "todas"                 # no families file: one group per core
+UNKNOWN_FAMILY = "sem-familia"      # a families file without this position
+CORES_BEGIN = "<!-- cores:begin -->"
+CORES_END = "<!-- cores:end -->"
+
+
+def exit_class(line: str) -> str:
+    """The class of a game end from a cut lume-run end line (`... exit=<code> end=<how>
+    secs=<n>`): only the exit code and the way it ended, nothing else of the line."""
+    parts = []
+    for key in ("exit", "end"):
+        m = re.search(rf"\b{key}=(\S+)", line)
+        if m:
+            parts.append(f"{key}={re.sub(r'[^A-Za-z0-9_.-]', '_', m.group(1))[:16]}")
+    return " ".join(parts) or "ended"
+
+
+@dataclass
+class CoreResult:
+    date: str
+    build: str
+    system: str
+    position: int
+    default: str                    # the core of the A runs
+    core: str                       # the core of B
+    status: str                     # OPENED, NOT_OPEN, NOT_INSTALLED
+    reason: str = ""                # why B did not open
+    a: tuple = ()                   # RunMetrics of the A runs
+    b: RunMetrics | None = None
+
+    def check(self) -> None:
+        _ident(self.system, "system", CORE_RE)
+        _ident(self.default, "core", CORE_RE)
+        _ident(self.core, "core", CORE_RE)
+        if isinstance(self.position, bool) or not isinstance(self.position, int) \
+                or self.position < 1:
+            raise TuningError("position must be an integer >= 1")
+        if self.status not in STATUSES:
+            raise TuningError(f"unknown status {self.status!r}")
+        if self.reason and not REASON_RE.match(self.reason):
+            raise TuningError(f"reason {self.reason!r} is not allowed")
+
+    def to_json(self) -> str:
+        self.check()
+        d = asdict(self)
+        return json.dumps(d, ensure_ascii=True, sort_keys=True)
+
+    @staticmethod
+    def from_json(text: str) -> "CoreResult":
+        d = json.loads(text)
+
+        def metrics(m):
+            return None if m is None else RunMetrics(**{**m, "cpu_pct": tuple(m["cpu_pct"])})
+        r = CoreResult(d["date"], d["build"], d["system"], int(d["position"]), d["default"],
+                       d["core"], d["status"], d.get("reason", ""),
+                       tuple(metrics(m) for m in d.get("a", [])), metrics(d.get("b")))
+        r.check()
+        return r
+
+
+def save_result(path: Path, result: CoreResult) -> None:
+    line = result.to_json()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def load_results(path: Path) -> list[CoreResult]:
+    """The results file; a broken line (an interrupted write) is skipped."""
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            out.append(CoreResult.from_json(line))
+        except (ValueError, KeyError, TypeError, TuningError):
+            continue
+    return out
+
+
+def latest_results(results: list[CoreResult]) -> list[CoreResult]:
+    """The last result of each game and core (a measurement made again replaces the old)."""
+    last: dict[tuple, CoreResult] = {}
+    for r in results:
+        last.pop((r.system, r.position, r.core), None)
+        last[(r.system, r.position, r.core)] = r
+    return list(last.values())
+
+
+def load_families(path: Path | None) -> dict[str, dict[int, str]]:
+    """The private families file (kept by the user out of git, e.g.
+    var/roms_test/families.toml): one table per system, `<position> = "<family>"`. A missing
+    file is no families (the report groups by core only)."""
+    if path is None or not path.exists():
+        return {}
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise TuningError(f"{path.name}: bad TOML: {e}") from None
+    out: dict[str, dict[int, str]] = {}
+    for system, table in data.items():
+        _ident(system, "families system", CORE_RE)
+        if not isinstance(table, dict):
+            raise TuningError(f"families: [{system}] must be a table of position = \"family\"")
+        for pos, fam in table.items():
+            if not pos.isdigit() or int(pos) < 1:
+                raise TuningError(f"families: [{system}] key {pos!r} is not a position >= 1")
+            out.setdefault(system, {})[int(pos)] = _ident(fam, "family", NAME_RE)
+    return out
+
+
+def family_of(families: dict, system: str, position: int) -> str:
+    if not families:
+        return NO_FAMILY
+    return families.get(system, {}).get(position, UNKNOWN_FAMILY)
+
+
+@dataclass
+class Candidate:
+    core: str
+    drawn_fps: float | None
+    speed: float | None
+    clock_mhz: float | None
+    temp_c: float | None
+    audio_failures: float | None
+
+
+def _candidate(core: str, runs) -> Candidate:
+    runs = [m for m in runs if m is not None]
+
+    def avg(metric):
+        return _mean(m.value(metric) for m in runs)
+    audio = [m.audio_failures for m in runs]
+    return Candidate(core, avg("drawn_fps"), avg("speed"), avg("clock_mhz"), avg("temp_c"),
+                     None if not audio or None in audio else sum(audio) / len(audio))
+
+
+def game_candidates(results: list[CoreResult]) -> dict[tuple, list[Candidate]]:
+    """Per game (system, position): the default core (mean of every A run of the game) and
+    every core that opened (its B run)."""
+    by_game: dict[tuple, list[CoreResult]] = {}
+    for r in latest_results(results):
+        by_game.setdefault((r.system, r.position), []).append(r)
+    out = {}
+    for key, rs in by_game.items():
+        a_runs = [m for r in rs for m in r.a]
+        cands = [_candidate(rs[0].default, a_runs)] if a_runs else []
+        cands += [_candidate(r.core, [r.b]) for r in rs if r.status == OPENED and r.b]
+        out[key] = cands
+    return out
+
+
+def pick(cands: list[Candidate]) -> str | None:
+    """The fastest core that runs the game at full speed: full core speed and no more audio
+    failures than the default core, then the lowest mean clock (the least work for the same
+    game), then more drawn frames. Without any at full speed, the highest core speed."""
+    if not cands:
+        return None
+    ref_audio = cands[0].audio_failures
+    full = [c for c in cands if c.speed is not None and c.speed >= SPEED_FULL
+            and (c.audio_failures is None or ref_audio is None
+                 or c.audio_failures <= ref_audio)]
+    if full:
+        inf = float("inf")
+        return min(full, key=lambda c: (c.clock_mhz if c.clock_mhz is not None else inf,
+                                        -(c.drawn_fps or 0.0))).core
+    return max(cands, key=lambda c: c.speed if c.speed is not None else -1.0).core
+
+
+def picks(results: list[CoreResult]) -> dict[tuple, str]:
+    """(system, position) -> the chosen core. Private: printed on the PC, never in the report
+    (the choice per game stays on the user's card)."""
+    out = {}
+    for key, cands in sorted(game_candidates(results).items()):
+        chosen = pick(cands)
+        if chosen:
+            out[key] = chosen
+    return out
+
+
+CORE_COLUMNS = ("data", "imagem", "core", "família", "jogos", "abrem", "velocidade cheia",
+                "quadros/s", "velocidade", "falhas de áudio", "clock MHz", "temp °C",
+                "contra o padrão", "escolhido em")
+
+CORES_HEAD = """## Cores alternativos por família de hardware (tarefa 10.2)
+
+Comparação de cores pela opção por jogo do launcher: cada jogo do sistema roda no core padrão
+(A) e em cada core alternativo (B), na ordem `A, B, A`. Uma linha por core e família de
+hardware, sem jogo: **jogos** medidos, quantos **abrem** no core, quantos rodam com a
+**velocidade cheia** (≥ 99% do nominal), as médias dos que abrem (quadros/s, velocidade, clock,
+temperatura), a soma das falhas de áudio, a diferença média **contra o padrão** nos mesmos
+jogos e em quantos jogos o core é o **escolhido** (o de menor clock entre os de velocidade cheia
+e som igual ao do padrão). A família vem do arquivo privado de famílias do conjunto de teste;
+sem ele, `todas`. A escolha de cada jogo fica só no cartão do usuário.
+
+"""
+
+
+def _core_rows(results: list[CoreResult], families: dict) -> list[dict]:
+    latest = latest_results(results)
+    chosen = picks(latest)
+    groups: dict[tuple, dict] = {}
+
+    def group(core, fam, default):
+        return groups.setdefault((fam, 0 if default else 1, core), {
+            "core": core, "family": fam, "games": set(), "opened": [], "missing": 0,
+            "deltas": [], "dates": [], "default": default})
+
+    by_game: dict[tuple, list[CoreResult]] = {}
+    for r in latest:
+        by_game.setdefault((r.system, r.position), []).append(r)
+    for (system, pos), rs in by_game.items():
+        fam = family_of(families, system, pos)
+        a_runs = [m for r in rs for m in r.a]
+        ref = _candidate(rs[0].default, a_runs) if a_runs else None
+        if ref is not None:
+            g = group(rs[0].default, fam, True)
+            g["games"].add((system, pos))
+            g["opened"].append(ref)
+            g["dates"] += [(r.date, r.build) for r in rs if r.a]
+        for r in rs:
+            g = group(r.core, fam, False)
+            g["dates"].append((r.date, r.build))
+            if r.status == NOT_INSTALLED:
+                g["missing"] += 1
+                continue
+            g["games"].add((system, pos))
+            if r.status == OPENED and r.b is not None:
+                c = _candidate(r.core, [r.b])
+                g["opened"].append(c)
+                if ref is not None:
+                    g["deltas"].append(c)
+                    g.setdefault("refs", []).append(ref)
+    rows = []
+    for key in sorted(groups):
+        g = groups[key]
+        n, op = len(g["games"]), g["opened"]
+        full = sum(1 for c in op if c.speed is not None and c.speed >= SPEED_FULL)
+        audio = [c.audio_failures for c in op]
+        date, build = max(g["dates"]) if g["dates"] else ("-", "-")
+        if g["default"]:
+            versus = "padrão"
+        elif g["deltas"]:
+            pairs = list(zip(g["deltas"], g["refs"]))
+            dclock = _mean(c.clock_mhz - r.clock_mhz for c, r in pairs
+                           if c.clock_mhz is not None and r.clock_mhz is not None)
+            dfps = _mean(c.drawn_fps - r.drawn_fps for c, r in pairs
+                         if c.drawn_fps is not None and r.drawn_fps is not None)
+            versus = "; ".join(p for p in (
+                None if dclock is None else f"clock {dclock:+.0f}",
+                None if dfps is None else f"quadros {dfps:+.1f}") if p) or "-"
+        else:
+            versus = "-"
+        picked = sum(1 for k, c in chosen.items() if c == g["core"]
+                     and family_of(families, *k) == g["family"])
+        if n == 0 and g["missing"]:
+            cells = ["0", "não instalado"] + ["-"] * 6
+        else:
+            cells = [str(n), f"{len(op)} de {n}", f"{full} de {n}",
+                     _f(_mean(c.drawn_fps for c in op)),
+                     _pct(_mean(c.speed for c in op)),
+                     "-" if not audio or None in audio else _f(sum(audio), 0),
+                     _f(_mean(c.clock_mhz for c in op), 0),
+                     _f(_mean(c.temp_c for c in op))]
+        rows.append(dict(zip(CORE_COLUMNS, [date, build, g["core"], g["family"], *cells,
+                                            versus, str(picked)])))
+    return rows
+
+
+def check_core_row_privacy(row: dict) -> None:
+    _ident(row["core"], "core", CORE_RE)
+    _ident(row["família"], "family", NAME_RE)
+    if row["data"] != "-" and not re.match(r"^\d{4}-\d{2}-\d{2}$", row["data"]):
+        raise TuningError(f"date {row['data']!r} is not YYYY-MM-DD")
+    if not re.match(r"^[A-Za-z0-9_.:+-]{1,40}$", row["imagem"]):
+        raise TuningError(f"build {row['imagem']!r} is not allowed")
+    for col in CORE_COLUMNS[4:]:
+        text = row[col]
+        if FORBIDDEN_TEXT.search(text) or "\n" in text:
+            raise TuningError(f"cell {text!r} has a forbidden character")
+        for word in re.split(r"[\s,;()]+", text):
+            if word.lower().endswith(scripts.ROM_EXTENSIONS):
+                raise TuningError(f"cell {text!r} looks like it names a ROM file")
+
+
+def cores_section(results: list[CoreResult], families: dict) -> str:
+    lines = [CORES_BEGIN, CORES_HEAD.rstrip("\n"), "",
+             "| " + " | ".join(CORE_COLUMNS) + " |",
+             "|" + "|".join("---" for _ in CORE_COLUMNS) + "|"]
+    for row in _core_rows(results, families):
+        check_core_row_privacy(row)
+        lines.append("| " + " | ".join(row[c] for c in CORE_COLUMNS) + " |")
+    lines.append(CORES_END)
+    return "\n".join(lines) + "\n"
+
+
+def _split_cores_section(text: str) -> tuple[str, str]:
+    """(the report without the cores section, the section) of a report file."""
+    i = text.find(CORES_BEGIN)
+    if i < 0:
+        return text, ""
+    return text[:i].rstrip("\n") + "\n", text[i:]
+
+
+def write_cores_section(path: Path, console: str, results: list[CoreResult],
+                        families: dict) -> None:
+    """Rewrite the cores section of docs/tuning/<console>.md from every result (the A/B rows
+    of the file stay as they are, above it)."""
+    section = cores_section(results, families)
+    text = path.read_text(encoding="utf-8") if path.exists() else report_header(console)
+    main, _ = _split_cores_section(text)
+    path.write_text(main.rstrip("\n") + "\n\n" + section, encoding="utf-8")
+
+
+def parse_cores_section(text: str) -> list[dict]:
+    """The rows of the cores section, as dicts by column name."""
+    _, section = _split_cores_section(text)
+    out = []
+    for line in section.splitlines():
+        if not line.startswith("| ") or line.startswith("| data |"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+        if len(cells) == len(CORE_COLUMNS):
+            out.append(dict(zip(CORE_COLUMNS, cells)))
+    return out

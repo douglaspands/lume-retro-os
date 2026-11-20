@@ -1,0 +1,38 @@
+# Alternative arcade cores (game-experience-tuning 10.2, measured in 10.4): every game of the
+# `arcade` folder of the test set (var/roms_test/, positions 1..8 in the launcher grid) in its
+# default core (fbneo, the A runs) and in each alternative core (B), as A, B, A per game and
+# core. A romset of another MAME/FBA version may not load: "does not open" is a result, and a
+# core whose library is not on the console is "not installed". No game names nor paths.
+# Run: .venv/bin/python tests/device/tuning_ab.py arcade-cores --console ga36 [--dry-run]
+#      [--only fbneo:mame2000]  [--families var/roms_test/families.toml]
+#
+# Format of a core comparison (lume_tool.tuning):
+#   [[core]]
+#   core = "<default core of the system>"
+#   system = "<system id>"
+#   positions = [N, ...]                  (or position = N; one sequence set per game)
+#   [[core.variant]]
+#   core = "<libretro core>"              (name defaults to the core)
+#
+# The report gets the cores section of docs/tuning/<console>.md, grouped by core and hardware
+# family; the family of each position comes from the private families file (out of git):
+#   [arcade]
+#   1 = "cps1"
+#   2 = "neogeo"
+# Results per game: out/tuning/<console>-cores.jsonl (private, out of git).
+description = "Alternative arcade cores against fbneo, every game of the arcade folder"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+positions = [1, 2, 3, 4, 5, 6, 7, 8]
+
+[[core.variant]]
+core = "fbalpha2012"
+
+[[core.variant]]
+core = "mame2003_plus"
+
+[[core.variant]]
+core = "mame2000"
