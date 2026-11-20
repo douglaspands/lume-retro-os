@@ -179,9 +179,11 @@ O usuário trocou a decisão de 2026-11-17 (cores só no build do upstream): tod
 | 11.5 | 11.3 | — | AG | sonnet | B5 | |
 
 - [ ] 11.1 Builds `_lume` dos 16 cores da imagem: um jeito único de gerar o pacote `libretro-<core>-lume` (com `<core>_lume_libretro.so` e o `.info` com o `corename` próprio) a partir do aport do upstream de cada core, com as flags por arquitetura acima e nada mais mudado; aports locais novos para os 4 cores que hoje vêm do Alpine (`fceumm`, `nestopia`, `gambatte`, `gpsp`), com commit fixo; variante Cyclone/DrZ80 dos dois MAME só no armv7 (`<core>_cyclone_lume`). Fora do catálogo até a 11.5. Verificação: testes de aport (flags por arquitetura, nenhuma outra mudança no build, nomes com `_lume`), manifesto e slots.
-- [ ] 11.2 Build armv7 dos cores `_lume` (arcade primeiro), envio ao GA36. Verificação: `lume pkg` sem erro; `.so` no console.
+- [x] 11.2 Build armv7 dos cores `_lume` (arcade primeiro), envio ao GA36. Verificação: `lume pkg` sem erro; `.so` no console.
+  - 2026-11-20: os 16 compilaram (as flags `-marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard` em cada linha de compilação) e foram ao GA36 no build `20261120-043741` (boot 227): 16 `.so` e 16 `.info` com o `corename` "(Lume)". Os dois Cyclone/DrZ80 foram recusados pelo abuild (*text relocations*) e ficaram suspensos (`cores_lume.SUSPENDED`, P-114).
 - [ ] 11.3 Medição no GA36: cada core `_lume` contra o build do upstream, nos mesmos jogos do conjunto de teste (comparação de cores da 10.2). Verificação: linhas agregadas em `docs/tuning/ga36.md`.
-- [ ] 11.4 Build aarch64 dos cores `_lume` (R36S). Verificação: `lume pkg` sem erro.
+- [x] 11.4 Build aarch64 dos cores `_lume` (R36S). Verificação: `lume pkg` sem erro.
+  - 2026-11-20: os 16 compilaram para aarch64 (`-mcpu=cortex-a35`); ainda não foram ao R36S (J2).
 - [ ] 11.5 Catálogo e imagem: o core `_lume` que vencer substitui o do upstream (migração das opções, saves, estados e remaps do usuário para o `corename` novo, com teste); o do upstream sai da imagem. Verificação: testes do catálogo e da migração.
 
 ## Workflow follow-up
