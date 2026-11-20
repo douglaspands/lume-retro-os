@@ -42,9 +42,9 @@ X11, Wayland, Qt, SDL2 e PulseAudio. `ldd` mostra `libGLESv2`, `libEGL`, `libgbm
 | libretro-genesis-plus-gx | testing (edge) | `b72b8c96` |
 | libretro-picodrive | testing, atualizado + submódulos | `1890c293` |
 | libretro-fbneo | testing, atualizado (zlib embutido) | `77016b4d` |
-| libretro-mame2003-plus | novo; core de arcade alternativo em medição contra o `fbneo` (`game-experience-tuning` 10; desativado de 2026-11-11 a 2026-11-19); build padrão do upstream, sem flags por CPU; licença MAME não comercial | `2a60eda7` |
-| libretro-mame2000 | novo; core de arcade alternativo em medição (`game-experience-tuning` 10; MAME 0.37b5); build padrão do upstream, sem flags por CPU e sem `ARM=1` (só liga assembly ARM de 32 bits); licença MAME não comercial | `181b42e5` |
-| libretro-fbalpha2012 | novo; o FB Alpha 2012 completo (todas as placas), core de arcade alternativo em medição (`game-experience-tuning` 10); build padrão do upstream, sem flags por CPU; licença do FB Alpha, não comercial | `0ce31536` |
+| libretro-mame2003-plus | novo; core de arcade alternativo (`game-experience-tuning` 10.5; desativado de 2026-11-11 a 2026-11-19); build padrão do upstream, sem flags por CPU; licença MAME não comercial | `2a60eda7` |
+| libretro-mame2000 | novo; core de arcade medido e fora da imagem (`game-experience-tuning` 10.5; MAME 0.37b5); build padrão do upstream, sem flags por CPU e sem `ARM=1` (só liga assembly ARM de 32 bits); licença MAME não comercial | `181b42e5` |
+| libretro-fbalpha2012 | novo; o FB Alpha 2012 completo (todas as placas), core padrão do arcade, do CPS-1, do CPS-2 e do Neo Geo (`game-experience-tuning` 10.5); build padrão do upstream, sem flags por CPU; licença do FB Alpha, não comercial | `0ce31536` |
 | libretro-pcsx-rearmed | testing, atualizado (inclui armv7) | `7b0e8f8f` |
 | libretro-mednafen-pce-fast | novo, PC Engine/TurboGrafx-16 e PCE-CD (`game-experience-tuning` D8; build padrão do upstream, sem flags por CPU; o `.info` vem do `libretro-core-info`) | `2de1ce1c` |
 
@@ -58,8 +58,12 @@ mesmo nível de otimização do upstream (sem `-Ofast`, sem LTO), com as flags d
 acrescentadas ao `CFLAGS` e ao `CXXFLAGS` (armv7, Cortex-A7: `-marm -mcpu=cortex-a7
 -mfpu=neon-vfpv4 -mfloat-abi=hard`; aarch64, Cortex-A35: `-mcpu=cortex-a35`; x86_64: nenhuma,
 é o build do upstream, que não é construído). O id do core muda: `<core>_lume_libretro.so` e
-`<core>_lume_libretro.info`, com o `corename` do upstream mais ` (Lume)`. Fora do catálogo
-até a tarefa 11.5.
+`<core>_lume_libretro.info`, com o `corename` do upstream mais ` (Lume)`. Na imagem e no
+catálogo ficam só os que venceram o build do upstream no GA36 (tarefa 11.5,
+`cores_lume.ADOPTED`): `genesis_plus_gx_lume`, `snes9x2005_plus_lume` e `pcsx_rearmed_lume`,
+no lugar do build do upstream. Os outros (empate ou perda) ficam como aport, prontos para
+medir de novo. Na primeira vez de um `_lume` no cartão, o frontend do RetroArch copia as
+opções e os remapeamentos do usuário do core do upstream para o `corename` novo.
 
 Os 18 `aports/libretro-*-lume/APKBUILD` são **gerados** por `lume cores-lume` (módulo
 `lume_tool.cores_lume`) a partir do aport do upstream de cada core, e um teste falha se algum
@@ -72,12 +76,13 @@ assembly ARM: `libretro-mame2000-cyclone-lume` e `libretro-mame2003-plus-cyclone
 (`mame2000_cyclone_lume`, `mame2003_plus_cyclone_lume`), em `board/ga36/hw-packages.txt`.
 
 O `libretro-ppsspp` (PSP) está desativado com `arch=""`: ele não é construído e está fora
-do catálogo nesta versão (pendência 12.1 do `tasks.md`). O arcade usa o `fbneo` em todos os
-consoles, o mesmo romset nos dois aparelhos do cartão único. O `fbalpha2012` completo, o
-`mame2003-plus` e o `mame2000` entram na imagem só para a medição da `game-experience-tuning`
-(tarefa 10.4) e ficam fora do catálogo até ela escolher (tarefa 10.5); o `.info` de cada um
-vem do `libretro-core-info` do Alpine v3.24. O SNES usa o `snes9x2005_plus`, sem alternativo
-(o aport do `snes9x` foi removido).
+do catálogo nesta versão (pendência 12.1 do `tasks.md`). Arcade, CPS-1, CPS-2 e Neo Geo usam
+o `fbalpha2012` completo em todos os consoles (o mesmo romset nos dois aparelhos do cartão
+único); o `mame2003-plus` e o `fbneo` são os alternativos do arcade, e o `fbneo` o do CPS-1,
+do CPS-2 e do Neo Geo e o padrão do CPS-3 (`game-experience-tuning` 10.5). O `mame2000` e os
+recortes `fbalpha2012-cps1`, `-cps2` e `-neogeo` saíram da imagem e ficam só como aport. O
+`.info` de cada um vem do `libretro-core-info` do Alpine v3.24. O SNES usa o
+`snes9x2005_plus` (o build `_lume`), sem alternativo (o aport do `snes9x` foi removido).
 
 Ajustes para o musl:
 
