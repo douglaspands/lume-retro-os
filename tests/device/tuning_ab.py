@@ -225,7 +225,7 @@ def core_run(ctx: dev_run.Context, seq: tuning.Sequence, run: tuning.Run, warmup
         close_game(ctx)
     finally:
         ctx.run(tuning.restore_command(keep=True) + "true")
-    m = tuning.aggregate(window, rows)
+    m = tuning.aggregate(window, rows, tuning.console_refresh(getattr(ctx, "console", None)))
     print(f"     drawn {tuning._f(m.drawn_fps)} fps, speed {tuning._pct(m.speed)}, clock "
           f"{tuning._f(m.clock_mhz, 0)} MHz", flush=True)
     return m
@@ -311,7 +311,7 @@ def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tunin
                                   "runner of the next run")
         close_game(ctx)
         ctx.run(tuning.restore_command(keep=True, keep_runner=love) + "true")
-    m = tuning.aggregate(window, rows)
+    m = tuning.aggregate(window, rows, tuning.console_refresh(console))
     print(f"     drawn {tuning._f(m.drawn_fps)} fps, speed {tuning._pct(m.speed)}, audio "
           f"{m.audio_failures if m.audio_failures is not None else '-'} ({m.audio_source}), "
           f"clock {tuning._f(m.clock_mhz, 0)} MHz, temp {tuning._f(m.temp_c)} C, "

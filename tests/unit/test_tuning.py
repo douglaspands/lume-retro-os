@@ -536,6 +536,22 @@ def test_core_option_keys_with_hyphens(fake_root):
     sh(tuning.restore_command(keep=False))
 
 
+def test_speed_is_measured_against_the_rate_the_game_is_paced_to():
+    # R36S (2026-11-20): every core read ~98% because RetroArch paces a 60.10 fps core by the
+    # 59.02 Hz panel (within the 5% skew); the GA36 panel (55.69 Hz) is beyond it
+    assert tuning.console_refresh("r36s") == pytest.approx(59.021554)
+    assert tuning.console_refresh("ga36") == pytest.approx(55.687557)
+    assert tuning.console_refresh("vm") is None and tuning.console_refresh(None) is None
+    assert tuning.target_fps(60.0988, 59.021554) == pytest.approx(59.021554)
+    assert tuning.target_fps(60.0988, 55.687557) == pytest.approx(60.0988)
+    assert tuning.target_fps(55.0, 59.021554) == pytest.approx(55.0)   # beyond the skew upward
+    assert tuning.target_fps(60.0, None) == 60.0
+    w = tuning.Window(1, 0.0, 120.0)
+    rows = [{"frontend": "game", "fps": "59.0", "fps_nominal": "60.0988"}]
+    assert tuning.aggregate(w, rows, 59.021554).speed == pytest.approx(59.0 / 59.021554)
+    assert tuning.aggregate(w, rows).speed == pytest.approx(59.0 / 60.0988)
+
+
 def test_love_takes_only_env_variants_and_retroarch_never():
     base = {"description": "x", "consoles": ["ga36"]}
     ok = tuning.validate_plan({**base, "core": [{

@@ -56,6 +56,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from lume_tool import scripts
+from lume_tool.paths import REPO_ROOT
 
 CONSOLES = ("ga36", "r36s", "vm")
 WARMUP_S = 30
@@ -806,14 +807,46 @@ class RunMetrics:
         return self.cpu_total if metric == "cpu_total" else getattr(self, metric)
 
 
-def aggregate(w: Window, rows: list[dict]) -> RunMetrics:
-    """One run: the sampler window and the lume-logd rows of the same window."""
+# RetroArch paces the game by vsync when the panel refresh is within audio_max_timing_skew of
+# the core's rate (default 5%, not changed by the image), slowing the core to the panel on
+# purpose: the R36S panel (59.02 Hz) makes a 60.10 fps core run at 98.2%, and that is full
+# speed for that console. Beyond the skew (the GA36, 55.69 Hz) it paces by the audio and the
+# core keeps its own rate.
+MAX_TIMING_SKEW = 0.05
+BOARD_CFG = REPO_ROOT / "aports/lume-retroarch-cfg/files/usr/share/lume/retroarch-{}.cfg"
+
+
+def console_refresh(console: str | None) -> float | None:
+    """The panel refresh RetroArch uses on `console` (its board config), None if unknown."""
+    if not console:
+        return None
+    try:
+        text = Path(str(BOARD_CFG).format(console)).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r'^video_refresh_rate\s*=\s*"([0-9.]+)"', text, re.M)
+    return float(m.group(1)) if m else None
+
+
+def target_fps(nominal: float | None, refresh: float | None) -> float | None:
+    """The rate a game runs at when it keeps up: the panel's when RetroArch paces by vsync
+    (refresh within MAX_TIMING_SKEW of the core's rate), else the core's own."""
+    if nominal and refresh and abs(nominal - refresh) / nominal <= MAX_TIMING_SKEW:
+        return min(nominal, refresh)
+    return nominal
+
+
+def aggregate(w: Window, rows: list[dict], refresh: float | None = None) -> RunMetrics:
+    """One run: the sampler window and the lume-logd rows of the same window. `refresh` is
+    the console's panel refresh (console_refresh): the speed is measured against the rate the
+    game is paced to (target_fps)."""
     game = [r for r in rows if r.get("frontend") == "game"] or rows
     core_fps = _mean(_num(r.get("fps")) for r in game)
     nominal = None
     for r in game:
         nominal = _num(r.get("fps_nominal")) or nominal
-    speed = core_fps / nominal if core_fps is not None and nominal else None
+    target = target_fps(nominal, refresh)
+    speed = core_fps / target if core_fps is not None and target else None
     cols = list(game[0]) if game else []
     cpu = []
     for c in sorted((c for c in cols if re.match(r"^cpu\d+_pct$", c)),

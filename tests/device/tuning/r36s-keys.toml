@@ -1,0 +1,40 @@
+# RetroArch keys on the R36S (game-experience-tuning 7.5): the candidates the GA36 left open,
+# not the whole retroarch-keys.toml (4 h, and written for the cores before 11.5).
+#   latency-96    audio_latency = 96 ms: accepted on the GA36 only on gambatte (GBC); here on
+#                 GBC and GB (the same core) before the user decides
+#   threaded-off  video_threaded = false on the one arcade game below full speed (fbneo, 96%
+#                 with audio failures on the R36S baseline); it froze the GA36, not tried there
+# Run: .venv/bin/python tests/device/tuning_ab.py r36s-keys --console r36s [--dry-run]
+description = "R36S: audio latency on gambatte, latency and video thread on the slow fbneo game"
+consoles = ["r36s"]
+
+[[core]]
+core = "gambatte"
+system = "gbc"
+position = 1
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core]]
+core = "gambatte"
+system = "gb"
+position = 1
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+position = 2
+
+[[core.variant]]
+name = "latency-96"
+retroarch = { audio_latency = "96" }
+
+[[core.variant]]
+name = "threaded-off"
+retroarch = { video_threaded = "false" }
