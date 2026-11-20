@@ -6,7 +6,7 @@
     [[step]]
     name = "open the menu"                 # the step label: never a game
     type = "keys"                          # keys|play|wait_event|wait_process|shot|sh|
-                                           # open_game|close_game|home
+                                           # open_game|close_game|home|push_love
     timeout = 30                           # seconds, > 0; default depends on the type
     sequence = "fn+start,wait:500"         # type fields below
 
@@ -20,6 +20,8 @@ Type fields (all required unless marked optional):
     open_game     system, position (integer >= 1)
     close_game    (none)
     home          (none): back to the Dock, focus on Favorites (the launcher home)
+    push_love     source (a game directory under tests/device/, packed into a reproducible
+                  .love), dest (absolute console path ending in .love)
 
 Privacy: game names and ROM paths never go in a script. The keys `game`, `rom`, `path`,
 `content` and `title` are refused anywhere, and a step `name` must not look like a ROM file
@@ -52,7 +54,9 @@ TYPES: dict[str, tuple[int, tuple[str, ...], tuple[str, ...]]] = {
     "open_game": (60, ("system", "position"), ()),
     "close_game": (30, (), ()),
     "home": (30, (), ()),
+    "push_love": (60, ("source", "dest"), ()),
 }
+DEST_RE = re.compile(r"/[A-Za-z0-9_./-]+")
 COMMON = ("name", "type", "timeout")
 TOP = ("description", "consoles", "step")
 STATES = ("present", "absent")
@@ -153,6 +157,14 @@ def _validate_step(i: int, step: object) -> Step:
         raise ScriptError(f"{where}: `state` must be one of {', '.join(STATES)}")
     elif stype == "play":
         _check_recording(fields["recording"], where)
+    elif stype == "push_love":
+        src = PurePosixPath(fields["source"])
+        if src.is_absolute() or ".." in src.parts or src.parts[:2] != ("tests", "device") \
+                or len(src.parts) < 3:
+            raise ScriptError(f"{where}: `source` must be a directory under tests/device/")
+        dest = fields["dest"]
+        if not DEST_RE.fullmatch(dest) or ".." in dest.split("/") or not dest.endswith(".love"):
+            raise ScriptError(f"{where}: `dest` must be an absolute console path ending in .love")
     return Step(name, stype, float(timeout), fields)
 
 

@@ -19,6 +19,8 @@ Step types:
 - wait_process: polls `pidof` until the process is present/absent.
 - shot: `dev shot --compare <screen>` (reference capture within tolerance).
 - sh: command as root; passes on exit 0 (its output is not printed).
+- push_love: packs a game directory of tests/device/ into a reproducible .love
+  (lume_tool.lovepack) and writes it to `dest` on the console; hook `ctx.push_love`.
 - open_game / close_game: hooks `ctx.open_game` / `ctx.close_game` (lume_tool.dev_game: the
   button sequence), then wait for the lume-run lines within the step timeout: open = `game OK <system> ...
   start` (fails fast on `game FAIL <system> ... start-failed`), close = `game OK|FAIL
@@ -41,7 +43,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lume_tool import dev, dev_game, scripts
+from lume_tool import dev, dev_game, lovepack, scripts
 
 EVENTS_LOG = "/storage/logs/events.log"
 POLL_S = 1.0
@@ -111,6 +113,7 @@ class Context:
     open_game: object = None      # open_game(system, position)   (node 3.2)
     close_game: object = None     # close_game()                  (node 3.2)
     home: object = None           # home(): Dock focused on Favorites
+    push_love: object = None      # push_love(source, dest): pack a game dir and send it
     console: str | None = None    # ga36 | r36s, the console that answered (for play)
     start_lines: int = 0          # events.log line count when the run started
     seen: int = field(default=0)  # lines already read by wait_event
@@ -126,6 +129,7 @@ class Context:
         self.sh = self.sh or self._default_sh
         self.shot = self.shot or self._default_shot
         self.play = self.play or self._default_play
+        self.push_love = self.push_love or self._default_push_love
         games = dev_game.GameDriver(self.run, lambda seq: self.keys(seq))
         self.open_game = self.open_game or games.open
         self.close_game = self.close_game or games.close
@@ -145,6 +149,15 @@ class Context:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = dev.cmd_shot_screen(self.host, screen, update=False)
         return rc == 0, (err.getvalue() or out.getvalue()).strip()
+
+    def _default_push_love(self, source: str, dest: str):
+        try:
+            data = lovepack.build_love(dev.REPO_ROOT / source)
+        except (lovepack.LovePackError, OSError) as e:
+            raise StepFailed(str(e)) from None
+        rc, out = dev._ssh_send(self.host)(f"cat > {shlex.quote(dest)}", data)
+        if rc != 0:
+            raise StepFailed(f"could not send the game: {out.strip()}")
 
     def _default_play(self, recording: str):
         # `dev play` (node 2.2): it refuses a recording of the other console before sending
@@ -280,6 +293,13 @@ def do_sh(ctx: Context, step) -> None:
         raise StepFailed(f"exit {rc}")
 
 
+def do_push_love(ctx: Context, step) -> None:
+    try:
+        ctx.push_love(step.fields["source"], step.fields["dest"])
+    except dev.DevError as e:
+        raise StepFailed(str(e)) from None
+
+
 def do_open_game(ctx: Context, step) -> None:
     try:
         ctx.open_game(step.fields["system"], step.fields["position"])
@@ -310,6 +330,7 @@ HANDLERS = {
     "keys": do_keys, "play": do_play, "wait_event": do_wait_event,
     "wait_process": do_wait_process, "shot": do_shot, "sh": do_sh,
     "open_game": do_open_game, "close_game": do_close_game, "home": do_home,
+    "push_love": do_push_love,
 }
 
 

@@ -63,6 +63,12 @@ type = "close_game"
 [[step]]
 name = "back home"
 type = "home"
+
+[[step]]
+name = "send a love game"
+type = "push_love"
+source = "tests/device/love-probe"
+dest = "/storage/roms/love/x.love"
 """
 
 
