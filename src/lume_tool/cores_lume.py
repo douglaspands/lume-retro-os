@@ -224,8 +224,11 @@ def generate(v: Variant) -> str:
 
     text = _sub1(r"^pkgname=\S+$", f"pkgname={new}", text, "pkgname")
     text = _sub1(r'^pkgdesc="(.*)"$', rf'pkgdesc="\1 ({v.label} build)"', text, "pkgdesc")
-    if v.arch:
-        text = _sub1(r'^arch="[^"]*"$', f'arch="{v.arch}"', text, "arch")
+    # a suspended variant is not built at all (arch="", like the disabled ppsspp): the full
+    # console build compiles every local aport of the architecture, not only the listed ones
+    arch = "" if v.package in SUSPENDED else v.arch
+    if arch is not None and (arch or v.package in SUSPENDED):
+        text = _sub1(r'^arch="[^"]*"$', f'arch="{arch}"', text, "arch")
     # libretro-core-info for the info file, binutils for readelf (both only to build)
     if re.search(r'^makedepends="', text, re.M):
         text = _sub1(r'^makedepends="([^"]*)"$',

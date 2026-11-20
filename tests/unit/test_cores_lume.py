@@ -76,8 +76,9 @@ def test_nothing_but_the_lume_changes_is_in_the_generated_aport(v):
     body = re.sub(r"\n# --- Lume build.*?(?=\nsha512sums=)", "", body, flags=re.S)
     body = body.replace(f"pkgname={v.package}", f"pkgname={v.upstream}", 1)
     body = body.replace(f" ({v.label} build)\"", "\"", 1)
-    if v.arch:
-        body = body.replace(f'arch="{v.arch}"', f'arch="{_arch(upstream)}"', 1)
+    arch = "" if v.package in cl.SUSPENDED else v.arch
+    if arch is not None:
+        body = body.replace(f'arch="{arch}"', f'arch="{_arch(upstream)}"', 1)
     body = body.replace(" libretro-core-info binutils\"", "\"", 1)
     body = body.replace('\nmakedepends="libretro-core-info binutils"', "", 1)
     body = body.replace("_upstream_build() {", "build() {", 1)
@@ -176,7 +177,8 @@ def test_cyclone_builds_pass_the_assembly_cpu_cores(tmp_path, v):
     # assembly cores); the mame2003-plus Makefile reads it only inside its board platforms
     assert args[len(upstream_args):] == (["ARM=1"] if v.upstream == "libretro-mame2000" else []) + [
         "USE_CYCLONE=1", "USE_DRZ80=1"]
-    assert aport_arches(cl.target_path(v)) == ["armv7"]
+    # a suspended variant is not built (arch=""), the others only on armv7
+    assert aport_arches(cl.target_path(v)) == ([] if v.package in cl.SUSPENDED else ["armv7"])
 
 
 # --- package(): library and info file ---
@@ -269,7 +271,9 @@ def test_arch_and_placement_in_the_lists():
     for t in ("vm", "r36s", "ga36"):
         names = local_aports(get_target(t))
         assert all(v.package in names for v in PLAIN), t
-        assert all((v.package in names) is (t == "ga36") for v in CYCLONE), t
+        # the Cyclone builds only for the GA36, and not at all while suspended
+        assert all((v.package in names) is (t == "ga36" and v.package not in cl.SUSPENDED)
+                   for v in CYCLONE), t
     # the upstream copies of the Alpine cores are not aports
     assert not [n for n in local_aports() if n.startswith("_")]
 
