@@ -62,8 +62,10 @@ acrescentadas ao `CFLAGS` e ao `CXXFLAGS` (armv7, Cortex-A7: `-marm -mcpu=cortex
 catálogo ficam só os que venceram o build do upstream no GA36 (tarefa 11.5,
 `cores_lume.ADOPTED`): `genesis_plus_gx_lume`, `snes9x2005_plus_lume` e `pcsx_rearmed_lume`,
 no lugar do build do upstream. Os outros (empate ou perda) ficam como aport, prontos para
-medir de novo. Na primeira vez de um `_lume` no cartão, o frontend do RetroArch copia as
-opções e os remapeamentos do usuário do core do upstream para o `corename` novo.
+medir de novo. O `corename` marcado só identifica o core nas listas do RetroArch: as pastas
+de opções e de remapeamentos seguem o `library_name` que o próprio core informa, que é o do
+upstream, então o `_lume` usa as mesmas pastas do usuário, sem migração (conferido no GA36,
+2026-11-20).
 
 Os 18 `aports/libretro-*-lume/APKBUILD` são **gerados** por `lume cores-lume` (módulo
 `lume_tool.cores_lume`) a partir do aport do upstream de cada core, e um teste falha se algum

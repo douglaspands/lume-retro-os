@@ -21,9 +21,10 @@ retroarch.cfg input_player4_analog_dpad_mode
 # The official BIOS and its opening screen in every core that offers it (the user,
 # 2026-11-20: "all cores that can use the official BIOS use it"); with no BIOS file on the
 # card each core falls back to its built-in one. Game Boy and Color already had it on.
+# A _lume core keeps the options folder of its upstream core (the library_name it reports).
 opt:Gambatte gambatte_gb_bootloader
 opt:gpSP gpsp_bios
 opt:gpSP gpsp_boot_mode
-opt:Genesis Plus GX (Lume) genesis_plus_gx_bios
-opt:PCSX-ReARMed (Lume) pcsx_rearmed_bios
-opt:PCSX-ReARMed (Lume) pcsx_rearmed_show_bios_bootlogo
+opt:Genesis Plus GX genesis_plus_gx_bios
+opt:PCSX-ReARMed pcsx_rearmed_bios
+opt:PCSX-ReARMed pcsx_rearmed_show_bios_bootlogo

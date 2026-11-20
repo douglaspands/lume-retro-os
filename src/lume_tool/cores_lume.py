@@ -18,7 +18,10 @@ others:
   flags some upstream aports pass themselves (`-marm`, `-mfpu=neon`, covered by these);
 * the new `package()` renames the library to `<core>_lume_libretro.so`, writes
   `<core>_lume_libretro.info` from the info file of libretro-core-info with the `corename` and
-  the `display_name` marked "(Lume)", and checks the result (NEON on armv7);
+  the `display_name` marked "(Lume)", and checks the result (NEON on armv7). The marked
+  corename only labels the core in RetroArch's lists: the options and remaps folders follow
+  the library_name the core itself reports, which stays the upstream one (GA36, 2026-11-20),
+  so a _lume core shares them with its upstream build and no migration is needed;
 * the Cyclone (68000) and DrZ80 (Z80) variants of the two MAME cores, armv7 only, run the
   upstream build with `USE_CYCLONE=1 USE_DRZ80=1` (and `ARM=1` for mame2000, as the board
   platforms of its Makefile do) through a `make` function.

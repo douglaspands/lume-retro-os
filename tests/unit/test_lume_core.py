@@ -135,8 +135,8 @@ ADDED_AFTER_MOVE = {
     # 2026-11-20, the user: the official BIOS and its opening in every core that offers it
     "usr/share/lume/factory/retroarch/config/Gambatte/Gambatte.opt",
     "usr/share/lume/factory/retroarch/config/gpSP/gpSP.opt",
-    "usr/share/lume/factory/retroarch/config/Genesis Plus GX (Lume)/Genesis Plus GX (Lume).opt",
-    "usr/share/lume/factory/retroarch/config/PCSX-ReARMed (Lume)/PCSX-ReARMed (Lume).opt",
+    "usr/share/lume/factory/retroarch/config/Genesis Plus GX/Genesis Plus GX.opt",
+    "usr/share/lume/factory/retroarch/config/PCSX-ReARMed/PCSX-ReARMed.opt",
 }
 
 
