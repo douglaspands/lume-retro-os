@@ -93,7 +93,8 @@ LABEL_PT = {"drawn_fps": "quadros por segundo", "clock_mhz": "clock", "temp_c": 
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.+-]{0,39}$")
 CORE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,80}$")
+# core option keys may carry hyphens (fbneo-frameskip-type, mame2003-plus_...)
+KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$")
 # option values may have spaces and parentheses (genesis_plus_gx: "nuked (ym2612)")
 VALUE_RE = re.compile(r"^[A-Za-z0-9_.+:%() -]{0,40}$")
 CHANGE_SEP = "; "

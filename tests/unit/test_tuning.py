@@ -147,8 +147,21 @@ def test_plan_refuses_names_paths_and_bad_fields(patch):
 
 def test_baseline_plan_file_is_valid():
     plan = tuning.load_plan(REPO / "tests/device/tuning/baseline.toml")
-    assert {"fceumm", "gpsp", "pcsx_rearmed", "love"} <= {c.core for c in plan.cores}
+    assert {"fceumm", "gpsp", "pcsx_rearmed_lume", "love"} <= {c.core for c in plan.cores}
     assert all(not c.variants for c in plan.cores)
+    # every default core of the catalog has a baseline entry (task 7.1, the catalog of 11.5)
+    from lume_tool import catalog
+    cat = catalog.load()
+    defaults = {catalog.default_core(s, "armv7") for s in cat["systems"] if s["core"]}
+    tested = {c.core for c in plan.cores}
+    # cps3 has no game in the test set: fbneo is measured on the arcade game whose core it is
+    assert defaults <= tested, defaults - tested
+
+
+def test_love_runner_plan_file_is_valid():
+    plan = tuning.load_plan(REPO / "tests/device/tuning/love-runner.toml")
+    assert [c.process for c in plan.cores] == ["love"]
+    assert all(v.env and not v.retroarch and not v.options for v in plan.cores[0].variants)
 
 
 # --- sequences / dry run ---------------------------------------------------------------
@@ -501,6 +514,26 @@ def test_love_runner_of_the_next_run_survives_the_restores_between_runs(fake_roo
     sh(tuning.runner_next_command((("A", "1"),)))
     sh(tuning.restore_command(keep=False))
     assert not card.exists()
+
+
+def test_core_option_keys_with_hyphens(fake_root):
+    # fbneo's options are named fbneo-frameskip-type and so on (7.3)
+    plan = tuning.validate_plan({"consoles": ["ga36"], "core": [
+        {"core": "fbneo", "system": "arcade", "position": 2, "variant": [
+            {"name": "frameskip-auto", "options": {"fbneo-frameskip-type": "Auto"}},
+            {"name": "cpu-90", "options": {"fbneo-cpu-speed-adjust": "90%"}}]}]})
+    assert plan.cores[0].variants[0].options == (("fbneo-frameskip-type", "Auto"),)
+    with pytest.raises(TuningError):
+        tuning.validate_plan({"consoles": ["ga36"], "core": [
+            {"core": "fbneo", "system": "arcade", "position": 2, "variant": [
+                {"name": "x", "options": {"-leading": "1"}}]}]})
+    root, home = fake_root
+    opt = home / "config/FCE Ultra/FCE Ultra.opt"
+    opt.write_text('fbneo-frameskip-type = "disabled"\nother = "1"\n')
+    sh(tuning.save_command("fceumm"))
+    sh(tuning.apply_command("fceumm", tuning.Variant("v", options=(("fbneo-frameskip-type", "Auto"),))))
+    assert opt.read_text() == 'other = "1"\nfbneo-frameskip-type = "Auto"\n'
+    sh(tuning.restore_command(keep=False))
 
 
 def test_love_takes_only_env_variants_and_retroarch_never():

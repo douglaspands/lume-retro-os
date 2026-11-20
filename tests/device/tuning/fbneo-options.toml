@@ -1,0 +1,32 @@
+# A/B of the fbneo core options (game-experience-tuning 7.3): the arcade game of the test set
+# whose per-game core is fbneo (the one board only fbneo opens), slow at the default options
+# (about 65% of full speed at 1008 MHz, docs/tuning/ga36.md). Names and values checked in
+# src/burner/libretro/retro_common.cpp of the pinned commit 77016b4d (2026-11-20).
+# Run: .venv/bin/python tests/device/tuning_ab.py fbneo-options --console ga36 [--dry-run]
+description = "fbneo options on its slow arcade game: frameskip, audio work, emulated CPU clock"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+position = 2
+
+[[core.variant]]
+name = "frameskip-auto"
+options = { fbneo-frameskip-type = "Auto" }
+
+[[core.variant]]
+name = "frameskip-fixed-1"
+options = { fbneo-frameskip-type = "Fixed", fbneo-fixed-frameskip = "1" }
+
+[[core.variant]]
+name = "interpolation-off"
+options = { fbneo-sample-interpolation = "disabled", fbneo-fm-interpolation = "disabled" }
+
+[[core.variant]]
+name = "samplerate-44100"
+options = { fbneo-samplerate = "44100" }
+
+[[core.variant]]
+name = "cpu-clock-80"
+options = { fbneo-cpu-speed-adjust = "80%" }
