@@ -298,6 +298,29 @@ sl_mark_put() {
 	return 1
 }
 
+# The processes holding a file of ROMS open for writing, one trace line each: "writer <comm>
+# <flags> <path>", the path cut to its first two folders under the mount (a save or a ROM
+# would name the game). Read only when the read-only remount failed (task 9.4).
+sl_card_writers() {
+	local p f t fl comm rel
+	for p in "${SL_PROC:-/proc}"/[0-9]*; do
+		for f in "$p"/fd/*; do
+			t=$(readlink "$f" 2>/dev/null) || continue
+			case $t in "$LOGS_MOUNT"/*) ;; *) continue ;; esac
+			fl=
+			while read -r k v; do
+				[ "$k" = flags: ] && fl=$v && break
+			done <"$p/fdinfo/${f##*/}" 2>/dev/null
+			[ -n "$fl" ] || continue
+			[ $((0$fl & 3)) -ne 0 ] || continue
+			read -r comm <"$p/comm" 2>/dev/null || comm=?
+			rel=${t#"$LOGS_MOUNT"/}
+			case $rel in */*/*) rel=${rel%"${rel#*/*/}"}; rel=${rel%/} ;; */*) rel=${rel%/*} ;; *) rel=. ;; esac
+			sl_trace "writer $comm $fl $rel"
+		done
+	done
+}
+
 sl_card_down() {
 	local n=0
 	SL_DEV= SL_RO= SL_CARD= SL_MARK=
@@ -310,6 +333,7 @@ sl_card_down() {
 		fi
 		n=$((n + 1))
 		if [ "$n" -ge "$SL_RO_TRIES" ]; then
+			sl_card_writers
 			sl_event FAIL "card: $LOGS_MOUNT not read-only ($SL_ERR); checked at the wake all the same"
 			break
 		fi

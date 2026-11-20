@@ -383,7 +383,25 @@ asleep_watch() {
 line() { grep -n "^$1" "$T" | head -n 1 | cut -d: -f1; }
 card_env() {
 	SL_MOUNT=$W/bin/mount SL_CARDID=$W/bin/lume-cardid SL_REBOOT=$W/bin/reboot SL_SYSRQ=$W/sysrq \
-		SL_PERSIST=$W/bin/persist MOUNTS_FILE=$W/mounts LOGS_MOUNT=$CARD LOGS_DIR=$CARD/logs "$@"
+		SL_PERSIST=$W/bin/persist MOUNTS_FILE=$W/mounts LOGS_MOUNT=$CARD LOGS_DIR=$CARD/logs \
+		SL_PROC=$W/proc "$@"
+}
+# a fake /proc: one process appending a log, one writing a save, one only reading a ROM
+fake_proc() {
+	rm -rf "$W/proc"
+	mkdir -p "$W/proc/41/fd" "$W/proc/41/fdinfo" "$W/proc/42/fd" "$W/proc/42/fdinfo" \
+		"$W/proc/43/fd" "$W/proc/43/fdinfo"
+	echo lume-logd >"$W/proc/41/comm"
+	ln -s "$CARD/logs/trace/boot-1.log" "$W/proc/41/fd/3"
+	printf 'pos:\t0\nflags:\t0102001\n' >"$W/proc/41/fdinfo/3"
+	echo retroarch >"$W/proc/42/comm"
+	ln -s "$CARD/saves/nes/A Game Name.srm" "$W/proc/42/fd/7"
+	printf 'pos:\t0\nflags:\t0100002\n' >"$W/proc/42/fdinfo/7"
+	ln -s /tmp/elsewhere "$W/proc/42/fd/8"
+	printf 'pos:\t0\nflags:\t0100001\n' >"$W/proc/42/fdinfo/8"
+	echo reader >"$W/proc/43/comm"
+	ln -s "$CARD/roms/nes/A Game Name.nes" "$W/proc/43/fd/4"
+	printf 'pos:\t0\nflags:\t0100000\n' >"$W/proc/43/fdinfo/4"
 }
 card_request() {
 	: >"$DIR/suspend"
@@ -444,12 +462,17 @@ sleep 0.8
 # a read-only remount that fails: logged, the suspension and the check go on
 card_fresh
 : >"$W/mount.busy"
+fake_proc
 fake_input ok
 card_request
 stop_input
 check "card busy: 5 tries, the failure logged, the suspension and the check run" \
 	'[ "$(grep -c "remount,ro" "$CALLS")" = 5 ] && has_event "FAIL card: $CARD not read-only (Resource busy); checked at the wake all the same" && grep -qx "card same" "$T" && has_event "OK suspend freeze"'
 check "card busy: no remount back, the mark removed" '! grep -q "remount,rw" "$CALLS" && [ ! -e "$CARD/logs/.suspended-ga36" ]'
+# task 9.4: who held the card open for writing, without a file name (a save names the game)
+check "card busy: the writers in the trace, two folders deep, no file name, no reader" \
+	'grep -qx "writer lume-logd 0102001 logs/trace" "$T" && grep -qx "writer retroarch 0100002 saves/nes" "$T" && [ "$(grep -c "^writer " "$T")" = 2 ] && ! grep -q "Game Name" "$T"'
+rm -rf "$W/proc"
 fifo_lines >/dev/null
 sleep 0.8
 
