@@ -1,11 +1,11 @@
-# Aprendizado: qual core roda melhor cada placa
+# Aprendizado de cores: fica no aparelho
 
-Registro vivo do que as medições ensinaram sobre a escolha de core por **placa de hardware**
-(família), para explorar no futuro (pedido do usuário, 2026-11-20). Nada aqui nomeia jogo nem
-caminho: o resultado por jogo fica só nos arquivos privados, fora do git
-(`out/tuning/<console>-cores.jsonl` e o mapa de famílias `var/roms_test/families.toml`). Os
-números completos estão na seção de cores de [`ga36.md`](ga36.md) (e de `r36s.md`, quando
-medido).
+O que as medições ensinam sobre qual core roda melhor cada jogo é **dado do aparelho**, não do
+projeto (decisão do usuário, 2026-11-20): cada hardware tem o seu resultado, e o projeto vai
+chegar a outros consoles. O repositório guarda só o **método** e o **formato**; o resultado vive
+no cartão, em `ROMS/system/lume/cores-learned.toml`, para uma funcionalidade usar como parâmetro
+(P-116). Os números agregados de cada console continuam no relatório de medição dele
+([`ga36.md`](ga36.md), `r36s.md`), sem nome de jogo.
 
 ## Como se mede
 
@@ -13,59 +13,44 @@ medido).
 variantes `core = "..."`): cada jogo roda no core padrão da pasta (A1), em cada core alternativo
 (B, pela opção por jogo do launcher, devolvida depois) e de novo no padrão (A2), 30 s de
 aquecimento e 60 s de medição. Conta: se abre, velocidade do core (≥ 99% é cheia), quadros
-mostrados por segundo, clock médio escolhido pelo governor (menor = menos bateria),
-temperatura e falhas de som. O vencedor de um jogo é o de menor clock entre os de velocidade
-cheia; sem nenhum de velocidade cheia, o mais rápido.
+mostrados por segundo, clock médio escolhido pelo governor (menor = menos bateria), temperatura e
+falhas de som. O vencedor de um jogo é o de menor clock entre os de velocidade cheia; sem nenhum
+de velocidade cheia, o mais rápido.
 
-## GA36 (Allwinner A33, Cortex-A7 a 1008 MHz, armv7) — 2026-11-20
+## O arquivo no cartão
 
-Um jogo por placa no arcade e três por sistema em CPS-1, CPS-2 e Neo Geo: amostra pequena, a
-confirmar com mais jogos da mesma placa.
+`ROMS/system/lume/cores-learned.toml`, gravado por `tests/device/cores_learned.py <console>` depois
+de cada comparação (lê `out/tuning/<console>-cores.jsonl`, o índice do launcher no cartão para o
+arquivo de cada posição, o `gamelist.xml` e o mapa privado de famílias do conjunto de teste):
 
-| Placa | Melhor core | Observação |
-|---|---|---|
-| Sega System 16B | FB Alpha 2012 | 100%; FBNeo 63%; os MAME não abrem o romset do FBNeo |
-| Data East (16 bits) | FBNeo | o único que abre; 65% |
-| Irem M72 | FB Alpha 2012 | 90%; FBNeo 80% |
-| Irem M84 | MAME 2000 | 100% a 720 MHz; MAME 2003-Plus 100% a 1008 MHz |
-| Irem M92 | MAME 2003-Plus | 83%; FBNeo 49%, FB Alpha 2012 62% |
-| Konami (TMNT, TMNT2, X-Men) | MAME 2003-Plus | 100% nos três; FBNeo 66% a 100% |
-| Capcom CPS-1 | recorte `fbalpha2012_cps1` ou FB Alpha 2012 completo | 100% nos dois, 720 a 816 MHz; FBNeo precisa de 1008 MHz |
-| Capcom CPS-2 | recorte `fbalpha2012_cps2` | 100% a 720–816 MHz; o completo 816 MHz; FBNeo 912–1008 MHz |
-| SNK Neo Geo | recorte ou FB Alpha 2012 completo | 100% a ~816 MHz nos dois; FBNeo 1008 MHz |
+```toml
+schema = 1
 
-**Padrões que apareceram:**
-- O FBNeo é o mais pesado em todas as placas do GA36 (mais fiel, mais CPU).
-- O MAME 2003-Plus vai melhor nas placas Konami e nas Irem mais pesadas, mas abre poucos
-  romsets do FBNeo (versões diferentes).
-- O FB Alpha 2012 é o melhor equilíbrio: abre quase tudo do FBNeo das placas antigas e roda bem
-  mais leve.
-- O MAME 2000 é o mais econômico onde abre, mas abre pouco.
-- As flags do processador (`_lume`) não mudaram os cores de arcade (o FBNeo `_lume` ficou ~1,5
-  ponto mais lento); ver [`ga36.md`](ga36.md).
-- O FBNeo pesado a 1008 MHz travou o GA36 duas vezes (P-115).
+[[game]]
+system = "<id do sistema>"
+file = "<arquivo da ROM na pasta do sistema>"
+name = "<nome do jogo>"
+board = "<placa de hardware>"
+console = "<ga36 | r36s | ...>"      # um cartão serve vários consoles: um [[game]] por console
+date = "AAAA-MM-DD"
+default_core = "<core padrão da pasta>"
+best = "<core escolhido>"
 
-## R36S (Rockchip RK3326, Cortex-A35, aarch64)
+[[game.result]]
+core = "<core>"
+opens = true                       # false com `reason` quando o romset não abre
+speed = 1.002                      # 1.0 = velocidade cheia
+fps = 54.4                         # quadros mostrados por segundo
+clock_mhz = 816                    # clock médio da CPU
+audio_failures = 0                 # segundos com falha de som
+temp_c = 49.8
+```
 
-A medir na J2. Hipótese: mais rápido por núcleo, a escolha pode mudar (menos placas no limite; o
-critério passa a ser o clock).
-
-## O aprendizado por jogo no cartão
-
-O resultado por jogo, com o nome e o arquivo, fica no **cartão do usuário**, em
-`ROMS/system/lume/cores-learned.toml` (pedido do usuário, 2026-11-20), para uma funcionalidade
-futura usar como parâmetro (P-116): um `[[game]]` por jogo medido (`system`, `file`, `name`,
-`board`, `console`, `date`, `default_core`, `best`) com um `[[game.result]]` por core (`opens`,
-`speed`, `fps`, `clock_mhz`, `audio_failures`, `temp_c`, ou `reason` quando não abre). Quem grava é
-`tests/device/cores_learned.py <console>` (lê `out/tuning/<console>-cores.jsonl`, o índice do
-launcher no cartão para o arquivo de cada posição, o `gamelist.xml` e o mapa de famílias do
-conjunto de teste); rodar de novo depois de cada comparação de cores. É dado do cartão, nunca do
-repositório.
+O arquivo é do cartão: o nome dos jogos nunca vai para o repositório.
 
 ## Perguntas em aberto
 
-- A mesma placa se comporta igual com outros jogos? (medir 3+ jogos por placa)
+- A mesma placa se comporta igual com outros jogos? (medir mais jogos por placa)
 - Um core por placa resolve, ou há jogos da mesma placa que pedem cores diferentes?
-- Dá para o próprio console descobrir o melhor core de um jogo (P-116)?
-- Os romsets do usuário são do FBNeo: quanto da escolha é limitado pela versão do romset, e não
-  pela velocidade do core?
+- O próprio console pode descobrir o melhor core de um jogo (P-116)?
+- Quanto da escolha é limitado pela versão do romset, e não pela velocidade do core?
