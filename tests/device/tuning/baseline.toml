@@ -1,6 +1,11 @@
 # Baseline of every core of the catalog and of the LÖVE runner (game-experience-tuning 7.1,
 # 7.5): the first game of one system per core in the test set (var/roms_test/), no variant.
 # Run: .venv/bin/python tests/device/tuning_ab.py baseline --console ga36 [--dry-run]
+# Cores already with a baseline row in docs/tuning/<console>.md are skipped (--rebaseline).
+#
+# The catalog after 10.5 and 11.5 (2026-11-20): the _lume builds that replaced the upstream
+# ones, the full fbalpha2012 of the arcade folders, mame2003_plus on the arcade games whose
+# per-game core it is on the test card (positions only, the card keeps the choice).
 #
 # Format (lume_tool.tuning): no game names nor paths, the game is the position in the list.
 #   [[core]]
@@ -12,6 +17,7 @@
 #   name = "<a-z0-9_.+->"
 #   retroarch = { key = "value" }         (appended to /run/lume/retroarch-extra.cfg)
 #   options = { key = "value" }           (written into the user's .opt of the core)
+#   env = { NAME = "value" }              (LÖVE only: the card runner's [runner.env])
 description = "Baseline: default configuration, one game per core"
 consoles = ["ga36", "r36s"]
 
@@ -21,12 +27,12 @@ system = "nes"
 position = 1
 
 [[core]]
-core = "snes9x2005_plus"
+core = "snes9x2005_plus_lume"
 system = "snes"
 position = 1
 
 [[core]]
-core = "genesis_plus_gx"
+core = "genesis_plus_gx_lume"
 system = "megadrive"
 position = 1
 
@@ -46,27 +52,22 @@ system = "gba"
 position = 1
 
 [[core]]
-core = "fbneo"
-system = "arcade"
-position = 1
-
-[[core]]
-core = "fbalpha2012_cps1"
+core = "fbalpha2012"
 system = "cps1"
 position = 1
 
 [[core]]
-core = "fbalpha2012_cps2"
-system = "cps2"
-position = 1
+core = "mame2003_plus"
+system = "arcade"
+position = 5
 
 [[core]]
-core = "fbalpha2012_neogeo"
-system = "neogeo"
-position = 1
+core = "fbneo"
+system = "arcade"
+position = 2
 
 [[core]]
-core = "pcsx_rearmed"
+core = "pcsx_rearmed_lume"
 system = "psx"
 position = 1
 

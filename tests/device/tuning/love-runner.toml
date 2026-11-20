@@ -1,0 +1,24 @@
+# A/B of the LÖVE runner (game-experience-tuning 7.4, design D7 table): environment variables
+# of the runner, written by the tool into the card's runners.d/love.toml ([runner.env]) for
+# the B run only. The power class of the love system is the lume-power profile, measured by
+# the baseline (no variant here).
+# Run: .venv/bin/python tests/device/tuning_ab.py love-runner --console ga36 [--dry-run]
+#
+#   mesa-glthread: Mesa's GL command thread (the game's GL calls run on another core)
+#   double-buffer: SDL's KMSDRM double buffering instead of triple (less latency, may cost fps)
+description = "LÖVE runner: Mesa glthread and SDL double buffering"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "love"
+system = "love"
+position = 1
+process = "love"
+
+[[core.variant]]
+name = "mesa-glthread"
+env = { mesa_glthread = "true" }
+
+[[core.variant]]
+name = "double-buffer"
+env = { SDL_VIDEO_DOUBLE_BUFFER = "1" }
