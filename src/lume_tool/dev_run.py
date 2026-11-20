@@ -88,7 +88,9 @@ def events_command(skip: int) -> str:
 def pending_command() -> str:
     """Remote command: the RAM events.pending lines (not yet drained to the card log), cut at
     ` content=` on the console. The file may be absent or shrink between polls."""
-    return f"awk '{{ sub(/ ?content=.*/, \"\"); print }}' {EVENTS_PENDING} 2>/dev/null"
+    # `|| true`: the logd drains the file to the card between two polls, and awk on a file that
+    # is gone for a moment must read as "nothing pending", not stop the run (GA36, 2026-11-20)
+    return f"awk '{{ sub(/ ?content=.*/, \"\"); print }}' {EVENTS_PENDING} 2>/dev/null || true"
 
 
 def count_command() -> str:
