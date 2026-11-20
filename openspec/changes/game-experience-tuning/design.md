@@ -82,10 +82,23 @@ cartão do GA36 já tinha `input_player1_analog_dpad_mode = "0"` e o padrão de 
 entrou (o analógico só andou no FBNeo, que lê o analógico por conta própria). Decisão do usuário:
 **aplicar cada padrão uma única vez por cartão** (tarefa 1.4). Um registro no cartão
 (`ROMS/system/lume/factory-applied`, uma linha `<arquivo> <chave>=<valor>` por padrão aplicado)
-diz o que já foi aplicado; na primeira vez o valor de fábrica vence o do arquivo do cartão, e
-depois nunca mais. Um padrão que muda de valor numa imagem seguinte tem outra linha, então é
-aplicado de novo uma vez. Um cartão novo, que recebe a cópia da fábrica, registra todos os
-padrões como aplicados.
+diz o que já foi aplicado; uma linha de fábrica fora do registro vence uma vez o valor do
+arquivo do cartão, e depois nunca mais. Um padrão que muda de valor numa imagem seguinte tem
+outra linha, então é aplicado de novo uma vez. Um cartão novo, que recebe a cópia da fábrica,
+registra todos os padrões como aplicados.
+
+Na primeira vez (o registro sem nenhuma linha daquele arquivo: cartão de antes do registro, ou
+`.opt` que o usuário já tinha), **só os padrões novos listados mudam o cartão** (decisão do
+usuário, 2026-11-19, depois do relatório da 1.4): todas as linhas de fábrica são registradas
+como aplicadas sem tocar no cartão, menos as de `/usr/share/lume/factory/new-defaults` (uma
+`<arquivo> <chave>` por linha, hoje só o `input_player1..4_analog_dpad_mode` do D4), aplicadas
+uma vez. Nada mais que o usuário escolheu no menu (driver e escala do menu, teclas) muda. O
+gatilho é por arquivo, não pela falta do registro inteiro: o registro nasce no
+`retroarch.cfg`, e o primeiro jogo de um core com `.opt` de fábrica num cartão antigo não pode
+trocar as opções que o usuário já tinha. O `user_language` nunca é aplicado por cima (só entra
+quando falta), para o idioma do build não trocar o escolhido. As chaves fixas entram depois dos
+padrões, para uma chave da placa que também é padrão de fábrica (`video_threaded`) ficar com o
+valor da placa.
 
 *Alternativa:* semear no `lume-persist` no boot. Recusada: o frontend já faz o merge das chaves
 fixas a cada início e conhece o caminho do usuário; o boot não ganha trabalho novo (prioridade do

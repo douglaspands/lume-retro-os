@@ -251,9 +251,30 @@ exit 0
 """
 
 
+def _applied_lines(file_id: str, factory_text: str, keep=("user_language",)) -> list[str]:
+    """The factory-applied lines of every default of a factory file (frontend format)."""
+    lines = []
+    for line in factory_text.splitlines():
+        m = re.match(r"^([A-Za-z0-9_]+)[ \t]*=(.*)$", line)
+        if m and m.group(1) not in keep:
+            value = m.group(2).strip(" \t\r")
+            lines.append(f"{file_id} {m.group(1)}={value}")
+    return lines
+
+
 def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: str | None = None,
-              args: tuple[str, ...] = (), env_extra: dict | None = None, check: bool = True):
-    """Run the frontend script with a fake retroarch. Returns (args, user cfg, defaults cfg)."""
+              args: tuple[str, ...] = (), env_extra: dict | None = None, check: bool = True,
+              applied: bool = True):
+    """Run the frontend script with a fake retroarch. Returns (args, user cfg, defaults cfg).
+
+    applied: the card already went through the first application of the factory
+    retroarch.cfg (its factory-applied lists every default), so the user's values stay; the
+    record is only written when the card has none yet. False: a card from before task 1.4.
+    """
+    ledger = tmp_path / "card/factory-applied"
+    if applied and not ledger.exists():
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text("\n".join(_applied_lines("retroarch.cfg", FACTORY)) + "\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "retroarch"
@@ -275,7 +296,7 @@ def _frontend(tmp_path, board: str | None, user_cfg: str | None = None, extra: s
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "XDG_RUNTIME_DIR": str(run_dir),
            "BOARD_FILE": str(board_file), "LUME_SHARE": str(SHARE),
            "LUME_EXTRA_CFG": str(extra_file), "LUME_RESTORE": str(tmp_path / "card/restore.cfg"),
-           "LUME_INFO": str(tmp_path / "info"), **(env_extra or {})}
+           "LUME_FACTORY_APPLIED": str(ledger), "LUME_INFO": str(tmp_path / "info"), **(env_extra or {})}
     r = subprocess.run(["sh", str(FRONTEND), *args], env=env, capture_output=True, text=True,
                        check=check)
     defaults = run_dir / "retroarch-defaults.cfg"
@@ -532,7 +553,7 @@ def test_menu_has_no_transparency():
     assert "opacity" not in CFG
 
 
-# --- new factory defaults on existing cards (game-experience-tuning D3, task 1.2) ---
+# --- factory defaults on existing cards (game-experience-tuning D3, tasks 1.2 and 1.4) ---
 
 FACTORY_KEYS = _keys(FACTORY)
 CORENAMES_FIXTURE = REPO_ROOT / "tests/fixtures/libretro-corenames.txt"
@@ -550,9 +571,9 @@ def _factory_line(key: str) -> str:
 
 
 def test_missing_factory_key_is_added_and_the_users_never_change(tmp_path):
-    # a card from before a new factory default: the key it lacks arrives with the factory
-    # value, a factory key the user already has keeps the user's value
-    user = 'menu_driver = "xmb"\nmenu_timedate_enable = "true"\nmy_own_key = "1"\n'
+    # a card past the first application (every default recorded): a key it lacks arrives
+    # with the factory value, a factory key the user has keeps the user's value
+    user ='menu_driver = "xmb"\nmenu_timedate_enable = "true"\nmy_own_key = "1"\n'
     _, cfg, _ = _frontend(tmp_path, "ga36", user)
     lines = cfg.splitlines()
     assert lines[:3] == ['menu_driver = "xmb"', 'menu_timedate_enable = "true"', 'my_own_key = "1"']
@@ -573,7 +594,8 @@ def test_seeding_is_stable_and_keeps_the_users_choice_across_starts(tmp_path):
 def test_factory_key_of_a_run_the_user_never_had_gets_the_factory_value(tmp_path):
     # video_threaded is a factory key and a run key of pcsx_rearmed; a run killed on an image
     # from before the seeding left "#unset video_threaded" (the user had none): the restore
-    # removes it, then the seeding gives the factory value (vm: no board value)
+    # removes it, then the seeding gives the factory value (vm: no board value), even though
+    # the default is already recorded as applied
     (tmp_path / "card").mkdir()
     (tmp_path / "card/restore.cfg").write_text("#unset video_threaded\n")
     out, cfg, _ = _frontend(tmp_path, "vm", 'video_threaded = "true"\n')
@@ -595,20 +617,177 @@ def test_analog_stick_replaces_the_dpad_by_default_for_four_players():
         assert "analog_dpad_mode" not in path.read_text(), path.name
 
 
-def test_analog_dpad_mode_reaches_an_old_card_and_keeps_the_users_zero(tmp_path):
-    _, cfg, _ = _frontend(tmp_path, "ga36", 'menu_driver = "xmb"\n')
+def _ledger(tmp_path) -> list[str]:
+    path = tmp_path / "card/factory-applied"
+    return path.read_text().splitlines() if path.exists() else []
+
+
+# what RetroArch writes on exit on a card from before the analog default: every key, with
+# its own value (analog_dpad_mode "0" = none), the menu, the keyboard and the language the
+# user picked
+USER_CHOICES = ['menu_driver = "xmb"', 'user_language = "4"', 'menu_scale_factor = "1.000000"',
+                'input_player1_a = "k"', 'input_player1_b = "j"']
+RA_SAVED = ("\n".join(USER_CHOICES) + "\n" + "".join(f'{k} = "0"\n' for k in ANALOG_KEYS)
+            + 'video_threaded = "false"\n')
+NEW_DEFAULTS = SHARE / "factory/new-defaults"
+
+
+def _new_defaults() -> list[tuple[str, str]]:
+    lines = [ln.strip() for ln in NEW_DEFAULTS.read_text().splitlines()]
+    return [tuple(ln.rsplit(" ", 1)) for ln in lines if ln and not ln.startswith("#")]
+
+
+def test_new_defaults_list_names_keys_of_the_factory_files():
+    # "<file-id> <key>": retroarch.cfg or opt:<corename>, each key in that factory file
+    entries = _new_defaults()
+    assert entries == [("retroarch.cfg", k) for k in ANALOG_KEYS]
+    assert len(entries) == len(set(entries))
+    for file_id, key in entries:
+        if file_id == "retroarch.cfg":
+            text = FACTORY
+        else:
+            assert file_id.startswith("opt:"), file_id
+            name = file_id.removeprefix("opt:")
+            text = (FACTORY_OPT_DIR / name / f"{name}.opt").read_text()
+        assert re.match(r"^\w+$", key) and key in _keys(text), (file_id, key)
+        assert key != "user_language"
+    # outside factory/retroarch: lume-persist copies that folder to a new card
+    assert not (SHARE / "factory/retroarch/new-defaults").exists()
+
+
+def test_old_card_keeps_the_users_choices_and_gets_only_the_new_defaults(tmp_path):
+    # J1 on the GA36: the card had "0" from RetroArch, so adding only missing keys never
+    # brought the "1" in. The first start with the record keeps every value the user chose
+    # and applies only the lines of factory/new-defaults; everything is recorded
+    _, cfg, _ = _frontend(tmp_path, "ga36", RA_SAVED, applied=False)
     lines = cfg.splitlines()
     for key in ANALOG_KEYS:
-        assert f'{key} = "1"' in lines, key
-    # a user who turned it off in the menu keeps "0" on the next starts
-    user = 'input_player1_analog_dpad_mode = "0"\n'
+        assert f'{key} = "1"' in lines and f'{key} = "0"' not in lines, key
+        assert sum(1 for line in lines if line.startswith(key + " ")) == 1, key
+    assert lines[:len(USER_CHOICES)] == USER_CHOICES
+    assert _factory_line("menu_driver") not in lines
+    assert _keys(cfg) >= FACTORY_KEYS                       # the keys it lacked arrive
+    assert sorted(_ledger(tmp_path)) == sorted(_applied_lines("retroarch.cfg", FACTORY))
+    assert 'retroarch.cfg input_player1_analog_dpad_mode="1"' in _ledger(tmp_path)
+    assert not list((tmp_path / "card").glob("*.tmp.*"))
+    assert not list(cfg_dir(tmp_path).glob("*.tmp.*"))
+    # then the record exists: nothing of the user's changes on the next starts
+    _, again, _ = _frontend(tmp_path, "r36s")
+    assert again.splitlines()[:len(USER_CHOICES)] == USER_CHOICES
+
+
+def test_old_card_without_new_defaults_changes_nothing_the_user_has(tmp_path):
+    env = _opt_env(tmp_path, {})
+    (tmp_path / "share/factory/new-defaults").unlink()
+    _, cfg, _ = _frontend(tmp_path, "ga36", RA_SAVED, applied=False, env_extra=env)
+    assert 'input_player1_analog_dpad_mode = "0"' in cfg.splitlines()
+    assert cfg.splitlines()[:len(USER_CHOICES)] == USER_CHOICES
+    assert sorted(_ledger(tmp_path)) == sorted(_applied_lines("retroarch.cfg", FACTORY))
+
+
+def cfg_dir(tmp_path):
+    return tmp_path / "home/.config/retroarch"
+
+
+def test_build_language_never_overrides_the_users_language(tmp_path):
+    # FRONTEND.md: the build language only reaches new cards; user_language is never recorded
+    _, cfg, _ = _frontend(tmp_path, "ga36", RA_SAVED, applied=False)
+    assert 'user_language = "4"' in cfg.splitlines() and _factory_line("user_language") not in cfg
+    assert not [line for line in _ledger(tmp_path) if " user_language=" in line]
+    # a card that lacks it gets the factory language
     (tmp_path / "b").mkdir()
-    _, cfg, _ = _frontend(tmp_path / "b", "r36s", user)
-    lines = cfg.splitlines()
-    assert 'input_player1_analog_dpad_mode = "0"' in lines
-    assert 'input_player1_analog_dpad_mode = "1"' not in lines
-    assert sum(1 for line in lines if line.startswith("input_player1_analog_dpad_mode")) == 1
-    assert 'input_player2_analog_dpad_mode = "1"' in lines
+    _, cfg, _ = _frontend(tmp_path / "b", "ga36", 'menu_driver = "xmb"\n', applied=False)
+    assert _factory_line("user_language") in cfg.splitlines()
+
+
+def test_board_key_that_is_a_factory_default_keeps_the_board_value(tmp_path):
+    # video_threaded: factory "false", GA36 board "true"; the fixed keys go in after the
+    # factory defaults, so the first application never runs a game with the factory value
+    out, cfg, _ = _frontend(tmp_path, "ga36", RA_SAVED, applied=False,
+                            args=("-L", "/usr/lib/libretro/x_libretro.so", "/storage/roms/x/g"))
+    assert 'during: video_threaded = "true"' in out
+    assert cfg.count("video_threaded") == 1
+
+
+def test_user_turns_the_analog_off_again_and_it_stays(tmp_path):
+    _frontend(tmp_path, "ga36", RA_SAVED, applied=False)
+    cfg = cfg_dir(tmp_path) / "retroarch.cfg"
+    cfg.write_text(cfg.read_text().replace('input_player1_analog_dpad_mode = "1"',
+                                           'input_player1_analog_dpad_mode = "0"'))
+    for board in ("ga36", "r36s", "ga36"):
+        _, text, _ = _frontend(tmp_path, board)
+        lines = text.splitlines()
+        assert 'input_player1_analog_dpad_mode = "0"' in lines
+        assert 'input_player1_analog_dpad_mode = "1"' not in lines
+        assert 'input_player2_analog_dpad_mode = "1"' in lines
+
+
+def test_retroarch_rewriting_every_key_changes_nothing(tmp_path):
+    _frontend(tmp_path, "ga36", RA_SAVED, applied=False)
+    ledger = tmp_path / "card/factory-applied"
+    cfg = cfg_dir(tmp_path) / "retroarch.cfg"
+    # RetroArch saves on exit: every key again, in its own order, with the user's values
+    lines = cfg.read_text().splitlines()
+    lines = [line.replace('menu_scale_factor = "1.000000"', 'menu_scale_factor = "1.100000"')
+             for line in reversed(lines)]
+    cfg.write_text("\n".join(lines) + "\n")
+    saved = cfg.read_text()
+    before = ledger.stat()
+    _, text, _ = _frontend(tmp_path, "ga36")
+    after = ledger.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert text == saved                     # the fixed keys were already in place
+    assert 'menu_scale_factor = "1.100000"' in text.splitlines()
+
+
+def test_new_factory_value_in_a_new_image_is_applied_once(tmp_path):
+    # once the card has a record, a factory line missing from it (a changed value or a new
+    # key of a later image) is applied once, with no line in factory/new-defaults
+    env = _opt_env(tmp_path, {})
+    _frontend(tmp_path, "ga36", RA_SAVED, applied=False, env_extra=env)
+    cfg = cfg_dir(tmp_path) / "retroarch.cfg"
+    assert 'menu_scale_factor = "1.000000"' in cfg.read_text().splitlines()   # bootstrap kept it
+    cfg.write_text(cfg.read_text().replace('menu_scale_factor = "1.000000"',
+                                           'menu_scale_factor = "1.100000"'))
+    # the next image ships another menu scale and a new key: they win once
+    factory = tmp_path / "share/factory/retroarch/retroarch.cfg"
+    factory.write_text(factory.read_text().replace('menu_scale_factor = "1.500000"',
+                                                   'menu_scale_factor = "1.300000"')
+                       + 'lume_test_new_key = "7"\n')
+    _, text, _ = _frontend(tmp_path, "ga36", env_extra=env)
+    assert 'menu_scale_factor = "1.300000"' in text.splitlines()
+    assert 'lume_test_new_key = "7"' in text.splitlines()
+    assert 'menu_driver = "xmb"' in text.splitlines()                     # still the user's
+    assert 'retroarch.cfg menu_scale_factor="1.300000"' in _ledger(tmp_path)
+    assert 'retroarch.cfg menu_scale_factor="1.500000"' in _ledger(tmp_path)   # history kept
+    assert 'input_player1_analog_dpad_mode = "1"' in text.splitlines()
+    # then the user's choice stays
+    cfg.write_text(text.replace('menu_scale_factor = "1.300000"', 'menu_scale_factor = "1.000000"'))
+    _, text, _ = _frontend(tmp_path, "ga36", env_extra=env)
+    assert 'menu_scale_factor = "1.000000"' in text.splitlines()
+    assert len(_ledger(tmp_path)) == len(set(_ledger(tmp_path)))
+
+
+def test_new_card_is_born_from_the_factory_with_every_default_recorded(tmp_path):
+    _, cfg, _ = _frontend(tmp_path, "ga36", applied=False)
+    assert _keys(cfg) >= FACTORY_KEYS
+    assert "# " in cfg                                   # a copy, with the factory comments
+    assert sorted(_ledger(tmp_path)) == sorted(_applied_lines("retroarch.cfg", FACTORY))
+    ledger = tmp_path / "card/factory-applied"
+    before = ledger.stat()
+    _, again, _ = _frontend(tmp_path, "ga36")
+    after = ledger.stat()
+    assert again == cfg
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
+def test_no_writable_record_applies_nothing(tmp_path):
+    # without the card (no ROMS) the record cannot be written: the user's values stay
+    blocker = tmp_path / "card"
+    blocker.write_text("not a folder\n")
+    _, cfg, _ = _frontend(tmp_path, "ga36", RA_SAVED, applied=False)
+    assert 'input_player1_analog_dpad_mode = "0"' in cfg.splitlines()
+    assert not list(cfg_dir(tmp_path).glob("*.tmp.*"))
 
 
 def _opt_env(tmp_path, opts: dict[str, str], cores: dict[str, str] | None = None,
@@ -642,9 +821,15 @@ def test_core_options_file_that_does_not_exist_is_born_equal_to_the_factory(tmp_
     _frontend(tmp_path, "ga36", "", args=GPGX, env_extra=env)
     assert _user_opt(tmp_path).read_text() == GPGX_OPT
     assert not list(_user_opt(tmp_path).parent.glob("*.tmp.*"))
+    # a new core folder of the card: its defaults are recorded as applied
+    assert sorted(line for line in _ledger(tmp_path) if line.startswith("opt:")) == sorted(
+        _applied_lines("opt:Genesis Plus GX", GPGX_OPT, keep=()))
 
 
-def test_users_core_option_stays_and_the_missing_ones_arrive(tmp_path):
+def test_core_options_the_user_had_are_kept_and_later_values_apply_once(tmp_path):
+    # RetroArch writes every option of the core. A card whose record has no line of this
+    # .opt yet (the record was born at the retroarch.cfg) keeps the user's options and only
+    # gets the ones it lacks; everything is recorded
     env = _opt_env(tmp_path, {"Genesis Plus GX": GPGX_OPT})
     opt = _user_opt(tmp_path)
     opt.parent.mkdir(parents=True)
@@ -653,11 +838,43 @@ def test_users_core_option_stays_and_the_missing_ones_arrive(tmp_path):
     assert opt.read_text().splitlines() == [
         'genesis_plus_gx_ym2612 = "mame (ym2612)"', 'genesis_plus_gx_bram = "per game"',
         'genesis_plus_gx_audio_filter = "low-pass"']
-    # complete now: the next game leaves the file alone (same inode, not rewritten)
-    before = opt.stat()
+    assert 'opt:Genesis Plus GX genesis_plus_gx_ym2612="nuked (ym2612)"' in _ledger(tmp_path)
+    assert 'opt:Genesis Plus GX genesis_plus_gx_audio_filter="low-pass"' in _ledger(tmp_path)
+    # RetroArch rewrites the file in its order: it stays, nothing is written
+    opt.write_text('genesis_plus_gx_bram = "per game"\ngenesis_plus_gx_audio_filter = "low-pass"\n'
+                   'genesis_plus_gx_ym2612 = "mame (ym2612)"\n')
+    ledger = tmp_path / "card/factory-applied"
+    before, ledger_before = opt.stat(), ledger.stat()
     _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
-    after = opt.stat()
+    after, ledger_after = opt.stat(), ledger.stat()
     assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert (ledger_after.st_ino, ledger_after.st_mtime_ns) == (ledger_before.st_ino,
+                                                               ledger_before.st_mtime_ns)
+    assert 'genesis_plus_gx_ym2612 = "mame (ym2612)"' in opt.read_text().splitlines()
+    # a new factory value of the option in a later image wins once
+    factory = tmp_path / "share/factory/retroarch/config/Genesis Plus GX/Genesis Plus GX.opt"
+    factory.write_text(GPGX_OPT.replace("nuked", "ymfm"))
+    _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
+    assert 'genesis_plus_gx_ym2612 = "ymfm (ym2612)"' in opt.read_text().splitlines()
+    assert opt.read_text().count("genesis_plus_gx_ym2612") == 1
+    assert 'genesis_plus_gx_bram = "per game"' in opt.read_text().splitlines()
+
+
+def test_core_option_in_the_new_defaults_list_wins_once_over_the_users(tmp_path):
+    env = _opt_env(tmp_path, {"Genesis Plus GX": GPGX_OPT})
+    (tmp_path / "share/factory/new-defaults").write_text(
+        "# test\nopt:Genesis Plus GX genesis_plus_gx_ym2612\n")
+    opt = _user_opt(tmp_path)
+    opt.parent.mkdir(parents=True)
+    opt.write_text('genesis_plus_gx_ym2612 = "mame (ym2612)"\n'
+                   'genesis_plus_gx_audio_filter = "none"\n')
+    _frontend(tmp_path, "ga36", "", args=GPGX, env_extra=env)
+    assert opt.read_text().splitlines() == [
+        'genesis_plus_gx_ym2612 = "nuked (ym2612)"', 'genesis_plus_gx_audio_filter = "none"']
+    opt.write_text('genesis_plus_gx_ym2612 = "mame (ym2612)"\n'
+                   'genesis_plus_gx_audio_filter = "none"\n')
+    _frontend(tmp_path, "ga36", args=GPGX, env_extra=env)
+    assert 'genesis_plus_gx_ym2612 = "mame (ym2612)"' in opt.read_text().splitlines()
 
 
 def test_core_options_only_for_the_core_of_the_run(tmp_path):
