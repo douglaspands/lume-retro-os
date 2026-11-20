@@ -2,7 +2,10 @@
 # the user on 2026-11-20): each candidate against the configuration as it is, the variants
 # of one game as a group (A1, a B per key, A2).
 #   alsathread        audio_driver = alsathread (the ALSA write in its own thread)
-#   threaded-off      video_threaded = false (the boards set true; pcsx_rearmed already false)
+#   threaded-off      video_threaded = false (the boards set true; pcsx_rearmed already false).
+#                     GA36, 2026-11-20 (boot 225): the whole console froze ~1 min into a run of
+#                     fbneo with it and the watchdog restarted it; do not run it on the GA36
+#                     (--only per variant, or a copy of this plan without it)
 #   swapchain-2       video_max_swapchain_images = 2 (default 3)
 #   latency-96        audio_latency = 96 ms (more room for a busy core, later sound)
 #   resampler-lowest  audio_resampler_quality = 1 (cheaper resampler, lower sound quality:
