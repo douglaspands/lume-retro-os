@@ -215,7 +215,7 @@ mod tests {
         let o = tmp("layers");
         let s = snes();
         let e = o.resolve(&s, "aarch64", "./a.sfc");
-        assert_eq!(e.emulator, Emulator::libretro("snes9x2005_plus"));
+        assert_eq!(e.emulator, Emulator::libretro("snes9x2005_plus_lume"));
         assert_eq!(e.emulator_from, Source::Catalog);
         assert_eq!((e.aspect, e.shader), (None, None));
 
@@ -239,7 +239,7 @@ mod tests {
     fn game_keeps_only_what_differs() {
         let o = tmp("differs");
         let s = snes();
-        o.set_game(&s, "aarch64", "./a.sfc", Layer { emulator: Some(Emulator::libretro("snes9x2005_plus")), ..Default::default() }).unwrap();
+        o.set_game(&s, "aarch64", "./a.sfc", Layer { emulator: Some(Emulator::libretro("snes9x2005_plus_lume")), ..Default::default() }).unwrap();
         assert!(o.games("snes").is_empty());
         assert!(!o.games_file("snes").exists());
     }

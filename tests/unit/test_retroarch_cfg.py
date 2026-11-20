@@ -458,9 +458,17 @@ def test_console_keys_user_value_comes_back_once(tmp_path):
 
 
 def test_shipped_core_keys_keep_pcsx_rearmed_threaded_off_on_both_consoles(tmp_path):
+    lume = ("-L", "/usr/lib/libretro/pcsx_rearmed_lume_libretro.so", *PSX[2:])
     for board in ("ga36", "r36s"):
-        out, _, _ = _frontend(tmp_path, board, "", args=PSX)
-        assert 'during: video_threaded = "false"' in out
+        for args in (PSX, lume):
+            out, _, _ = _frontend(tmp_path, board, "", args=args)
+            assert 'during: video_threaded = "false"' in out, args[1]
+    # every core of the catalog's PlayStation folder keeps it
+    from lume_tool import catalog
+    psx = next(s for s in catalog.load()["systems"] if s["id"] == "psx")
+    keys = (SHARE / "retroarch-core.keys").read_text().splitlines()
+    for core in catalog.core_refs(psx):
+        assert f"{core} video_threaded=false" in keys, core
 
 
 MENU_LOCK_HIDDEN = {

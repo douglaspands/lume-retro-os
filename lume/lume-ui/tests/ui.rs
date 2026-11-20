@@ -1617,7 +1617,7 @@ fn launch_and_come_back_to_the_same_game() {
     press(&mut a, Action::A); // Start
     assert_eq!(a.exit, Some(Exit::Launch));
     let launch = fs::read_to_string(c.root.join("run/launch")).unwrap();
-    assert!(launch.contains("system=snes\nrunner=retroarch\ncore=snes9x2005_plus\n"), "{launch}");
+    assert!(launch.contains("system=snes\nrunner=retroarch\ncore=snes9x2005_plus_lume\n"), "{launch}");
     assert!(launch.contains(&format!("arg={}/storage/roms/snes/{name}.sfc\n", c.root.display())));
     a.current_state().save(&a.runtime).unwrap();
     // lume-run runs the game, then opens the interface again

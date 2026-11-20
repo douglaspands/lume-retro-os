@@ -43,3 +43,5 @@
 # exit 139 on the GA36). PS1 games change resolution all the time, so this core keeps the
 # video in the main thread, as before (user decision).
 pcsx_rearmed video_threaded=false
+# its CPU-flag build, the PlayStation core of the image (game-experience-tuning 11.5)
+pcsx_rearmed_lume video_threaded=false

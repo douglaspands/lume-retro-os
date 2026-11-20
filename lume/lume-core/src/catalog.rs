@@ -355,9 +355,10 @@ mod tests {
         let nes = cat.system("nes").unwrap();
         assert_eq!(nes.emulators("x86_64"), vec![Emulator::libretro("fceumm"), Emulator::libretro("nestopia")]);
         let scd = cat.system("segacd").unwrap();
-        // same core on both consoles (2026-11-19): genesis_plus_gx, picodrive as the alternative
-        assert_eq!(scd.emulators("armv7")[0], Emulator::libretro("genesis_plus_gx"));
-        assert_eq!(scd.emulators("aarch64")[0], Emulator::libretro("genesis_plus_gx"));
+        // same core on both consoles (2026-11-19): genesis_plus_gx (its CPU-flag build since
+        // game-experience-tuning 11.5), picodrive as the alternative
+        assert_eq!(scd.emulators("armv7")[0], Emulator::libretro("genesis_plus_gx_lume"));
+        assert_eq!(scd.emulators("aarch64")[0], Emulator::libretro("genesis_plus_gx_lume"));
         let love = cat.system("love").unwrap();
         assert_eq!(love.emulators("armv7"), vec![Emulator { runner: "love".into(), core: None }]);
         // every runner cited by the image exists
@@ -407,7 +408,7 @@ emulators = [{ runner = "sh" }]
 "#;
         cat.apply_card_text(text, &runners).unwrap();
         let snes = cat.system("snes").unwrap().emulators("aarch64");
-        assert_eq!(snes[0], Emulator::libretro("snes9x2005_plus"));
+        assert_eq!(snes[0], Emulator::libretro("snes9x2005_plus_lume"));
         assert_eq!(snes[1].runner, "snes9x-sa");
         assert_eq!(snes[2], Emulator::libretro("snes9x"));
         assert_eq!(cat.core_path(Path::new("/c"), "snes9x"), PathBuf::from("/c/snes9x_libretro.so"));
