@@ -45,7 +45,7 @@ são tocados pela sessão principal (nó 4.2), nunca por subagente.
 | 6.3 | 6.1 | R36S, USUARIO | PR | — | 4 | J2 |
 | 7.5 | 6.3, 7.2, 7.3, 7.4 | R36S | PR | — | 7 | J2 |
 | 8.1 | 7.2, 7.3, 7.4, 7.5 | — | AG | sonnet | 8 | |
-| 9.5 | 9.4 | — (código); GA36, R36S, USUARIO (prova única) | AG+PR | opus (a aprovar) | 8 | J3 |
+| 9.5 | 9.4 | — (código); GA36, R36S, USUARIO (prova única) | AG+PR | opus (aprovado pelo usuário, 2026-11-20) | 8 | J3 |
 | 8.2 | 8.1, 9.5 | CPU, ARCH:armv7, ARCH:aarch64, GA36, R36S, USUARIO | PR | — | 9 | J3 |
 
 Modelos: aprovados pelo usuário em 2026-11-19 (ondas 0, 1 e 2, sem trocas, em paralelo; a 9.2 só registra a pendência, feita na sessão principal).
