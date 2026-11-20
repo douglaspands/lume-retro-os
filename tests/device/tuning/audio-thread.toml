@@ -1,0 +1,15 @@
+# The audio driver with its own thread (game-experience-tuning 7.2, asked by the user on
+# 2026-11-19): fbneo is CPU bound on one core of the GA36 in the arcade folder; alsathread moves
+# the write to ALSA out of the core's thread. video_threaded stays on (board layer) in A and B.
+# Run: .venv/bin/python tests/device/tuning_ab.py audio-thread --console ga36 [--dry-run]
+description = "A/B: audio_driver alsa (default) against alsathread, fbneo, arcade folder"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbneo"
+system = "arcade"
+positions = [1, 2, 3, 4, 5, 6, 7, 8]
+
+[[core.variant]]
+name = "alsathread"
+retroarch = { audio_driver = "alsathread" }
