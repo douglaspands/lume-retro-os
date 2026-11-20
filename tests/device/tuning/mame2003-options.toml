@@ -1,0 +1,24 @@
+# A/B of the mame2003_plus core options (game-experience-tuning 7.3): the arcade game of the
+# test set below full speed in its per-game core (84% at 1008 MHz on the GA36, baseline of
+# 2026-11-20). Names and values checked in src/mame2003/core_options.c of the pinned commit
+# 2a60eda7 (APPNAME is "mame2003-plus").
+# Run: .venv/bin/python tests/device/tuning_ab.py mame2003-options --console ga36 [--dry-run]
+description = "mame2003_plus options on its slow arcade game: frameskip and sample rate"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "mame2003_plus"
+system = "arcade"
+position = 5
+
+[[core.variant]]
+name = "frameskip-auto"
+options = { mame2003-plus_frameskip = "auto" }
+
+[[core.variant]]
+name = "frameskip-1"
+options = { mame2003-plus_frameskip = "1" }
+
+[[core.variant]]
+name = "samplerate-22050"
+options = { mame2003-plus_sample_rate = "22050" }
