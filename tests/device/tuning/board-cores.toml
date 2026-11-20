@@ -1,0 +1,59 @@
+# CPS-1, CPS-2 and Neo Geo against every installed arcade core (game-experience-tuning 10.4,
+# asked by the user on 2026-11-20): the goal is the smallest set of cores with the best speed,
+# so each folder's default (the FB Alpha 2012 cut for that board) is compared with the full FB
+# Alpha 2012 (it holds the three boards), FBNeo and the two MAME. Three games per system (the
+# first three of the launcher grid, user's choice). Same format as arcade-cores.toml.
+# Run: .venv/bin/python tests/device/tuning_ab.py board-cores --console ga36 --measure 60
+description = "CPS-1, CPS-2 and Neo Geo: the board cut of FB Alpha 2012 against the other cores"
+consoles = ["ga36", "r36s"]
+
+[[core]]
+core = "fbalpha2012_cps1"
+system = "cps1"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012"
+
+[[core.variant]]
+core = "fbneo"
+
+[[core.variant]]
+core = "mame2003_plus"
+
+[[core.variant]]
+core = "mame2000"
+
+[[core]]
+core = "fbalpha2012_cps2"
+system = "cps2"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012"
+
+[[core.variant]]
+core = "fbneo"
+
+[[core.variant]]
+core = "mame2003_plus"
+
+[[core.variant]]
+core = "mame2000"
+
+[[core]]
+core = "fbalpha2012_neogeo"
+system = "neogeo"
+positions = [1, 2, 3]
+
+[[core.variant]]
+core = "fbalpha2012"
+
+[[core.variant]]
+core = "fbneo"
+
+[[core.variant]]
+core = "mame2003_plus"
+
+[[core.variant]]
+core = "mame2000"

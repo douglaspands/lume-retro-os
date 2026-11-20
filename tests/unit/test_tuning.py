@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -560,7 +561,8 @@ def test_core_comparison_has_no_baseline_sequence_and_dry_run_text():
     assert [s.name for s in tuning.build_sequences(plan, "ga36", set(), only="fbneo:m2000")] \
         == ["m2000", "m2000"]
     text = tuning.format_sequences(seqs, "ga36")
-    assert "console ga36: 4 sequence(s), 12 run(s) of 30+120 s, at most 36 min" in text
+    # grouped: the default core once before and once after the alternatives of each game
+    assert "console ga36: 4 sequence(s), 8 run(s) of 30+120 s, at most 24 min" in text
     assert "1. fbneo mame2003_plus: system arcade game #1 (retroarch)" in text
     assert "check: core mame2003_plus installed" in text
     assert "A1: default core fbneo (per-game options cleared); open; wait 30 s" in text
@@ -573,7 +575,7 @@ def test_core_plan_dry_run_through_the_script(tmp_path, capsys):
                      "--report-dir", str(tmp_path),
                      "--families", str(tmp_path / "none.toml")]) == 0
     out = capsys.readouterr().out
-    assert "console ga36: 24 sequence(s), 72 run(s)" in out
+    assert "console ga36: 24 sequence(s), 40 run(s)" in out
     assert "core comparison: report grouped by core only (no families file)" in out
 
 
@@ -869,6 +871,18 @@ def test_open_core_reports_why_b_did_not_open(events, reason):
         mod.open_core(ctx, tuning.CorePlan("fbneo", "arcade", 1), "mame2000", 30)
 
 
+def test_alternatives_of_one_game_are_one_group():
+    # user, 2026-11-20: the default core is measured once before and once after all the
+    # alternatives of a game, not around each one
+    mod = load_script()
+    plan = tuning.validate_plan(tomllib.loads(
+        (REPO / "tests/device/tuning/arcade-cores.toml").read_text(encoding="utf-8")))
+    groups = mod.core_groups(tuning.build_sequences(plan, "ga36", set()))
+    assert len(groups) == 8
+    assert all(len(g) == 3 and len({id(s.core) for s in g}) == 1 for g in groups)
+    assert [s.variant.core for s in groups[0]] == ["fbalpha2012", "mame2003_plus", "mame2000"]
+
+
 def test_an_old_end_of_another_boot_is_not_the_end_of_the_game_just_opened():
     # J1, 2026-11-20: the card log had the end of a game of the boot before past the line
     # offset, and the comparison stopped at once with "did not stay open"
@@ -925,6 +939,6 @@ def test_not_open_and_not_installed_do_not_stop_the_sequence(tmp_path, monkeypat
     assert rows[("mame2000", "neogeo")]["abrem"] == "1 de 1"
     assert rows[("fbalpha2012", "cps1")]["abrem"] == "não instalado"
     out = capsys.readouterr().out
-    assert "-> does not open (exit=1 end=normal)" in out
+    assert "-> mame2000 does not open (exit=1 end=normal)" in out
     assert "core fbalpha2012 is not installed" in out
     assert "arcade #2: mame2000" in out and "arcade #1: fbneo" in out

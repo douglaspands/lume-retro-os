@@ -231,34 +231,61 @@ def core_run(ctx: dev_run.Context, seq: tuning.Sequence, run: tuning.Run, warmup
     return m
 
 
-def run_core_sequence(ctx: dev_run.Context, seq: tuning.Sequence, build: str, warmup: int,
-                      measure: int) -> tuning.CoreResult:
-    """A1, B, A2 of one game and one core. A core that is not installed is `not-installed`
-    (nothing runs); B that does not open is `not-open` with its reason class and A2 is
-    skipped. Every file comes back at the end, also on an error or Ctrl+C."""
-    core, alt = seq.core, seq.variant.core
+def run_core_group(ctx: dev_run.Context, group: list[tuning.Sequence], build: str, warmup: int,
+                   measure: int) -> list[tuning.CoreResult]:
+    """Every alternative core of one game in a row: A1 in the default core, a B per installed
+    alternative, A2 in the default core (user, 2026-11-20: the default is measured once before
+    and once after, not around each alternative). A B that does not open is `not-open` and
+    the next alternative runs; with no alternative opened, A2 is skipped. Every file comes
+    back at the end, also on an error or Ctrl+C."""
+    first = group[0]
+    core = first.core
     date = datetime.date.today().isoformat()
 
-    def result(status, reason="", a=(), b=None):
+    def result(alt, status, reason="", a=(), b=None):
         return tuning.CoreResult(date, build, core.system, core.position, core.core, alt,
                                  status, reason, tuple(a), b)
-    if ctx.run(tuning.core_installed_command(alt)).strip() != tuning.INSTALLED:
-        print(f"  core {alt} is not installed", flush=True)
-        return result(tuning.NOT_INSTALLED)
+    out: dict[str, tuning.CoreResult] = {}
+    alts = []
+    for seq in group:
+        alt = seq.variant.core
+        if ctx.run(tuning.core_installed_command(alt)).strip() != tuning.INSTALLED:
+            print(f"  core {alt} is not installed", flush=True)
+            out[alt] = result(alt, tuning.NOT_INSTALLED)
+        else:
+            alts.append(seq)
+    if not alts:
+        return [out[s.variant.core] for s in group]
     ctx.run(tuning.save_command(core.core, games_system=core.system))
+    opened: dict[str, tuning.RunMetrics] = {}
     try:
-        tuning.expect_applied(ctx.run(tuning.card_cores_command(core.system, [alt])),
-                              "systems.d file")
-        a1 = core_run(ctx, seq, seq.runs[0], warmup, measure)
-        try:
-            b = core_run(ctx, seq, seq.runs[1], warmup, measure)
-        except NotOpened as e:
-            print(f"  -> does not open ({e})", flush=True)
-            return result(tuning.NOT_OPEN, str(e), (a1,))
-        a2 = core_run(ctx, seq, seq.runs[2], warmup, measure)
+        tuning.expect_applied(ctx.run(tuning.card_cores_command(
+            core.system, [s.variant.core for s in alts])), "systems.d file")
+        a1 = core_run(ctx, first, tuning.Run("A1", None), warmup, measure)
+        for seq in alts:
+            alt = seq.variant.core
+            try:
+                opened[alt] = core_run(ctx, seq, tuning.Run("B", seq.variant), warmup, measure)
+            except NotOpened as e:
+                print(f"  -> {alt} does not open ({e})", flush=True)
+                out[alt] = result(alt, tuning.NOT_OPEN, str(e), (a1,))
+        a2 = core_run(ctx, first, tuning.Run("A2", None), warmup, measure) if opened else None
     finally:
         ctx.run(tuning.restore_command(keep=False) + "true")
-    return result(tuning.OPENED, "", (a1, a2), b)
+    for alt, b in opened.items():
+        out[alt] = result(alt, tuning.OPENED, "", (a1, a2), b)
+    return [out[s.variant.core] for s in group]
+
+
+def core_groups(seqs: list[tuning.Sequence]) -> list[list[tuning.Sequence]]:
+    """Consecutive core-comparison sequences of the same game, together."""
+    groups: list[list[tuning.Sequence]] = []
+    for seq in seqs:
+        if groups and groups[-1][0].core is seq.core:
+            groups[-1].append(seq)
+        else:
+            groups.append([seq])
+    return groups
 
 
 def one_run(ctx: dev_run.Context, console: str, seq: tuning.Sequence, run: tuning.Run,
@@ -295,32 +322,38 @@ def run_sequences(host: str, console: str, seqs: list[tuning.Sequence], report: 
     build = ctx.run(tuning.build_id_command()).strip() or "-"
     results = results or RESULTS / f"{console}-cores.jsonl"
     compared = False
-    for n, seq in enumerate(seqs, 1):
-        print(f"{n}/{len(seqs)} {seq.core.core} {seq.name}"
-              f"{f' game #{seq.core.position}' if seq.core.compares_cores else ''}", flush=True)
+    groups = core_groups(seqs)
+    for n, group in enumerate(groups, 1):
+        seq = group[0]
         if seq.core.compares_cores:
-            tuning.save_result(results, run_core_sequence(ctx, seq, build, warmup, measure))
+            alts = ", ".join(s.variant.core for s in group)
+            print(f"{n}/{len(groups)} {seq.core.system} game #{seq.core.position}: "
+                  f"{seq.core.core} against {alts}", flush=True)
+            for res in run_core_group(ctx, group, build, warmup, measure):
+                tuning.save_result(results, res)
             tuning.write_cores_section(report, console, tuning.load_results(results),
                                        families or {})
             compared = True
             continue
-        ctx.run(tuning.save_command(seq.core.core))
-        try:
-            results = [one_run(ctx, console, seq, r, warmup, measure) for r in seq.runs]
-        finally:
-            ctx.run(tuning.restore_command(keep=False) + "true")
-        date = datetime.date.today().isoformat()
-        if seq.variant is None:
-            row = tuning.baseline_row(date, build, seq.core, *results)
-        else:
-            if seq.also_baseline:
-                # the two A runs of this sequence are the core's baseline, written first
-                tuning.append_row(report, console,
-                                  tuning.baseline_row(date, build, seq.core, results[0],
-                                                      results[2]))
-            row = tuning.variant_row(date, build, seq.core, seq.variant, *results)
-        tuning.append_row(report, console, row)
-        print(f"  -> {row.decision}", flush=True)
+        for seq in group:
+            print(f"{n}/{len(groups)} {seq.core.core} {seq.name}", flush=True)
+            ctx.run(tuning.save_command(seq.core.core))
+            try:
+                runs = [one_run(ctx, console, seq, r, warmup, measure) for r in seq.runs]
+            finally:
+                ctx.run(tuning.restore_command(keep=False) + "true")
+            date = datetime.date.today().isoformat()
+            if seq.variant is None:
+                row = tuning.baseline_row(date, build, seq.core, *runs)
+            else:
+                if seq.also_baseline:
+                    # the two A runs of this sequence are the core's baseline, written first
+                    tuning.append_row(report, console,
+                                      tuning.baseline_row(date, build, seq.core, runs[0],
+                                                          runs[2]))
+                row = tuning.variant_row(date, build, seq.core, seq.variant, *runs)
+            tuning.append_row(report, console, row)
+            print(f"  -> {row.decision}", flush=True)
     if compared:
         # private: positions only, on the PC; the choice per game goes to the user's card
         print(f"fastest core at full speed per game (from {results}):")
